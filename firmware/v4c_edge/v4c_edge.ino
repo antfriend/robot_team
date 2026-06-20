@@ -15,6 +15,7 @@
 
 #include <Toot.h>
 #include <TootSerial.h>
+#include <TootEspNow.h>
 #include <TTDB.h>
 #include <TtdbShare.h>
 #include <RobotTeamConfig.h>
@@ -36,8 +37,7 @@ static bool sendEspNow(const uint8_t* frame, size_t len, void*) {
   return esp_now_send(kBroadcast, frame, len) == ESP_OK;
 }
 
-static void onEspNowRecv(const esp_now_recv_info_t*, const uint8_t* data,
-                         int len) {
+static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))

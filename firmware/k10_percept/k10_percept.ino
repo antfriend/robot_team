@@ -15,6 +15,7 @@
 
 #include <Toot.h>
 #include <TootSerial.h>
+#include <TootEspNow.h>
 #include <TTDB.h>
 #include <TtdbShare.h>
 #include <Agent32.h>
@@ -34,6 +35,10 @@ static AHT20 aht20;
 
 static const uint32_t kNodeId = NODE_K10_1;
 static const char* kTtdbPath = "/ttdb.md";
+// The K10's large_spiffs_16MB scheme has no partition named "spiffs"; its only
+// LittleFS-capable partition is "model" (subtype spiffs, @0x510000, ~4.5MB),
+// normally used for AI models (unused on a percept node). Mount it by label.
+static const char* kFsLabel = "model";
 static const uint8_t kBroadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Packed @LATxLONy locus this node reports in its toot headers. Until a real
@@ -124,8 +129,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   }
 }
 
-static void onEspNowRecv(const esp_now_recv_info_t*, const uint8_t* data,
-                         int len) {
+static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
@@ -142,7 +146,7 @@ void setup() {
   k10.rgb->brightness(5);   // 0-9
 #endif
 
-  if (!LittleFS.begin(true)) {
+  if (!LittleFS.begin(true, "/littlefs", 10, kFsLabel)) {
     Serial.println("FATAL: LittleFS mount failed");
   } else if (!gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");

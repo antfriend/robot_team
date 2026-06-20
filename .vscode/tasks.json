@@ -1,0 +1,109 @@
+{
+  // tasks.json is JSONC — comments are allowed.
+  //
+  // The K10 board is FQBN UNIHIKER:esp32:k10 (confirmed via
+  // `arduino-cli board listall unihiker`), NOT arduino:esp32.
+  //
+  // We call arduino-cli by full path because VSCode's integrated terminal
+  // caches PATH from when it launched, so a freshly-installed `arduino-cli`
+  // (winget -> "C:\Program Files\Arduino CLI") isn't found until VSCode is
+  // fully restarted. If arduino-cli is already on your PATH you can shorten the
+  // "command" values back to just "arduino-cli". type:process runs the exe
+  // directly (no shell), so the space in "Program Files" needs no quoting.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // Run once. Adds the UNIHIKER board URL and installs the core.
+      "label": "Setup: UNIHIKER core",
+      "type": "process",
+      "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+      "args": [
+        "core", "install", "UNIHIKER:esp32",
+        "--additional-urls",
+        "https://downloadcd.dfrobot.com.cn/UNIHIKER/package_unihiker_index.json"
+      ],
+      "problemMatcher": []
+    },
+    {
+      // Prints the exact FQBN. Look for the line whose name is "unihiker k10";
+      // the second column is the FQBN (e.g. UNIHIKER:esp32:xxxxx).
+      "label": "List K10 FQBN",
+      "type": "process",
+      "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+      "args": ["board", "listall", "unihiker"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Compile K10",
+      "type": "process",
+      "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+      "args": [
+        "compile",
+        "--fqbn", "UNIHIKER:esp32:k10",
+        "--libraries", "firmware/libraries",
+        "firmware/k10_percept"
+      ],
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      // compile --upload does both in one step (plain `upload` would only flash
+      // a previously-built binary).
+      "label": "Upload K10",
+      "type": "process",
+      "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+      "args": [
+        "compile",
+        "--upload",
+        "-p", "${input:serialPort}",
+        "--fqbn", "UNIHIKER:esp32:k10",
+        "--libraries", "firmware/libraries",
+        "firmware/k10_percept"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      // Flashes data/ttdb.md to the K10's LittleFS ("model" partition @0x510000).
+      // arduino-cli can't upload filesystems, so this builds a LittleFS image
+      // with mklittlefs and writes it with esptool (see scripts/Upload-K10-FS.ps1).
+      // Run AFTER Upload K10 (firmware) — they target different flash regions.
+      "label": "Upload K10 Filesystem",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/Upload-K10-FS.ps1",
+        "-Port", "${input:serialPort}"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "serialPort",
+      "description": "Select the serial port for upload",
+      "type": "pickString",
+      "options": ["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"],
+      "default": "COM3"
+    }
+  ]
+}
