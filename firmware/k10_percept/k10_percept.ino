@@ -31,6 +31,7 @@
 #include "unihiker_k10.h"
 static UNIHIKER_K10 k10;
 static AHT20 aht20;
+static Music music;
 #endif
 
 static const uint32_t kNodeId = NODE_K10_1;
@@ -85,6 +86,48 @@ static inline void indicatorClear() {
   k10.rgb->write(-1, 0x000000);
 #endif
 }
+
+#if USE_K10_HW
+// Two toots — the Toot-Toot signature — on startup (uses the K10 speaker).
+// playTone(freq, beat): `beat` is the count of I2S samples at 8 kHz, so the
+// duration is beat/8000 seconds — NOT milliseconds. (My earlier 400/600 were
+// ~50-75 ms, inaudible.) These match the known-good k10_ttdb_navigator values:
+// 2000 -> 0.25 s, 4000 -> 0.5 s.
+static void playStartupToot() {
+  delay(50);                  // let the speaker settle after k10.begin()
+  music.playTone(196, 2000);  // toot  (G3, 0.25 s)
+  music.playTone(262, 4000);  // toot  (C4, 0.5 s)
+}
+
+// Show TTDB identity + indexed records + live reasoning state on the LCD.
+static void renderScreen(float tempC) {
+  char line[40];
+  k10.canvas->canvasClear(0x000000);
+  k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
+  snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
+  k10.canvas->canvasText(String(line), 2, 0x2E7D32);
+  snprintf(line, sizeof(line), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(),
+           gDb.recordCount());
+  k10.canvas->canvasText(String(line), 4, 0x00FF66);
+
+  int row = 6;
+  for (int i = 0; i < gDb.recordCount() && row <= 10; ++i) {
+    const TtdbRecord& r = gDb.record(i);
+    snprintf(line, sizeof(line), "  @LAT%dLON%d", r.lat, r.lon);
+    k10.canvas->canvasText(String(line), row++, 0x00FF66);
+  }
+
+  bool warm = gAgent.matchedThisCycle();
+  snprintf(line, sizeof(line), "temp %.1f C", tempC);
+  k10.canvas->canvasText(String(line), 12, 0x00FF66);
+  snprintf(line, sizeof(line), "cursor @LAT%dLON%d", gAgent.cursorLat(),
+           gAgent.cursorLon());
+  k10.canvas->canvasText(String(line), 14, warm ? 0xCCFF90 : 0x2E7D32);
+  k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 16,
+                         warm ? 0xFF6F00 : 0x2E7D32);
+  k10.canvas->updateCanvas();
+}
+#endif
 
 // --- transports -------------------------------------------------------------
 static bool sendEspNow(const uint8_t* frame, size_t len, void*) {
@@ -143,6 +186,9 @@ void setup() {
 
 #if USE_K10_HW
   k10.begin();              // inits onboard peripherals incl. AHT20 + rgb
+  playStartupToot();        // "toot toot"
+  k10.initScreen(2);        // 2 = default orientation
+  k10.creatCanvas();
   k10.rgb->brightness(5);   // 0-9
 #endif
 
@@ -196,6 +242,9 @@ void loop() {
     gAgent.act();
     Serial.printf("[cycle] cursor @LAT%dLON%d match=%d\n", gAgent.cursorLat(),
                   gAgent.cursorLon(), gAgent.matchedThisCycle());
+#if USE_K10_HW
+    renderScreen(gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f);
+#endif
     emit(toot::HELLO, nullptr, 0, sendEspNow, nullptr);
   }
 }
