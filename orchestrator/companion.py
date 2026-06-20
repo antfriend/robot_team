@@ -141,7 +141,11 @@ def pull(port, baud, node, out_path, timeout):
     reader = SerialFrameReader()
 
     with serial.Serial(port, baud, timeout=0.1) as ser:
-        time.sleep(0.3)    # let the USB-CDC link settle
+        # Opening the port resets the ESP32-S3 (DTR/RTS), so the node reboots
+        # here. Wait out its boot (LittleFS mount + k10.begin) before the request,
+        # or it lands during boot and is dropped. ~2.5s covers the K10 cold start.
+        time.sleep(2.5)
+        ser.reset_input_buffer()   # discard the boot log so it isn't parsed as frames
         write_serial_frame(ser, req)
         print(f"requested whole TTDB from {node} (0x{target:08X}) on {port}")
 

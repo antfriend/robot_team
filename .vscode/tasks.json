@@ -39,7 +39,7 @@
       "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
       "args": [
         "compile",
-        "--fqbn", "UNIHIKER:esp32:k10",
+        "--fqbn", "UNIHIKER:esp32:k10:CDCOnBoot=cdc",
         "--libraries", "firmware/libraries",
         "firmware/k10_percept"
       ],
@@ -62,7 +62,7 @@
         "compile",
         "--upload",
         "-p", "${input:serialPort}",
-        "--fqbn", "UNIHIKER:esp32:k10",
+        "--fqbn", "UNIHIKER:esp32:k10:CDCOnBoot=cdc",
         "--libraries", "firmware/libraries",
         "firmware/k10_percept"
       ],

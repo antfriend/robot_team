@@ -63,27 +63,38 @@ the second party — over USB-CDC, no second radio node needed.
 
 - [x] Single K10 runs the Agent32 loop on-device; LCD shows both TTDB records +
       cursor/WARM state (done in Phase 0).
-- [ ] `pip install -r orchestrator/requirements.txt` (pyserial) on the laptop.
-- [ ] Run `python orchestrator/companion.py pull --port COM3 --node k10_1 --out
-      master/k10.md`; confirm `master/k10.md` is **byte-identical** to
-      `firmware/k10_percept/data/ttdb.md`.
-- [ ] Negative checks: a tampered frame / wrong key yields no data (HMAC reject);
-      a replayed `(src,seq)` is dropped by dedup.
+- [x] Firmware flashed with **`CDCOnBoot=cdc`** so `Serial` (and the TootSerialLink
+      `companion.py` pulls over) rides the native USB CDC, not UART0. Without this
+      the pull silently gets zero bytes — see CLAUDE.md.
+- [x] `companion.py pull --port COM3 --node k10_1` reassembles a **byte-identical**
+      copy of `data/ttdb.md` (1114 B, sha256 `ec17aee2…`). Settle delay bumped to
+      2.5 s because opening the port resets the S3 and it must finish booting first.
+- [x] Negative checks (verified on-device over COM3): a valid request streams 7
+      `TTDB_DATA` frames; a **wrong-key** and a **tampered-body** request each yield
+      **0** frames (HMAC reject); a **replayed `(src,seq)`** yields **0** frames
+      (dedup drop).
 
 **Done when:** the laptop reassembles a byte-exact copy of the K10's TTDB over
-USB-CDC, and bad-HMAC / replayed toots are rejected.
+USB-CDC ✅, and bad-HMAC / replayed toots are rejected ✅. **Phase 1 complete.**
 
-### Phase 1b — Two K10s talk (ESP-NOW broadcast) — ⏸ deferred (needs 2nd radio node)
+### Phase 1b — Two nodes talk over ESP-NOW (K10 leaf + V4-A bridge) — ▶ unblocked
 
-Blocked until a second ESP-NOW node exists (a 2nd K10, or a Heltec V4). The
-firmware already emits a HELLO beacon over ESP-NOW broadcast each cycle.
+A Heltec V4-A is now on hand and **verified standalone** (boots, ESP-NOW up,
+byte-exact TTDB pull over USB-CDC, HMAC reject — `negchecks.py`). It runs the
+bridge sketch: laptop↔mesh gateway over USB-CDC. Both radio nodes now exist.
 
-- [ ] Author the percept-capture edges (`@PERCEPT:before/after`) in the TTDB.
-- [ ] K10 firmware: PERCEPT emit/receive over ESP-NOW broadcast, fixed channel.
-- [ ] Validate framing, dedup, HMAC on real hardware (serial assertions).
+- [x] V4-A flashed (`esp32:esp32:esp32s3:CDCOnBoot=cdc`) + TTDB image
+      (`scripts/Upload-V4-FS.ps1`, spiffs @0x290000); standalone pull byte-exact.
+- [ ] **Reflash the K10** with the radio-only-dedup change (dedup moved off the
+      shared dispatch onto the ESP-NOW recv path) and re-run `negchecks.py`.
+- [ ] **Bridged pull:** `companion.py pull --node k10_1 --port COM6` with the K10
+      powered in range — request routes laptop→USB→V4-A→ESP-NOW→K10 and the
+      `TTDB_DATA` slices stream back the same way. Proves ESP-NOW gossip + relay.
+- [ ] Radio-replay check: inject a duplicate `(src,seq)` over ESP-NOW and confirm
+      the receiver drops it (the dedup test the trusted USB link can't exercise).
 
-**Done when:** two radio nodes exchange verified HELLO + PERCEPT toots; bad-HMAC
-and replayed toots are dropped.
+**Done when:** the laptop reassembles the K10's TTDB *through* the V4-A bridge over
+ESP-NOW, and a duplicate injected over the air is dropped.
 
 ---
 

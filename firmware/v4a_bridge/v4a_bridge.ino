@@ -14,6 +14,9 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 
+#include <Wire.h>
+#include <U8g2lib.h>
+
 #include <Toot.h>
 #include <TootSerial.h>
 #include <TootEspNow.h>
@@ -22,6 +25,24 @@
 #include <RobotTeamConfig.h>
 
 #define USE_LORA 0  // Phase 4: set 1 and wire RadioLib SX1262 (GPIO 8/9/10/11).
+
+// --- onboard SSD1306 OLED (status display) ----------------------------------
+// Heltec V4: SSD1306 128x64 on I2C (SDA 17 / SCL 18 / RST 21), powered through
+// Vext (GPIO36, active-LOW). Driven with U8g2 on the generic esp32 core (no
+// Heltec board library). Pins per hardware_specs.md section 2.
+static const int kVextCtrl = 36;            // drive LOW to power the OLED rail
+static const int kOledRst = 21, kOledScl = 18, kOledSda = 17;
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C gOled(U8G2_R0, kOledRst, kOledScl, kOledSda);
+
+// Live status counters rendered on the OLED. Incremented from loop() and the
+// ESP-NOW recv callback; the callback only flips gOledDirty (no I2C in the cb).
+static uint32_t gSerIn = 0;       // frames decoded off the USB link
+static uint32_t gInjected = 0;    // frames injected into the mesh
+static uint32_t gLocalServed = 0; // local TTDB_REQ served over serial
+static uint32_t gEspRx = 0;       // frames decoded off ESP-NOW
+static uint32_t gBridged = 0;     // mesh frames bridged up to the laptop
+static uint32_t gLastSrc = 0;     // src_node_id of the last toot seen
+static volatile bool gOledDirty = true;
 
 static const uint32_t kNodeId = NODE_V4A_BRIDGE;
 static const char* kTtdbPath = "/ttdb.md";
@@ -52,20 +73,64 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
     return;
   if (gDedup.seen(t.src_node_id, t.toot_seq)) return;
+  gEspRx++;
+  gLastSrc = t.src_node_id;
+  gOledDirty = true;
   // Bridge mesh -> laptop: anything destined upward (TTDB_DATA, telemetry,
   // beliefs) is re-framed onto the serial link for the companion.
   if (t.type == toot::TTDB_DATA || t.type == toot::BELIEF ||
       t.type == toot::PERCEPT || t.type == toot::ACK) {
     gSerial.writeFrame(data, (size_t)len);
+    gBridged++;
   } else if (t.type == toot::TTDB_REQ &&
              TtdbShare::requestTarget(t) == kNodeId) {
     if (gShare) gShare->handleRequest(t, sendEspNow, nullptr);
   }
 }
 
+// Render the live bridge status onto the OLED (called from loop(), never the cb).
+static void renderOled() {
+  char l[24];
+  gOled.clearBuffer();
+  gOled.setFont(u8g2_font_6x10_tf);              // 6x10 -> 21 cols x 6 rows
+  gOled.drawStr(0, 9, "V4-A BRIDGE");
+  gOled.drawStr(78, 9, USE_LORA ? "LoRa+" : "LoRa-");
+
+  snprintf(l, sizeof(l), "id %08X", (unsigned)kNodeId);
+  gOled.drawStr(0, 20, l);
+
+  if (gDb.fileSize() > 0)
+    snprintf(l, sizeof(l), "TTDB %uB %dr", (unsigned)gDb.fileSize(),
+             gDb.recordCount());
+  else
+    snprintf(l, sizeof(l), "TTDB: none");
+  gOled.drawStr(0, 31, l);
+
+  snprintf(l, sizeof(l), "ESPNOW ch%d", ROBOT_TEAM_ESPNOW_CHANNEL);
+  gOled.drawStr(0, 42, l);
+
+  snprintf(l, sizeof(l), "se%lu in%lu sv%lu", (unsigned long)gSerIn,
+           (unsigned long)gInjected, (unsigned long)gLocalServed);
+  gOled.drawStr(0, 53, l);
+
+  snprintf(l, sizeof(l), "rx%lu br%lu %lus", (unsigned long)gEspRx,
+           (unsigned long)gBridged, (unsigned long)(millis() / 1000));
+  gOled.drawStr(0, 64, l);
+  gOled.sendBuffer();
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  // Bring up the OLED status display: Vext power rail first, then U8g2.
+  pinMode(kVextCtrl, OUTPUT);
+  digitalWrite(kVextCtrl, LOW);      // LOW = OLED power on (Heltec Vext)
+  delay(50);
+  gOled.begin();
+  gOled.setBusClock(400000);
+  renderOled();                      // splash before TTDB/ESP-NOW come up
+
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");
   } else {
@@ -98,14 +163,27 @@ void loop() {
   if (gSerial.poll(buf, sizeof(buf), n)) {
     toot::Toot t;
     if (toot::decode(buf, n, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t)) {
+      gSerIn++;
+      gLastSrc = t.src_node_id;
+      gOledDirty = true;
       // A request addressed to the bridge is served locally over serial;
       // anything else is injected into the mesh, and replies come back via
       // onEspNowRecv -> serial.
       if (t.type == toot::TTDB_REQ && TtdbShare::requestTarget(t) == kNodeId) {
         if (gShare) gShare->handleRequest(t, sendSerial, nullptr);
+        gLocalServed++;
       } else {
         injectToMesh(buf, n);
+        gInjected++;
       }
     }
+  }
+
+  // Refresh the OLED on change, plus a ~1s heartbeat to tick the uptime.
+  static uint32_t lastRender = 0;
+  if (gOledDirty || millis() - lastRender >= 1000) {
+    lastRender = millis();
+    gOledDirty = false;
+    renderOled();
   }
 }

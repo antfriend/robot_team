@@ -154,9 +154,11 @@ static void emit(toot::Type type, const uint8_t* body, uint8_t n,
 }
 
 // Dispatch a decoded, authenticated toot arriving on any transport. `reply` is
-// the transport to answer on (ESP-NOW peer or serial).
+// the transport to answer on (ESP-NOW peer or serial). Dedup is a radio/mesh
+// concern (replay attacks + forwarding loops), so it is NOT applied here — the
+// trusted USB-CDC link is intentionally un-deduped so the laptop can retry a lost
+// request. Radio callers gate on gDedup before calling in (see onEspNowRecv).
 static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) {
-  if (gDedup.seen(t.src_node_id, t.toot_seq)) return;
   switch (t.type) {
     case toot::TTDB_REQ:
       if (gShare && TtdbShare::requestTarget(t) == kNodeId)
@@ -175,8 +177,9 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
-  if (toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
-    handleToot(t, sendEspNow, nullptr);
+  if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t)) return;
+  if (gDedup.seen(t.src_node_id, t.toot_seq)) return;  // radio-path replay/loop guard
+  handleToot(t, sendEspNow, nullptr);
 }
 
 // --- setup / loop -----------------------------------------------------------

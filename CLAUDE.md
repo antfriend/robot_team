@@ -49,12 +49,33 @@ integrated terminal caches a stale PATH. The filesystem task runs
 `scripts/Upload-K10-FS.ps1` (PowerShell) because arduino-cli can't upload a
 LittleFS image — it builds one with `mklittlefs` and writes it with `esptool`.
 
-FQBN per board: **the UNIHIKER K10 is `UNIHIKER:esp32:k10`** (DFRobot core via
-`--additional-urls .../package_unihiker_index.json`), *not* `esp32:esp32:esp32s3`.
+FQBN per board: **the UNIHIKER K10 is `UNIHIKER:esp32:k10:CDCOnBoot=cdc`** (DFRobot
+core via `--additional-urls .../package_unihiker_index.json`), *not*
+`esp32:esp32:esp32s3`. The **`CDCOnBoot=cdc`** suffix is required: the board
+default is CDC-on-boot *disabled*, which binds the sketch's `Serial` (and thus the
+`TootSerialLink` that `companion.py` pulls over) to **UART0**, not the native USB —
+so `companion.py pull` over USB-CDC gets nothing. With `CDCOnBoot=cdc`, `Serial`
+is the native USB CDC on the COM port and the toot link works.
 The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `hardware_specs.md`
 (`USE_GC1109_PA` V4.2 / `USE_KCT8103L_PA` V4.3) once the LoRa path is enabled. The
 K10's only LittleFS-capable partition is `model` (subtype spiffs, @0x510000),
 mounted by label in the sketch.
+
+The **Heltec V4** builds with arduino-cli directly (no VSCode task yet); it also
+uses the ESP32-S3 native USB, so it needs `CDCOnBoot=cdc` too:
+
+```bash
+ACLI="/c/Program Files/Arduino CLI/arduino-cli.exe"
+"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" \
+        --libraries firmware/libraries firmware/v4a_bridge        # firmware
+powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
+        -Node v4a_bridge -Port COM6                               # TTDB image
+```
+
+The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
+`Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
+(not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
+so no PA-variant flag is needed until Phase 4.
 
 ## TTDB on the filesystem, shared over the network
 
@@ -71,8 +92,12 @@ mounted by label in the sketch.
 
 - Target ESP32-S3, Arduino framework. RAM is tight: stream the TTDB, feed the
   watchdog (`yield()` in long loops), prefer fixed buffers over `String`.
-- Every toot is HMAC-signed and dedup-keyed on `(src_node_id, toot_seq)`. The
-  prototype key in `RobotTeamConfig.h` must match `companion.py`'s `NETWORK_KEY`.
+- Every toot is HMAC-signed. The prototype key in `RobotTeamConfig.h` must match
+  `companion.py`'s `NETWORK_KEY`.
+- **Dedup is radio-only.** `(src_node_id, toot_seq)` dedup is applied on the
+  ESP-NOW/LoRa receive path (replay + mesh forwarding-loop guard) but NOT on the
+  trusted USB-CDC command link, so the laptop can retry a lost request. Gate dedup
+  in the radio recv callback, never in the shared `handleToot` dispatch.
 - ESP-NOW is the in-range default; LoRa is long-haul and gated behind `USE_LORA`
   until Phase 4. Don't add the radio before the ESP-NOW floor works.
 
