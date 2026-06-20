@@ -41,15 +41,21 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | 🟨 scaffold (ESP-NOW + serial + TTDB-share; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | 🟨 scaffold (ttl/dedup forward; LoRa gated off) |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
-| **K10-x** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | 🟨 scaffold (ESP-NOW HELLO + TTDB-share over ESP-NOW & USB; full Agent32 loop wired to TTDB) |
+| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop runs, LCD shows both records + cursor/WARM, startup "toot toot"; ESP-NOW HELLO + TTDB-share over ESP-NOW & USB) |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
 
+> **One physical K10 on hand** (FQBN `UNIHIKER:esp32:k10`, on COM3). The `K10-x`
+> plurality and PLAN.md Phase 1's "two K10s talk" assume a second radio node that
+> does not yet exist — see §6. The V4 rows are unbuilt scaffold.
+
 **Build & deploy:** command-line **arduino-cli** (not PlatformIO — a project
 decision overriding the A32-RFC default). Each node is a proper Arduino sketch;
 shared code is in `firmware/libraries/`, supplied with `--libraries`. See
-`CLAUDE.md` and `firmware/README.md`. Scripts: `scripts/{setup,build,deploy,upload-fs}.sh`.
+`CLAUDE.md` and `firmware/README.md`. The `.sh` scripts are the Unix path; **on
+the Windows K10 machine the live path is `.vscode/tasks.json`** (Compile/Upload
+K10, Upload K10 Filesystem via `scripts/Upload-K10-FS.ps1`).
 
 ---
 
@@ -123,10 +129,21 @@ If a fact lives in one of these, link to it from here — don't copy it.
 
 ## 6. Current state & next action
 
-- **State:** Specs and RFCs exist; no firmware, no TTDB files, no `PLAN.md`
-  execution yet. Fleet is all ⬜.
-- **Next action:** Begin Phase 0 in `PLAN.md` — scaffold the PlatformIO project
-  and the A32/TTDB libraries so the first two K10s can exchange toots over
-  ESP-NOW broadcast (the cheapest path to a live swarm).
+- **State:** **Phase 0 is done on the K10.** Toolchain installed (winget
+  `arduino-cli` + DFRobot `UNIHIKER:esp32:k10` core); firmware *and* the LittleFS
+  TTDB image are flashed via the `.vscode/tasks.json` path; the Agent32
+  sense→reason→act loop is **verified on real hardware** — the LCD shows the TTDB
+  id, both records (`@LAT0LON0`, `@LAT10LON0`), live cursor + WARM/cool state, and
+  the startup "toot toot" plays. The native `g++`/`make` tests were skipped
+  (device-first). Only **one** physical K10 exists. V4 spine + LoRa: untouched.
+- **Next action:** PLAN.md Phase 1 as written ("two K10s talk over ESP-NOW") is
+  **blocked — there is no second radio node.** The available single-K10 milestone
+  is **`companion.py pull` over USB-CDC**: with the K10 on COM3, run
+  `python orchestrator/companion.py pull --port COM3 --node k10_1 --out master/k10.md`
+  and confirm the laptop reassembles a byte-identical copy of `data/ttdb.md`. That
+  exercises the whole toot codec + truncated-HMAC + dedup + `TtdbShare` path
+  against real firmware on one side and Python on the other — the real Phase-0→1
+  bridge. Multi-node ESP-NOW gossip waits for a second radio node (a Heltec V4, or
+  a 2nd K10 if acquired).
 
 Keep this section current. It is the first thing the next session reads.

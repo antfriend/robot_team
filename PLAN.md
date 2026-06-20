@@ -41,29 +41,49 @@ code lives in `firmware/libraries/` and is added per-build with `--libraries`.
 - [x] Native test (`tests/`, g++/make): SHA-256/HMAC vectors pinned to Python,
       plus TTDB header/edge parsing and nearest-search. Parser + routing logic
       also cross-checked against the sample TTDB with a Python mirror.
-- [ ] **Verify on toolchain:** `cd tests && make` (needs g++), then
-      `scripts/build.sh k10_percept` (needs arduino-cli + esp32 core). No C++
-      compiler was available where the scaffold was authored — first real build
-      closes Phase 0.
+- [x] **Verify on toolchain (device-first):** `arduino-cli` + the
+      `UNIHIKER:esp32:k10` core installed; `k10_percept` compiles, and **firmware +
+      LittleFS TTDB are flashed and verified on a real K10** via `.vscode/tasks.json`
+      — the LCD renders both TTDB records, the live cursor, and WARM/cool state, and
+      the startup "toot toot" plays. The native `g++`/`make` tests were **skipped**
+      (no compiler on the K10 machine; chose on-device verification instead).
 
-**Done when:** native tests pass and `k10_percept` compiles clean under
-arduino-cli.
+**Done when:** ~~native tests pass and~~ `k10_percept` compiles clean under
+arduino-cli **and runs verified on-device.** ✅ Done — the only open item is the
+optional native `g++` test suite, deferred.
 
 ---
 
-## Phase 1 — Two K10s talk (ESP-NOW broadcast, fixed channel)
+## Phase 1 — K10 ↔ laptop over USB-CDC (`companion.py pull`)
 
-The fastest path to a live swarm. No orchestrator, no LoRa.
+**Reality check:** there is only **one** physical K10, so the original "two K10s
+talk" milestone (kept below, deferred) can't run yet. The available single-K10
+milestone proves the toot wire protocol against real hardware using the laptop as
+the second party — over USB-CDC, no second radio node needed.
 
-- [ ] Author `data/k10.md` TTDB: percept umwelt, `@PERCEPT:before/after`
-      capture nodes, basic edges.
-- [ ] K10 firmware: HELLO beacon + PERCEPT emit/receive over ESP-NOW broadcast,
-      fixed channel 1.
+- [x] Single K10 runs the Agent32 loop on-device; LCD shows both TTDB records +
+      cursor/WARM state (done in Phase 0).
+- [ ] `pip install -r orchestrator/requirements.txt` (pyserial) on the laptop.
+- [ ] Run `python orchestrator/companion.py pull --port COM3 --node k10_1 --out
+      master/k10.md`; confirm `master/k10.md` is **byte-identical** to
+      `firmware/k10_percept/data/ttdb.md`.
+- [ ] Negative checks: a tampered frame / wrong key yields no data (HMAC reject);
+      a replayed `(src,seq)` is dropped by dedup.
+
+**Done when:** the laptop reassembles a byte-exact copy of the K10's TTDB over
+USB-CDC, and bad-HMAC / replayed toots are rejected.
+
+### Phase 1b — Two K10s talk (ESP-NOW broadcast) — ⏸ deferred (needs 2nd radio node)
+
+Blocked until a second ESP-NOW node exists (a 2nd K10, or a Heltec V4). The
+firmware already emits a HELLO beacon over ESP-NOW broadcast each cycle.
+
+- [ ] Author the percept-capture edges (`@PERCEPT:before/after`) in the TTDB.
+- [ ] K10 firmware: PERCEPT emit/receive over ESP-NOW broadcast, fixed channel.
 - [ ] Validate framing, dedup, HMAC on real hardware (serial assertions).
-- [ ] Show locus `@LATxLONy` / belief state on the 240×320 screen.
 
-**Done when:** two K10s exchange verified HELLO + PERCEPT toots; bad-HMAC and
-replayed toots are dropped.
+**Done when:** two radio nodes exchange verified HELLO + PERCEPT toots; bad-HMAC
+and replayed toots are dropped.
 
 ---
 

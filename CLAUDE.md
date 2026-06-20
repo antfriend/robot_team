@@ -41,9 +41,20 @@ scripts/deploy.sh k10_percept COM5        # compile + flash firmware
 scripts/upload-fs.sh k10_percept COM5     # build + flash data/ttdb.md to LittleFS
 ```
 
-FQBN defaults to `esp32:esp32:esp32s3` (both the K10 and Heltec V4 are S3). For
-the Heltec V4, set the PA variant per `hardware_specs.md` (`USE_GC1109_PA` V4.2 /
-`USE_KCT8103L_PA` V4.3) once the LoRa path is enabled.
+**On Windows (the K10 dev machine) the real build path is `.vscode/tasks.json`**,
+not the `.sh` scripts: tasks "Setup: UNIHIKER core" → "Compile K10" → "Upload K10"
+→ "Upload K10 Filesystem". They call `arduino-cli` by full path
+(`C:\Program Files\Arduino CLI\arduino-cli.exe`, from winget) because VSCode's
+integrated terminal caches a stale PATH. The filesystem task runs
+`scripts/Upload-K10-FS.ps1` (PowerShell) because arduino-cli can't upload a
+LittleFS image — it builds one with `mklittlefs` and writes it with `esptool`.
+
+FQBN per board: **the UNIHIKER K10 is `UNIHIKER:esp32:k10`** (DFRobot core via
+`--additional-urls .../package_unihiker_index.json`), *not* `esp32:esp32:esp32s3`.
+The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `hardware_specs.md`
+(`USE_GC1109_PA` V4.2 / `USE_KCT8103L_PA` V4.3) once the LoRa path is enabled. The
+K10's only LittleFS-capable partition is `model` (subtype spiffs, @0x510000),
+mounted by label in the sketch.
 
 ## TTDB on the filesystem, shared over the network
 
