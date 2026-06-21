@@ -130,8 +130,22 @@ static void renderScreen(float tempC) {
 #endif
 
 // --- transports -------------------------------------------------------------
+// ESP-NOW TX is asynchronous with a shallow queue. TtdbShare streams many
+// TTDB_DATA frames back-to-back, which overruns the queue and silently drops all
+// but the first few. Gate each send on the previous frame's TX-complete callback
+// so the whole TTDB streams intact over the air.
+static volatile bool gEspNowTxDone = true;
+static ESPNOW_SEND_CB(onEspNowSend, mac, status) {
+  (void)status;
+  gEspNowTxDone = true;
+}
 static bool sendEspNow(const uint8_t* frame, size_t len, void*) {
-  return esp_now_send(kBroadcast, frame, len) == ESP_OK;
+  uint32_t t0 = millis();
+  while (!gEspNowTxDone && millis() - t0 < 50) delay(1);  // await prior TX
+  gEspNowTxDone = false;
+  bool ok = esp_now_send(kBroadcast, frame, len) == ESP_OK;
+  delay(6);  // breathing room for the bridge to drain each frame to USB-CDC
+  return ok;
 }
 static bool sendSerial(const uint8_t* frame, size_t len, void*) {
   gSerial.writeFrame(frame, len);
@@ -174,12 +188,22 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   }
 }
 
+// A TTDB_REQ arriving over ESP-NOW is stashed here and served from loop(), not
+// from the recv callback: streaming the whole reply from the WiFi task would
+// block its own TX (the send-complete callback can't run), starving the burst.
+static volatile bool gReqPending = false;
+static toot::Toot gPendingReq;
+
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t)) return;
   if (gDedup.seen(t.src_node_id, t.toot_seq)) return;  // radio-path replay/loop guard
-  handleToot(t, sendEspNow, nullptr);
+  if (t.type == toot::TTDB_REQ) {
+    if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
+  } else {
+    handleToot(t, sendEspNow, nullptr);                         // cheap, no burst
+  }
 }
 
 // --- setup / loop -----------------------------------------------------------
@@ -212,6 +236,7 @@ void setup() {
     Serial.println("FATAL: esp_now_init failed");
   }
   esp_now_register_recv_cb(onEspNowRecv);
+  esp_now_register_send_cb(onEspNowSend);   // paces TTDB_DATA bursts (see sendEspNow)
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, kBroadcast, 6);
   peer.channel = ROBOT_TEAM_ESPNOW_CHANNEL;
@@ -233,6 +258,14 @@ void loop() {
     toot::Toot t;
     if (toot::decode(buf, n, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
       handleToot(t, sendSerial, nullptr);
+  }
+
+  // Serve an ESP-NOW TTDB_REQ deferred from the recv callback (so the reply
+  // streams from the main task, where TX pacing via the send callback works).
+  if (gReqPending) {
+    gReqPending = false;
+    if (gShare && TtdbShare::requestTarget(gPendingReq) == kNodeId)
+      gShare->handleRequest(gPendingReq, sendEspNow, nullptr);
   }
 
   // Periodic HELLO beacon + percept tick.

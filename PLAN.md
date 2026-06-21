@@ -85,16 +85,24 @@ bridge sketch: laptop↔mesh gateway over USB-CDC. Both radio nodes now exist.
 
 - [x] V4-A flashed (`esp32:esp32:esp32s3:CDCOnBoot=cdc`) + TTDB image
       (`scripts/Upload-V4-FS.ps1`, spiffs @0x290000); standalone pull byte-exact.
-- [ ] **Reflash the K10** with the radio-only-dedup change (dedup moved off the
-      shared dispatch onto the ESP-NOW recv path) and re-run `negchecks.py`.
-- [ ] **Bridged pull:** `companion.py pull --node k10_1 --port COM6` with the K10
-      powered in range — request routes laptop→USB→V4-A→ESP-NOW→K10 and the
-      `TTDB_DATA` slices stream back the same way. Proves ESP-NOW gossip + relay.
-- [ ] Radio-replay check: inject a duplicate `(src,seq)` over ESP-NOW and confirm
-      the receiver drops it (the dedup test the trusted USB link can't exercise).
+- [x] **Reflash the K10** with the radio-only-dedup change (dedup moved off the
+      shared dispatch onto the ESP-NOW recv path); `negchecks.py` re-verified on
+      COM3 (2026-06-20) — both nodes now radio-only.
+- [x] **Bridged pull:** `companion.py pull --node k10_1 --port COM6` reassembles
+      the K10's TTDB **byte-exact through the V4-A bridge over ESP-NOW** (1114 B),
+      repeatably (~5/6 runs clean). Two firmware fixes made the burst survive the
+      air: the K10 **serves the reply from `loop()`, not the recv callback** (so its
+      TX/send-callback aren't starved by the WiFi task), and **paces sends** via the
+      ESP-NOW send-complete callback + a 6 ms inter-frame gap. `companion.py` now
+      uses a fresh `toot_seq` per pull so a non-reset target won't dedup-drop it.
+- [x] Radio-replay check: `orchestrator/radio_replay.py --bridge-port COM6 --node
+      k10_1` — a duplicate `(src,seq)` injected over the air is dropped by the K10's
+      radio dedup (original 7 frames, replay 0, fresh seq+1 7). Closes the
+      radio-only-dedup story negchecks.py couldn't reach over USB.
 
 **Done when:** the laptop reassembles the K10's TTDB *through* the V4-A bridge over
-ESP-NOW, and a duplicate injected over the air is dropped.
+ESP-NOW ✅, and a duplicate injected over the air is dropped ✅. **Phase 1b complete.**
+Residual: ~1/6 runs drop a frame (no ACK/retry yet) — that reliability is **Phase 2**.
 
 ---
 

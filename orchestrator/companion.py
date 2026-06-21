@@ -134,7 +134,11 @@ def pull(port, baud, node, out_path, timeout):
     target = NODE_IDS[node]
 
     req_payload = bytes([TTDB_REQ_WHOLE]) + struct.pack("<I", target)
-    req = encode_toot(TTDB_REQ, ORCHESTRATOR_ID, 1, req_payload)
+    # Use a fresh, monotonic toot_seq per invocation. Radio-path dedup keys on
+    # (src,seq): over the bridge the target node is NOT reset when we open the
+    # bridge's port, so a fixed seq would be dropped as a replay on a 2nd pull.
+    seq = int(time.time()) & 0x7FFFFFFF
+    req = encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload)
 
     slices = {}            # offset -> bytes
     eof_offset = None

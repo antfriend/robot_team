@@ -149,15 +149,20 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (spiffs @0x290000). Reproduce auth with `orchestrator/negchecks.py`.
 - **Dedup is RADIO-ONLY (decided 2026-06-20).** `(src,seq)` dedup guards the
   ESP-NOW/LoRa path against replay + forwarding loops; the trusted USB-CDC link is
-  intentionally NOT deduped so the laptop can retry. K10 firmware was changed to
-  match the V4 — **the K10 must be reflashed** (`CDCOnBoot=cdc` build) when next
-  connected, then re-run negchecks.
-- **Next action: Phase 1b two-node ESP-NOW.** Both radio nodes now exist. Plug the
-  K10 into power (no data link needed) alongside the USB-tethered V4-A and run the
-  **bridged pull**: `companion.py pull --node k10_1 --port COM6` routes the request
-  laptop→USB→V4-A→ESP-NOW→K10 and streams `TTDB_DATA` back the same way. That proves
-  HELLO/PERCEPT-class gossip + the bridge relay in one shot. Then the radio-replay
-  test (inject a duplicate over ESP-NOW) closes the dedup story.
+  intentionally NOT deduped so the laptop can retry. K10 reflashed to match the V4
+  (2026-06-20) and re-verified with `negchecks.py` — both nodes now radio-only.
+- **Phase 1b complete — the mesh works.** `companion.py pull --node k10_1 --port
+  COM6` reassembles the K10's TTDB **byte-exact through the V4-A bridge over ESP-NOW**
+  (laptop→USB→V4-A→air→K10 and back), repeatably. `orchestrator/radio_replay.py`
+  confirms an over-the-air duplicate `(src,seq)` is dropped by the K10's radio dedup.
+  Firmware lessons: a node must **serve a reply from `loop()`, not the recv
+  callback** (else its WiFi task starves its own TX), and **pace ESP-NOW bursts**
+  (send-complete callback + small inter-frame gap); the laptop uses a **fresh
+  `toot_seq` per request** so a non-reset target won't dedup-drop it.
+- **Next action: Phase 2 — reliability.** ~1/6 bridged pulls still drops a frame
+  (no ACK/retry yet). Add `want_ack` toots (ACK on `(src,seq[,chunk])` + retransmit
+  with backoff) and chunk/reassemble >208 B bodies, so a bridged pull is byte-exact
+  every time under induced loss. Testable now against the single K10 + V4-A.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -242,9 +247,8 @@ gated (`USE_LORA 0`).
 verified. FQBN `UNIHIKER:esp32:k10:CDCOnBoot=cdc`, on COM3. Agent32 sense→reason→act
 loop runs; LCD shows both TTDB records + cursor/WARM; startup "toot toot". Byte-exact
 pull (1114 B) + HMAC reject + dedup. Reaches the laptop over ESP-NOW via the V4-A
-bridge. ⚠ **Reflash pending:** firmware changed to radio-only dedup (see
-`@LAT90LON0`) but not yet reflashed — reflash + re-run `negchecks.py` when next on
-COM3.
+bridge. Reflashed 2026-06-20 to radio-only dedup (see `@LAT90LON0`) and re-verified
+with `negchecks.py` — now consistent with the V4-A.
 
 ---
 
@@ -270,7 +274,7 @@ gateway; GNSS `@LATxLONy` stamping; summarizes PERCEPT before the LoRa hop. Phas
 ESP-NOW/LoRa receive path only (replay + mesh forwarding-loop guard); the trusted
 USB-CDC command link is intentionally NOT deduped, so the laptop can retry a lost
 request. Gate dedup in the radio recv callback, never in the shared `handleToot`
-dispatch. The K10 was updated to match the V4-A (reflash pending).
+dispatch. The K10 was reflashed to match the V4-A (2026-06-20) and re-verified.
 
 ---
 
@@ -286,8 +290,11 @@ the port resets the board, so `companion.py` waits ~2.5 s before sending the req
 
 @LAT90LON20 | created:1781913600 | updated:1781913600 | relates:derived_from@LAT0LON10,derived_from@LAT10LON10
 
-**Next milestone — bridged ESP-NOW pull (Phase 1b).** With the K10 powered in range
-and the V4-A tethered, `companion.py pull --node k10_1 --port COM6` routes the
-request laptop→USB→V4-A→ESP-NOW→K10 and streams `TTDB_DATA` back the same way —
-proving over-the-air gossip + the bridge relay in one shot. Then inject a duplicate
-`(src,seq)` over the air to close the radio-replay dedup test. Reflash the K10 first.
+**Milestone — bridged ESP-NOW pull (Phase 1b) ✅ achieved 2026-06-20.**
+`companion.py pull --node k10_1 --port COM6` reassembles the K10's TTDB byte-exact
+through the V4-A bridge over the air (laptop→USB→V4-A→ESP-NOW→K10 and back),
+repeatably; `radio_replay.py` confirms an over-the-air duplicate `(src,seq)` is
+dropped. Firmware lessons baked in: serve replies from `loop()` (not the recv
+callback), pace ESP-NOW bursts, fresh `toot_seq` per request. **Now → Phase 2**
+(`want_ack` + chunking) so every bridged pull is byte-exact under loss; ~1/6 still
+drops a frame today.
