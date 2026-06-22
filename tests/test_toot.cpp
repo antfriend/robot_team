@@ -75,6 +75,100 @@ int main() {
   CHECK(dd.seen(1, 1), "second (1,1) is a dupe");
   CHECK(!dd.seen(1, 2), "(1,2) is new");
 
+  // 5b) ACK helpers (TTN-RFC-0007). Build an ACK for a want_ack toot, encode +
+  // verify it on the wire, and check the sender's outstanding-table match.
+  toot::Toot orig;                       // the toot being acknowledged
+  orig.type = toot::CMD;
+  orig.src_node_id = 0x00000001;         // orchestrator
+  orig.toot_seq = 0x12345678;
+  orig.chunk_idx = 0;
+  orig.flags = toot::FLAG_WANT_ACK;
+
+  toot::Toot ack;
+  toot::makeAck(orig, /*acker_id=*/0x00000100, /*acker_seq=*/42,
+                toot::ACK_ACCEPTED, ack);
+  CHECK(ack.type == toot::ACK && ack.src_node_id == 0x100 &&
+            ack.toot_seq == 42 && ack.payload_len == toot::ACK_PAYLOAD_LEN,
+        "makeAck sets ACK header");
+
+  uint8_t aframe[toot::MAX_FRAME];
+  size_t alen = toot::encode(ack, key, 16, aframe, sizeof(aframe));
+  toot::Toot ack2;
+  CHECK(toot::decode(aframe, alen, key, 16, ack2), "ACK frame verifies HMAC");
+
+  uint32_t as, aq; uint8_t ac, ast;
+  CHECK(toot::parseAck(ack2, as, aq, ac, ast) && as == 0x00000001 &&
+            aq == 0x12345678 && ac == 0 && ast == toot::ACK_ACCEPTED,
+        "parseAck round-trips (ack_src,ack_seq,ack_chunk,status)");
+
+  // The sender matches on (its own id, seq, chunk); mismatches must fail.
+  CHECK(toot::ackMatches(ack2, 0x00000001, 0x12345678, 0), "ackMatches hit");
+  CHECK(!toot::ackMatches(ack2, 0x00000001, 0x12345679, 0), "wrong seq misses");
+  CHECK(!toot::ackMatches(ack2, 0x00000002, 0x12345678, 0), "wrong src misses");
+  CHECK(!toot::ackMatches(ack2, 0x00000001, 0x12345678, 1), "wrong chunk misses");
+  // A non-ACK toot is never a match.
+  CHECK(!toot::ackMatches(orig, 0x00000001, 0x12345678, 0), "non-ACK never matches");
+
+  // 5c) Chunk reassembly (TTN-RFC-0007 §6): a 500 B logical toot across 3 chunks.
+  uint8_t orig500[500];
+  for (int i = 0; i < 500; ++i) orig500[i] = (uint8_t)((i * 7 + 1) & 0xff);
+  auto mkChunk = [&](uint8_t cidx, uint8_t ctot, const uint8_t* p, uint16_t n) {
+    toot::Toot c;
+    c.type = toot::BELIEF;
+    c.src_node_id = 0x100;
+    c.toot_seq = 99;
+    c.chunk_idx = cidx;
+    c.chunk_total = ctot;
+    c.flags = toot::FLAG_WANT_ACK;
+    memcpy(c.payload, p, n);
+    c.payload_len = (uint8_t)n;
+    return c;
+  };
+  toot::Reassembler ra;
+  toot::Toot k0 = mkChunk(0, 3, orig500 + 0, 208);
+  toot::Toot k1 = mkChunk(1, 3, orig500 + 208, 208);
+  toot::Toot k2 = mkChunk(2, 3, orig500 + 416, 84);
+  // Out-of-order delivery still reassembles.
+  CHECK(ra.offer(k0, 1000) == toot::Reassembler::NEED_MORE, "chunk0 -> need more");
+  CHECK(ra.offer(k2, 1001) == toot::Reassembler::NEED_MORE,
+        "chunk2 out-of-order -> need more");
+  CHECK(ra.offer(k1, 1002) == toot::Reassembler::COMPLETE, "chunk1 completes set");
+  CHECK(ra.bodyLen() == 500 && memcmp(ra.body(), orig500, 500) == 0,
+        "reassembled body is byte-exact");
+  // A duplicate after completion is recognized (re-ACK ACCEPTED, no re-buffer).
+  CHECK(ra.offer(k1, 1003) == toot::Reassembler::COMPLETED_DUP,
+        "post-complete duplicate recognized");
+
+  // Duplicate within an open set, and a malformed idx>=total.
+  toot::Reassembler rb;
+  toot::Toot d0 = mkChunk(0, 2, orig500, 208);
+  CHECK(rb.offer(d0, 1) == toot::Reassembler::NEED_MORE, "new set chunk0");
+  CHECK(rb.offer(d0, 2) == toot::Reassembler::DUPLICATE, "open-set duplicate");
+  toot::Toot dbad = mkChunk(3, 3, orig500, 10);
+  CHECK(rb.offer(dbad, 3) == toot::Reassembler::BAD, "idx>=total rejected");
+
+  // 5d) Time-sync payloads (TTN-RFC-0008). u64 epoch must survive the wire.
+  const uint64_t kEpoch = 1750000000123ULL;   // ms, > 32 bits
+  toot::Toot ts;
+  ts.type = toot::TIME_SYNC;
+  toot::put_u32(ts.payload + 0, 0xABCD1234);
+  toot::put_u64(ts.payload + 4, kEpoch);
+  ts.payload_len = toot::TIME_SYNC_PAYLOAD_LEN;
+  uint32_t sid; uint64_t ems;
+  CHECK(toot::parseTimeSync(ts, sid, ems) && sid == 0xABCD1234 && ems == kEpoch,
+        "TIME_SYNC payload round-trips (u32 id + u64 epoch_ms)");
+
+  toot::Toot tr;
+  tr.type = toot::TIME_REQ;
+  toot::put_u32(tr.payload + 0, 7);
+  toot::put_u32(tr.payload + 4, 0x00000100);
+  tr.payload_len = toot::TIME_REQ_PAYLOAD_LEN;
+  uint32_t pid, tgt;
+  CHECK(toot::parseTimeReq(tr, pid, tgt) && pid == 7 && tgt == 0x100,
+        "TIME_REQ payload round-trips (probe_id + target)");
+  // Wrong-type guard: a TIME_REQ is not parseable as a TIME_SYNC.
+  CHECK(!toot::parseTimeSync(tr, sid, ems), "parseTimeSync rejects a TIME_REQ");
+
   // 6) TTDB header parsing (matches data/ttdb.md and the Python reference).
   TtdbRecord hr;
   const char* warm =

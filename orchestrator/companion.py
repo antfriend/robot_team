@@ -35,6 +35,8 @@ VERSION = 1
 HEADER_LEN = 33
 HMAC_LEN = 8
 LOCUS_LEN = 16
+MAX_BODY = 208                      # body bytes per toot (Toot.h MAX_BODY)
+REASSEMBLY_MAX_CHUNKS = 8           # firmware TOOT_REASSEMBLY_MAX_CHUNKS cap
 ORCHESTRATOR_ID = 0x00000001
 
 # Mirror RobotTeamNodeId.
@@ -48,9 +50,21 @@ NODE_IDS = {
 }
 
 # Toot types.
+BELIEF = 3
+CMD = 4
+ACK = 5
 TTDB_REQ = 7
 TTDB_DATA = 8
 TTDB_REQ_WHOLE = 0
+
+# Flags (Toot.h Flags).
+FLAG_WANT_ACK = 1 << 0
+
+# ACK payload (TTN-RFC-0007 §3): ack_src u32 | ack_seq u32 | ack_chunk u8 | status u8.
+ACK_PAYLOAD_LEN = 10
+ACK_ACCEPTED = 0
+ACK_REASSEMBLY_PENDING = 1
+ACK_DROPPED_NO_RESRC = 2
 
 
 def hmac8(data: bytes) -> bytes:
@@ -85,8 +99,27 @@ def decode_toot(frame: bytes):
         "type": frame[3],
         "src": struct.unpack("<I", frame[4:8])[0],
         "seq": struct.unpack("<I", frame[8:12])[0],
+        "chunk_idx": frame[12],
+        "chunk_total": frame[13],
+        "flags": frame[31],
         "payload": frame[HEADER_LEN:body_end],
     }
+
+
+def make_ack_payload(ack_src, ack_seq, ack_chunk=0, status=ACK_ACCEPTED) -> bytes:
+    """Mirror firmware toot::makeAck payload layout (TTN-RFC-0007 §3)."""
+    return struct.pack("<II", ack_src, ack_seq) + bytes([ack_chunk, status])
+
+
+def parse_ack(t):
+    """Read an ACK toot dict. Returns (ack_src, ack_seq, ack_chunk, status) or None."""
+    if t["type"] != ACK:
+        return None
+    p = t["payload"]
+    if len(p) < ACK_PAYLOAD_LEN:
+        return None
+    ack_src, ack_seq = struct.unpack("<II", p[0:8])
+    return (ack_src, ack_seq, p[8], p[9])
 
 
 def write_serial_frame(ser, frame: bytes):
@@ -197,6 +230,147 @@ def reassemble(slices, eof_offset):
     return bytes(out)
 
 
+def send_reliable(ser, reader, frame, target, seq, chunk=0,
+                  rto0=0.5, attempts=4):
+    """Send a want_ack toot and retransmit until ACKed or `attempts` exhausted
+    (TTN-RFC-0007 §4). Retransmits reuse the original (src,seq) so the receiver's
+    radio dedup recognizes the duplicate and re-ACKs it (§5). RTO backs off ×2.
+
+    Returns the 1-based attempt number that was ACKed, or 0 if undelivered.
+    """
+    rto = rto0
+    for attempt in range(1, attempts + 1):
+        write_serial_frame(ser, frame)
+        print(f"  attempt {attempt}/{attempts} (rto {rto:.2f}s)")
+        deadline = time.time() + rto
+        while time.time() < deadline:
+            data = ser.read(256)
+            if not data:
+                continue
+            for fr in reader.feed(data):
+                t = decode_toot(fr)
+                # The ACK's header src is the responding node; its payload echoes
+                # our (src,seq,chunk). Match both.
+                if not t or t["type"] != ACK or t["src"] != target:
+                    continue
+                pa = parse_ack(t)
+                if pa and pa[0] == ORCHESTRATOR_ID and pa[1] == seq \
+                        and pa[2] == chunk:
+                    return attempt
+        rto *= 2
+    return 0
+
+
+def ping(port, baud, node, settle, rto0, attempts):
+    """Reliability smoke test (TTN-RFC-0007 §8 test 1): send a want_ack CMD to a
+    node and confirm exactly one ACK comes back, retransmitting under loss."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    target = NODE_IDS[node]
+
+    seq = int(time.time()) & 0x7FFFFFFF
+    # CMD payload: subcommand 0 (ping) + target echo. The node ACKs on receipt.
+    payload = bytes([0]) + struct.pack("<I", target)
+    frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload, flags=FLAG_WANT_ACK)
+    reader = SerialFrameReader()
+
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)            # opening the port resets the S3 (see pull())
+        ser.reset_input_buffer()
+        print(f"ping {node} (0x{target:08X}) on {port} with want_ack")
+        acked = send_reliable(ser, reader, frame, target, seq,
+                              rto0=rto0, attempts=attempts)
+
+    if acked:
+        print(f"ACK from {node} on attempt {acked} — DELIVERED")
+    else:
+        sys.exit(f"no ACK from {node} after {attempts} attempts — UNDELIVERED")
+
+
+def send_reliable_chunked(ser, reader, src, seq, ttype, payload, target,
+                          rto0=0.5, attempts=4):
+    """Split `payload` into <=MAX_BODY chunks sharing one (src,seq) and deliver
+    them reliably (TTN-RFC-0007 §6). Each attempt (re)sends only the still-unacked
+    chunks; an ACK clears its chunk. The chunk that completes the set is ACKed
+    ACCEPTED, the rest REASSEMBLY_PENDING.
+
+    Returns (delivered_count, total, {chunk_idx: ack_status}).
+    """
+    chunks = [payload[i:i + MAX_BODY] for i in range(0, len(payload), MAX_BODY)]
+    if not chunks:
+        chunks = [b""]
+    total = len(chunks)
+    if total > REASSEMBLY_MAX_CHUNKS:
+        sys.exit(f"payload needs {total} chunks > firmware cap "
+                 f"{REASSEMBLY_MAX_CHUNKS}")
+    frames = {i: encode_toot(ttype, src, seq, ch, flags=FLAG_WANT_ACK,
+                             chunk_idx=i, chunk_total=total)
+              for i, ch in enumerate(chunks)}
+    unacked = set(range(total))
+    status = {}
+    rto = rto0
+    for attempt in range(1, attempts + 1):
+        for i in sorted(unacked):
+            write_serial_frame(ser, frames[i])
+        print(f"  attempt {attempt}/{attempts}: sent {len(unacked)} chunk(s) "
+              f"(rto {rto:.2f}s)")
+        deadline = time.time() + rto
+        while time.time() < deadline and unacked:
+            data = ser.read(256)
+            if not data:
+                continue
+            for fr in reader.feed(data):
+                t = decode_toot(fr)
+                if not t or t["type"] != ACK or t["src"] != target:
+                    continue
+                pa = parse_ack(t)
+                if not pa or pa[0] != src or pa[1] != seq:
+                    continue
+                if pa[2] in unacked:
+                    unacked.discard(pa[2])
+                    status[pa[2]] = pa[3]
+        if not unacked:
+            return total, total, status
+        rto *= 2
+    return total - len(unacked), total, status
+
+
+def reltest(port, baud, node, size, settle, rto0, attempts):
+    """Chunked-reliability test (TTN-RFC-0007 §8 test 5): send a >208 B toot as
+    several want_ack chunks and confirm every chunk is ACKed and the set completes."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    target = NODE_IDS[node]
+
+    seq = int(time.time()) & 0x7FFFFFFF
+    payload = bytes((i * 7 + 1) & 0xff for i in range(size))   # known pattern
+    reader = SerialFrameReader()
+    nchunks = (size + MAX_BODY - 1) // MAX_BODY
+
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        print(f"reltest {node} (0x{target:08X}): {size} B as {nchunks} chunk(s)")
+        delivered, total, status = send_reliable_chunked(
+            ser, reader, ORCHESTRATOR_ID, seq, BELIEF, payload, target,
+            rto0=rto0, attempts=attempts)
+
+    if delivered == total:
+        accepted = sorted(i for i, s in status.items() if s == ACK_ACCEPTED)
+        print(f"all {total} chunk(s) delivered; set completed "
+              f"(ACCEPTED on chunk {accepted}) — REASSEMBLED")
+    else:
+        sys.exit(f"only {delivered}/{total} chunks delivered — INCOMPLETE")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -206,10 +380,37 @@ def main():
     p.add_argument("--node", required=True, choices=list(NODE_IDS))
     p.add_argument("--out", required=True, help="output .md path")
     p.add_argument("--timeout", type=float, default=20.0)
+
+    pg = sub.add_parser("ping", help="reliable want_ack round-trip (TTN-RFC-0007)")
+    pg.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
+    pg.add_argument("--baud", type=int, default=115200)
+    pg.add_argument("--node", required=True, choices=list(NODE_IDS))
+    pg.add_argument("--settle", type=float, default=2.5,
+                    help="post-open boot wait (s); the bridge resets on open")
+    pg.add_argument("--rto0", type=float, default=0.5,
+                    help="initial retransmit timeout (s); ×2 backoff")
+    pg.add_argument("--attempts", type=int, default=4)
+
+    rt = sub.add_parser("reltest",
+                        help="chunked want_ack delivery of a >208 B toot (TTN-RFC-0007 §6)")
+    rt.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
+    rt.add_argument("--baud", type=int, default=115200)
+    rt.add_argument("--node", required=True, choices=list(NODE_IDS))
+    rt.add_argument("--size", type=int, default=500,
+                    help="payload bytes to send (default 500 -> 3 chunks)")
+    rt.add_argument("--settle", type=float, default=2.5)
+    rt.add_argument("--rto0", type=float, default=0.5)
+    rt.add_argument("--attempts", type=int, default=4)
     args = ap.parse_args()
 
     if args.cmd == "pull":
         pull(args.port, args.baud, args.node, args.out, args.timeout)
+    elif args.cmd == "ping":
+        ping(args.port, args.baud, args.node, args.settle, args.rto0,
+             args.attempts)
+    elif args.cmd == "reltest":
+        reltest(args.port, args.baud, args.node, args.size, args.settle,
+                args.rto0, args.attempts)
 
 
 if __name__ == "__main__":

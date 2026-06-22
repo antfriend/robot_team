@@ -159,10 +159,39 @@ If a fact lives in one of these, link to it from here — don't copy it.
   callback** (else its WiFi task starves its own TX), and **pace ESP-NOW bursts**
   (send-complete callback + small inter-frame gap); the laptop uses a **fresh
   `toot_seq` per request** so a non-reset target won't dedup-drop it.
-- **Next action: Phase 2 — reliability.** ~1/6 bridged pulls still drops a frame
-  (no ACK/retry yet). Add `want_ack` toots (ACK on `(src,seq[,chunk])` + retransmit
-  with backoff) and chunk/reassemble >208 B bodies, so a bridged pull is byte-exact
-  every time under induced loss. Testable now against the single K10 + V4-A.
+- **Next action: Phase 2.5 — fleet time-sync (improvised 2026-06-22).** Make the
+  3-node fleet (laptop + V4-A + K10) agree on a wall clock: the laptop pushes a
+  `TIME_SYNC(sync_id, epoch_ms)` toot through the bridge into ESP-NOW; every node
+  adopts `clock_offset = T − millis` and **writes a log record into its own TTDB**
+  (`@LAT99LON<sync_id>`, via a new `Ttdb::appendRecord` + re-index); the laptop logs
+  the same event to `master/orchestrator-sync.md`. Then `companion.py verify` pulls
+  all three, confirms each carries the `sync_id` record, and runs an **NTP-lite
+  probe** (`TIME_REQ`/`TIME_RESP`, round-trip-compensated) to report each node's
+  residual skew vs the laptop (target ≤ 50 ms). First laptop→mesh **CMD push** and
+  first **runtime TTDB self-write** — down-payments Phase 5/6. New time toots need an
+  RFC first (`RFCs/TTN-RFC-0008-Time-Sync.md`), and it builds on the reliability
+  layer **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (drafted 2026-06-22), which is
+  **Phase 2 and the prerequisite to build first**. Full plan: `PLAN.md` Phase 2.5.
+- **Build state (2026-06-22): firmware + libs code-complete for BOTH RFCs;
+  laptop side and on-device verification remain.** Implemented and committed to the
+  tree (not yet flashed — no g++/board this session):
+  - **TTN-RFC-0007:** `Toot` ACK helpers (`makeAck`/`parseAck`/`ackMatches`) + a
+    portable `Reassembler` (per-chunk dedup, recently-completed ring, TTL evict);
+    K10 emits/re-ACKs `want_ack` toots and routes chunked toots to the reassembler;
+    `companion.py` has `ping` + `reltest` (retransmit/backoff, selective per-chunk).
+  - **TTN-RFC-0008:** `TIME_SYNC`/`TIME_REQ`/`TIME_RESP` types + `put/get_u64` +
+    parse helpers; `Ttdb::appendRecord` (append + re-index); **K10 and V4-A both**
+    adopt the offset (sync_id-gated, exactly-once), append a `@LAT99LON<n>` sync-log
+    record, and answer `TIME_REQ` with `TIME_RESP`; the bridge forwards `TIME_RESP`
+    upward and injects `TIME_SYNC` into the mesh.
+  - **Tests:** `tests/test_toot.cpp` extended (ACK, reassembly, time payloads) —
+    native, runs on-device/with g++; `tests/test_ack_py.py` (11 checks) **passes**
+    in-session, pinning the laptop codec wire-exact to the firmware.
+  - **Remaining:** (1) `companion.py sync` + `verify` (broadcast `TIME_SYNC` with an
+    expected-responder set; NTP-lite skew probe — **use a fresh `toot_seq` per
+    `TIME_REQ`** or the K10 radio-dedup drops repeat probes); append the laptop
+    master record to `master/orchestrator-sync.md`. (2) Flash K10 + V4-A and run the
+    TTN-RFC-0007 §8 and 0008 §8 device checks. Then tick `PLAN.md` Phase 2 / 2.5.
 
 Keep this section current. It is the first thing the next session reads.
 

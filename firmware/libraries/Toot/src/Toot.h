@@ -43,6 +43,9 @@ enum Type : uint8_t {
   RELAY = 6,      // out-of-range toot for a LoRa node to forward
   TTDB_REQ = 7,   // companion -> node: "share part or all of your TTDB"
   TTDB_DATA = 8,  // node -> companion: one offset-addressed slice of the TTDB
+  TIME_SYNC = 9,  // companion -> fleet: set the wall clock (TTN-RFC-0008)
+  TIME_REQ = 10,  // companion -> node: "report your epoch now" (skew probe)
+  TIME_RESP = 11, // node -> companion: current epoch (ms)
 };
 
 enum Flags : uint8_t {
@@ -59,6 +62,19 @@ enum Flags : uint8_t {
 enum TtdbReqMode : uint8_t {
   TTDB_REQ_WHOLE = 0,  // entire file
   TTDB_REQ_RANGE = 1,  // bytes [start,end)
+};
+
+// ACK payload layout (TTN-RFC-0007 §3). The header's src/seq belong to the
+// acknowledging node, so the reference to the acked toot rides in the payload:
+//   [0..3] ack_src   u32 LE — src_node_id of the toot being acknowledged
+//   [4..7] ack_seq   u32 LE — toot_seq of the toot being acknowledged
+//   [8]    ack_chunk u8     — chunk_idx acknowledged (0 if unchunked)
+//   [9]    status    u8     — AckStatus
+const size_t ACK_PAYLOAD_LEN = 10;
+enum AckStatus : uint8_t {
+  ACK_ACCEPTED = 0,            // toot accepted and processed
+  ACK_REASSEMBLY_PENDING = 1,  // chunk stored, awaiting siblings
+  ACK_DROPPED_NO_RESRC = 2,    // no reassembly slot / evicted
 };
 
 struct Toot {
@@ -84,6 +100,14 @@ inline uint32_t get_u32(const uint8_t* p) {
   return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
          ((uint32_t)p[3] << 24);
 }
+inline void put_u64(uint8_t* p, uint64_t v) {
+  for (int i = 0; i < 8; ++i) p[i] = (uint8_t)(v >> (8 * i));
+}
+inline uint64_t get_u64(const uint8_t* p) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; ++i) v |= (uint64_t)p[i] << (8 * i);
+  return v;
+}
 
 // Serialize `t` into `out` (>= MAX_FRAME) and append the truncated HMAC.
 // Returns total frame length, or 0 on error.
@@ -93,6 +117,33 @@ size_t encode(const Toot& t, const uint8_t* key, size_t key_len, uint8_t* out,
 // Parse + verify (magic, version, HMAC). Returns true on success.
 bool decode(const uint8_t* in, size_t in_len, const uint8_t* key,
             size_t key_len, Toot& t);
+
+// --- ACK helpers (TTN-RFC-0007) --------------------------------------------
+// Build an ACK acknowledging `orig`, sent by node `acker_id` with its own
+// sequence `acker_seq`. Fills type/src/seq/payload; encode() it like any toot.
+void makeAck(const Toot& orig, uint32_t acker_id, uint32_t acker_seq,
+             uint8_t status, Toot& out);
+
+// Read an ACK's payload. False if `ack` is not type ACK or is too short.
+bool parseAck(const Toot& ack, uint32_t& ack_src, uint32_t& ack_seq,
+              uint8_t& ack_chunk, uint8_t& status);
+
+// True if `ack` acknowledges the toot identified by (my_id, my_seq, my_chunk) —
+// the match a want_ack sender applies against its outstanding table.
+bool ackMatches(const Toot& ack, uint32_t my_id, uint32_t my_seq,
+                uint8_t my_chunk);
+
+// --- Time-sync payloads (TTN-RFC-0008) -------------------------------------
+//   TIME_SYNC: sync_id u32 | epoch_ms u64        (companion -> fleet)
+//   TIME_REQ:  probe_id u32 | target_node_id u32 (companion -> one node)
+//   TIME_RESP: probe_id u32 | node_epoch_ms u64  (node -> companion)
+const size_t TIME_SYNC_PAYLOAD_LEN = 12;
+const size_t TIME_REQ_PAYLOAD_LEN = 8;
+const size_t TIME_RESP_PAYLOAD_LEN = 12;
+
+bool parseTimeSync(const Toot& t, uint32_t& sync_id, uint64_t& epoch_ms);
+bool parseTimeReq(const Toot& t, uint32_t& probe_id, uint32_t& target);
+bool parseTimeResp(const Toot& t, uint32_t& probe_id, uint64_t& node_epoch_ms);
 
 // Small ring of seen (src,seq) keys. seen() returns true if already present,
 // otherwise records the key and returns false.
@@ -116,6 +167,63 @@ class DedupSet {
   struct Entry { uint32_t src = 0; uint32_t seq = 0; };
   Entry* ring_;
   size_t cap_, head_, filled_;
+};
+
+#ifndef TOOT_REASSEMBLY_MAX_CHUNKS
+#define TOOT_REASSEMBLY_MAX_CHUNKS 8   // cap: 8*208 = 1664 B per logical toot
+#endif
+#ifndef TOOT_REASSEMBLY_SLOTS
+#define TOOT_REASSEMBLY_SLOTS 2        // concurrent (src,seq) sets (TTN-RFC-0007 §6)
+#endif
+#ifndef TOOT_REASSEMBLY_TTL_MS
+#define TOOT_REASSEMBLY_TTL_MS 5000    // evict a stalled partial set
+#endif
+
+// Reassembles a logical toot split across chunk_idx/chunk_total that share one
+// (src,seq) (TTN-RFC-0007 §6). Transport-agnostic and bounded for tight RAM. It
+// owns its own per-chunk dedup (the global DedupSet keys on (src,seq) alone, which
+// would wrongly collapse a chunked toot's siblings) plus a small recently-completed
+// ring so a duplicate arriving after completion is re-ACKed rather than re-buffered.
+class Reassembler {
+ public:
+  enum Result : uint8_t {
+    NEED_MORE,      // chunk stored, awaiting siblings -> ACK REASSEMBLY_PENDING
+    COMPLETE,       // this chunk completed the set; body()/bodyLen() valid -> ACCEPTED
+    DUPLICATE,      // chunk already present in an open set -> re-ACK PENDING
+    COMPLETED_DUP,  // (src,seq) completed earlier -> re-ACK ACCEPTED, no re-buffer
+    NO_RESOURCE,    // no slot for a new key -> ACK DROPPED_NO_RESRC
+    BAD,            // malformed (total<=1, total>max, idx>=total, total mismatch)
+  };
+
+  // Feed a decoded chunk toot. now_ms drives TTL eviction. On COMPLETE the
+  // assembled body is at body()/bodyLen() until the next offer().
+  Result offer(const Toot& t, uint32_t now_ms);
+  const uint8_t* body() const { return out_; }
+  size_t bodyLen() const { return out_len_; }
+
+ private:
+  struct Slot {
+    bool used = false;
+    uint32_t src = 0, seq = 0;
+    uint8_t total = 0, got = 0;
+    uint32_t last_ms = 0;
+    bool have[TOOT_REASSEMBLY_MAX_CHUNKS];
+    uint16_t len[TOOT_REASSEMBLY_MAX_CHUNKS];
+    uint8_t buf[TOOT_REASSEMBLY_MAX_CHUNKS * MAX_BODY];
+  };
+  Slot* find(uint32_t src, uint32_t seq);
+  Slot* allocate(uint32_t now_ms);
+  bool recentlyCompleted(uint32_t src, uint32_t seq) const;
+  void markCompleted(uint32_t src, uint32_t seq);
+
+  static const size_t kCompletedCap = 16;
+  Slot slots_[TOOT_REASSEMBLY_SLOTS];
+  uint32_t comp_src_[kCompletedCap] = {0};
+  uint32_t comp_seq_[kCompletedCap] = {0};
+  bool comp_valid_[kCompletedCap] = {false};
+  size_t comp_head_ = 0;
+  uint8_t out_[TOOT_REASSEMBLY_MAX_CHUNKS * MAX_BODY];
+  size_t out_len_ = 0;
 };
 
 }  // namespace toot

@@ -45,6 +45,16 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
   return true;
 }
 
+bool Ttdb::appendRecord(const char* text, size_t len) {
+  if (!fs_ || !text || len == 0) return false;
+  File f = fs_->open(path_, "a");
+  if (!f) return false;
+  size_t w = f.write(reinterpret_cast<const uint8_t*>(text), len);
+  f.close();
+  if (w != len) return false;
+  return begin(*fs_, path_);  // re-index: refreshes file_size_ + the record table
+}
+
 size_t Ttdb::readBytes(size_t offset, uint8_t* buf, size_t len) {
   if (!fs_ || offset >= file_size_) return 0;
   File f = fs_->open(path_, "r");

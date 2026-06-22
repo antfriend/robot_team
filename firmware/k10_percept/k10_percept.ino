@@ -49,9 +49,26 @@ static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 Ttdb gDb;
 TtdbShare* gShare = nullptr;
 toot::DedupSet gDedup(64);
+toot::Reassembler gReasm;   // chunked-toot reassembly (TTN-RFC-0007 §6)
 TootSerialLink gSerial(Serial);
 Agent32 gAgent(&gDb);
 uint32_t gSeq = 1;
+
+// --- wall clock (TTN-RFC-0008) ----------------------------------------------
+// No RTC: synthesize epoch ms from millis() + an offset adopted on TIME_SYNC.
+// Unsynced until the first TIME_SYNC; exactly-once adoption is gated on a
+// monotonic sync_id (not transport dedup), so the un-deduped paths stay correct.
+static int64_t gClockOffsetMs = 0;
+static bool gSynced = false;
+static uint32_t gLastSyncId = 0;
+static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
+
+// A TIME_SYNC adopts the offset in the recv path (for timing accuracy) but defers
+// the TTDB log-append to loop() (flash write + re-index, like the TTDB reply).
+static volatile bool gSyncPending = false;
+static uint32_t gPendSyncId = 0;
+static uint64_t gPendEpochMs = 0;
+static uint32_t gPendRecvMs = 0;
 
 // --- sense/act bindings -----------------------------------------------------
 // Sensor: onboard ambient temperature (AHT20), nominal range -20..60 C, mapped
@@ -167,17 +184,69 @@ static void emit(toot::Type type, const uint8_t* body, uint8_t n,
   if (flen) send(frame, flen, ctx);
 }
 
+// TTN-RFC-0007: acknowledge `orig` back to its sender on `reply`. Used both for a
+// freshly-accepted want_ack toot and for re-ACKing a dedup-dropped replay (§5).
+static void emitAck(const toot::Toot& orig, uint8_t status,
+                    TtdbShare::SendFn reply, void* ctx) {
+  toot::Toot ack;
+  toot::makeAck(orig, kNodeId, gSeq++, status, ack);
+  uint8_t frame[toot::MAX_FRAME];
+  size_t flen =
+      toot::encode(ack, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, frame, sizeof(frame));
+  if (flen) reply(frame, flen, ctx);
+}
+
 // Dispatch a decoded, authenticated toot arriving on any transport. `reply` is
 // the transport to answer on (ESP-NOW peer or serial). Dedup is a radio/mesh
 // concern (replay attacks + forwarding loops), so it is NOT applied here — the
 // trusted USB-CDC link is intentionally un-deduped so the laptop can retry a lost
 // request. Radio callers gate on gDedup before calling in (see onEspNowRecv).
 static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) {
+  bool accepted = false;
   switch (t.type) {
     case toot::TTDB_REQ:
+      // The streamed TTDB_DATA reply is itself the confirmation, so a TTDB_REQ is
+      // not separately ACKed.
       if (gShare && TtdbShare::requestTarget(t) == kNodeId)
         gShare->handleRequest(t, reply, ctx);
       break;
+    case toot::CMD:
+      // No command semantics yet; accept so a want_ack CMD is acknowledged. This
+      // is the receiver half exercised by TTN-RFC-0007 §8 test 1.
+      accepted = true;
+      break;
+    case toot::TIME_SYNC: {
+      // Adopt the offset here (recv-time millis() is most accurate); defer the
+      // TTDB append to loop(). Exactly-once on a monotonic sync_id (TTN-RFC-0008
+      // §3.1) — independent of dedup, so a retry can't double-append.
+      uint32_t sid; uint64_t ems;
+      if (toot::parseTimeSync(t, sid, ems)) {
+        uint32_t recv_ms = millis();
+        if (!gSynced || sid > gLastSyncId) {
+          gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
+          gSynced = true;
+          gLastSyncId = sid;
+          gPendSyncId = sid;
+          gPendEpochMs = ems;
+          gPendRecvMs = recv_ms;
+          gSyncPending = true;
+        }
+        accepted = true;  // ACK the want_ack TIME_SYNC (idempotent on replay)
+      }
+      break;
+    }
+    case toot::TIME_REQ: {
+      // Skew probe: only the addressed node answers, sampling its epoch as late as
+      // possible. Not want_ack — the TIME_RESP is itself the reply.
+      uint32_t pid, target;
+      if (toot::parseTimeReq(t, pid, target) && target == kNodeId) {
+        uint8_t body[toot::TIME_RESP_PAYLOAD_LEN];
+        toot::put_u32(body + 0, pid);
+        toot::put_u64(body + 4, (uint64_t)nowEpochMs());
+        emit(toot::TIME_RESP, body, sizeof(body), reply, ctx);
+      }
+      break;
+    }
     case toot::HELLO:
     case toot::PERCEPT:
     case toot::BELIEF:
@@ -186,6 +255,40 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
     default:
       break;
   }
+  // TTN-RFC-0007: acknowledge an accepted want_ack toot exactly once on this path.
+  // A replay arriving over the radio is re-ACKed in onEspNowRecv without reaching
+  // here (§5), so the body is processed once and the ACK stays idempotent.
+  if (accepted && (t.flags & toot::FLAG_WANT_ACK))
+    emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+}
+
+// A chunk of a logical toot (chunk_total > 1) goes to the Reassembler, which owns
+// per-chunk dedup and emits the per-chunk ACK status (TTN-RFC-0007 §6). Each call
+// sends at most one ACK frame, so running it in the recv callback is not a burst.
+static void handleChunk(const toot::Toot& t) {
+  toot::Reassembler::Result r = gReasm.offer(t, millis());
+  uint8_t status;
+  switch (r) {
+    case toot::Reassembler::NEED_MORE:
+    case toot::Reassembler::DUPLICATE:
+      status = toot::ACK_REASSEMBLY_PENDING;
+      break;
+    case toot::Reassembler::COMPLETE:
+      Serial.printf("[reasm] (0x%08X,%u) assembled %u bytes\n",
+                    (unsigned)t.src_node_id, (unsigned)t.toot_seq,
+                    (unsigned)gReasm.bodyLen());
+      status = toot::ACK_ACCEPTED;  // no large-toot consumer yet (Phase 6 BELIEF)
+      break;
+    case toot::Reassembler::COMPLETED_DUP:
+      status = toot::ACK_ACCEPTED;
+      break;
+    case toot::Reassembler::NO_RESOURCE:
+      status = toot::ACK_DROPPED_NO_RESRC;
+      break;
+    default:  // BAD
+      return;
+  }
+  if (t.flags & toot::FLAG_WANT_ACK) emitAck(t, status, sendEspNow, nullptr);
 }
 
 // A TTDB_REQ arriving over ESP-NOW is stashed here and served from loop(), not
@@ -198,7 +301,17 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t)) return;
-  if (gDedup.seen(t.src_node_id, t.toot_seq)) return;  // radio-path replay/loop guard
+  // Chunked toots bypass the (src,seq) dedup (which would collapse sibling chunks)
+  // and go to the Reassembler, which dedups per (src,seq,chunk_idx).
+  if (t.chunk_total > 1) { handleChunk(t); return; }
+  if (gDedup.seen(t.src_node_id, t.toot_seq)) {  // radio-path replay/loop guard
+    // TTN-RFC-0007 §5: the original ACK was evidently lost (the sender retried),
+    // so re-ACK the duplicate without re-processing its body. The dup frame
+    // self-identifies, so a fresh ACCEPTED ACK is correct for an unchunked toot.
+    if (t.flags & toot::FLAG_WANT_ACK)
+      emitAck(t, toot::ACK_ACCEPTED, sendEspNow, nullptr);
+    return;
+  }
   if (t.type == toot::TTDB_REQ) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
   } else {
@@ -266,6 +379,33 @@ void loop() {
     gReqPending = false;
     if (gShare && TtdbShare::requestTarget(gPendingReq) == kNodeId)
       gShare->handleRequest(gPendingReq, sendEspNow, nullptr);
+  }
+
+  // Write the TIME_SYNC log record deferred from the recv path (TTN-RFC-0008 §4):
+  // a new @LAT99LON<n> record, where n is the count of existing lat-99 records so
+  // each is unique under collision_policy: reject. Header times are unix seconds
+  // (timestamp_kind: unix); ms precision lives in the body.
+  if (gSyncPending) {
+    gSyncPending = false;
+    int n = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 99) ++n;
+    uint32_t t_sec = (uint32_t)(gPendEpochMs / 1000ULL);
+    int64_t offset = (int64_t)gPendEpochMs - (int64_t)gPendRecvMs;
+    char rec[200];
+    int m = snprintf(
+        rec, sizeof(rec),
+        "\n---\n\n@LAT99LON%d | created:%lu | updated:%lu | relates:logs@LAT0LON0"
+        "\n\n**SYNC** id:%lu t_ms:%llu recv_ms:%lu offset_ms:%lld\n",
+        n, (unsigned long)t_sec, (unsigned long)t_sec, (unsigned long)gPendSyncId,
+        (unsigned long long)gPendEpochMs, (unsigned long)gPendRecvMs,
+        (long long)offset);
+    if (m > 0 && gDb.appendRecord(rec, (size_t)m))
+      Serial.printf("[sync] id=%lu offset=%lldms logged @LAT99LON%d (TTDB now %uB)\n",
+                    (unsigned long)gPendSyncId, (long long)offset, n,
+                    (unsigned)gDb.fileSize());
+    else
+      Serial.println("[sync] appendRecord FAILED");
   }
 
   // Periodic HELLO beacon + percept tick.

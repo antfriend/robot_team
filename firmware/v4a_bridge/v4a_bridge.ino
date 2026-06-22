@@ -53,6 +53,15 @@ Ttdb gDb;
 TtdbShare* gShare = nullptr;
 toot::DedupSet gDedup(128);
 TootSerialLink gSerial(Serial);
+static uint32_t gSeq = 1;
+
+// Wall clock (TTN-RFC-0008): the bridge adopts TIME_SYNC like any node. It hears
+// the sync over the un-deduped USB link, so exactly-once adoption/append is gated
+// on a monotonic sync_id (§3.1), not on transport dedup.
+static int64_t gClockOffsetMs = 0;
+static bool gSynced = false;
+static uint32_t gLastSyncId = 0;
+static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
 
 static bool sendEspNow(const uint8_t* frame, size_t len, void*) {
   return esp_now_send(kBroadcast, frame, len) == ESP_OK;
@@ -67,6 +76,56 @@ static void injectToMesh(const uint8_t* frame, size_t len) {
   esp_now_send(kBroadcast, frame, len);
 }
 
+// Emit a fresh toot up the serial link to the laptop.
+static void emitSerial(toot::Type type, const uint8_t* body, uint8_t n) {
+  toot::Toot t;
+  t.type = type;
+  t.src_node_id = kNodeId;
+  t.toot_seq = gSeq++;
+  memcpy(t.locus, gLocus, toot::LOCUS_LEN);
+  if (n && body) memcpy(t.payload, body, n);
+  t.payload_len = n;
+  uint8_t fr[toot::MAX_FRAME];
+  size_t fl = toot::encode(t, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, fr, sizeof(fr));
+  if (fl) gSerial.writeFrame(fr, fl);
+}
+
+static void emitAckSerial(const toot::Toot& orig, uint8_t status) {
+  toot::Toot ack;
+  toot::makeAck(orig, kNodeId, gSeq++, status, ack);
+  uint8_t fr[toot::MAX_FRAME];
+  size_t fl = toot::encode(ack, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, fr, sizeof(fr));
+  if (fl) gSerial.writeFrame(fr, fl);
+}
+
+// Adopt a TIME_SYNC for the bridge itself and append its sync-log record. Gated on
+// the monotonic sync_id so a retransmit over the un-deduped USB link neither
+// re-adopts nor double-appends (TTN-RFC-0008 §3.1, §4).
+static void adoptTimeSync(const toot::Toot& t) {
+  uint32_t sid; uint64_t ems;
+  if (!toot::parseTimeSync(t, sid, ems)) return;
+  uint32_t recv_ms = millis();
+  if (gSynced && sid <= gLastSyncId) return;
+  gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
+  gSynced = true;
+  gLastSyncId = sid;
+  int n = 0;
+  for (int i = 0; i < gDb.recordCount(); ++i)
+    if (gDb.record(i).lat == 99) ++n;
+  uint32_t t_sec = (uint32_t)(ems / 1000ULL);
+  int64_t offset = (int64_t)ems - (int64_t)recv_ms;
+  char rec[200];
+  int m = snprintf(
+      rec, sizeof(rec),
+      "\n---\n\n@LAT99LON%d | created:%lu | updated:%lu | relates:logs@LAT0LON0"
+      "\n\n**SYNC** id:%lu t_ms:%llu recv_ms:%lu offset_ms:%lld\n",
+      n, (unsigned long)t_sec, (unsigned long)t_sec, (unsigned long)sid,
+      (unsigned long long)ems, (unsigned long)recv_ms, (long long)offset);
+  if (m > 0) gDb.appendRecord(rec, (size_t)m);
+  Serial.printf("[sync] bridge id=%lu offset=%lldms @LAT99LON%d (TTDB %uB)\n",
+                (unsigned long)sid, (long long)offset, n, (unsigned)gDb.fileSize());
+}
+
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
@@ -77,9 +136,10 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   gLastSrc = t.src_node_id;
   gOledDirty = true;
   // Bridge mesh -> laptop: anything destined upward (TTDB_DATA, telemetry,
-  // beliefs) is re-framed onto the serial link for the companion.
+  // beliefs, ACKs, skew-probe replies) is re-framed onto the serial link.
   if (t.type == toot::TTDB_DATA || t.type == toot::BELIEF ||
-      t.type == toot::PERCEPT || t.type == toot::ACK) {
+      t.type == toot::PERCEPT || t.type == toot::ACK ||
+      t.type == toot::TIME_RESP) {
     gSerial.writeFrame(data, (size_t)len);
     gBridged++;
   } else if (t.type == toot::TTDB_REQ &&
@@ -172,6 +232,24 @@ void loop() {
       if (t.type == toot::TTDB_REQ && TtdbShare::requestTarget(t) == kNodeId) {
         if (gShare) gShare->handleRequest(t, sendSerial, nullptr);
         gLocalServed++;
+      } else if (t.type == toot::TIME_SYNC) {
+        // The bridge adopts the sync itself, ACKs over serial, AND forwards it
+        // into the mesh so the leaves (K10) adopt too (TTN-RFC-0008 §2.1).
+        adoptTimeSync(t);
+        if (t.flags & toot::FLAG_WANT_ACK) emitAckSerial(t, toot::ACK_ACCEPTED);
+        injectToMesh(buf, n);
+        gInjected++;
+      } else if (t.type == toot::TIME_REQ) {
+        uint32_t pid, target;
+        if (toot::parseTimeReq(t, pid, target) && target == kNodeId) {
+          uint8_t body[toot::TIME_RESP_PAYLOAD_LEN];
+          toot::put_u32(body + 0, pid);
+          toot::put_u64(body + 4, (uint64_t)nowEpochMs());
+          emitSerial(toot::TIME_RESP, body, sizeof(body));
+        } else {
+          injectToMesh(buf, n);  // probe addressed to a mesh node
+          gInjected++;
+        }
       } else {
         injectToMesh(buf, n);
         gInjected++;

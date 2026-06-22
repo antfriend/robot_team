@@ -106,12 +106,83 @@ Residual: ~1/6 runs drop a frame (no ACK/retry yet) — that reliability is **Ph
 
 ---
 
-## Phase 2 — Reliability layer (ACK/retry + chunking)
+## Phase 2 — Reliability layer (ACK/retry + chunking) ◀ START HERE
 
-- [ ] `want_ack` toots: ACK on `(src,seq[,chunk])`; retransmit w/ backoff.
-- [ ] Chunk + reassemble a toot larger than the 208 B body budget.
+Spec: **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (Proposed 2026-06-22) — pins the
+ACK payload, retransmit/backoff params, the **dedup-vs-ACK re-ACK rule** (§5, the
+load-bearing gotcha: a dedup-dropped `want_ack` toot MUST be re-ACKed, body
+processed once), and chunk reassembly. This is the dependency for Phase 2.5's
+`TIME_SYNC`, so it lands first.
 
-**Done when:** a >208 B toot is delivered intact under induced packet loss.
+- [ ] `want_ack` toots: ACK payload `(ack_src,ack_seq,ack_chunk,status)`; sender
+      retransmits from `loop()` with ×2 backoff, `N=4` (RTO0 150 ms direct /
+      500 ms via bridge); declares undelivered on exhaustion (never silent).
+- [ ] Receiver re-ACK ring: a dedup-dropped `want_ack` toot re-emits its stored ACK
+      without re-processing the body (TTN-RFC-0007 §5).
+- [ ] Chunk + reassemble a toot larger than the 208 B body budget: per-chunk ACK,
+      `(src,seq)` reassembly key, `MAX_REASSEMBLIES=2`, `REASSEMBLY_TTL=5 s`.
+
+**Done when:** TTN-RFC-0007 §8 tests 1–5 pass against the K10 + V4-A — including a
+>208 B toot delivered intact under induced packet loss, and an induced ACK loss that
+proves the body is written exactly once while the sender still clears.
+
+---
+
+## Phase 2.5 — Fleet time-sync (laptop timestamp → node TTDB log → verify in-sync) ◀ NEXT
+
+Improvised milestone (2026-06-22): prove the **3-node fleet (laptop + V4-A + K10)
+agrees on a wall clock**. The laptop is the only timekeeper; it pushes a timestamp
+into the mesh, every node adopts it and **writes a log record into its own TTDB**,
+and the laptop then pulls all three and verifies they carry the same sync event and
+are in sync. This is the first time data flows **laptop → mesh as a command** and
+the first time a node **writes its own TTDB at runtime** — it down-payments Phase 5
+(CMD inject) and Phase 6 (node TTDB re-authoring). It rides the existing bridge
+inject path (`v4a_bridge.ino` already forwards any non-`TTDB_REQ` toot into ESP-NOW).
+
+**Why now / why honest:** nodes have no RTC or NTP — only `millis()`. "Sync" means
+each node adopts `clock_offset = T − millis_at_receipt` so its wall clock is the
+laptop's epoch minus the one-way delivery delay. We *measure* that residual with an
+NTP-lite probe rather than asserting it, so the "in sync within X ms" claim is real.
+
+### New toot types (needs an RFC first — `RFCs/TTN-RFC-0008-Time-Sync.md`, builds on TTN-RFC-0007)
+Per project convention (new toot type → RFC before code). Three types:
+- `TIME_SYNC = 9` — laptop → fleet. Payload: `sync_id (u32) | epoch_ms (u64 LE)`.
+  Broadcast through the bridge; **every** node that hears it adopts the offset and
+  appends its TTDB log record (the V4-A adopts it as it passes the frame on).
+- `TIME_REQ  = 10` — laptop → node. Payload: `probe_id (u32)`. "Report your epoch now."
+- `TIME_RESP = 11` — node → laptop. Payload: `probe_id (u32) | node_epoch_ms (u64 LE)`.
+
+### Firmware (K10 + V4-A)
+- [ ] `Ttdb::appendRecord(text, len)` in `libraries/TTDB`: open the LittleFS
+      `ttdb.md` in append mode, write a well-formed record block, close, re-run the
+      offset index. Record uses a reserved time-log lane so it doesn't collide with
+      the `collision_policy: reject` header — coordinate `@LAT99LON<sync_id>`:
+      ```
+      ---
+      @LAT99LON<sync_id> | created:<T> | updated:<T> | relates:
+      **SYNC** id:<sync_id> t_ms:<T> recv_ms:<millis> offset_ms:<T-millis>
+      ```
+- [ ] Clock module: hold `gClockOffsetMs`; `nowEpochMs() = millis() + gClockOffsetMs`.
+- [ ] `handleToot`: on `TIME_SYNC` set the offset + `appendRecord`; on `TIME_REQ`
+      reply `TIME_RESP(probe_id, nowEpochMs())`. Keep dedup **radio-only** as today.
+- [ ] Delivery: `TIME_SYNC` is fire-and-forget today (~5/6 bridged frames land),
+      so resend it N times (or set `FLAG_WANT_ACK` once Phase 2 lands). The K10
+      still serves replies from `loop()`, not the recv callback (Phase 1b lesson).
+
+### Companion (`orchestrator/companion.py`)
+- [ ] `sync` subcommand: pick `sync_id` + `T = now_ms`, broadcast `TIME_SYNC` through
+      the bridge port, and append the same record to the laptop master
+      (`master/orchestrator-sync.md`) so the laptop is the 3rd "node."
+- [ ] `verify --sync-id N` subcommand, two assertions:
+      1. **Has the record** — `pull` the K10 (through the bridge) and the V4-A
+         (local), parse for a record with `id:N`; confirm laptop master has it too.
+      2. **In sync** — NTP-lite per node: note `t0`, send `TIME_REQ`, read
+         `TIME_RESP`, note `t1`; `skew = node_epoch − (t0 + (t1−t0)/2)`. Take the
+         min-RTT sample of a few probes. Print a table: node | has_record | skew_ms.
+
+**Done when:** after one `companion.py sync`, all three TTDBs (K10, V4-A, laptop
+master) carry the same `sync_id` log record, and the NTP-lite probe shows the K10
+and V4-A clocks within a stated bound (target: ≤ 50 ms) of the laptop. Reproducible.
 
 ---
 

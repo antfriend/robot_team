@@ -27,6 +27,13 @@ class Ttdb {
   // Raw byte window — the primitive behind whole-file network sharing.
   size_t readBytes(size_t offset, uint8_t* buf, size_t len);
 
+  // Append a complete, well-formed record block (separator + header line + body,
+  // per TTDB-RFC-0001) to the file and re-index so it is immediately visible to
+  // readBytes()/recordCount()/nearest() and to the next network pull. The first
+  // runtime writer of a node's TTDB (TTN-RFC-0008 sync log). Returns false if the
+  // file can't be opened/written or the re-index fails.
+  bool appendRecord(const char* text, size_t len);
+
   // Byte span of record `index` (header line through just before the next
   // record or EOF).
   bool recordSpan(int index, size_t& offset, size_t& length) const;
