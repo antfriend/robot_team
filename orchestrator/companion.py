@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import hmac
 import os
+import re
 import struct
 import sys
 import time
@@ -55,7 +56,17 @@ CMD = 4
 ACK = 5
 TTDB_REQ = 7
 TTDB_DATA = 8
+TIME_SYNC = 9
+TIME_REQ = 10
+TIME_RESP = 11
 TTDB_REQ_WHOLE = 0
+
+# Time-sync payload lengths (TTN-RFC-0008).
+TIME_SYNC_PAYLOAD_LEN = 12   # sync_id u32 | epoch_ms u64
+TIME_REQ_PAYLOAD_LEN = 8     # probe_id u32 | target_node_id u32
+TIME_RESP_PAYLOAD_LEN = 12   # probe_id u32 | node_epoch_ms u64
+
+DEFAULT_MASTER_SYNC = os.path.join("master", "orchestrator-sync.md")
 
 # Flags (Toot.h Flags).
 FLAG_WANT_ACK = 1 << 0
@@ -122,6 +133,34 @@ def parse_ack(t):
     return (ack_src, ack_seq, p[8], p[9])
 
 
+def parse_time_resp(t):
+    """Read a TIME_RESP toot dict. Returns (probe_id, node_epoch_ms) or None."""
+    if t["type"] != TIME_RESP:
+        return None
+    p = t["payload"]
+    if len(p) < TIME_RESP_PAYLOAD_LEN:
+        return None
+    probe_id = struct.unpack("<I", p[0:4])[0]
+    node_epoch_ms = struct.unpack("<Q", p[4:12])[0]
+    return (probe_id, node_epoch_ms)
+
+
+def open_serial_no_reset(port, baud):
+    """Open the bridge port WITHOUT the DTR/RTS auto-reset, so a node's in-RAM
+    clock offset (TTN-RFC-0008) survives a reconnect — essential between `sync` and
+    `verify`, which are separate invocations. (`pull` keeps its reset+settle: it
+    only reads flash, which is offset-independent.)"""
+    import serial  # pyserial
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = baud
+    ser.timeout = 0.1
+    ser.dtr = False   # deassert before open so the S3 native-USB reset doesn't fire
+    ser.rts = False
+    ser.open()
+    return ser
+
+
 def write_serial_frame(ser, frame: bytes):
     ser.write(b"\xAB\xCD" + struct.pack("<H", len(frame)) + frame)
     ser.flush()
@@ -166,59 +205,61 @@ def pull(port, baud, node, out_path, timeout):
         sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
     target = NODE_IDS[node]
 
-    req_payload = bytes([TTDB_REQ_WHOLE]) + struct.pack("<I", target)
-    # Use a fresh, monotonic toot_seq per invocation. Radio-path dedup keys on
-    # (src,seq): over the bridge the target node is NOT reset when we open the
-    # bridge's port, so a fixed seq would be dropped as a replay on a 2nd pull.
-    seq = int(time.time()) & 0x7FFFFFFF
-    req = encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload)
-
-    slices = {}            # offset -> bytes
-    eof_offset = None
     reader = SerialFrameReader()
-
     with serial.Serial(port, baud, timeout=0.1) as ser:
-        # Opening the port resets the ESP32-S3 (DTR/RTS), so the node reboots
-        # here. Wait out its boot (LittleFS mount + k10.begin) before the request,
-        # or it lands during boot and is dropped. ~2.5s covers the K10 cold start.
+        # Opening the port resets the ESP32-S3 (DTR/RTS), so the node reboots here.
+        # Wait out its boot (LittleFS mount + k10.begin) before the request, or it
+        # lands during boot and is dropped. ~2.5s covers the K10 cold start. (A pull
+        # only reads flash, so the reset is harmless here — unlike sync/verify.)
         time.sleep(2.5)
         ser.reset_input_buffer()   # discard the boot log so it isn't parsed as frames
-        write_serial_frame(ser, req)
         print(f"requested whole TTDB from {node} (0x{target:08X}) on {port}")
+        data = request_ttdb(ser, reader, target, timeout)
 
-        deadline = time.time() + timeout
-        last_rx = time.time()
-        while time.time() < deadline:
-            chunk = ser.read(256)
-            if chunk:
-                last_rx = time.time()
-                for frame in reader.feed(chunk):
-                    t = decode_toot(frame)
-                    if not t or t["type"] != TTDB_DATA or t["src"] != target:
-                        continue
-                    p = t["payload"]
-                    if len(p) < 6:
-                        continue
-                    off = struct.unpack("<I", p[0:4])[0]
-                    n = struct.unpack("<H", p[4:6])[0]
-                    if n == 0:
-                        eof_offset = off       # EOF marker
-                    else:
-                        slices[off] = p[6:6 + n]
-            if eof_offset is not None:
-                break
-            if time.time() - last_rx > 3.0:
-                print("warning: 3s without data; the node may not have replied")
-                break
-
-    if not slices and eof_offset is None:
+    if data is None:
         sys.exit("no TTDB data received (check port, node id, and the key)")
-
-    data = reassemble(slices, eof_offset)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
     print(f"wrote {len(data)} bytes to {out_path}")
+
+
+def request_ttdb(ser, reader, target, timeout=20.0):
+    """Request a node's whole TTDB over an already-open link; return the
+    reassembled bytes, or None. Shared by `pull` and `verify`. A fresh toot_seq
+    keeps a non-reset target from dedup-dropping a repeated request."""
+    req_payload = bytes([TTDB_REQ_WHOLE]) + struct.pack("<I", target)
+    seq = int(time.time()) & 0x7FFFFFFF
+    write_serial_frame(ser, encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload))
+
+    slices = {}            # offset -> bytes
+    eof_offset = None
+    deadline = time.time() + timeout
+    last_rx = time.time()
+    while time.time() < deadline:
+        chunk = ser.read(256)
+        if chunk:
+            last_rx = time.time()
+            for frame in reader.feed(chunk):
+                t = decode_toot(frame)
+                if not t or t["type"] != TTDB_DATA or t["src"] != target:
+                    continue
+                p = t["payload"]
+                if len(p) < 6:
+                    continue
+                off = struct.unpack("<I", p[0:4])[0]
+                n = struct.unpack("<H", p[4:6])[0]
+                if n == 0:
+                    eof_offset = off       # EOF marker
+                else:
+                    slices[off] = p[6:6 + n]
+        if eof_offset is not None:
+            break
+        if time.time() - last_rx > 3.0:
+            break
+    if not slices and eof_offset is None:
+        return None
+    return reassemble(slices, eof_offset)
 
 
 def reassemble(slices, eof_offset):
@@ -371,6 +412,228 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
         sys.exit(f"only {delivered}/{total} chunks delivered — INCOMPLETE")
 
 
+# --- Time-sync (TTN-RFC-0008) ----------------------------------------------
+MASTER_SYNC_HEADER = """# Orchestrator Master Sync Log
+
+```mmpdb
+db_id: orchestrator-sync-001
+db_name: Orchestrator Master Sync Log
+coord_increment:
+  lat: 1
+  lon: 1
+collision_policy: reject
+timestamp_kind: unix
+umwelt:
+  umwelt_id: orchestrator
+  role: companion-orchestrator
+  scope: master
+```
+
+```cursor
+lat: 0
+lon: 0
+```
+"""
+
+# Match the firmware sync record so the same parser reads every node's log.
+SYNC_RE = re.compile(r"\*\*SYNC\*\*\s+id:(\d+)")
+
+
+def next_sync_id(master_path):
+    """Monotonic sync_id = max id in the master log + 1 (1 if none)."""
+    if not os.path.exists(master_path):
+        return 1
+    with open(master_path, encoding="utf-8") as f:
+        ids = [int(m) for m in SYNC_RE.findall(f.read())]
+    return (max(ids) + 1) if ids else 1
+
+
+def append_master_sync_record(master_path, sync_id, epoch_ms):
+    """Append the laptop's own sync record (the 3rd 'node'). The laptop is the
+    time source, so offset_ms = 0 and recv_ms = epoch_ms (TTN-RFC-0008 §4.2)."""
+    os.makedirs(os.path.dirname(os.path.abspath(master_path)), exist_ok=True)
+    new_file = not os.path.exists(master_path)
+    n = 0
+    if not new_file:
+        with open(master_path, encoding="utf-8") as f:
+            n = len(re.findall(r"@LAT99LON", f.read()))
+    t_sec = epoch_ms // 1000
+    with open(master_path, "a", encoding="utf-8", newline="\n") as f:
+        if new_file:
+            f.write(MASTER_SYNC_HEADER)
+        f.write(f"\n---\n\n@LAT99LON{n} | created:{t_sec} | updated:{t_sec} | "
+                f"relates:logs@LAT0LON0\n\n")
+        f.write(f"**SYNC** id:{sync_id} t_ms:{epoch_ms} recv_ms:{epoch_ms} "
+                f"offset_ms:0\n")
+
+
+def master_has_record(master_path, sync_id):
+    if not os.path.exists(master_path):
+        return False
+    with open(master_path, encoding="utf-8") as f:
+        return f"**SYNC** id:{sync_id}" in f.read()
+
+
+def broadcast_time_sync(ser, reader, sync_id, epoch_ms, expected_ids,
+                        rto0=0.5, attempts=4):
+    """Broadcast a want_ack TIME_SYNC and retransmit until every expected
+    responder ACKs or attempts run out (TTN-RFC-0007 §4 + TTN-RFC-0008 §5). The
+    ACK header src identifies the responder. Returns the set of still-unacked ids."""
+    seq = int(time.time()) & 0x7FFFFFFF
+    payload = struct.pack("<I", sync_id) + struct.pack("<Q", epoch_ms)
+    frame = encode_toot(TIME_SYNC, ORCHESTRATOR_ID, seq, payload,
+                        flags=FLAG_WANT_ACK)
+    pending = set(expected_ids)
+    rto = rto0
+    for attempt in range(1, attempts + 1):
+        write_serial_frame(ser, frame)
+        print(f"  attempt {attempt}/{attempts}: TIME_SYNC id={sync_id} "
+              f"(awaiting {len(pending)} ACK, rto {rto:.2f}s)")
+        deadline = time.time() + rto
+        while time.time() < deadline and pending:
+            data = ser.read(256)
+            if not data:
+                continue
+            for fr in reader.feed(data):
+                t = decode_toot(fr)
+                if not t or t["type"] != ACK:
+                    continue
+                pa = parse_ack(t)
+                if pa and pa[0] == ORCHESTRATOR_ID and pa[1] == seq:
+                    pending.discard(t["src"])
+        if not pending:
+            return set()
+        rto *= 2
+    return pending
+
+
+def ntp_probe(ser, reader, target, probes=5, per_timeout=1.0):
+    """NTP-lite skew probe (TTN-RFC-0008 §6). Returns (skew_ms, rtt_ms) from the
+    minimum-RTT sample, or None if the node never answered. A FRESH toot_seq per
+    probe is mandatory: a repeated (src,seq) is dropped by the node's radio dedup."""
+    best = None  # (rtt, skew)
+    base = int(time.time() * 1000) & 0x7FFFFFFF
+    old_to = ser.timeout
+    ser.timeout = 0   # non-blocking reads so t1 reflects arrival, not poll quantum
+    try:
+        for k in range(probes):
+            pid = (base + k) & 0x7FFFFFFF      # fresh probe id == fresh toot_seq
+            payload = struct.pack("<I", pid) + struct.pack("<I", target)
+            frame = encode_toot(TIME_REQ, ORCHESTRATOR_ID, pid, payload)
+            t0 = time.time() * 1000.0
+            write_serial_frame(ser, frame)
+            node_epoch = None
+            deadline = time.time() + per_timeout
+            while time.time() < deadline and node_epoch is None:
+                data = ser.read(256)
+                if not data:
+                    time.sleep(0.0005)         # ~0.5 ms loop; keep RTT tight
+                    continue
+                for fr in reader.feed(data):
+                    t = decode_toot(fr)
+                    if not t or t["type"] != TIME_RESP or t["src"] != target:
+                        continue
+                    pr = parse_time_resp(t)
+                    if pr and pr[0] == pid:
+                        node_epoch = pr[1]
+                        break
+            if node_epoch is None:
+                continue
+            t1 = time.time() * 1000.0
+            rtt = t1 - t0
+            skew = node_epoch - (t0 + rtt / 2.0)  # node ahead(+) / behind(-) laptop
+            if best is None or rtt < best[0]:
+                best = (rtt, skew)
+    finally:
+        ser.timeout = old_to
+    return None if best is None else (best[1], best[0])
+
+
+def sync(port, baud, expect, master, settle, rto0, attempts):
+    try:
+        import serial  # noqa: F401  (open_serial_no_reset imports it)
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    for name in expect:
+        if name not in NODE_IDS:
+            sys.exit(f"unknown node '{name}'. choices: {', '.join(NODE_IDS)}")
+    targets = {NODE_IDS[name]: name for name in expect}
+
+    sync_id = next_sync_id(master)
+    reader = SerialFrameReader()
+    ser = open_serial_no_reset(port, baud)
+    try:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        # Sample epoch_ms HERE — right before the broadcast, after the settle — so
+        # the timestamp the nodes adopt isn't stale by the settle duration. The
+        # residual is then only the one-way delivery delay, which `verify` measures.
+        epoch_ms = int(time.time() * 1000)
+        print(f"sync id={sync_id} epoch_ms={epoch_ms}; "
+              f"broadcasting TIME_SYNC through {port}; expecting ACK from {expect}")
+        unacked = broadcast_time_sync(ser, reader, sync_id, epoch_ms,
+                                      set(targets), rto0, attempts)
+    finally:
+        ser.close()
+    append_master_sync_record(master, sync_id, epoch_ms)   # log the broadcast epoch
+
+    if not unacked:
+        print(f"sync id={sync_id}: all nodes adopted (ACKed) + master logged")
+    else:
+        names = [targets[i] for i in unacked]
+        sys.exit(f"sync id={sync_id}: NO ACK from {names} — unsynced "
+                 f"(run again, or check the bridge/mesh)")
+
+
+def verify(port, baud, nodes, sync_id, bound_ms, master, settle, probes):
+    try:
+        import serial  # noqa: F401
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    for name in nodes:
+        if name not in NODE_IDS:
+            sys.exit(f"unknown node '{name}'. choices: {', '.join(NODE_IDS)}")
+
+    needle = f"**SYNC** id:{sync_id}".encode()
+    reader = SerialFrameReader()
+    rows = []  # (name, has_record, skew_ms, rtt_ms)
+    ser = open_serial_no_reset(port, baud)
+    try:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        for name in nodes:
+            target = NODE_IDS[name]
+            data = request_ttdb(ser, reader, target)         # Assertion A
+            has = data is not None and needle in data
+            best = ntp_probe(ser, reader, target, probes)     # Assertion B
+            skew, rtt = (best if best else (None, None))
+            rows.append((name, has, skew, rtt))
+    finally:
+        ser.close()
+
+    master_ok = master_has_record(master, sync_id)
+
+    print(f"\nverify sync id={sync_id} (bound +/-{bound_ms} ms)")
+    print(f"{'node':<14}{'has_record':<12}{'skew_ms':>10}{'rtt_ms':>10}")
+    ok = master_ok
+    for name, has, skew, rtt in rows:
+        skew_s = f"{skew:+.1f}" if skew is not None else "  n/a"
+        rtt_s = f"{rtt:.1f}" if rtt is not None else " n/a"
+        in_bound = skew is not None and abs(skew) <= bound_ms
+        print(f"{name:<14}{('yes' if has else 'NO'):<12}{skew_s:>10}{rtt_s:>10}"
+              f"{'' if (has and in_bound) else '   <-- FAIL'}")
+        ok = ok and has and in_bound
+    print(f"{'(laptop)':<14}{('yes' if master_ok else 'NO'):<12}"
+          f"{'+0.0':>10}{'-':>10}")
+
+    if ok:
+        print(f"\nPASS: all 3 carry sync id={sync_id} and are within "
+              f"+/-{bound_ms} ms")
+    else:
+        sys.exit(f"\nFAIL: sync id={sync_id} not present everywhere or skew "
+                 f"out of bound")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -401,6 +664,31 @@ def main():
     rt.add_argument("--settle", type=float, default=2.5)
     rt.add_argument("--rto0", type=float, default=0.5)
     rt.add_argument("--attempts", type=int, default=4)
+
+    sy = sub.add_parser("sync", help="push a timestamp to the fleet (TTN-RFC-0008)")
+    sy.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
+    sy.add_argument("--baud", type=int, default=115200)
+    sy.add_argument("--expect", default="v4a_bridge,k10_1",
+                    help="comma-separated nodes expected to ACK the sync")
+    sy.add_argument("--master", default=DEFAULT_MASTER_SYNC,
+                    help="laptop master sync log to append")
+    sy.add_argument("--settle", type=float, default=0.5,
+                    help="post-open drain (s); sync/verify open WITHOUT reset")
+    sy.add_argument("--rto0", type=float, default=0.5)
+    sy.add_argument("--attempts", type=int, default=4)
+
+    vf = sub.add_parser("verify",
+                        help="confirm each node has the sync record + measure skew")
+    vf.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
+    vf.add_argument("--baud", type=int, default=115200)
+    vf.add_argument("--sync-id", type=int, required=True, dest="sync_id",
+                    help="the sync_id to verify (printed by `sync`)")
+    vf.add_argument("--nodes", default="v4a_bridge,k10_1",
+                    help="comma-separated nodes to check")
+    vf.add_argument("--bound-ms", type=float, default=50.0, dest="bound_ms")
+    vf.add_argument("--master", default=DEFAULT_MASTER_SYNC)
+    vf.add_argument("--settle", type=float, default=0.5)
+    vf.add_argument("--probes", type=int, default=5)
     args = ap.parse_args()
 
     if args.cmd == "pull":
@@ -411,6 +699,12 @@ def main():
     elif args.cmd == "reltest":
         reltest(args.port, args.baud, args.node, args.size, args.settle,
                 args.rto0, args.attempts)
+    elif args.cmd == "sync":
+        sync(args.port, args.baud, [s for s in args.expect.split(",") if s],
+             args.master, args.settle, args.rto0, args.attempts)
+    elif args.cmd == "verify":
+        verify(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+               args.sync_id, args.bound_ms, args.master, args.settle, args.probes)
 
 
 if __name__ == "__main__":

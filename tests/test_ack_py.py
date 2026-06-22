@@ -75,5 +75,33 @@ cd = c.decode_toot(cf)
 check(cd and cd["chunk_idx"] == 1 and cd["chunk_total"] == 3,
       "chunk_idx/chunk_total round-trip through the frame")
 
+# 9) Time-sync payloads (TTN-RFC-0008) round-trip with a >32-bit epoch.
+sid, epoch = 7, 1750000000123
+ts = c.decode_toot(c.encode_toot(c.TIME_SYNC, c.ORCHESTRATOR_ID, 1,
+                                 struct.pack("<I", sid) + struct.pack("<Q", epoch)))
+got_sid = struct.unpack("<I", ts["payload"][0:4])[0]
+got_epoch = struct.unpack("<Q", ts["payload"][4:12])[0]
+check(got_sid == sid and got_epoch == epoch,
+      "TIME_SYNC payload round-trips (u32 sync_id + u64 epoch_ms)")
+
+tr = c.decode_toot(c.encode_toot(c.TIME_RESP, c.NODE_IDS["k10_1"], 1,
+                                 struct.pack("<I", 42) + struct.pack("<Q", epoch)))
+check(c.parse_time_resp(tr) == (42, epoch),
+      "parse_time_resp returns (probe_id, node_epoch_ms)")
+
+# 10) Master sync log: monotonic id, append, presence, firmware-matching format.
+import tempfile  # noqa: E402
+tmp = os.path.join(tempfile.mkdtemp(), "orchestrator-sync.md")
+check(c.next_sync_id(tmp) == 1, "first sync_id is 1 when no master log exists")
+c.append_master_sync_record(tmp, 1, 1750000000000)
+c.append_master_sync_record(tmp, 2, 1750000005000)
+check(c.next_sync_id(tmp) == 3, "next_sync_id is max(id)+1 after two records")
+check(c.master_has_record(tmp, 2) and not c.master_has_record(tmp, 9),
+      "master_has_record matches present / absent ids")
+txt = open(tmp, encoding="utf-8").read()
+check(len(c.SYNC_RE.findall(txt)) == 2 and "@LAT99LON0" in txt and
+      "@LAT99LON1" in txt,
+      "master uses @LAT99LON<n> lane + parseable **SYNC** lines (firmware format)")
+
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

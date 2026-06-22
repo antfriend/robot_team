@@ -38,10 +38,10 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 
 | Agent | Board | Role | Spine pos | Links | Power | Sketch | Status |
 |-------|-------|------|-----------|-------|-------|--------|--------|
-| **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, TTDB-share + HMAC auth over USB-CDC; byte-exact pull; OLED status display; LoRa gated off) |
+| **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | 🟨 scaffold (ttl/dedup forward; LoRa gated off) |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
-| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop runs, LCD shows both records + cursor/WARM, startup "toot toot"; ESP-NOW HELLO + TTDB-share over ESP-NOW & USB) |
+| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**) |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
@@ -159,39 +159,32 @@ If a fact lives in one of these, link to it from here — don't copy it.
   callback** (else its WiFi task starves its own TX), and **pace ESP-NOW bursts**
   (send-complete callback + small inter-frame gap); the laptop uses a **fresh
   `toot_seq` per request** so a non-reset target won't dedup-drop it.
-- **Next action: Phase 2.5 — fleet time-sync (improvised 2026-06-22).** Make the
-  3-node fleet (laptop + V4-A + K10) agree on a wall clock: the laptop pushes a
-  `TIME_SYNC(sync_id, epoch_ms)` toot through the bridge into ESP-NOW; every node
-  adopts `clock_offset = T − millis` and **writes a log record into its own TTDB**
-  (`@LAT99LON<sync_id>`, via a new `Ttdb::appendRecord` + re-index); the laptop logs
-  the same event to `master/orchestrator-sync.md`. Then `companion.py verify` pulls
-  all three, confirms each carries the `sync_id` record, and runs an **NTP-lite
-  probe** (`TIME_REQ`/`TIME_RESP`, round-trip-compensated) to report each node's
-  residual skew vs the laptop (target ≤ 50 ms). First laptop→mesh **CMD push** and
-  first **runtime TTDB self-write** — down-payments Phase 5/6. New time toots need an
-  RFC first (`RFCs/TTN-RFC-0008-Time-Sync.md`), and it builds on the reliability
-  layer **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (drafted 2026-06-22), which is
-  **Phase 2 and the prerequisite to build first**. Full plan: `PLAN.md` Phase 2.5.
-- **Build state (2026-06-22): firmware + libs code-complete for BOTH RFCs;
-  laptop side and on-device verification remain.** Implemented and committed to the
-  tree (not yet flashed — no g++/board this session):
-  - **TTN-RFC-0007:** `Toot` ACK helpers (`makeAck`/`parseAck`/`ackMatches`) + a
-    portable `Reassembler` (per-chunk dedup, recently-completed ring, TTL evict);
-    K10 emits/re-ACKs `want_ack` toots and routes chunked toots to the reassembler;
-    `companion.py` has `ping` + `reltest` (retransmit/backoff, selective per-chunk).
-  - **TTN-RFC-0008:** `TIME_SYNC`/`TIME_REQ`/`TIME_RESP` types + `put/get_u64` +
-    parse helpers; `Ttdb::appendRecord` (append + re-index); **K10 and V4-A both**
-    adopt the offset (sync_id-gated, exactly-once), append a `@LAT99LON<n>` sync-log
-    record, and answer `TIME_REQ` with `TIME_RESP`; the bridge forwards `TIME_RESP`
-    upward and injects `TIME_SYNC` into the mesh.
-  - **Tests:** `tests/test_toot.cpp` extended (ACK, reassembly, time payloads) —
-    native, runs on-device/with g++; `tests/test_ack_py.py` (11 checks) **passes**
-    in-session, pinning the laptop codec wire-exact to the firmware.
-  - **Remaining:** (1) `companion.py sync` + `verify` (broadcast `TIME_SYNC` with an
-    expected-responder set; NTP-lite skew probe — **use a fresh `toot_seq` per
-    `TIME_REQ`** or the K10 radio-dedup drops repeat probes); append the laptop
-    master record to `master/orchestrator-sync.md`. (2) Flash K10 + V4-A and run the
-    TTN-RFC-0007 §8 and 0008 §8 device checks. Then tick `PLAN.md` Phase 2 / 2.5.
+- **Phase 2 + Phase 2.5 are ✅ on-device verified (2026-06-22, K10 COM3 + V4-A
+  COM6).** Both RFCs built, flashed, and run on real hardware:
+  - **TTN-RFC-0007 (reliability):** `companion.py ping --node k10_1` ACKed on attempt
+    1; `reltest --size 500` delivered a 3-chunk toot and **recovered 2 air-dropped
+    chunks by selective retransmit**, completing the set. Built on `Toot` ACK helpers
+    + a portable `Reassembler` (per-chunk dedup, completed ring, TTL evict) and the
+    K10 re-ACK-on-dedup path.
+  - **TTN-RFC-0008 (time-sync):** `companion.py sync` → both nodes adopt + ACK on
+    attempt 1; `verify --sync-id 2` → all three carry `**SYNC** id:2` and skew is
+    **v4a_bridge −2.4 ms, k10_1 −30.6 ms** (within ±50 ms; the −30 ms is the honest
+    one-way delivery delay). The K10's on-flash TTDB grew 1114→1426 B with two
+    `@LAT99LON<n>` records, pulled back byte-exact — **first runtime TTDB self-write.**
+    `sync_id`-gated exactly-once adoption (incl. the bridge's un-deduped USB path);
+    `sync`/`verify` open the bridge without the DTR/RTS reset so it keeps its offset.
+  - **Tests:** `tests/test_ack_py.py` (17 checks) passes in-session; `test_toot.cpp`
+    extended (ACK + reassembly + time payloads) for the native/g++ gate.
+  - **Two laptop-side timing bugs found + fixed during bring-up** (firmware was
+    correct): sample `epoch_ms` *after* the settle, and probe with a non-blocking
+    read — the first `verify` showed ~−600 ms, all harness latency.
+- **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
+  (a) **Reliability hardening** — `want_ack` on `TIME_SYNC` already works; add ACK to
+  the TTDB pull stream so a bridged pull is byte-exact every time (closes the old
+  ~1/6 drop). (b) **Phase 5 groundwork** — give `CMD` real semantics (e.g. set-LED,
+  re-sync) so the laptop drives node behavior. (c) **Phase 6 Dream-Cycle seed** —
+  consolidate the gossiped sync log into the master TTDB. Phases 3–4 (V4-C edge, LoRa
+  backbone) remain hardware-gated on V4-B/V4-C.
 
 Keep this section current. It is the first thing the next session reads.
 

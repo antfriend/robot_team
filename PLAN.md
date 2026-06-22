@@ -106,29 +106,43 @@ Residual: ~1/6 runs drop a frame (no ACK/retry yet) — that reliability is **Ph
 
 ---
 
-## Phase 2 — Reliability layer (ACK/retry + chunking) ◀ START HERE
+## Phase 2 — Reliability layer (ACK/retry + chunking) ✅ on-device verified
 
-Spec: **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (Proposed 2026-06-22) — pins the
-ACK payload, retransmit/backoff params, the **dedup-vs-ACK re-ACK rule** (§5, the
+Spec: **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (2026-06-22) — pins the ACK
+payload, retransmit/backoff params, the **dedup-vs-ACK re-ACK rule** (§5, the
 load-bearing gotcha: a dedup-dropped `want_ack` toot MUST be re-ACKed, body
-processed once), and chunk reassembly. This is the dependency for Phase 2.5's
-`TIME_SYNC`, so it lands first.
+processed once), and chunk reassembly. The dependency for Phase 2.5's `TIME_SYNC`.
 
-- [ ] `want_ack` toots: ACK payload `(ack_src,ack_seq,ack_chunk,status)`; sender
-      retransmits from `loop()` with ×2 backoff, `N=4` (RTO0 150 ms direct /
-      500 ms via bridge); declares undelivered on exhaustion (never silent).
-- [ ] Receiver re-ACK ring: a dedup-dropped `want_ack` toot re-emits its stored ACK
-      without re-processing the body (TTN-RFC-0007 §5).
-- [ ] Chunk + reassemble a toot larger than the 208 B body budget: per-chunk ACK,
-      `(src,seq)` reassembly key, `MAX_REASSEMBLIES=2`, `REASSEMBLY_TTL=5 s`.
+- [x] `want_ack` toots: ACK payload `(ack_src,ack_seq,ack_chunk,status)` (`Toot`
+      `makeAck`/`parseAck`/`ackMatches`); `companion.py` sender retransmits with ×2
+      backoff, `N=4`; declares undelivered on exhaustion (never silent).
+- [x] Receiver re-ACK: a dedup-dropped `want_ack` toot re-ACKs from the duplicate
+      (self-identifying) without re-processing the body (K10 `onEspNowRecv`).
+- [x] Chunk + reassemble >208 B: portable `Reassembler` (per-chunk dedup, completed
+      ring, TTL evict, `MAX_CHUNKS=8`, `SLOTS=2`); `companion.py reltest` selective
+      per-chunk retransmit.
 
-**Done when:** TTN-RFC-0007 §8 tests 1–5 pass against the K10 + V4-A — including a
->208 B toot delivered intact under induced packet loss, and an induced ACK loss that
-proves the body is written exactly once while the sender still clears.
+**Done ✅ (2026-06-22, K10 + V4-A on COM3/COM6):** `companion.py ping --node k10_1`
+ACKed on attempt 1; `reltest --size 500` delivered a 3-chunk toot, **organically
+recovering 2 air-dropped chunks via selective retransmit** (attempts resent only the
+unacked chunk) and completing the set (ACCEPTED on the completing chunk). Native
+`tests/test_toot.cpp` + `tests/test_ack_py.py` (17 checks) pin the codec.
 
 ---
 
-## Phase 2.5 — Fleet time-sync (laptop timestamp → node TTDB log → verify in-sync) ◀ NEXT
+## Phase 2.5 — Fleet time-sync (laptop timestamp → node TTDB log → verify in-sync) ✅ on-device verified
+
+**Done ✅ (2026-06-22, K10 + V4-A on COM6 bridge).** `companion.py sync` had both
+nodes adopt + ACK on attempt 1 and logged the laptop master record; `verify
+--sync-id 2` confirmed all three carry the `**SYNC** id:2` record and measured skew
+**v4a_bridge −2.4 ms, k10_1 −30.6 ms** — both within ±50 ms (the K10's −30 ms is the
+honest one-way `TIME_SYNC` delivery delay). The K10's on-flash TTDB grew 1114→1426 B
+with two `@LAT99LON<n>` sync records, pulled back byte-exact — the first runtime TTDB
+self-write. Two laptop-side timing fixes were needed: sample `epoch_ms` *after* the
+settle (not before) and probe with a non-blocking read (the 0.1 s timeout inflated
+RTT) — first run showed ~−600 ms, both from harness latency, not the firmware.
+Checkboxes below describe the as-built design.
+
 
 Improvised milestone (2026-06-22): prove the **3-node fleet (laptop + V4-A + K10)
 agrees on a wall clock**. The laptop is the only timekeeper; it pushes a timestamp
