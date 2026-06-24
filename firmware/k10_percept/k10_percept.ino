@@ -101,6 +101,22 @@ static volatile bool gBeliefSyncPending = false;
 static uint32_t gPendBeliefId = 0, gPendBeliefBytes = 0, gPendBeliefCrc = 0;
 static uint32_t gPendBeliefRecvMs = 0;
 
+// Parse the behavioral DIRECTIVE from /belief.md (TTN-RFC-0009 §5.2): the
+// `**DIRECTIVE** sense_interval_ms:<N>` the node should adopt. Returns N, or 0 if the
+// belief carries no directive. The belief is ~1 KB; read the head into a fixed buffer
+// (the directive sits near the top) and scan — no String, no whole-file slurp.
+static uint32_t parseBeliefDirective() {
+  File f = LittleFS.open(kBeliefPath, "r");
+  if (!f) return 0;
+  static char buf[1536];
+  size_t n = f.read((uint8_t*)buf, sizeof(buf) - 1);
+  f.close();
+  buf[n] = '\0';
+  const char* key = "**DIRECTIVE** sense_interval_ms:";
+  const char* p = strstr(buf, key);
+  return p ? (uint32_t)strtoul(p + strlen(key), nullptr, 10) : 0;
+}
+
 // Write one TTDB_PUT slice into the belief file and, on completion, CRC-verify and
 // schedule adoption. Returns true if the slice was accepted (so it is ACKed). The
 // laptop streams strictly in offset order (stop-and-wait), so we track gPutNext and
@@ -580,22 +596,33 @@ void loop() {
   // live in /belief.md; this is the node's append-only attestation of adoption.
   if (gBeliefSyncPending) {
     gBeliefSyncPending = false;
+    // Act on the belief's DIRECTIVE — this is the Dream Cycle closing: a pushed,
+    // re-authored belief changes node behavior, not just stored state (Phase 6).
+    // Retune the sense->reason->act cadence; the attestation records what took effect.
+    uint32_t interval = parseBeliefDirective();
+    if (interval >= 100)              // floor: don't starve the loop / watchdog
+      gAgent.setInterval(interval);
+    uint32_t effective = gAgent.intervalMs();
     int n = 0;
     for (int i = 0; i < gDb.recordCount(); ++i)
       if (gDb.record(i).lat == 98) ++n;
     uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-    char rec[220];
+    char rec[256];
     int m = snprintf(
         rec, sizeof(rec),
         "\n---\n\n@LAT98LON%d | created:%lu | updated:%lu | relates:adopts@LAT0LON0"
-        "\n\n**BELIEF-ADOPTED** id:%lu bytes:%lu crc:%08lX recv_ms:%lu\n",
+        "\n\n**BELIEF-ADOPTED** id:%lu bytes:%lu crc:%08lX recv_ms:%lu "
+        "applied:interval_ms:%lu\n",
         n, (unsigned long)t_sec, (unsigned long)t_sec,
         (unsigned long)gPendBeliefId, (unsigned long)gPendBeliefBytes,
-        (unsigned long)gPendBeliefCrc, (unsigned long)gPendBeliefRecvMs);
+        (unsigned long)gPendBeliefCrc, (unsigned long)gPendBeliefRecvMs,
+        (unsigned long)effective);
     if (m > 0 && gDb.appendRecord(rec, (size_t)m))
-      Serial.printf("[belief] adopted id=%lu %luB crc=%08lX -> @LAT98LON%d (TTDB %uB)\n",
+      Serial.printf("[belief] adopted id=%lu %luB crc=%08lX -> @LAT98LON%d "
+                    "(TTDB %uB) cadence=%lums\n",
                     (unsigned long)gPendBeliefId, (unsigned long)gPendBeliefBytes,
-                    (unsigned long)gPendBeliefCrc, n, (unsigned)gDb.fileSize());
+                    (unsigned long)gPendBeliefCrc, n, (unsigned)gDb.fileSize(),
+                    (unsigned long)effective);
     else
       Serial.println("[belief] appendRecord FAILED");
   }

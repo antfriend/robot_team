@@ -269,22 +269,34 @@ returns end-to-end.
 > offset-addressed `want_ack TTDB_PUT` slices (reliable, CRC-32 whole-object
 > integrity), and the node writes it to a separate `/belief.md`, CRC-verifies, and
 > appends a `BELIEF-ADOPTED` record to its own live TTDB (`@LAT98` lane). Verified
-> on the K10 over COM3 — belief `978 B`/`crc 65118C32`, all 6 slices ACKed first
-> try, `bytes`/`crc` round-trip MATCH; monotonic `belief_id` gives exactly-once
-> adoption (`id:1`, `id:2` appended as `@LAT98LON0`/`LON1`, no duplicate on re-ACK).
+> on the K10 — direct over USB **and bridge-relayed over ESP-NOW** (`--port COM6`).
+
+> **Dream Cycle CLOSED ✅ (2026-06-24): a pushed belief changes node behavior.** The
+> re-authored belief carries a `**DIRECTIVE** sense_interval_ms:<N>` record; on a
+> CRC-verified commit the K10 parses `/belief.md` and retunes its sense→reason→act
+> cadence, recording the effective rate as `applied:interval_ms` in its adoption
+> record. Verified live on the K10 through the V4-A bridge (COM6): cadence went
+> **1000 ms (boot) → 300 ms → 700 ms** as successive beliefs were pushed (measured
+> over COM3 without resetting the node), each `push` confirming the change in-band.
 
 - [ ] Switch ESP-NOW to the orchestrator AP channel; HELLO-beacon convergence
       outward from V4-A.
 - [x] Re-author + push a node's belief over the link (`push`, TTN-RFC-0009) —
       laptop → K10 verified, **direct over USB and bridge-relayed over ESP-NOW**
-      (`push --port COM6 --node k10_1`, belief `id:4` adopted + verified, 2026-06-24).
-      The K10 defers a radio `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson).
-      _Next: serve `/belief.md` back for a byte-level diff._
+      (`push --port COM6 --node k10_1`, 2026-06-24). The K10 defers a radio
+      `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson). _Next: serve
+      `/belief.md` back for a byte-level diff._
+- [x] **A pushed belief changes node behavior** — the belief's `**DIRECTIVE**`
+      retunes the K10's loop cadence (1000→300→700 ms), verified live (TTN-RFC-0009
+      §5.2). The Dream Cycle's "Done when" condition.
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into
       the master TTDB; node-to-node BELIEF gossip once a 2nd percept node exists.
 
 **Done when:** the orchestrator reconciles a multi-node belief and pushes an
-updated TTDB to a node that changes its behavior.
+updated TTDB to a node that changes its behavior. ✅ **Achieved 2026-06-24** —
+`reconcile` consolidates, `push` distributes a belief whose directive retunes the
+K10's cadence (1000→300→700 ms). Remaining items are multi-node (gated on V4-B/V4-C
++ a 2nd percept node) and channel convergence.
 
 ---
 

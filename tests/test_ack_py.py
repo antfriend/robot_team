@@ -179,10 +179,12 @@ with open(bf, "w", encoding="utf-8") as f:
     f.write(c.MASTER_SYNC_HEADER)
     f.write("\n---\n\n@LAT99LON0 | created:1 | updated:1 | relates:logs@LAT0LON0\n\n")
     f.write("**SYNC** id:1 t_ms:1782170699715 recv_ms:1782170699715 offset_ms:0\n")
-content = c.author_belief(bf)
+content = c.author_belief(bf, sense_interval_ms=300)
 check(b"**BELIEF**" in content and b"**BELIEF-SYNC** id:1" in content
       and b"@LAT0LON0" in content,
       "author_belief emits a BELIEF summary + per-event BELIEF-SYNC records")
+check(b"**DIRECTIVE** sense_interval_ms:300" in content and b"@LAT0LON1" in content,
+      "author_belief emits a behavioral DIRECTIVE record (Dream-Cycle closure)")
 offs = list(range(0, len(content), c.TTDB_PUT_MAX_SLICE)) or [0]
 rejoined = b"".join(content[o:o + c.TTDB_PUT_MAX_SLICE] for o in offs)
 check(rejoined == content and all(
@@ -195,10 +197,14 @@ check(c.next_belief_id(blog) == 1, "first belief_id is 1 with no push log")
 c.append_belief_push_record(blog, 1, "k10_1", len(content), c.crc32(content))
 check(c.next_belief_id(blog) == 2, "next_belief_id advances after a logged push")
 adopted_txt = ("**BELIEF-ADOPTED** id:2 bytes:512 crc:DEADBEEF recv_ms:123\n"
-               "**BELIEF-ADOPTED** id:3 bytes:99 crc:0000000A recv_ms:9\n")
+               "**BELIEF-ADOPTED** id:3 bytes:99 crc:0000000A recv_ms:9 "
+               "applied:interval_ms:300\n")
 r = c.find_belief_adopted(adopted_txt, 2)
-check(r == {"id": 2, "bytes": 512, "crc": 0xDEADBEEF},
+check(r == {"id": 2, "bytes": 512, "crc": 0xDEADBEEF, "applied_interval_ms": None},
       "find_belief_adopted reads id/bytes/crc of the matching record")
+r3 = c.find_belief_adopted(adopted_txt, 3)
+check(r3["applied_interval_ms"] == 300,
+      "find_belief_adopted reads applied:interval_ms when the node acted on the DIRECTIVE")
 check(c.find_belief_adopted(adopted_txt, 99) is None,
       "find_belief_adopted returns None for an absent belief_id")
 

@@ -26,9 +26,15 @@ lon: 0
 
 ---
 
-@LAT0LON0 | created:1782170835 | updated:1782170835 | relates:knows@LAT1LON0
+@LAT0LON0 | created:1782170835 | updated:1782170835 | relates:knows@LAT1LON0,directs@LAT0LON1
 
 **BELIEF** summary:fleet-observed-2-sync-events latest_t_ms:1782170835676
+
+---
+
+@LAT0LON1 | created:1782170835 | updated:1782170835 | relates:directed_by@LAT0LON0
+
+**DIRECTIVE** sense_interval_ms:300
 
 ---
 

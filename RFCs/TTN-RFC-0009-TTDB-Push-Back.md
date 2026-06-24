@@ -102,25 +102,51 @@ On a CRC-verified commit the node appends, append-only, a new record at
 ```
 @LAT98LON<n> | created:<unix_s> | updated:<unix_s> | relates:adopts@LAT0LON0
 
-**BELIEF-ADOPTED** id:<belief_id> bytes:<total_len> crc:<CRC32 hex8> recv_ms:<millis>
+**BELIEF-ADOPTED** id:<belief_id> bytes:<total_len> crc:<CRC32 hex8> recv_ms:<millis> applied:interval_ms:<ms>
 ```
 
 `created`/`updated` are unix seconds from the node's synced clock (0 if unsynced).
 This is the node's self-attestation, in its own knowledge base, that it received and
-integrity-checked exactly those bytes — the proof the companion verifies.
+integrity-checked exactly those bytes — the proof the companion verifies. The trailing
+`applied:interval_ms:<ms>` is the node's effective sense→reason→act cadence *after* it
+acted on the belief's directive (§5.2) — the proof the belief changed behavior, not
+just storage.
 
 ## 5. Sender (companion) semantics
+
+### 5.1 Re-authoring
 
 `companion.py push`:
 
 1. **Re-author** a belief object (`author_belief`) — here, a TTDB summarising the
-   consolidated fleet sync knowledge into `**BELIEF**` / `**BELIEF-SYNC**` records.
+   consolidated fleet sync knowledge into a `**BELIEF**` summary, a `**DIRECTIVE**`
+   record (§5.2), and one `**BELIEF-SYNC**` record per known sync event.
 2. Allocate a monotonic `belief_id` from the master belief log (`next_belief_id`).
 3. Slice into ≤186-byte slices and deliver each as a `want_ack TTDB_PUT` via the
    TTN-RFC-0007 reliable sender (retransmit ×N, ×2 backoff), in offset order.
-4. **Verify** by pulling the node's live TTDB and matching the `BELIEF-ADOPTED`
-   record for `belief_id`: `bytes` and `crc` must equal what was sent. Record the
-   push in the master belief log on success.
+4. **Verify** by pulling the node's live TTDB (in a fresh link session, so a bridge
+   relay is reset to a clean state) and matching the `BELIEF-ADOPTED` record for
+   `belief_id`: `bytes` and `crc` must equal what was sent, and `applied:interval_ms`
+   must equal the directive. Record the push in the master belief log on success.
+
+### 5.2 Behavioral directive — closing the Dream Cycle
+
+A belief is not just stored, it **changes node behavior**. The belief carries one
+directive record:
+
+```
+@LAT0LON1 | created:<unix_s> | updated:<unix_s> | relates:directed_by@LAT0LON0
+
+**DIRECTIVE** sense_interval_ms:<N>
+```
+
+On a CRC-verified commit (§3) the node reads `/belief.md`, parses this directive, and
+retunes its sense→reason→act cadence (`Agent32::setInterval`, floored at 100 ms so the
+loop/watchdog isn't starved), then records the *effective* cadence in the adoption
+record (§4). This is the propagation half of the Dream Cycle made concrete: consolidated
+fleet knowledge becomes a distributed policy the node acts on (PLAN.md Phase 6).
+`sense_interval_ms` is the first such directive; the record is extensible to further
+behavioral parameters.
 
 ## 6. Test plan
 
@@ -137,6 +163,9 @@ integrity-checked exactly those bytes — the proof the companion verifies.
 
 - Serve the stored belief object back (a `TTDB_REQ` mode addressing `/belief.md`) so
   the companion can diff the bytes, not only the CRC attestation.
-- Bridge-relayed push to an over-air node (defer the flash write out of the ESP-NOW
-  recv callback, as the K10 already does for `TTDB_REQ`).
 - Node-to-node belief gossip (BELIEF toot, type 3) once a second percept node exists.
+
+**Done since draft:** bridge-relayed push to an over-air node (the K10 defers a radio
+`TTDB_PUT`'s flash write to `loop()`, like `TTDB_REQ`); and the behavioral directive
+(§5.2) — a pushed belief retunes the K10's loop cadence, verified live (1000→300→700 ms)
+on-device through the V4-A bridge, closing the Dream Cycle (PLAN.md Phase 6).

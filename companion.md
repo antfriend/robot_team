@@ -217,14 +217,27 @@ If a fact lives in one of these, link to it from here — don't copy it.
   a reset re-adopts (saw a duplicate `id:3` when an out-of-band COM3 pull reset the K10).
   Safe in normal operation because `belief_id` is monotonic from `master/belief-log.md` and
   never reused; the in-band (bridge) verify never resets the node.
+- **Dream Cycle CLOSED ✅ (2026-06-24) — a pushed belief changes node behavior.** The
+  re-authored belief now carries a `**DIRECTIVE** sense_interval_ms:<N>` record (`@LAT0LON1`);
+  on a CRC-verified commit the K10 parses `/belief.md`, retunes its sense→reason→act
+  cadence (`Agent32::setInterval`, floored at 100 ms), and records the effective rate as
+  `applied:interval_ms` in its `BELIEF-ADOPTED` attestation. Verified live through the V4-A
+  bridge (COM6): cadence went **1000 ms (boot) → 300 ms → 700 ms** across successive
+  pushes, measured over COM3 *without resetting the node* (`scratchpad/cadence.py` times
+  the `[cycle]` log), each `push` confirming the change in-band (`behavior changed: node
+  retuned sense cadence -> N ms`). This is PLAN.md Phase 6's "Done when." Two fixes made it
+  solid: the K10 parses the directive in `loop()` (not the recv callback), and `push` runs
+  its verify pull in a **fresh link session** (re-opening resets the bridge to the clean
+  state a standalone pull relies on; reusing the burst-session pull came back empty).
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
-  (a) **Close the Dream Cycle** — have a pushed belief *change node behavior* (PLAN.md
-  Phase 6 "Done when"), e.g. the K10 reads `/belief.md` in its Agent32 loop. (b) **Serve
-  `/belief.md` back** for a byte-level diff of what the node actually stored (today we
-  verify via the node's `BELIEF-ADOPTED` attestation, not the bytes themselves). (c)
-  **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a bridged pull is
-  byte-exact every time (closes the old ~1/6 drop; the `push` verify pull works around it
-  with retries today). Phases 3–4 (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C.
+  (a) **Serve `/belief.md` back** for a byte-level diff of what the node actually stored
+  (today we verify via the `BELIEF-ADOPTED` attestation — bytes/crc + applied directive —
+  not the raw bytes). (b) **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a
+  bridged pull is byte-exact every time (closes the old ~1/6 drop; `push` now sidesteps it
+  with a fresh-session verify + retries). (c) **More directives** — the `**DIRECTIVE**`
+  record is extensible (warm threshold, LED policy, …); `sense_interval_ms` is just the
+  first. Phases 3–4 (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C; multi-node
+  belief gossip needs a 2nd percept node.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -384,7 +397,10 @@ duplicate on re-ACK). Push log: `master/belief-log.md`. **Bridge-relayed push �
 (2026-06-24):** the same `push` now reaches the K10 *over ESP-NOW through the V4-A
 bridge* (`--port COM6`, belief `id:4`), once the K10 was taught to defer a radio
 `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson) and the in-`push` verify pull was
-made to drain its buffer + use a fresh frame reader (see §6 state). The exactly-once gate
-is RAM-only — a re-push of a reused `belief_id` after a node reset re-adopts, which is why
-`belief_id` is monotonic and never reused. **Next:** serve `/belief.md` back for a
-byte-diff, and make a pushed belief *change node behavior* to close PLAN.md Phase 6.
+moved to a fresh link session (re-opening resets the bridge clean; reusing the burst
+session came back empty). The exactly-once gate is RAM-only — a re-push of a reused
+`belief_id` after a node reset re-adopts, which is why `belief_id` is monotonic and never
+reused. **Dream Cycle CLOSED ✅ (2026-06-24):** the belief carries a `**DIRECTIVE**
+sense_interval_ms:<N>` the K10 acts on — its loop cadence retuned **1000→300→700 ms**
+across pushes (TTN-RFC-0009 §5.2, PLAN.md Phase 6 "Done when"). **Next:** serve
+`/belief.md` back for a byte-diff; add further directives (warm threshold, LED policy).

@@ -937,9 +937,16 @@ lon: 0
 ```
 """
 
-# The node's self-attestation record (live TTDB, lat 98 lane).
+# Default sense->reason->act cadence the Dream Cycle distributes as a belief
+# directive (TTN-RFC-0009 §5.2). Faster than the node's 1000 ms boot default so the
+# behavior change is obvious; the node retunes its loop to this on adoption.
+DEFAULT_SENSE_INTERVAL_MS = 300
+
+# The node's self-attestation record (live TTDB, lat 98 lane). `applied:interval_ms`
+# is optional — present once the node parses + applies the belief's DIRECTIVE.
 BELIEF_ADOPTED_RE = re.compile(
-    r"\*\*BELIEF-ADOPTED\*\*\s+id:(\d+)\s+bytes:(\d+)\s+crc:([0-9A-Fa-f]+)")
+    r"\*\*BELIEF-ADOPTED\*\*\s+id:(\d+)\s+bytes:(\d+)\s+crc:([0-9A-Fa-f]+)"
+    r"(?:\s+recv_ms:\d+)?(?:\s+applied:interval_ms:(\d+))?")
 # The laptop's own push log (one record per delivered belief).
 BELIEF_PUSH_RE = re.compile(r"\*\*BELIEF-PUSH\*\*\s+id:(\d+)")
 
@@ -949,18 +956,26 @@ def crc32(data: bytes) -> int:
     return zlib.crc32(data) & 0xFFFFFFFF
 
 
-def author_belief(master_path):
+def author_belief(master_path, sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS):
     """Re-author a belief TTDB from the master sync knowledge (TTN-RFC-0009 §5.1):
-    a `**BELIEF**` summary record plus one `**BELIEF-SYNC**` record per known sync
-    event. Returns valid TTDB bytes the node can store and re-index."""
+    a `**BELIEF**` summary record, a `**DIRECTIVE**` record carrying the cadence the
+    node should adopt, plus one `**BELIEF-SYNC**` record per known sync event. Returns
+    valid TTDB bytes the node can store, re-index, and act on."""
     recs = parse_sync_file(master_path)
     latest = max((r["t_ms"] for r in recs), default=0)
     parts = [BELIEF_HEADER]
     parts.append(
         f"\n---\n\n@LAT0LON0 | created:{latest // 1000} | updated:{latest // 1000} | "
-        f"relates:knows@LAT1LON0\n\n"
+        f"relates:knows@LAT1LON0,directs@LAT0LON1\n\n"
         f"**BELIEF** summary:fleet-observed-{len(recs)}-sync-events "
         f"latest_t_ms:{latest}\n")
+    # Behavioral directive: the node reads this from /belief.md on adoption and retunes
+    # its sense->reason->act cadence (closes the Dream Cycle — consolidated knowledge
+    # becomes distributed policy that changes node behavior, PLAN.md Phase 6).
+    parts.append(
+        f"\n---\n\n@LAT0LON1 | created:{latest // 1000} | updated:{latest // 1000} | "
+        f"relates:directed_by@LAT0LON0\n\n"
+        f"**DIRECTIVE** sense_interval_ms:{sense_interval_ms}\n")
     for i, r in enumerate(recs):
         parts.append(
             f"\n---\n\n@LAT{i + 1}LON0 | created:{r['t_ms'] // 1000} | "
@@ -1001,7 +1016,8 @@ def find_belief_adopted(text, belief_id):
     for m in BELIEF_ADOPTED_RE.finditer(text):
         if int(m.group(1)) == belief_id:
             return {"id": belief_id, "bytes": int(m.group(2)),
-                    "crc": int(m.group(3), 16)}
+                    "crc": int(m.group(3), 16),
+                    "applied_interval_ms": int(m.group(4)) if m.group(4) else None}
     return None
 
 
@@ -1035,7 +1051,8 @@ def push_belief(ser, reader, target, content, belief_id, rto0, attempts):
     return True
 
 
-def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attempts):
+def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attempts,
+         sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS):
     """Re-author a belief and push it to a node, then verify adoption by pulling the
     node's live TTDB and matching its BELIEF-ADOPTED record (TTN-RFC-0009 §5)."""
     try:
@@ -1046,7 +1063,7 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
         sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
     target = NODE_IDS[node]
 
-    content = author_belief(src_master)
+    content = author_belief(src_master, sense_interval_ms)
     crc = crc32(content)
     belief_id = next_belief_id(belief_log)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
@@ -1060,17 +1077,20 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
         ser.reset_input_buffer()
         if not push_belief(ser, reader, target, content, belief_id, rto0, attempts):
             sys.exit(f"belief id={belief_id} undelivered after {attempts} attempts")
-        time.sleep(0.3)               # let the node's deferred adoption append land
-        # Drain the push's leftover ACK bytes and reset the frame reader: the push
-        # burst can leave the OS buffer non-empty and the reader mid-frame, which
-        # desyncs the verify pull's TTDB_DATA framing. (Every clean pull starts from
-        # a drained buffer + fresh reader; match that here.)
+        time.sleep(0.5)               # let the node commit + apply before we drop the link
+
+    # Verify in a FRESH session. Re-opening the port resets the bridge to a clean
+    # state and settles — the conditions under which a standalone bridged pull is
+    # reliable. Reusing the push session leaves the bridge mid-stream after the burst,
+    # and the verify pull comes back empty (especially after a fresh adoption, when the
+    # node is also committing + re-indexing). Re-opening does NOT reset the mesh node,
+    # so its just-adopted belief survives. The pull stream is un-ACKed (~1/6 bridged
+    # drop), so still retry a few times.
+    node_ttdb = None
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)
         ser.reset_input_buffer()
         reader = SerialFrameReader()
-        # The verify pull rides the un-ACKed TTDB_DATA stream, which still drops ~1/6
-        # of the time over the bridge (the belief push itself is reliable/want_ack),
-        # so retry a few times to complete a bridge-relayed push cleanly end-to-end.
-        node_ttdb = None
         for vattempt in range(1, 4):
             node_ttdb = request_ttdb(ser, reader, target)
             if node_ttdb is not None:
@@ -1088,6 +1108,17 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
           f"({'MATCH' if ok else 'MISMATCH'} vs sent {len(content)}B/{crc:08X})")
     if not ok:
         sys.exit("DISCREPANCY: adopted bytes/crc disagree with what was pushed")
+    # Closing the Dream Cycle: confirm the node didn't just store the belief but
+    # acted on its DIRECTIVE (retuned its sense->reason->act cadence, PLAN.md Phase 6).
+    applied = rec.get("applied_interval_ms")
+    if applied == sense_interval_ms:
+        print(f"behavior changed: node retuned sense cadence -> {applied} ms "
+              f"(matches DIRECTIVE)")
+    elif applied is not None:
+        print(f"WARNING: node applied interval_ms:{applied} but DIRECTIVE was "
+              f"{sense_interval_ms}")
+    else:
+        print(f"WARNING: node has no applied:interval_ms — DIRECTIVE not acted on")
     append_belief_push_record(belief_log, belief_id, node, len(content), crc)
     print(f"verified — logged BELIEF-PUSH id={belief_id} to {belief_log}")
 
@@ -1201,6 +1232,9 @@ def main():
     pb.add_argument("--settle", type=float, default=2.5)
     pb.add_argument("--rto0", type=float, default=0.5)
     pb.add_argument("--attempts", type=int, default=4)
+    pb.add_argument("--sense-interval-ms", type=int, default=DEFAULT_SENSE_INTERVAL_MS,
+                    dest="sense_interval_ms",
+                    help="cadence the belief DIRECTIVE tells the node to adopt")
 
     args = ap.parse_args()
 
@@ -1230,7 +1264,7 @@ def main():
                   args.master, args.out, do_pull, args.settle)
     elif args.cmd == "push":
         push(args.port, args.baud, args.node, args.src_master, args.belief_log,
-             args.out, args.settle, args.rto0, args.attempts)
+             args.out, args.settle, args.rto0, args.attempts, args.sense_interval_ms)
 
 
 if __name__ == "__main__":
