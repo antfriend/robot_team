@@ -72,10 +72,12 @@ enum TtdbReqMode : uint8_t {
 // TTDB_REQ), so it needs no new toot type / RFC. Sent want_ack so the laptop
 // gets delivery confirmation (TTN-RFC-0007).
 enum CmdOp : uint8_t {
-  CMD_PING = 0,        // no-op; accept + ACK (reliability smoke test)
-  CMD_SET_LED = 1,     // args: R,G,B (3 bytes) — override the indicator LED
-  CMD_CLEAR_LED = 2,   // no args — return the LED to local agent control
-  CMD_GET_STATUS = 3,  // no args — node replies a STATUS PERCEPT (not want_ack)
+  CMD_PING = 0,          // no-op; accept + ACK (reliability smoke test)
+  CMD_SET_LED = 1,       // args: R,G,B (3 bytes) — override the indicator LED
+  CMD_CLEAR_LED = 2,     // no args — return the LED to local agent control
+  CMD_GET_STATUS = 3,    // no args — node replies a STATUS PERCEPT (not want_ack)
+  CMD_BEEP = 4,          // args: freq_hz u16 | dur_ms u16 (both LE; 0 args = default)
+  CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
 };
 
 // STATUS payload — a node's live telemetry, returned as a PERCEPT toot in answer to

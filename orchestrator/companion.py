@@ -72,8 +72,11 @@ CMD_PING = 0
 CMD_SET_LED = 1
 CMD_CLEAR_LED = 2
 CMD_GET_STATUS = 3   # used by `monitor`; node replies a STATUS PERCEPT (no ACK)
+CMD_BEEP = 4
+CMD_SET_INTERVAL = 5
 # User-facing `cmd` ops only (GET_STATUS is internal to `monitor`).
-CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED}
+CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
+           "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -444,9 +447,10 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
         sys.exit(f"only {delivered}/{total} chunks delivered — INCOMPLETE")
 
 
-def send_cmd(port, baud, node, op, rgb, settle, rto0, attempts):
+def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
+             settle, rto0, attempts):
     """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
-    it via the want_ack ACK. Ops: ping (no-op), set-led RRGGBB, clear-led."""
+    it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval."""
     try:
         import serial  # pyserial
     except ImportError:
@@ -459,6 +463,7 @@ def send_cmd(port, baud, node, op, rgb, settle, rto0, attempts):
     opcode = CMD_OPS[op]
 
     args = b""
+    detail = ""
     if opcode == CMD_SET_LED:
         if not rgb:
             sys.exit("set-led needs --rgb RRGGBB (e.g. FF0000)")
@@ -468,13 +473,22 @@ def send_cmd(port, baud, node, op, rgb, settle, rto0, attempts):
             sys.exit(f"--rgb must be 6 hex digits, got '{rgb}'")
         if len(args) != 3:
             sys.exit(f"--rgb must be exactly RRGGBB (3 bytes), got {len(args)}")
+        detail = f" #{rgb}"
+    elif opcode == CMD_BEEP:
+        args = struct.pack("<HH", freq & 0xFFFF, dur_ms & 0xFFFF)
+        detail = f" {freq}Hz/{dur_ms}ms"
+    elif opcode == CMD_SET_INTERVAL:
+        if interval_ms is None:
+            sys.exit("set-interval needs --interval-ms (e.g. 500)")
+        args = struct.pack("<H", interval_ms & 0xFFFF)
+        detail = f" {interval_ms}ms"
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
     frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload, flags=FLAG_WANT_ACK)
     reader = SerialFrameReader()
 
-    label = f"{op}" + (f" #{rgb}" if opcode == CMD_SET_LED else "")
+    label = f"{op}{detail}"
     with serial.Serial(port, baud, timeout=0.1) as ser:
         time.sleep(settle)            # opening the bridge port resets it (see pull())
         ser.reset_input_buffer()
@@ -829,6 +843,11 @@ def main():
     cm.add_argument("--node", required=True, choices=list(NODE_IDS))
     cm.add_argument("--op", required=True, choices=list(CMD_OPS))
     cm.add_argument("--rgb", default=None, help="RRGGBB hex for set-led (e.g. FF0000)")
+    cm.add_argument("--freq", type=int, default=880, help="beep frequency Hz")
+    cm.add_argument("--dur-ms", type=int, default=200, dest="dur_ms",
+                    help="beep duration ms")
+    cm.add_argument("--interval-ms", type=int, default=None, dest="interval_ms",
+                    help="agent sense/act cadence ms (set-interval)")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
@@ -858,8 +877,8 @@ def main():
         verify(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                args.sync_id, args.bound_ms, args.master, args.settle, args.probes)
     elif args.cmd == "cmd":
-        send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.settle,
-                 args.rto0, args.attempts)
+        send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
+                 args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

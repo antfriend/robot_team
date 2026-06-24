@@ -78,6 +78,12 @@ static struct {
   uint32_t color = 0;
 } gLedOverride;
 
+// Deferred beep (CMD_BEEP): playTone() blocks ~dur_ms, so it must NOT run in the
+// recv callback (WiFi task). handleToot stashes it (after ACK) and loop() plays it.
+static volatile bool gBeepPending = false;
+static int gBeepFreq = 0;
+static int gBeepBeat = 0;   // I2S samples @ 8 kHz: beat = dur_ms * 8 (beat/8000 = s)
+
 // --- sense/act bindings -----------------------------------------------------
 // Sensor: onboard ambient temperature (AHT20), nominal range -20..60 C, mapped
 // to (lat 10, lon 0) so a warm reading drives the cursor to the @LAT10LON0
@@ -260,6 +266,25 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
             break;
           }
+          case toot::CMD_BEEP: {
+            int freq = 880, dur = 200;            // defaults
+            if (t.payload_len >= 9) {             // op + target(4) + freq(2) + dur(2)
+              freq = toot::get_u16(t.payload + 5);
+              dur = toot::get_u16(t.payload + 7);
+            }
+            if (dur > 5000) dur = 5000;           // cap so the loop isn't stalled long
+            gBeepFreq = freq;
+            gBeepBeat = dur * 8;
+            gBeepPending = true;                  // played from loop() (playTone blocks)
+            break;
+          }
+          case toot::CMD_SET_INTERVAL:
+            if (t.payload_len >= 7) {
+              uint16_t ms = toot::get_u16(t.payload + 5);
+              if (ms < 100) ms = 100;             // floor: don't starve the loop
+              gAgent.setInterval(ms);
+            }
+            break;
           default:  // CMD_PING / unknown: nothing to do but ACK
             break;
         }
@@ -457,6 +482,15 @@ void loop() {
                     (unsigned)gDb.fileSize());
     else
       Serial.println("[sync] appendRecord FAILED");
+  }
+
+  // Play a deferred CMD_BEEP from the main task (playTone blocks ~dur_ms).
+  if (gBeepPending) {
+    gBeepPending = false;
+#if USE_K10_HW
+    music.playTone(gBeepFreq, gBeepBeat);
+#endif
+    Serial.printf("[beep] %d Hz, beat %d\n", gBeepFreq, gBeepBeat);
   }
 
   // Periodic HELLO beacon + percept tick.

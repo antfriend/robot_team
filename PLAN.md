@@ -229,9 +229,10 @@ LoRa with correct TTL and no duplicates.
 
 ## Phase 5 — Orchestrator + bridge (V4-A, laptop in the loop)
 
-> **Down-payment ✅ (2026-06-22): `CMD` actuation works.** `CMD` now carries a small
-> verb set (`Toot.h` `CmdOp`: `ping` / `set-led RRGGBB` / `clear-led`, payload
-> `op | target u32 | args`); the K10 acts only on a CMD addressed to it and ACKs it
+> **Down-payment ✅ (2026-06-22): `CMD` actuation works.** `CMD` now carries a verb
+> set (`Toot.h` `CmdOp`: `ping` / `set-led RRGGBB` / `clear-led` / `beep` /
+> `set-interval`, payload `op | target u32 | args`; `beep` is deferred to `loop()`
+> since `playTone` blocks); the K10 acts only on a CMD addressed to it and ACKs it
 > (`want_ack`), with `set-led` overriding the local warm/cool indicator until
 > `clear-led`. `companion.py cmd --op set-led --rgb 0000FF` and `clear-led` both ACKed
 > on attempt 1 on-device (over the K10's USB; the bridge-relayed CMD path was proven

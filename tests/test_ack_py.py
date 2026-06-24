@@ -112,7 +112,7 @@ p = cd["payload"]
 check(p[0] == c.CMD_SET_LED and struct.unpack("<I", p[1:5])[0] == tgt and
       p[5:8] == bytes([0xFF, 0x00, 0x00]),
       "CMD set-led payload: op | target | RGB (firmware cmdOp/cmdTarget layout)")
-check(set(c.CMD_OPS) == {"ping", "set-led", "clear-led"},
+check({"ping", "set-led", "clear-led"} <= set(c.CMD_OPS),
       "CMD_OPS exposes ping/set-led/clear-led")
 
 # 12) STATUS payload (cursor/temp/flags/epoch) parses what the firmware packs.
@@ -124,6 +124,15 @@ check(st is not None and st["cursor"] == (10, 0) and abs(st["temp_c"] - 23.5) < 
       and st["epoch_ms"] == 1782170835676,
       "parse_status reads cursor/temp/flags/epoch (firmware STATUS layout)")
 check(c.parse_status(b"\x00\x00") is None, "parse_status rejects a short payload")
+
+# 13) beep / set-interval ops are exposed and their CmdOp codes match the firmware.
+check(c.CMD_OPS["beep"] == 4 and c.CMD_OPS["set-interval"] == 5,
+      "CMD_OPS adds beep(4) + set-interval(5)")
+# beep args = freq u16 | dur_ms u16; set-interval args = interval_ms u16 (all LE).
+check(struct.pack("<HH", 880, 200) == bytes([0x70, 0x03, 0xC8, 0x00]),
+      "beep arg layout: freq u16 | dur_ms u16 LE")
+check(struct.pack("<H", 500) == bytes([0xF4, 0x01]),
+      "set-interval arg layout: interval_ms u16 LE")
 
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)
