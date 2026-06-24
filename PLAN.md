@@ -284,8 +284,9 @@ returns end-to-end.
 - [x] Re-author + push a node's belief over the link (`push`, TTN-RFC-0009) —
       laptop → K10 verified, **direct over USB and bridge-relayed over ESP-NOW**
       (`push --port COM6 --node k10_1`, 2026-06-24). The K10 defers a radio
-      `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson). _Next: serve
-      `/belief.md` back for a byte-level diff._
+      `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson). **Belief readback:**
+      `push` now reads `/belief.md` back (`TTDB_REQ_BELIEF`) and confirms it
+      byte-exact (1121 B), not just the CRC; also `pull --file belief`.
 - [x] **A pushed belief changes node behavior** — the belief's `**DIRECTIVE**`
       retunes the K10's loop cadence (1000→300→700 ms), verified live (TTN-RFC-0009
       §5.2). The Dream Cycle's "Done when" condition.

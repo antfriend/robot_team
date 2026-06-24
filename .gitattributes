@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Byte-exact TTDB objects: flashed to LittleFS or streamed over the wire verbatim.
+# CRLF would change their bytes (and CRC), break the belief byte-readback diff
+# (TTN-RFC-0009 §3), and make the K10 image differ from the repo. Pin to LF on every
+# platform — including the pulled-back snapshots we keep as faithful baselines.
+firmware/**/data/*.md eol=lf
+master/*.md           eol=lf

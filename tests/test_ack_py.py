@@ -191,6 +191,15 @@ check(rejoined == content and all(
         len(content[o:o + c.TTDB_PUT_MAX_SLICE]) <= c.TTDB_PUT_MAX_SLICE for o in offs),
       "belief slices (<=186B) concat back byte-exact")
 
+# Belief readback (TTN-RFC-0009 §3): the node serves /belief.md as the same
+# offset-addressed TTDB_DATA stream as the live TTDB, selected by a request mode byte.
+check(c.TTDB_REQ_BELIEF == 2 and c.TTDB_REQ_BELIEF != c.TTDB_REQ_WHOLE,
+      "TTDB_REQ_BELIEF is the firmware enum value (2), distinct from WHOLE")
+SLICE = 202  # TTDB_DATA data bytes/slice (firmware kSliceData)
+bslices = {o: content[o:o + SLICE] for o in range(0, len(content), SLICE)}
+check(c.reassemble(bslices, len(content)) == content,
+      "belief readback reassembles byte-exact from offset slices + EOF length")
+
 # 18) Belief id monotonicity + BELIEF-ADOPTED parsing (verify path).
 blog = os.path.join(d, "belief-log.md")
 check(c.next_belief_id(blog) == 1, "first belief_id is 1 with no push log")

@@ -33,6 +33,23 @@ int TtdbShare::handleRequest(const toot::Toot& req, SendFn send, void* ctx) {
   return sent;
 }
 
+int TtdbShare::handleBufferRequest(const uint8_t* data, size_t total, SendFn send,
+                                   void* ctx) {
+  int sent = 0;
+  for (size_t off = 0; off < total;) {
+    size_t want = total - off;
+    if (want > kSliceData) want = kSliceData;
+    sendSlice((uint32_t)off, data + off, (uint16_t)want, send, ctx);
+    ++sent;
+    off += want;
+    yield();
+  }
+  // EOF marker: zero-length slice at `total` (matches handleRequest's contract).
+  sendSlice((uint32_t)total, nullptr, 0, send, ctx);
+  ++sent;
+  return sent;
+}
+
 void TtdbShare::sendSlice(uint32_t offset, const uint8_t* data, uint16_t n,
                           SendFn send, void* ctx) {
   toot::Toot t;

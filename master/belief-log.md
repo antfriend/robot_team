@@ -43,3 +43,9 @@ One record per belief delivered to a node (TTN-RFC-0009).
 @LAT97LON6 | relates:pushed@LAT0LON0
 
 **BELIEF-PUSH** id:7 node:k10_1 bytes:1121 crc:78BA4258
+
+---
+
+@LAT97LON7 | relates:pushed@LAT0LON0
+
+**BELIEF-PUSH** id:8 node:k10_1 bytes:1121 crc:78BA4258

@@ -61,8 +61,9 @@ enum Flags : uint8_t {
 //   [9..12] end   (u32 LE)   }
 // src_node_id in the header is the requester (the orchestrator).
 enum TtdbReqMode : uint8_t {
-  TTDB_REQ_WHOLE = 0,  // entire file
-  TTDB_REQ_RANGE = 1,  // bytes [start,end)
+  TTDB_REQ_WHOLE = 0,   // entire live TTDB (/ttdb.md)
+  TTDB_REQ_RANGE = 1,   // bytes [start,end) of the live TTDB
+  TTDB_REQ_BELIEF = 2,  // entire stored belief object (/belief.md, TTN-RFC-0009 §3)
 };
 
 // CMD payload layout — the orchestrator drives node behavior (companion.md §4b).

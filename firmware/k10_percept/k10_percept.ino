@@ -313,6 +313,24 @@ static uint8_t buildStatus(uint8_t* p) {
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
 }
 
+// Serve a TTDB_REQ addressed to this node. TTDB_REQ_BELIEF streams the stored
+// belief object (/belief.md) so the companion can byte-diff what we actually wrote
+// (TTN-RFC-0009 §3); any other mode streams the live TTDB via the offset index.
+// Both stream a TTDB_DATA burst, so radio callers must invoke this from loop()
+// (not the recv callback) — see the gReqPending deferral.
+static void serveTtdbReq(const toot::Toot& req, TtdbShare::SendFn send, void* ctx) {
+  if (!gShare || TtdbShare::requestTarget(req) != kNodeId) return;
+  if (req.payload_len >= 1 && req.payload[0] == toot::TTDB_REQ_BELIEF) {
+    static uint8_t bbuf[1536];
+    File f = LittleFS.open(kBeliefPath, "r");
+    size_t n = f ? f.read(bbuf, sizeof(bbuf)) : 0;  // 0 bytes if no belief yet
+    if (f) f.close();
+    gShare->handleBufferRequest(bbuf, n, send, ctx);
+  } else {
+    gShare->handleRequest(req, send, ctx);
+  }
+}
+
 // Dispatch a decoded, authenticated toot arriving on any transport. `reply` is
 // the transport to answer on (ESP-NOW peer or serial). Dedup is a radio/mesh
 // concern (replay attacks + forwarding loops), so it is NOT applied here — the
@@ -323,9 +341,8 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   switch (t.type) {
     case toot::TTDB_REQ:
       // The streamed TTDB_DATA reply is itself the confirmation, so a TTDB_REQ is
-      // not separately ACKed.
-      if (gShare && TtdbShare::requestTarget(t) == kNodeId)
-        gShare->handleRequest(t, reply, ctx);
+      // not separately ACKed. Mode selects live TTDB vs stored belief (serveTtdbReq).
+      serveTtdbReq(t, reply, ctx);
       break;
     case toot::TTDB_PUT:
       // Companion pushes a re-authored belief, one offset-addressed slice per toot
@@ -550,8 +567,7 @@ void loop() {
   // streams from the main task, where TX pacing via the send callback works).
   if (gReqPending) {
     gReqPending = false;
-    if (gShare && TtdbShare::requestTarget(gPendingReq) == kNodeId)
-      gShare->handleRequest(gPendingReq, sendEspNow, nullptr);
+    serveTtdbReq(gPendingReq, sendEspNow, nullptr);  // live TTDB or belief, by mode
   }
 
   // Serve an ESP-NOW TTDB_PUT (belief slice) deferred from the recv callback: the

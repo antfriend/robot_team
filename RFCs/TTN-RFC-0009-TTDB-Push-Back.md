@@ -93,6 +93,18 @@ Like TTN-RFC-0008's `sync_id`, the `belief_id` exactly-once gate is independent 
 transport dedup, so it stays correct on the un-deduped USB-CDC / bridge path where a
 retransmit is expected.
 
+### 3.1 Belief readback (serving `/belief.md`)
+
+The node also **serves the stored belief back** so the companion can diff the actual
+bytes, not only trust the CRC attestation. This reuses the existing `TTDB_REQ` /
+`TTDB_DATA` machinery with a new request mode `TTDB_REQ_BELIEF = 2` (the live TTDB is
+`TTDB_REQ_WHOLE`): on such a request addressed to it, the node reads `/belief.md` and
+streams it as the **same offset-addressed `TTDB_DATA` slices + zero-length EOF** as a
+normal pull (`TtdbShare::handleBufferRequest`), so the companion reassembles it with the
+unchanged `request_ttdb` path. It is a streamed burst, so a node serves it from the main
+loop, not the radio recv callback (the `TTDB_REQ` deferral). No belief yet → a single
+EOF slice (zero bytes). This is a read, so it neither ACKs nor mutates state.
+
 ## 4. Adoption record (live TTDB, `lat 98` lane)
 
 On a CRC-verified commit the node appends, append-only, a new record at
@@ -127,7 +139,9 @@ just storage.
 4. **Verify** by pulling the node's live TTDB (in a fresh link session, so a bridge
    relay is reset to a clean state) and matching the `BELIEF-ADOPTED` record for
    `belief_id`: `bytes` and `crc` must equal what was sent, and `applied:interval_ms`
-   must equal the directive. Record the push in the master belief log on success.
+   must equal the directive. Then **read `/belief.md` back** (`TTDB_REQ_BELIEF`, §3.1)
+   and assert it is byte-for-byte equal to what was pushed — full-object proof, not just
+   the CRC attestation. Record the push in the master belief log on success.
 
 ### 5.2 Behavioral directive — closing the Dream Cycle
 
@@ -161,11 +175,11 @@ behavioral parameters.
 
 ## 7. Future work
 
-- Serve the stored belief object back (a `TTDB_REQ` mode addressing `/belief.md`) so
-  the companion can diff the bytes, not only the CRC attestation.
 - Node-to-node belief gossip (BELIEF toot, type 3) once a second percept node exists.
 
 **Done since draft:** bridge-relayed push to an over-air node (the K10 defers a radio
-`TTDB_PUT`'s flash write to `loop()`, like `TTDB_REQ`); and the behavioral directive
-(§5.2) — a pushed belief retunes the K10's loop cadence, verified live (1000→300→700 ms)
-on-device through the V4-A bridge, closing the Dream Cycle (PLAN.md Phase 6).
+`TTDB_PUT`'s flash write to `loop()`, like `TTDB_REQ`); the behavioral directive (§5.2) —
+a pushed belief retunes the K10's loop cadence, verified live (1000→300→700 ms) on-device
+through the V4-A bridge, closing the Dream Cycle (PLAN.md Phase 6); and belief readback
+(§3.1) — `push` now reads `/belief.md` back and confirms it byte-exact (1121 B) over both
+USB and the bridge, so verification is full-object, not just the CRC attestation.

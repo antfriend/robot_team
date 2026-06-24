@@ -62,7 +62,8 @@ TIME_SYNC = 9
 TIME_REQ = 10
 TIME_RESP = 11
 TTDB_PUT = 12
-TTDB_REQ_WHOLE = 0
+TTDB_REQ_WHOLE = 0    # entire live TTDB
+TTDB_REQ_BELIEF = 2   # entire stored belief object (/belief.md, TTN-RFC-0009 §3)
 
 # TTDB_PUT payload (TTN-RFC-0009 §2.1): target u32 | belief_id u32 | total u32 |
 # crc32 u32 | offset u32 | len u16 | data. crc32 is zlib/IEEE (== firmware toot::crc32).
@@ -238,7 +239,7 @@ class SerialFrameReader:
         return frames
 
 
-def pull(port, baud, node, out_path, timeout):
+def pull(port, baud, node, out_path, timeout, which="ttdb"):
     try:
         import serial  # pyserial
     except ImportError:
@@ -246,6 +247,8 @@ def pull(port, baud, node, out_path, timeout):
     if node not in NODE_IDS:
         sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
     target = NODE_IDS[node]
+    mode = TTDB_REQ_BELIEF if which == "belief" else TTDB_REQ_WHOLE
+    obj = "/belief.md" if which == "belief" else "whole TTDB"
 
     reader = SerialFrameReader()
     with serial.Serial(port, baud, timeout=0.1) as ser:
@@ -255,22 +258,24 @@ def pull(port, baud, node, out_path, timeout):
         # only reads flash, so the reset is harmless here — unlike sync/verify.)
         time.sleep(2.5)
         ser.reset_input_buffer()   # discard the boot log so it isn't parsed as frames
-        print(f"requested whole TTDB from {node} (0x{target:08X}) on {port}")
-        data = request_ttdb(ser, reader, target, timeout)
+        print(f"requested {obj} from {node} (0x{target:08X}) on {port}")
+        data = request_ttdb(ser, reader, target, timeout, mode)
 
     if data is None:
-        sys.exit("no TTDB data received (check port, node id, and the key)")
+        sys.exit("no data received (check port, node id, and the key)")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(data)
     print(f"wrote {len(data)} bytes to {out_path}")
 
 
-def request_ttdb(ser, reader, target, timeout=20.0):
-    """Request a node's whole TTDB over an already-open link; return the
-    reassembled bytes, or None. Shared by `pull` and `verify`. A fresh toot_seq
-    keeps a non-reset target from dedup-dropping a repeated request."""
-    req_payload = bytes([TTDB_REQ_WHOLE]) + struct.pack("<I", target)
+def request_ttdb(ser, reader, target, timeout=20.0, mode=TTDB_REQ_WHOLE):
+    """Request a node's whole object over an already-open link; return the
+    reassembled bytes, or None. `mode` selects the live TTDB (TTDB_REQ_WHOLE) or the
+    stored belief (TTDB_REQ_BELIEF) — both stream the same offset-addressed TTDB_DATA
+    slices. Shared by `pull`, `verify`, and `push`. A fresh toot_seq keeps a non-reset
+    target from dedup-dropping a repeated request."""
+    req_payload = bytes([mode]) + struct.pack("<I", target)
     seq = int(time.time() * 1000) & 0x7FFFFFFF   # ms resolution: back-to-back
                                                  # retries get distinct (src,seq)
     write_serial_frame(ser, encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload))
@@ -1087,6 +1092,7 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
     # so its just-adopted belief survives. The pull stream is un-ACKed (~1/6 bridged
     # drop), so still retry a few times.
     node_ttdb = None
+    belief_bytes = None
     with serial.Serial(port, baud, timeout=0.1) as ser:
         time.sleep(settle)
         ser.reset_input_buffer()
@@ -1096,6 +1102,12 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
             if node_ttdb is not None:
                 break
             print(f"  verify pull empty (attempt {vattempt}/3), retrying...")
+        # Byte-level readback: pull the node's stored /belief.md so we can diff the
+        # actual bytes, not only the CRC attestation (TTN-RFC-0009 §3, §5).
+        for _ in range(3):
+            belief_bytes = request_ttdb(ser, reader, target, mode=TTDB_REQ_BELIEF)
+            if belief_bytes is not None:
+                break
 
     if node_ttdb is None:
         sys.exit("could not pull node TTDB to verify adoption")
@@ -1119,6 +1131,16 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
               f"{sense_interval_ms}")
     else:
         print(f"WARNING: node has no applied:interval_ms — DIRECTIVE not acted on")
+    # Byte-exact proof: the bytes the node actually stored equal what we sent.
+    if belief_bytes is None:
+        print("WARNING: could not read /belief.md back for a byte-diff (CRC still matched)")
+    elif belief_bytes == content:
+        print(f"stored /belief.md byte-exact ({len(belief_bytes)} B) — full readback MATCH")
+    else:
+        first = next((i for i in range(min(len(belief_bytes), len(content)))
+                      if belief_bytes[i] != content[i]), min(len(belief_bytes), len(content)))
+        sys.exit(f"DISCREPANCY: /belief.md readback differs at byte {first} "
+                 f"({len(belief_bytes)} B stored vs {len(content)} B sent)")
     append_belief_push_record(belief_log, belief_id, node, len(content), crc)
     print(f"verified — logged BELIEF-PUSH id={belief_id} to {belief_log}")
 
@@ -1126,12 +1148,14 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("pull", help="pull a node's TTDB over the link")
+    p = sub.add_parser("pull", help="pull a node's TTDB (or stored belief) over the link")
     p.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     p.add_argument("--baud", type=int, default=115200)
     p.add_argument("--node", required=True, choices=list(NODE_IDS))
     p.add_argument("--out", required=True, help="output .md path")
     p.add_argument("--timeout", type=float, default=20.0)
+    p.add_argument("--file", choices=["ttdb", "belief"], default="ttdb",
+                   help="which object to pull: the live TTDB (default) or /belief.md")
 
     pg = sub.add_parser("ping", help="reliable want_ack round-trip (TTN-RFC-0007)")
     pg.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
@@ -1239,7 +1263,7 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == "pull":
-        pull(args.port, args.baud, args.node, args.out, args.timeout)
+        pull(args.port, args.baud, args.node, args.out, args.timeout, args.file)
     elif args.cmd == "ping":
         ping(args.port, args.baud, args.node, args.settle, args.rto0,
              args.attempts)

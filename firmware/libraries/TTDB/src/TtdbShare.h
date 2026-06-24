@@ -32,6 +32,12 @@ class TtdbShare {
   // Returns the number of TTDB_DATA toots sent.
   int handleRequest(const toot::Toot& req, SendFn send, void* ctx);
 
+  // Stream an arbitrary in-memory object (e.g. a node's stored /belief.md) as the
+  // same offset-addressed TTDB_DATA slices + EOF that handleRequest emits, so the
+  // companion reassembles it identically. Serves a secondary object that has no Ttdb
+  // index of its own (TTN-RFC-0009 §3 readback). Returns toots sent.
+  int handleBufferRequest(const uint8_t* data, size_t total, SendFn send, void* ctx);
+
   // The node a TTDB_REQ is addressed to (payload bytes 1..4). A sketch serves
   // the request only when this equals its own node id.
   static uint32_t requestTarget(const toot::Toot& req) {

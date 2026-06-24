@@ -229,15 +229,22 @@ If a fact lives in one of these, link to it from here — don't copy it.
   solid: the K10 parses the directive in `loop()` (not the recv callback), and `push` runs
   its verify pull in a **fresh link session** (re-opening resets the bridge to the clean
   state a standalone pull relies on; reusing the burst-session pull came back empty).
+- **Belief readback ✅ (2026-06-24) — `push` verifies the stored bytes, not just the CRC.**
+  A new `TTDB_REQ_BELIEF` request mode makes the K10 stream its `/belief.md` back as the
+  same offset-addressed `TTDB_DATA` slices as a normal pull (`TtdbShare::handleBufferRequest`,
+  TTN-RFC-0009 §3.1). `push` now reads it back and asserts byte-for-byte equality with what
+  was sent (`stored /belief.md byte-exact (1121 B) — full readback MATCH`), over both USB
+  and the bridge. Also exposed as `pull --file belief`. Found + fixed a side issue: git
+  `autocrlf` was CRLF-mangling the byte-exact `master/*.md` + `data/*.md` artifacts on
+  checkout; `.gitattributes` now pins them `eol=lf` so the repo copy matches the on-flash/
+  on-wire bytes.
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
-  (a) **Serve `/belief.md` back** for a byte-level diff of what the node actually stored
-  (today we verify via the `BELIEF-ADOPTED` attestation — bytes/crc + applied directive —
-  not the raw bytes). (b) **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a
-  bridged pull is byte-exact every time (closes the old ~1/6 drop; `push` now sidesteps it
-  with a fresh-session verify + retries). (c) **More directives** — the `**DIRECTIVE**`
-  record is extensible (warm threshold, LED policy, …); `sense_interval_ms` is just the
-  first. Phases 3–4 (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C; multi-node
-  belief gossip needs a 2nd percept node.
+  (a) **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a bridged pull is
+  byte-exact every time (closes the old ~1/6 drop; `push` sidesteps it with a fresh-session
+  verify + retries). (b) **More directives** — the `**DIRECTIVE**` record is extensible
+  (warm threshold, LED policy, …); `sense_interval_ms` is just the first. Phases 3–4
+  (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C; multi-node belief gossip needs a
+  2nd percept node.
 
 Keep this section current. It is the first thing the next session reads.
 
