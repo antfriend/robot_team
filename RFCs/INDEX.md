@@ -22,6 +22,7 @@ This index lists RFCs included in the TTE 1.0 bundle.
 - [TTN-RFC-0006-LoRa-Packet-Framing.md](TTN-RFC-0006-LoRa-Packet-Framing.md): Minimal LoRa Packet Framing
 - [TTN-RFC-0007-Reliable-Delivery.md](TTN-RFC-0007-Reliable-Delivery.md): Reliable Delivery — `want_ack`/ACK semantics, timeout+backoff retransmission, the dedup-vs-ACK re-ACK rule, and chunk reassembly (Proposed; PLAN.md Phase 2)
 - [TTN-RFC-0008-Time-Sync.md](TTN-RFC-0008-Time-Sync.md): Fleet Time-Sync — `TIME_SYNC`/`TIME_REQ`/`TIME_RESP` toots, clock-offset adoption, append-only TTDB sync log (`lat 99` lane), and NTP-lite skew verification (Proposed; PLAN.md Phase 2.5; builds on TTN-RFC-0007)
+- [TTN-RFC-0009-TTDB-Push-Back.md](TTN-RFC-0009-TTDB-Push-Back.md): TTDB Push-Back / Belief Distribution — `TTDB_PUT` offset-addressed belief stream, CRC-32 whole-object integrity, `belief_id` exactly-once adoption, append-only `BELIEF-ADOPTED` log (`lat 98` lane); the propagation half of the Dream Cycle (Proposed; PLAN.md Phase 6; builds on TTN-RFC-0007 + TTDB-RFC-0007)
 
 ## TTCP (Toot Toot Content Publishing)
 - [TTCP-RFC-0001-Record-Rendering.md](TTCP-RFC-0001-Record-Rendering.md): File Ingestion, Record Parsing, and HTML Rendering

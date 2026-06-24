@@ -46,6 +46,7 @@ enum Type : uint8_t {
   TIME_SYNC = 9,  // companion -> fleet: set the wall clock (TTN-RFC-0008)
   TIME_REQ = 10,  // companion -> node: "report your epoch now" (skew probe)
   TIME_RESP = 11, // node -> companion: current epoch (ms)
+  TTDB_PUT = 12,  // companion -> node: one slice of a pushed belief (TTN-RFC-0009)
 };
 
 enum Flags : uint8_t {
@@ -79,6 +80,18 @@ enum CmdOp : uint8_t {
   CMD_BEEP = 4,          // args: freq_hz u16 | dur_ms u16 (both LE; 0 args = default)
   CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
 };
+
+// TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
+// pushed belief object. All multi-byte fields little-endian:
+//   [0..3]   target_node_id u32 — only the addressed node writes/ACKs
+//   [4..7]   belief_id      u32 — monotonic; exactly-once adoption gate
+//   [8..11]  total_len      u32 — full belief object size
+//   [12..15] crc32          u32 — CRC-32 (zlib/IEEE) over the whole object
+//   [16..19] offset         u32 — byte offset this slice writes at
+//   [20..21] len            u16 — slice length (<= TTDB_PUT_MAX_SLICE)
+//   [22..]   data           len bytes
+const size_t TTDB_PUT_HEADER_LEN = 22;
+const size_t TTDB_PUT_MAX_SLICE = MAX_BODY - TTDB_PUT_HEADER_LEN;  // 186
 
 // STATUS payload — a node's live telemetry, returned as a PERCEPT toot in answer to
 // CMD_GET_STATUS (reused type, so the bridge already forwards it; no new type/RFC):
@@ -147,6 +160,17 @@ inline uint32_t cmdTarget(const Toot& t) {
   return t.payload_len >= 5 ? get_u32(t.payload + 1) : 0;
 }
 
+// TTDB_PUT addressed node (payload bytes 0..3); 0 on a too-short body.
+inline uint32_t putTarget(const Toot& t) {
+  return t.payload_len >= 4 ? get_u32(t.payload) : 0;
+}
+
+// CRC-32 (zlib/IEEE 802.3: poly 0xEDB88320, reflected, init+final XOR 0xFFFFFFFF).
+// Pass crc=0 for a fresh sum; the return value can be fed back in as `crc` to
+// continue over a split stream — so an N-byte object hashed in one call equals the
+// same object hashed slice-by-slice (TTN-RFC-0009 §3). Matches Python zlib.crc32.
+uint32_t crc32(uint32_t crc, const uint8_t* buf, size_t len);
+
 // Serialize `t` into `out` (>= MAX_FRAME) and append the truncated HMAC.
 // Returns total frame length, or 0 on error.
 size_t encode(const Toot& t, const uint8_t* key, size_t key_len, uint8_t* out,
@@ -182,6 +206,13 @@ const size_t TIME_RESP_PAYLOAD_LEN = 12;
 bool parseTimeSync(const Toot& t, uint32_t& sync_id, uint64_t& epoch_ms);
 bool parseTimeReq(const Toot& t, uint32_t& probe_id, uint32_t& target);
 bool parseTimeResp(const Toot& t, uint32_t& probe_id, uint64_t& node_epoch_ms);
+
+// --- TTDB_PUT slice (TTN-RFC-0009) -----------------------------------------
+// Read a TTDB_PUT slice's fields. `data` points into t.payload (not copied).
+// False if `t` is not TTDB_PUT or the declared len overruns the payload.
+bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
+              uint32_t& total_len, uint32_t& crc, uint32_t& offset,
+              const uint8_t*& data, uint16_t& len);
 
 // Small ring of seen (src,seq) keys. seen() returns true if already present,
 // otherwise records the key and returns false.

@@ -195,6 +195,43 @@ int main() {
             toot::get_u64(sb + 7) == 1782170835676ULL,
         "STATUS payload packs cursor/temp/flags/epoch");
 
+  // 5g) TTDB_PUT slice + crc32 (TTN-RFC-0009). crc32 must match Python zlib.crc32
+  // so the node's running sum agrees with the companion's whole-object sum.
+  CHECK(toot::crc32(0, nullptr, 0) == 0u, "crc32 of empty == 0 (zlib KAT)");
+  const uint8_t k9[9] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  CHECK(toot::crc32(0, k9, 9) == 0xCBF43926u, "crc32('123456789') == 0xCBF43926");
+  // Continuation: a split sum equals the whole-buffer sum (slice-by-slice fold).
+  uint8_t blob[200];
+  for (int i = 0; i < 200; ++i) blob[i] = (uint8_t)i;
+  uint32_t whole = toot::crc32(0, blob, 200);
+  uint32_t part = toot::crc32(toot::crc32(0, blob, 100), blob + 100, 100);
+  CHECK(whole == part, "crc32 continuation: split fold == whole");
+
+  toot::Toot pt;
+  pt.type = toot::TTDB_PUT;
+  uint8_t pslice[50];
+  for (int i = 0; i < 50; ++i) pslice[i] = (uint8_t)((i * 3 + 5) & 0xff);
+  toot::put_u32(pt.payload + 0, 0x00000100u);   // target
+  toot::put_u32(pt.payload + 4, 7u);            // belief_id
+  toot::put_u32(pt.payload + 8, 1000u);         // total_len
+  toot::put_u32(pt.payload + 12, 0xDEADBEEFu);  // crc
+  toot::put_u32(pt.payload + 16, 186u);         // offset
+  toot::put_u16(pt.payload + 20, 50u);          // len
+  memcpy(pt.payload + 22, pslice, 50);
+  pt.payload_len = toot::TTDB_PUT_HEADER_LEN + 50;
+  uint32_t ptgt, pbid, ptot, pcrc, poff;
+  const uint8_t* pdata = nullptr;
+  uint16_t plen = 0;
+  CHECK(toot::parsePut(pt, ptgt, pbid, ptot, pcrc, poff, pdata, plen) &&
+            ptgt == 0x00000100u && pbid == 7u && ptot == 1000u &&
+            pcrc == 0xDEADBEEFu && poff == 186u && plen == 50 &&
+            pdata == pt.payload + 22 && pdata[49] == pslice[49] &&
+            toot::putTarget(pt) == 0x00000100u,
+        "parsePut reads target/belief_id/total/crc/offset/len/data");
+  pt.payload_len = 10;  // declared len overruns a short body -> reject
+  CHECK(!toot::parsePut(pt, ptgt, pbid, ptot, pcrc, poff, pdata, plen),
+        "parsePut rejects a slice shorter than its header");
+
   // 6) TTDB header parsing (matches data/ttdb.md and the Python reference).
   TtdbRecord hr;
   const char* warm =

@@ -84,6 +84,72 @@ static volatile bool gBeepPending = false;
 static int gBeepFreq = 0;
 static int gBeepBeat = 0;   // I2S samples @ 8 kHz: beat = dur_ms * 8 (beat/8000 = s)
 
+// --- pushed belief (TTN-RFC-0009) -------------------------------------------
+// The companion re-authors fleet knowledge and pushes it back as offset-addressed
+// TTDB_PUT slices, written to a SEPARATE file (never the live TTDB). On a
+// CRC-verified commit the node appends a BELIEF-ADOPTED record to its own live TTDB
+// — self-attestation that it integrated exactly those bytes. Exactly-once on a
+// monotonic belief_id (like the sync_id gate), so the un-deduped USB/bridge path
+// can retransmit a lost slice without double-adopting.
+static const char* kBeliefPath = "/belief.md";
+static bool gBeliefAdopted = false;   // committed at least one belief
+static uint32_t gBeliefId = 0;        // last adopted belief id
+static bool gPutActive = false;       // a transfer is mid-stream
+static uint32_t gPutId = 0, gPutTotal = 0, gPutCrc = 0, gPutNext = 0, gPutCrcRun = 0;
+// The live-TTDB BELIEF-ADOPTED append is deferred to loop() (flash write + re-index).
+static volatile bool gBeliefSyncPending = false;
+static uint32_t gPendBeliefId = 0, gPendBeliefBytes = 0, gPendBeliefCrc = 0;
+static uint32_t gPendBeliefRecvMs = 0;
+
+// Write one TTDB_PUT slice into the belief file and, on completion, CRC-verify and
+// schedule adoption. Returns true if the slice was accepted (so it is ACKed). The
+// laptop streams strictly in offset order (stop-and-wait), so we track gPutNext and
+// stay idempotent on retransmits (TTN-RFC-0009 §3). Runs in the caller's context —
+// for the serial/bridge push path that is loop(), where flash writes are safe.
+static bool handlePutSlice(const toot::Toot& t) {
+  uint32_t target, bid, total, crc, off;
+  const uint8_t* data;
+  uint16_t len;
+  if (!toot::parsePut(t, target, bid, total, crc, off, data, len)) return false;
+  if (target != kNodeId) return false;
+  // Already adopted this belief: re-ACK without rewriting (lost-final-ACK case).
+  if (gBeliefAdopted && bid == gBeliefId) return true;
+
+  if (off == 0) {                          // (re)start a fresh transfer
+    File f = LittleFS.open(kBeliefPath, "w");
+    if (!f) return false;
+    f.write(data, len);
+    f.close();
+    gPutActive = true; gPutId = bid; gPutTotal = total; gPutCrc = crc;
+    gPutNext = len; gPutCrcRun = toot::crc32(0, data, len);
+  } else if (gPutActive && bid == gPutId && off == gPutNext) {
+    File f = LittleFS.open(kBeliefPath, "a");
+    if (!f) return false;
+    f.write(data, len);
+    f.close();
+    gPutNext += len; gPutCrcRun = toot::crc32(gPutCrcRun, data, len);
+  } else if (gPutActive && bid == gPutId && off < gPutNext) {
+    return true;                           // duplicate slice (ACK lost): idempotent
+  } else {
+    return false;                          // gap / unknown belief: force retransmit
+  }
+
+  if (gPutActive && bid == gPutId && gPutNext >= gPutTotal) {  // last slice
+    gPutActive = false;
+    if (gPutCrcRun == gPutCrc) {
+      gBeliefAdopted = true; gBeliefId = bid;     // commit (exactly-once gate)
+      gPendBeliefId = bid; gPendBeliefBytes = gPutTotal; gPendBeliefCrc = gPutCrc;
+      gPendBeliefRecvMs = millis();
+      gBeliefSyncPending = true;                  // log to live TTDB from loop()
+    } else {
+      Serial.printf("[belief] id=%lu CRC MISMATCH got %08lX want %08lX (%luB)\n",
+                    (unsigned long)bid, (unsigned long)gPutCrcRun,
+                    (unsigned long)gPutCrc, (unsigned long)gPutTotal);
+    }
+  }
+  return true;
+}
+
 // --- sense/act bindings -----------------------------------------------------
 // Sensor: onboard ambient temperature (AHT20), nominal range -20..60 C, mapped
 // to (lat 10, lon 0) so a warm reading drives the cursor to the @LAT10LON0
@@ -244,6 +310,11 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       // not separately ACKed.
       if (gShare && TtdbShare::requestTarget(t) == kNodeId)
         gShare->handleRequest(t, reply, ctx);
+      break;
+    case toot::TTDB_PUT:
+      // Companion pushes a re-authored belief, one offset-addressed slice per toot
+      // (TTN-RFC-0009). Accept -> ACK each slice; commit + adopt on the last.
+      accepted = handlePutSlice(t);
       break;
     case toot::CMD:
       // Orchestrator directive. Only the addressed node acts + ACKs, so a broadcast
@@ -482,6 +553,32 @@ void loop() {
                     (unsigned)gDb.fileSize());
     else
       Serial.println("[sync] appendRecord FAILED");
+  }
+
+  // Log a CRC-verified pushed belief to the live TTDB (TTN-RFC-0009 §4), deferred
+  // from the recv/put path: a new @LAT98LON<n> record (n = count of existing lat-98
+  // records, unique under collision_policy: reject). The belief bytes themselves
+  // live in /belief.md; this is the node's append-only attestation of adoption.
+  if (gBeliefSyncPending) {
+    gBeliefSyncPending = false;
+    int n = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 98) ++n;
+    uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+    char rec[220];
+    int m = snprintf(
+        rec, sizeof(rec),
+        "\n---\n\n@LAT98LON%d | created:%lu | updated:%lu | relates:adopts@LAT0LON0"
+        "\n\n**BELIEF-ADOPTED** id:%lu bytes:%lu crc:%08lX recv_ms:%lu\n",
+        n, (unsigned long)t_sec, (unsigned long)t_sec,
+        (unsigned long)gPendBeliefId, (unsigned long)gPendBeliefBytes,
+        (unsigned long)gPendBeliefCrc, (unsigned long)gPendBeliefRecvMs);
+    if (m > 0 && gDb.appendRecord(rec, (size_t)m))
+      Serial.printf("[belief] adopted id=%lu %luB crc=%08lX -> @LAT98LON%d (TTDB %uB)\n",
+                    (unsigned long)gPendBeliefId, (unsigned long)gPendBeliefBytes,
+                    (unsigned long)gPendBeliefCrc, n, (unsigned)gDb.fileSize());
+    else
+      Serial.println("[belief] appendRecord FAILED");
   }
 
   // Play a deferred CMD_BEEP from the main task (playTone blocks ~dur_ms).

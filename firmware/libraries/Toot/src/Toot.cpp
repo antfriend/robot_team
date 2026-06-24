@@ -108,6 +108,35 @@ bool parseTimeResp(const Toot& t, uint32_t& probe_id, uint64_t& node_epoch_ms) {
   return true;
 }
 
+// --- TTDB_PUT slice (TTN-RFC-0009) -----------------------------------------
+bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
+              uint32_t& total_len, uint32_t& crc, uint32_t& offset,
+              const uint8_t*& data, uint16_t& len) {
+  if (t.type != TTDB_PUT || t.payload_len < TTDB_PUT_HEADER_LEN) return false;
+  target = get_u32(t.payload + 0);
+  belief_id = get_u32(t.payload + 4);
+  total_len = get_u32(t.payload + 8);
+  crc = get_u32(t.payload + 12);
+  offset = get_u32(t.payload + 16);
+  len = get_u16(t.payload + 20);
+  if ((size_t)TTDB_PUT_HEADER_LEN + len > t.payload_len) return false;  // overrun
+  data = t.payload + TTDB_PUT_HEADER_LEN;
+  return true;
+}
+
+// CRC-32 (zlib/IEEE). Bitwise (no 1 KiB table) — pushes are small and infrequent,
+// so the table isn't worth the RAM on a percept node. Continuation-friendly so the
+// firmware can fold it slice-by-slice (TTN-RFC-0009 §3).
+uint32_t crc32(uint32_t crc, const uint8_t* buf, size_t len) {
+  crc = ~crc;
+  for (size_t i = 0; i < len; ++i) {
+    crc ^= buf[i];
+    for (int k = 0; k < 8; ++k)
+      crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1)));
+  }
+  return ~crc;
+}
+
 // --- Reassembler (TTN-RFC-0007 §6) -----------------------------------------
 Reassembler::Slot* Reassembler::find(uint32_t src, uint32_t seq) {
   for (size_t i = 0; i < TOOT_REASSEMBLY_SLOTS; ++i)

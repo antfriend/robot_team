@@ -261,12 +261,25 @@ returns end-to-end.
 > `master/consolidated.md` with provenance (per-source `recv_ms`/`offset_ms`), and
 > confirms every node's logged `t_ms` agrees with the master. Verified on the K10
 > over COM3 — both `id:1`/`id:2` consolidated `agree:yes`. Episodic node records →
-> a semantic master record; next is BELIEF gossip + pushing a re-authored TTDB back.
+> a semantic master record.
+
+> **Push-back ✅ (2026-06-24): `push` distributes a re-authored belief back to a
+> node (TTN-RFC-0009).** The propagation half of the Dream Cycle: `companion.py
+> push` re-authors a belief TTDB from the consolidated sync knowledge, streams it as
+> offset-addressed `want_ack TTDB_PUT` slices (reliable, CRC-32 whole-object
+> integrity), and the node writes it to a separate `/belief.md`, CRC-verifies, and
+> appends a `BELIEF-ADOPTED` record to its own live TTDB (`@LAT98` lane). Verified
+> on the K10 over COM3 — belief `978 B`/`crc 65118C32`, all 6 slices ACKed first
+> try, `bytes`/`crc` round-trip MATCH; monotonic `belief_id` gives exactly-once
+> adoption (`id:1`, `id:2` appended as `@LAT98LON0`/`LON1`, no duplicate on re-ACK).
 
 - [ ] Switch ESP-NOW to the orchestrator AP channel; HELLO-beacon convergence
       outward from V4-A.
+- [x] Re-author + push a node's belief over the link (`push`, TTN-RFC-0009) —
+      laptop → K10 verified. _Next: bridge-relayed push to an over-air node, and
+      serving `/belief.md` back for a byte-level diff._
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into
-      the master TTDB; re-author + reflash node TTDBs as behavior evolves.
+      the master TTDB; node-to-node BELIEF gossip once a 2nd percept node exists.
 
 **Done when:** the orchestrator reconciles a multi-node belief and pushes an
 updated TTDB to a node that changes its behavior.

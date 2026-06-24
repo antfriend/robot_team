@@ -148,5 +148,59 @@ check(len(recs) == 2 and recs[0]["id"] == 1 and recs[0]["t_ms"] == 1782170699715
 check(c.parse_sync_file(os.path.join(d, "nope.md")) == [],
       "parse_sync_file returns [] for a missing file")
 
+# 15) TTDB_PUT slice payload (TTN-RFC-0009 §2.1) is wire-exact and round-trips.
+tgt = c.NODE_IDS["k10_1"]
+slice_data = bytes((i * 3 + 5) & 0xff for i in range(50))
+pl = c.put_slice_payload(tgt, 7, 1000, 0xDEADBEEF, 186, slice_data)
+expect = (struct.pack("<IIIII", tgt, 7, 1000, 0xDEADBEEF, 186)
+          + struct.pack("<H", 50) + slice_data)
+check(pl == expect and len(pl) == c.TTDB_PUT_HEADER_LEN + 50,
+      "TTDB_PUT payload: target|belief_id|total|crc|offset|len|data (22B hdr)")
+cd = c.decode_toot(c.encode_toot(c.TTDB_PUT, c.ORCHESTRATOR_ID, 1, pl,
+                                 flags=c.FLAG_WANT_ACK))
+p = cd["payload"]
+check(struct.unpack("<I", p[0:4])[0] == tgt and struct.unpack("<I", p[4:8])[0] == 7
+      and struct.unpack("<I", p[16:20])[0] == 186
+      and struct.unpack("<H", p[20:22])[0] == 50 and p[22:72] == slice_data,
+      "TTDB_PUT slice fields survive encode->decode")
+
+# 16) crc32 == zlib (the cross-stack KAT firmware toot::crc32 must also satisfy).
+check(c.crc32(b"") == 0 and c.crc32(b"123456789") == 0xCBF43926,
+      "crc32 matches the zlib/IEEE KAT (empty=0, '123456789'=0xCBF43926)")
+# Continuation: a split sum equals the whole-buffer sum (firmware folds slices).
+whole = bytes(range(200))
+import zlib as _z  # noqa: E402
+split = _z.crc32(whole[100:], _z.crc32(whole[:100])) & 0xFFFFFFFF
+check(split == c.crc32(whole), "crc32 is continuation-friendly (slice-by-slice == whole)")
+
+# 17) Belief authoring + slicing (TTN-RFC-0009 §5): valid TTDB, exact re-slice.
+bf = os.path.join(d, "bmaster.md")
+with open(bf, "w", encoding="utf-8") as f:
+    f.write(c.MASTER_SYNC_HEADER)
+    f.write("\n---\n\n@LAT99LON0 | created:1 | updated:1 | relates:logs@LAT0LON0\n\n")
+    f.write("**SYNC** id:1 t_ms:1782170699715 recv_ms:1782170699715 offset_ms:0\n")
+content = c.author_belief(bf)
+check(b"**BELIEF**" in content and b"**BELIEF-SYNC** id:1" in content
+      and b"@LAT0LON0" in content,
+      "author_belief emits a BELIEF summary + per-event BELIEF-SYNC records")
+offs = list(range(0, len(content), c.TTDB_PUT_MAX_SLICE)) or [0]
+rejoined = b"".join(content[o:o + c.TTDB_PUT_MAX_SLICE] for o in offs)
+check(rejoined == content and all(
+        len(content[o:o + c.TTDB_PUT_MAX_SLICE]) <= c.TTDB_PUT_MAX_SLICE for o in offs),
+      "belief slices (<=186B) concat back byte-exact")
+
+# 18) Belief id monotonicity + BELIEF-ADOPTED parsing (verify path).
+blog = os.path.join(d, "belief-log.md")
+check(c.next_belief_id(blog) == 1, "first belief_id is 1 with no push log")
+c.append_belief_push_record(blog, 1, "k10_1", len(content), c.crc32(content))
+check(c.next_belief_id(blog) == 2, "next_belief_id advances after a logged push")
+adopted_txt = ("**BELIEF-ADOPTED** id:2 bytes:512 crc:DEADBEEF recv_ms:123\n"
+               "**BELIEF-ADOPTED** id:3 bytes:99 crc:0000000A recv_ms:9\n")
+r = c.find_belief_adopted(adopted_txt, 2)
+check(r == {"id": 2, "bytes": 512, "crc": 0xDEADBEEF},
+      "find_belief_adopted reads id/bytes/crc of the matching record")
+check(c.find_belief_adopted(adopted_txt, 99) is None,
+      "find_belief_adopted returns None for an absent belief_id")
+
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

@@ -23,6 +23,7 @@ import re
 import struct
 import sys
 import time
+import zlib
 # pyserial is imported lazily inside pull() so the wire codec stays testable
 # without the dependency installed.
 
@@ -60,7 +61,13 @@ TTDB_DATA = 8
 TIME_SYNC = 9
 TIME_REQ = 10
 TIME_RESP = 11
+TTDB_PUT = 12
 TTDB_REQ_WHOLE = 0
+
+# TTDB_PUT payload (TTN-RFC-0009 §2.1): target u32 | belief_id u32 | total u32 |
+# crc32 u32 | offset u32 | len u16 | data. crc32 is zlib/IEEE (== firmware toot::crc32).
+TTDB_PUT_HEADER_LEN = 22
+TTDB_PUT_MAX_SLICE = MAX_BODY - TTDB_PUT_HEADER_LEN   # 186
 
 # Time-sync payload lengths (TTN-RFC-0008).
 TIME_SYNC_PAYLOAD_LEN = 12   # sync_id u32 | epoch_ms u64
@@ -898,6 +905,178 @@ def reconcile(port, baud, nodes, master, out, do_pull, settle):
         sys.exit("DISCREPANCY: a node's logged t_ms disagrees with the master")
 
 
+# --- belief push-back (TTN-RFC-0009) ----------------------------------------
+DEFAULT_BELIEF_LOG = os.path.join("master", "belief-log.md")
+DEFAULT_BELIEF_OUT = os.path.join("master", "belief.md")
+
+BELIEF_HEADER = """# Fleet Belief (authored by companion push)
+
+This object is re-authored by `companion.py push` from the consolidated fleet sync
+knowledge and pushed back to a node (TTN-RFC-0009) — the propagation half of the
+Dream Cycle (TTDB-RFC-0007). The node stores it as `/belief.md` and records the
+adoption in its own TTDB.
+
+```mmpdb
+db_id: fleet-belief-001
+db_name: Fleet Belief
+coord_increment:
+  lat: 1
+  lon: 1
+collision_policy: reject
+timestamp_kind: unix
+umwelt:
+  umwelt_id: orchestrator
+  role: companion-orchestrator
+  scope: belief
+```
+
+```cursor
+lat: 0
+lon: 0
+```
+"""
+
+# The node's self-attestation record (live TTDB, lat 98 lane).
+BELIEF_ADOPTED_RE = re.compile(
+    r"\*\*BELIEF-ADOPTED\*\*\s+id:(\d+)\s+bytes:(\d+)\s+crc:([0-9A-Fa-f]+)")
+# The laptop's own push log (one record per delivered belief).
+BELIEF_PUSH_RE = re.compile(r"\*\*BELIEF-PUSH\*\*\s+id:(\d+)")
+
+
+def crc32(data: bytes) -> int:
+    """CRC-32 (zlib/IEEE) — the exact sum the firmware toot::crc32 computes."""
+    return zlib.crc32(data) & 0xFFFFFFFF
+
+
+def author_belief(master_path):
+    """Re-author a belief TTDB from the master sync knowledge (TTN-RFC-0009 §5.1):
+    a `**BELIEF**` summary record plus one `**BELIEF-SYNC**` record per known sync
+    event. Returns valid TTDB bytes the node can store and re-index."""
+    recs = parse_sync_file(master_path)
+    latest = max((r["t_ms"] for r in recs), default=0)
+    parts = [BELIEF_HEADER]
+    parts.append(
+        f"\n---\n\n@LAT0LON0 | created:{latest // 1000} | updated:{latest // 1000} | "
+        f"relates:knows@LAT1LON0\n\n"
+        f"**BELIEF** summary:fleet-observed-{len(recs)}-sync-events "
+        f"latest_t_ms:{latest}\n")
+    for i, r in enumerate(recs):
+        parts.append(
+            f"\n---\n\n@LAT{i + 1}LON0 | created:{r['t_ms'] // 1000} | "
+            f"updated:{r['t_ms'] // 1000} | relates:derives@LAT0LON0\n\n"
+            f"**BELIEF-SYNC** id:{r['id']} t_ms:{r['t_ms']}\n")
+    return "".join(parts).encode("utf-8")
+
+
+def next_belief_id(log_path):
+    """Monotonic belief_id = max id in the push log + 1 (1 if none)."""
+    if not os.path.exists(log_path):
+        return 1
+    with open(log_path, encoding="utf-8") as f:
+        ids = [int(m) for m in BELIEF_PUSH_RE.findall(f.read())]
+    return (max(ids) + 1) if ids else 1
+
+
+def append_belief_push_record(log_path, belief_id, node, total, crc):
+    """Record a delivered belief in the laptop's master push log."""
+    os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+    new_file = not os.path.exists(log_path)
+    n = 0
+    if not new_file:
+        with open(log_path, encoding="utf-8") as f:
+            n = len(re.findall(r"@LAT97LON", f.read()))
+    with open(log_path, "a", encoding="utf-8", newline="\n") as f:
+        if new_file:
+            f.write("# Orchestrator Belief Push Log\n\n"
+                    "One record per belief delivered to a node (TTN-RFC-0009).\n")
+        f.write(f"\n---\n\n@LAT97LON{n} | relates:pushed@LAT0LON0\n\n"
+                f"**BELIEF-PUSH** id:{belief_id} node:{node} bytes:{total} "
+                f"crc:{crc:08X}\n")
+
+
+def find_belief_adopted(text, belief_id):
+    """Find the node's BELIEF-ADOPTED record for `belief_id`. Returns
+    {id, bytes, crc} or None."""
+    for m in BELIEF_ADOPTED_RE.finditer(text):
+        if int(m.group(1)) == belief_id:
+            return {"id": belief_id, "bytes": int(m.group(2)),
+                    "crc": int(m.group(3), 16)}
+    return None
+
+
+def put_slice_payload(target, belief_id, total, crc, offset, data):
+    """Pack a TTDB_PUT slice payload (TTN-RFC-0009 §2.1)."""
+    return (struct.pack("<IIIII", target, belief_id, total, crc, offset)
+            + struct.pack("<H", len(data)) + data)
+
+
+def push_belief(ser, reader, target, content, belief_id, rto0, attempts):
+    """Deliver `content` to a node as offset-addressed want_ack TTDB_PUT slices
+    (TTN-RFC-0009). Each slice rides the TTN-RFC-0007 reliable sender. Returns True
+    when every slice is ACKed."""
+    crc = crc32(content)
+    total = len(content)
+    offsets = list(range(0, total, TTDB_PUT_MAX_SLICE)) or [0]
+    print(f"push belief id={belief_id} {total}B crc={crc:08X} -> 0x{target:08X} "
+          f"in {len(offsets)} slice(s)")
+    base = int(time.time() * 1000) & 0x7FFFFFFF
+    for k, off in enumerate(offsets):
+        data = content[off:off + TTDB_PUT_MAX_SLICE]
+        seq = (base + k) & 0x7FFFFFFF             # fresh (src,seq) per slice
+        payload = put_slice_payload(target, belief_id, total, crc, off, data)
+        frame = encode_toot(TTDB_PUT, ORCHESTRATOR_ID, seq, payload,
+                            flags=FLAG_WANT_ACK)
+        acked = send_reliable(ser, reader, frame, target, seq,
+                              rto0=rto0, attempts=attempts)
+        if not acked:
+            return False
+        print(f"  slice @{off} ({len(data)}B) ACK on attempt {acked}")
+    return True
+
+
+def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attempts):
+    """Re-author a belief and push it to a node, then verify adoption by pulling the
+    node's live TTDB and matching its BELIEF-ADOPTED record (TTN-RFC-0009 §5)."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    target = NODE_IDS[node]
+
+    content = author_belief(src_master)
+    crc = crc32(content)
+    belief_id = next_belief_id(belief_log)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
+    with open(out_path, "wb") as f:
+        f.write(content)
+    print(f"authored belief from {src_master}: {len(content)}B -> {out_path}")
+
+    reader = SerialFrameReader()
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)            # opening the port resets the S3 (see pull())
+        ser.reset_input_buffer()
+        if not push_belief(ser, reader, target, content, belief_id, rto0, attempts):
+            sys.exit(f"belief id={belief_id} undelivered after {attempts} attempts")
+        time.sleep(0.3)               # let the node's deferred adoption append land
+        node_ttdb = request_ttdb(ser, reader, target)
+
+    if node_ttdb is None:
+        sys.exit("could not pull node TTDB to verify adoption")
+    rec = find_belief_adopted(node_ttdb.decode("utf-8", "replace"), belief_id)
+    if not rec:
+        sys.exit(f"FAIL: node has no BELIEF-ADOPTED id:{belief_id} record")
+    ok = rec["bytes"] == len(content) and rec["crc"] == crc
+    print(f"\nnode adopted belief id={belief_id}: bytes={rec['bytes']} "
+          f"crc={rec['crc']:08X} "
+          f"({'MATCH' if ok else 'MISMATCH'} vs sent {len(content)}B/{crc:08X})")
+    if not ok:
+        sys.exit("DISCREPANCY: adopted bytes/crc disagree with what was pushed")
+    append_belief_push_record(belief_log, belief_id, node, len(content), crc)
+    print(f"verified — logged BELIEF-PUSH id={belief_id} to {belief_log}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -991,6 +1170,23 @@ def main():
     rc.add_argument("--no-pull", action="store_true", dest="no_pull",
                     help="don't pull; read existing master/<node>.md")
     rc.add_argument("--settle", type=float, default=2.5)
+
+    pb = sub.add_parser(
+        "push",
+        help="re-author a belief and push it back to a node (TTN-RFC-0009)")
+    pb.add_argument("--port", required=True, help="serial port (COM3, /dev/ttyACM0)")
+    pb.add_argument("--baud", type=int, default=115200)
+    pb.add_argument("--node", required=True, choices=list(NODE_IDS))
+    pb.add_argument("--from", dest="src_master", default=DEFAULT_MASTER_SYNC,
+                    help="master sync log to author the belief from")
+    pb.add_argument("--belief-log", default=DEFAULT_BELIEF_LOG, dest="belief_log",
+                    help="laptop belief push log (monotonic belief_id source)")
+    pb.add_argument("--out", default=DEFAULT_BELIEF_OUT,
+                    help="where to write the authored belief locally")
+    pb.add_argument("--settle", type=float, default=2.5)
+    pb.add_argument("--rto0", type=float, default=0.5)
+    pb.add_argument("--attempts", type=int, default=4)
+
     args = ap.parse_args()
 
     if args.cmd == "pull":
@@ -1017,6 +1213,9 @@ def main():
         do_pull = bool(args.port) and not args.no_pull
         reconcile(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                   args.master, args.out, do_pull, args.settle)
+    elif args.cmd == "push":
+        push(args.port, args.baud, args.node, args.src_master, args.belief_log,
+             args.out, args.settle, args.rto0, args.attempts)
 
 
 if __name__ == "__main__":
