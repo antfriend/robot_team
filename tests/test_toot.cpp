@@ -182,6 +182,19 @@ int main() {
   CHECK(toot::cmdOp(empty) == 0xFF && toot::cmdTarget(empty) == 0u,
         "cmd accessors safe on an empty payload");
 
+  // 5f) STATUS payload pack matches the documented layout (Toot.h).
+  uint8_t sb[toot::STATUS_PAYLOAD_LEN];
+  toot::put_u16(sb + 0, (uint16_t)(int16_t)10);
+  toot::put_u16(sb + 2, (uint16_t)(int16_t)0);
+  toot::put_u16(sb + 4, (uint16_t)(int16_t)2350);  // 23.50 C
+  sb[6] = toot::STATUS_WARM | toot::STATUS_SYNCED;
+  toot::put_u64(sb + 7, 1782170835676ULL);
+  CHECK((int16_t)toot::get_u16(sb + 0) == 10 &&
+            (int16_t)toot::get_u16(sb + 4) == 2350 &&
+            (sb[6] & toot::STATUS_SYNCED) && !(sb[6] & toot::STATUS_LED_OVERRIDE) &&
+            toot::get_u64(sb + 7) == 1782170835676ULL,
+        "STATUS payload packs cursor/temp/flags/epoch");
+
   // 6) TTDB header parsing (matches data/ttdb.md and the Python reference).
   TtdbRecord hr;
   const char* warm =

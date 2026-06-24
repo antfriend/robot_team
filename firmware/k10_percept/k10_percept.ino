@@ -209,6 +209,22 @@ static void emitAck(const toot::Toot& orig, uint8_t status,
   if (flen) reply(frame, flen, ctx);
 }
 
+// Pack this node's live telemetry into a STATUS payload (Toot.h) — answered as a
+// PERCEPT to CMD_GET_STATUS. Uses the last sensed reading (no I2C from a callback).
+static uint8_t buildStatus(uint8_t* p) {
+  float t = gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f;
+  uint8_t flags = 0;
+  if (gAgent.matchedThisCycle()) flags |= toot::STATUS_WARM;
+  if (gLedOverride.enabled) flags |= toot::STATUS_LED_OVERRIDE;
+  if (gSynced) flags |= toot::STATUS_SYNCED;
+  toot::put_u16(p + 0, (uint16_t)(int16_t)gAgent.cursorLat());
+  toot::put_u16(p + 2, (uint16_t)(int16_t)gAgent.cursorLon());
+  toot::put_u16(p + 4, (uint16_t)(int16_t)(t * 100.0f));
+  p[6] = flags;
+  toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
+  return (uint8_t)toot::STATUS_PAYLOAD_LEN;
+}
+
 // Dispatch a decoded, authenticated toot arriving on any transport. `reply` is
 // the transport to answer on (ESP-NOW peer or serial). Dedup is a radio/mesh
 // concern (replay attacks + forwarding loops), so it is NOT applied here — the
@@ -238,10 +254,16 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           case toot::CMD_CLEAR_LED:
             gLedOverride.enabled = false;
             break;
+          case toot::CMD_GET_STATUS: {
+            uint8_t body[toot::STATUS_PAYLOAD_LEN];
+            uint8_t slen = buildStatus(body);
+            emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
+            break;
+          }
           default:  // CMD_PING / unknown: nothing to do but ACK
             break;
         }
-        accepted = true;  // a CMD addressed to us is acknowledged
+        accepted = true;  // a CMD addressed to us is acknowledged (when want_ack)
       }
       break;
     case toot::TIME_SYNC: {

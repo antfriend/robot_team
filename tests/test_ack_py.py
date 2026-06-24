@@ -115,5 +115,15 @@ check(p[0] == c.CMD_SET_LED and struct.unpack("<I", p[1:5])[0] == tgt and
 check(set(c.CMD_OPS) == {"ping", "set-led", "clear-led"},
       "CMD_OPS exposes ping/set-led/clear-led")
 
+# 12) STATUS payload (cursor/temp/flags/epoch) parses what the firmware packs.
+flags = c.STATUS_WARM | c.STATUS_SYNCED
+body = struct.pack("<hhhBQ", 10, 0, 2350, flags, 1782170835676)
+st = c.parse_status(body)
+check(st is not None and st["cursor"] == (10, 0) and abs(st["temp_c"] - 23.5) < 1e-6
+      and st["warm"] and st["synced"] and not st["led"]
+      and st["epoch_ms"] == 1782170835676,
+      "parse_status reads cursor/temp/flags/epoch (firmware STATUS layout)")
+check(c.parse_status(b"\x00\x00") is None, "parse_status rejects a short payload")
+
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

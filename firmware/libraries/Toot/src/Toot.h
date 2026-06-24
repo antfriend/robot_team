@@ -72,9 +72,24 @@ enum TtdbReqMode : uint8_t {
 // TTDB_REQ), so it needs no new toot type / RFC. Sent want_ack so the laptop
 // gets delivery confirmation (TTN-RFC-0007).
 enum CmdOp : uint8_t {
-  CMD_PING = 0,       // no-op; accept + ACK (reliability smoke test)
-  CMD_SET_LED = 1,    // args: R,G,B (3 bytes) — override the indicator LED
-  CMD_CLEAR_LED = 2,  // no args — return the LED to local agent control
+  CMD_PING = 0,        // no-op; accept + ACK (reliability smoke test)
+  CMD_SET_LED = 1,     // args: R,G,B (3 bytes) — override the indicator LED
+  CMD_CLEAR_LED = 2,   // no args — return the LED to local agent control
+  CMD_GET_STATUS = 3,  // no args — node replies a STATUS PERCEPT (not want_ack)
+};
+
+// STATUS payload — a node's live telemetry, returned as a PERCEPT toot in answer to
+// CMD_GET_STATUS (reused type, so the bridge already forwards it; no new type/RFC):
+//   [0..1]  cursor_lat   i16 LE
+//   [2..3]  cursor_lon   i16 LE
+//   [4..5]  temp_c_x100  i16 LE   (last sensed ambient °C × 100; 0 if none)
+//   [6]     flags        u8       bit0 warm · bit1 led_override · bit2 synced
+//   [7..14] epoch_ms     u64 LE   (nowEpochMs(); 0 if unsynced)
+const size_t STATUS_PAYLOAD_LEN = 15;
+enum StatusFlag : uint8_t {
+  STATUS_WARM = 1 << 0,
+  STATUS_LED_OVERRIDE = 1 << 1,
+  STATUS_SYNCED = 1 << 2,
 };
 
 // ACK payload layout (TTN-RFC-0007 §3). The header's src/seq belong to the

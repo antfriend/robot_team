@@ -235,13 +235,16 @@ LoRa with correct TTL and no duplicates.
 > (`want_ack`), with `set-led` overriding the local warm/cool indicator until
 > `clear-led`. `companion.py cmd --op set-led --rgb 0000FF` and `clear-led` both ACKed
 > on attempt 1 on-device (over the K10's USB; the bridge-relayed CMD path was proven
-> by `ping` over COM6). This is the laptop **driving** node behavior — the Phase 5
-> core. Remaining below is the full A→B→C spine + telemetry/Dream-Cycle reconcile.
+> by `ping` over COM6). **Telemetry collect also works:** `CMD_GET_STATUS` → a node
+> answers a STATUS `PERCEPT` (cursor, temp, warm/led/synced flags, epoch), and
+> `companion.py monitor` prints a live refreshing table — verified on the K10 over
+> COM3 (`@L10L0`, 31.9 °C, warm). This is the laptop **driving + observing** the fleet
+> — the Phase 5 core. Remaining below is the full A→B→C spine + Dream-Cycle reconcile.
 
 - [ ] V4-A firmware: bridge — USB-CDC ↔ LoRa/ESP-NOW; channel authority;
       trusted-core key holder.
-- [x] Laptop orchestrator: **inject CMD toots** (`cmd` subcommand) — collect
-      telemetry across the full A→B→C spine still pending (needs V4-B/V4-C).
+- [x] Laptop orchestrator: **inject CMD toots** (`cmd`) + **collect telemetry**
+      (`monitor`) over the bridge hop. The full A→B→C spine still pending (V4-B/V4-C).
 - [ ] Master TTDB on the laptop; reconcile incoming BELIEF/PERCEPT.
 
 **Done when:** a CMD toot from the laptop reaches cluster C and telemetry

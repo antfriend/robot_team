@@ -126,6 +126,17 @@ static void adoptTimeSync(const toot::Toot& t) {
                 (unsigned long)sid, (long long)offset, n, (unsigned)gDb.fileSize());
 }
 
+// The bridge's STATUS telemetry (Toot.h). No agent cursor or temp sensor, so those
+// fields are 0; it reports its synced state + epoch for the `monitor` table.
+static uint8_t buildStatus(uint8_t* p) {
+  toot::put_u16(p + 0, 0);
+  toot::put_u16(p + 2, 0);
+  toot::put_u16(p + 4, 0);
+  p[6] = gSynced ? toot::STATUS_SYNCED : 0;
+  toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
+  return (uint8_t)toot::STATUS_PAYLOAD_LEN;
+}
+
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
@@ -250,6 +261,15 @@ void loop() {
           injectToMesh(buf, n);  // probe addressed to a mesh node
           gInjected++;
         }
+      } else if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId) {
+        // CMD addressed to the bridge itself: answer GET_STATUS with a PERCEPT,
+        // and ACK any want_ack CMD. (Relayed CMDs for mesh nodes fall through.)
+        if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
+          uint8_t body[toot::STATUS_PAYLOAD_LEN];
+          uint8_t slen = buildStatus(body);
+          emitSerial(toot::PERCEPT, body, slen);
+        }
+        if (t.flags & toot::FLAG_WANT_ACK) emitAckSerial(t, toot::ACK_ACCEPTED);
       } else {
         injectToMesh(buf, n);
         gInjected++;

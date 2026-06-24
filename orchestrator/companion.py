@@ -51,6 +51,7 @@ NODE_IDS = {
 }
 
 # Toot types.
+PERCEPT = 2
 BELIEF = 3
 CMD = 4
 ACK = 5
@@ -70,7 +71,16 @@ TIME_RESP_PAYLOAD_LEN = 12   # probe_id u32 | node_epoch_ms u64
 CMD_PING = 0
 CMD_SET_LED = 1
 CMD_CLEAR_LED = 2
+CMD_GET_STATUS = 3   # used by `monitor`; node replies a STATUS PERCEPT (no ACK)
+# User-facing `cmd` ops only (GET_STATUS is internal to `monitor`).
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED}
+
+# STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
+# flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
+STATUS_PAYLOAD_LEN = 15
+STATUS_WARM = 1 << 0
+STATUS_LED_OVERRIDE = 1 << 1
+STATUS_SYNCED = 1 << 2
 
 DEFAULT_MASTER_SYNC = os.path.join("master", "orchestrator-sync.md")
 
@@ -149,6 +159,22 @@ def parse_time_resp(t):
     probe_id = struct.unpack("<I", p[0:4])[0]
     node_epoch_ms = struct.unpack("<Q", p[4:12])[0]
     return (probe_id, node_epoch_ms)
+
+
+def parse_status(payload):
+    """Read a STATUS payload (the body of a GET_STATUS PERCEPT). Returns a dict or None."""
+    if len(payload) < STATUS_PAYLOAD_LEN:
+        return None
+    clat, clon, tx100, flags, epoch = struct.unpack(
+        "<hhhBQ", payload[:STATUS_PAYLOAD_LEN])
+    return {
+        "cursor": (clat, clon),
+        "temp_c": tx100 / 100.0,
+        "warm": bool(flags & STATUS_WARM),
+        "led": bool(flags & STATUS_LED_OVERRIDE),
+        "synced": bool(flags & STATUS_SYNCED),
+        "epoch_ms": epoch,
+    }
 
 
 def open_serial_no_reset(port, baud):
@@ -462,6 +488,63 @@ def send_cmd(port, baud, node, op, rgb, settle, rto0, attempts):
         sys.exit(f"no ACK from {node} after {attempts} attempts — NOT applied")
 
 
+def monitor(port, baud, nodes, interval, rounds, settle):
+    """Live fleet telemetry: each round polls every node with CMD_GET_STATUS and
+    prints a table from the STATUS PERCEPT replies. The observe half of the
+    orchestrator loop — complements `cmd` (push) and `sync` (timestamp)."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    for name in nodes:
+        if name not in NODE_IDS:
+            sys.exit(f"unknown node '{name}'. choices: {', '.join(NODE_IDS)}")
+    targets = {NODE_IDS[name]: name for name in nodes}
+    reader = SerialFrameReader()
+
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        r = 0
+        try:
+            while rounds == 0 or r < rounds:
+                r += 1
+                base = int(time.time() * 1000) & 0x7FFFFFFF
+                for i, tid in enumerate(targets):
+                    seq = (base + i) & 0x7FFFFFFF     # fresh per poll (radio dedup)
+                    payload = bytes([CMD_GET_STATUS]) + struct.pack("<I", tid)
+                    write_serial_frame(
+                        ser, encode_toot(CMD, ORCHESTRATOR_ID, seq, payload))
+                latest = {}
+                deadline = time.time() + interval
+                while time.time() < deadline:
+                    data = ser.read(256)
+                    if not data:
+                        continue
+                    for fr in reader.feed(data):
+                        t = decode_toot(fr)
+                        if not t or t["type"] != PERCEPT or t["src"] not in targets:
+                            continue
+                        st = parse_status(t["payload"])
+                        if st:
+                            latest[t["src"]] = st
+                print(f"\n[{time.strftime('%H:%M:%S')}] fleet status (round {r})")
+                print(f"{'node':<12}{'cursor':<11}{'temp':>7}{'warm':>6}"
+                      f"{'led':>5}{'synced':>8}")
+                for tid, name in targets.items():
+                    st = latest.get(tid)
+                    if not st:
+                        print(f"{name:<12}{'(no reply)':<11}")
+                        continue
+                    cur = f"@L{st['cursor'][0]}L{st['cursor'][1]}"
+                    yn = lambda b: "Y" if b else "-"  # noqa: E731
+                    print(f"{name:<12}{cur:<11}{st['temp_c']:>6.1f}C"
+                          f"{yn(st['warm']):>6}{yn(st['led']):>5}"
+                          f"{yn(st['synced']):>8}")
+        except KeyboardInterrupt:
+            print("\nstopped")
+
+
 # --- Time-sync (TTN-RFC-0008) ----------------------------------------------
 MASTER_SYNC_HEADER = """# Orchestrator Master Sync Log
 
@@ -749,6 +832,15 @@ def main():
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
+
+    mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
+    mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
+    mo.add_argument("--baud", type=int, default=115200)
+    mo.add_argument("--nodes", default="v4a_bridge,k10_1")
+    mo.add_argument("--interval", type=float, default=1.0,
+                    help="seconds per poll round")
+    mo.add_argument("--rounds", type=int, default=0, help="0 = until Ctrl-C")
+    mo.add_argument("--settle", type=float, default=2.5)
     args = ap.parse_args()
 
     if args.cmd == "pull":
@@ -768,6 +860,9 @@ def main():
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.settle,
                  args.rto0, args.attempts)
+    elif args.cmd == "monitor":
+        monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+                args.interval, args.rounds, args.settle)
 
 
 if __name__ == "__main__":
