@@ -178,13 +178,38 @@ If a fact lives in one of these, link to it from here — don't copy it.
   - **Two laptop-side timing bugs found + fixed during bring-up** (firmware was
     correct): sample `epoch_ms` *after* the settle, and probe with a non-blocking
     read — the first `verify` showed ~−600 ms, all harness latency.
+- **Phase 5 down-payment ✅ — the laptop drives + observes the fleet.** `CMD` carries a
+  verb set (`Toot.h` `CmdOp`: `ping` / `set-led RRGGBB` / `clear-led` / `beep` /
+  `set-interval`); the K10 acts only on a CMD addressed to it and ACKs it (`want_ack`),
+  `set-led` overriding the warm/cool indicator until `clear-led`. `companion.py cmd
+  --op set-led --rgb 0000FF` + `clear-led` ACKed attempt 1 (K10 USB); bridge-relayed
+  CMD proven by `ping` over COM6. **Telemetry:** `CMD_GET_STATUS` → a node answers a
+  STATUS `PERCEPT` (cursor, temp, warm/led/synced flags, epoch); `companion.py monitor`
+  prints a live table — verified on the K10 over COM3 (`@L10L0`, 31.9 °C, warm).
+- **Phase 6 Dream-Cycle seed ✅ — `reconcile` consolidates fleet sync logs.** The minimal
+  first instance of the Dream Cycle (TTDB-RFC-0007): `companion.py reconcile` pulls each
+  node's TTDB, folds the `@LAT99` sync records each node self-authored into one
+  `master/consolidated.md` with provenance (per-source `recv_ms`/`offset_ms`), and exits
+  non-zero on any `t_ms` disagreement. Verified on the K10 over COM3 — `id:1`/`id:2` both
+  `agree:yes` (its two `@LAT99` records survived every reflash; the LittleFS data
+  partition is untouched by app flashing). Episodic node records → a semantic master one.
+- **Phase 6 push-back ✅ (2026-06-24) — `push` distributes a re-authored belief
+  (TTN-RFC-0009).** The propagation half of the Dream Cycle: `companion.py push`
+  re-authors `master/belief.md` from the consolidated sync knowledge, streams it as
+  offset-addressed `want_ack TTDB_PUT` slices (reliable, CRC-32 whole-object integrity),
+  and the node writes it to a separate `/belief.md`, CRC-verifies, and appends a
+  `BELIEF-ADOPTED` record to its own live TTDB (`@LAT98` lane). Verified on the K10 over
+  COM3 — belief `978 B` / `crc 65118C32`, all 6 slices ACKed first try, `bytes`/`crc`
+  round-trip MATCH; a monotonic `belief_id` gives exactly-once adoption (`id:1`→`@LAT98LON0`,
+  `id:2`→`@LAT98LON1`, no duplicate on re-ACK). Push log in `master/belief-log.md`.
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
-  (a) **Reliability hardening** — `want_ack` on `TIME_SYNC` already works; add ACK to
-  the TTDB pull stream so a bridged pull is byte-exact every time (closes the old
-  ~1/6 drop). (b) **Phase 5 groundwork** — give `CMD` real semantics (e.g. set-LED,
-  re-sync) so the laptop drives node behavior. (c) **Phase 6 Dream-Cycle seed** —
-  consolidate the gossiped sync log into the master TTDB. Phases 3–4 (V4-C edge, LoRa
-  backbone) remain hardware-gated on V4-B/V4-C.
+  (a) **Bridge-relayed push** — repeat the verified `push` to an over-air node *through
+  the V4-A bridge* (today's push is direct over the K10's USB), and serve `/belief.md`
+  back so the laptop can byte-diff what the node actually stored. (b) **Close the Dream
+  Cycle** — have a pushed belief *change node behavior* (the PLAN.md Phase 6 "Done when"),
+  e.g. the K10 reads `/belief.md` in its Agent32 loop. (c) **Pull-stream ACK** — add ACK
+  to the `TTDB_DATA` pull stream so a bridged pull is byte-exact every time (closes the
+  old ~1/6 drop). Phases 3–4 (V4-C edge, LoRa backbone) remain hardware-gated on V4-B/V4-C.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -246,7 +271,10 @@ master TTDB and drives the fleet. `orchestrator/companion.py pull` reassembles a
 node's TTDB over the link (whole-file or byte-range, HMAC-verified), directly over
 USB-CDC or through the V4-A bridge into the mesh. Verified: byte-exact pulls of
 both built nodes (K10 1114 B, V4-A 976 B). Auth/replay floor checked with
-`orchestrator/negchecks.py`.
+`orchestrator/negchecks.py`. Also `cmd`/`monitor` (drive + observe nodes),
+`reconcile` (fold node `@LAT99` sync logs → `master/consolidated.md`, Dream-Cycle
+seed), and `push` (re-author + distribute a belief → `master/belief.md`, see
+`@LAT90LON30`).
 
 ---
 
@@ -270,7 +298,9 @@ verified. FQBN `UNIHIKER:esp32:k10:CDCOnBoot=cdc`, on COM3. Agent32 sense→reas
 loop runs; LCD shows both TTDB records + cursor/WARM; startup "toot toot". Byte-exact
 pull (1114 B) + HMAC reject + dedup. Reaches the laptop over ESP-NOW via the V4-A
 bridge. Reflashed 2026-06-20 to radio-only dedup (see `@LAT90LON0`) and re-verified
-with `negchecks.py` — now consistent with the V4-A.
+with `negchecks.py` — now consistent with the V4-A. Self-writes its TTDB at runtime:
+`@LAT99` time-sync logs (`sync`), and on a pushed belief adopts `/belief.md` and
+appends a `BELIEF-ADOPTED` record in its `@LAT98` lane (`push`, `@LAT90LON30`).
 
 ---
 
@@ -320,3 +350,21 @@ dropped. Firmware lessons baked in: serve replies from `loop()` (not the recv
 callback), pace ESP-NOW bursts, fresh `toot_seq` per request. **Now → Phase 2**
 (`want_ack` + chunking) so every bridged pull is byte-exact under loss; ~1/6 still
 drops a frame today.
+
+---
+
+@LAT90LON30 | created:1782170835 | updated:1782170835 | relates:derived_from@LAT0LON0,derived_from@LAT10LON10,refines@LAT90LON20
+
+**Milestone — Dream Cycle, both halves (Phase 6 seed) ✅ achieved 2026-06-24.** The
+consolidation half: `companion.py reconcile` folds each node's self-authored `@LAT99`
+sync records into `master/consolidated.md` (per-source `recv_ms`/`offset_ms`
+provenance) and exits non-zero on any `t_ms` disagreement — K10 `id:1`/`id:2` both
+`agree:yes`. The propagation half (`TTN-RFC-0009`): `companion.py push` re-authors
+`master/belief.md` from that consolidated knowledge and streams it as offset-addressed
+`want_ack TTDB_PUT` slices with CRC-32 whole-object integrity; the K10 writes it to a
+separate `/belief.md`, CRC-verifies, and appends a `BELIEF-ADOPTED` record to its own
+TTDB (`@LAT98` lane). Verified K10/COM3 — `978 B` / `crc 65118C32`, 6/6 slices ACKed
+first try, round-trip MATCH; monotonic `belief_id` → exactly-once adoption (no
+duplicate on re-ACK). Push log: `master/belief-log.md`. **Next:** bridge-relay the push
+to an over-air node, serve `/belief.md` back for a byte-diff, and make a pushed belief
+*change node behavior* to close PLAN.md Phase 6.
