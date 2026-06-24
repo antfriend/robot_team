@@ -70,6 +70,14 @@ static uint32_t gPendSyncId = 0;
 static uint64_t gPendEpochMs = 0;
 static uint32_t gPendRecvMs = 0;
 
+// Laptop CMD override of the indicator LED (companion.md §4b). When enabled, the
+// loop paints this color after the agent acts, so the orchestrator's set-led wins
+// over the local warm/cool indicator until a clear-led (or reboot).
+static struct {
+  bool enabled = false;
+  uint32_t color = 0;
+} gLedOverride;
+
 // --- sense/act bindings -----------------------------------------------------
 // Sensor: onboard ambient temperature (AHT20), nominal range -20..60 C, mapped
 // to (lat 10, lon 0) so a warm reading drives the cursor to the @LAT10LON0
@@ -140,8 +148,13 @@ static void renderScreen(float tempC) {
   snprintf(line, sizeof(line), "cursor @LAT%dLON%d", gAgent.cursorLat(),
            gAgent.cursorLon());
   k10.canvas->canvasText(String(line), 14, warm ? 0xCCFF90 : 0x2E7D32);
-  k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 16,
-                         warm ? 0xFF6F00 : 0x2E7D32);
+  if (gLedOverride.enabled) {
+    snprintf(line, sizeof(line), "LED: laptop #%06X", (unsigned)gLedOverride.color);
+    k10.canvas->canvasText(String(line), 16, 0x40C4FF);
+  } else {
+    k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 16,
+                           warm ? 0xFF6F00 : 0x2E7D32);
+  }
   k10.canvas->updateCanvas();
 }
 #endif
@@ -211,9 +224,25 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
         gShare->handleRequest(t, reply, ctx);
       break;
     case toot::CMD:
-      // No command semantics yet; accept so a want_ack CMD is acknowledged. This
-      // is the receiver half exercised by TTN-RFC-0007 §8 test 1.
-      accepted = true;
+      // Orchestrator directive. Only the addressed node acts + ACKs, so a broadcast
+      // CMD doesn't draw an ACK from every hearer. CMD is want_ack -> ACK on accept.
+      if (toot::cmdTarget(t) == kNodeId) {
+        switch (toot::cmdOp(t)) {
+          case toot::CMD_SET_LED:
+            if (t.payload_len >= 8) {  // op + target(4) + R,G,B
+              gLedOverride.color = ((uint32_t)t.payload[5] << 16) |
+                                   ((uint32_t)t.payload[6] << 8) | t.payload[7];
+              gLedOverride.enabled = true;
+            }
+            break;
+          case toot::CMD_CLEAR_LED:
+            gLedOverride.enabled = false;
+            break;
+          default:  // CMD_PING / unknown: nothing to do but ACK
+            break;
+        }
+        accepted = true;  // a CMD addressed to us is acknowledged
+      }
       break;
     case toot::TIME_SYNC: {
       // Adopt the offset here (recv-time millis() is most accurate); defer the
@@ -416,8 +445,14 @@ void loop() {
     gAgent.sense();
     gAgent.reason();
     gAgent.act();
-    Serial.printf("[cycle] cursor @LAT%dLON%d match=%d\n", gAgent.cursorLat(),
-                  gAgent.cursorLon(), gAgent.matchedThisCycle());
+#if USE_K10_HW
+    // A laptop set-led overrides the local indicator until clear-led (companion.md
+    // §4b) — applied after act() so the orchestrator's command wins this cycle.
+    if (gLedOverride.enabled) k10.rgb->write(-1, gLedOverride.color);
+#endif
+    Serial.printf("[cycle] cursor @LAT%dLON%d match=%d led=%s\n", gAgent.cursorLat(),
+                  gAgent.cursorLon(), gAgent.matchedThisCycle(),
+                  gLedOverride.enabled ? "laptop" : "agent");
 #if USE_K10_HW
     renderScreen(gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f);
 #endif

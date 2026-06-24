@@ -64,6 +64,19 @@ enum TtdbReqMode : uint8_t {
   TTDB_REQ_RANGE = 1,  // bytes [start,end)
 };
 
+// CMD payload layout — the orchestrator drives node behavior (companion.md §4b).
+//   [0]     op (CmdOp)
+//   [1..4]  target_node_id (u32 LE) — only the addressed node acts + ACKs
+//   [5..]   op-specific args
+// CMD is a payload convention over the existing CMD type (like TtdbReqMode over
+// TTDB_REQ), so it needs no new toot type / RFC. Sent want_ack so the laptop
+// gets delivery confirmation (TTN-RFC-0007).
+enum CmdOp : uint8_t {
+  CMD_PING = 0,       // no-op; accept + ACK (reliability smoke test)
+  CMD_SET_LED = 1,    // args: R,G,B (3 bytes) — override the indicator LED
+  CMD_CLEAR_LED = 2,  // no args — return the LED to local agent control
+};
+
 // ACK payload layout (TTN-RFC-0007 §3). The header's src/seq belong to the
 // acknowledging node, so the reference to the acked toot rides in the payload:
 //   [0..3] ack_src   u32 LE — src_node_id of the toot being acknowledged
@@ -107,6 +120,14 @@ inline uint64_t get_u64(const uint8_t* p) {
   uint64_t v = 0;
   for (int i = 0; i < 8; ++i) v |= (uint64_t)p[i] << (8 * i);
   return v;
+}
+
+// CMD payload accessors (see CmdOp). cmdOp() is 0xFF (none) on a too-short body.
+inline uint8_t cmdOp(const Toot& t) {
+  return t.payload_len >= 1 ? t.payload[0] : 0xFF;
+}
+inline uint32_t cmdTarget(const Toot& t) {
+  return t.payload_len >= 5 ? get_u32(t.payload + 1) : 0;
 }
 
 // Serialize `t` into `out` (>= MAX_FRAME) and append the truncated HMAC.

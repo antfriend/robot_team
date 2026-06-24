@@ -229,10 +229,19 @@ LoRa with correct TTL and no duplicates.
 
 ## Phase 5 — Orchestrator + bridge (V4-A, laptop in the loop)
 
+> **Down-payment ✅ (2026-06-22): `CMD` actuation works.** `CMD` now carries a small
+> verb set (`Toot.h` `CmdOp`: `ping` / `set-led RRGGBB` / `clear-led`, payload
+> `op | target u32 | args`); the K10 acts only on a CMD addressed to it and ACKs it
+> (`want_ack`), with `set-led` overriding the local warm/cool indicator until
+> `clear-led`. `companion.py cmd --op set-led --rgb 0000FF` and `clear-led` both ACKed
+> on attempt 1 on-device (over the K10's USB; the bridge-relayed CMD path was proven
+> by `ping` over COM6). This is the laptop **driving** node behavior — the Phase 5
+> core. Remaining below is the full A→B→C spine + telemetry/Dream-Cycle reconcile.
+
 - [ ] V4-A firmware: bridge — USB-CDC ↔ LoRa/ESP-NOW; channel authority;
       trusted-core key holder.
-- [ ] Laptop orchestrator: inject CMD toots, collect telemetry across the full
-      A→B→C spine.
+- [x] Laptop orchestrator: **inject CMD toots** (`cmd` subcommand) — collect
+      telemetry across the full A→B→C spine still pending (needs V4-B/V4-C).
 - [ ] Master TTDB on the laptop; reconcile incoming BELIEF/PERCEPT.
 
 **Done when:** a CMD toot from the laptop reaches cluster C and telemetry

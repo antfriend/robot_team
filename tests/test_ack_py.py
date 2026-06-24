@@ -103,5 +103,17 @@ check(len(c.SYNC_RE.findall(txt)) == 2 and "@LAT99LON0" in txt and
       "@LAT99LON1" in txt,
       "master uses @LAT99LON<n> lane + parseable **SYNC** lines (firmware format)")
 
+# 11) CMD payload layout (op u8 | target u32 LE | args) == firmware cmdOp/cmdTarget.
+tgt = c.NODE_IDS["k10_1"]
+pl = bytes([c.CMD_SET_LED]) + struct.pack("<I", tgt) + bytes([0xFF, 0x00, 0x00])
+cd = c.decode_toot(c.encode_toot(c.CMD, c.ORCHESTRATOR_ID, 1, pl,
+                                 flags=c.FLAG_WANT_ACK))
+p = cd["payload"]
+check(p[0] == c.CMD_SET_LED and struct.unpack("<I", p[1:5])[0] == tgt and
+      p[5:8] == bytes([0xFF, 0x00, 0x00]),
+      "CMD set-led payload: op | target | RGB (firmware cmdOp/cmdTarget layout)")
+check(set(c.CMD_OPS) == {"ping", "set-led", "clear-led"},
+      "CMD_OPS exposes ping/set-led/clear-led")
+
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

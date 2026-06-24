@@ -66,6 +66,12 @@ TIME_SYNC_PAYLOAD_LEN = 12   # sync_id u32 | epoch_ms u64
 TIME_REQ_PAYLOAD_LEN = 8     # probe_id u32 | target_node_id u32
 TIME_RESP_PAYLOAD_LEN = 12   # probe_id u32 | node_epoch_ms u64
 
+# CMD subcommands (Toot.h CmdOp). Payload: op u8 | target u32 LE | args.
+CMD_PING = 0
+CMD_SET_LED = 1
+CMD_CLEAR_LED = 2
+CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED}
+
 DEFAULT_MASTER_SYNC = os.path.join("master", "orchestrator-sync.md")
 
 # Flags (Toot.h Flags).
@@ -412,6 +418,50 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
         sys.exit(f"only {delivered}/{total} chunks delivered — INCOMPLETE")
 
 
+def send_cmd(port, baud, node, op, rgb, settle, rto0, attempts):
+    """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
+    it via the want_ack ACK. Ops: ping (no-op), set-led RRGGBB, clear-led."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    if op not in CMD_OPS:
+        sys.exit(f"unknown op '{op}'. choices: {', '.join(CMD_OPS)}")
+    target = NODE_IDS[node]
+    opcode = CMD_OPS[op]
+
+    args = b""
+    if opcode == CMD_SET_LED:
+        if not rgb:
+            sys.exit("set-led needs --rgb RRGGBB (e.g. FF0000)")
+        try:
+            args = bytes.fromhex(rgb)
+        except ValueError:
+            sys.exit(f"--rgb must be 6 hex digits, got '{rgb}'")
+        if len(args) != 3:
+            sys.exit(f"--rgb must be exactly RRGGBB (3 bytes), got {len(args)}")
+
+    payload = bytes([opcode]) + struct.pack("<I", target) + args
+    seq = int(time.time()) & 0x7FFFFFFF
+    frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload, flags=FLAG_WANT_ACK)
+    reader = SerialFrameReader()
+
+    label = f"{op}" + (f" #{rgb}" if opcode == CMD_SET_LED else "")
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)            # opening the bridge port resets it (see pull())
+        ser.reset_input_buffer()
+        print(f"cmd {label} -> {node} (0x{target:08X}) on {port}")
+        acked = send_reliable(ser, reader, frame, target, seq,
+                              rto0=rto0, attempts=attempts)
+
+    if acked:
+        print(f"ACK from {node} on attempt {acked} — APPLIED")
+    else:
+        sys.exit(f"no ACK from {node} after {attempts} attempts — NOT applied")
+
+
 # --- Time-sync (TTN-RFC-0008) ----------------------------------------------
 MASTER_SYNC_HEADER = """# Orchestrator Master Sync Log
 
@@ -689,6 +739,16 @@ def main():
     vf.add_argument("--master", default=DEFAULT_MASTER_SYNC)
     vf.add_argument("--settle", type=float, default=0.5)
     vf.add_argument("--probes", type=int, default=5)
+
+    cm = sub.add_parser("cmd", help="send a CMD to a node (ping/set-led/clear-led)")
+    cm.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
+    cm.add_argument("--baud", type=int, default=115200)
+    cm.add_argument("--node", required=True, choices=list(NODE_IDS))
+    cm.add_argument("--op", required=True, choices=list(CMD_OPS))
+    cm.add_argument("--rgb", default=None, help="RRGGBB hex for set-led (e.g. FF0000)")
+    cm.add_argument("--settle", type=float, default=2.5)
+    cm.add_argument("--rto0", type=float, default=0.5)
+    cm.add_argument("--attempts", type=int, default=4)
     args = ap.parse_args()
 
     if args.cmd == "pull":
@@ -705,6 +765,9 @@ def main():
     elif args.cmd == "verify":
         verify(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                args.sync_id, args.bound_ms, args.master, args.settle, args.probes)
+    elif args.cmd == "cmd":
+        send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.settle,
+                 args.rto0, args.attempts)
 
 
 if __name__ == "__main__":

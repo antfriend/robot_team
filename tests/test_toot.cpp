@@ -169,6 +169,19 @@ int main() {
   // Wrong-type guard: a TIME_REQ is not parseable as a TIME_SYNC.
   CHECK(!toot::parseTimeSync(tr, sid, ems), "parseTimeSync rejects a TIME_REQ");
 
+  // 5e) CMD payload accessors (companion.md §4b): op | target | args.
+  toot::Toot cm;
+  cm.type = toot::CMD;
+  cm.payload[0] = toot::CMD_SET_LED;
+  toot::put_u32(cm.payload + 1, 0x100);
+  cm.payload[5] = 0xFF; cm.payload[6] = 0x00; cm.payload[7] = 0x00;
+  cm.payload_len = 8;
+  CHECK(toot::cmdOp(cm) == toot::CMD_SET_LED && toot::cmdTarget(cm) == 0x100u,
+        "cmdOp/cmdTarget read op + target");
+  toot::Toot empty;  // payload_len 0 -> accessors must be bounds-safe
+  CHECK(toot::cmdOp(empty) == 0xFF && toot::cmdTarget(empty) == 0u,
+        "cmd accessors safe on an empty payload");
+
   // 6) TTDB header parsing (matches data/ttdb.md and the Python reference).
   TtdbRecord hr;
   const char* warm =
