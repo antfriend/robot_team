@@ -444,6 +444,14 @@ static void handleChunk(const toot::Toot& t) {
 static volatile bool gReqPending = false;
 static toot::Toot gPendingReq;
 
+// A TTDB_PUT slice (belief push) is likewise deferred: handlePutSlice writes the
+// slice to LittleFS (and the last one re-indexes), which must not run in the WiFi
+// recv callback. The sender serializes slices (waits for each ACK before the next,
+// TTN-RFC-0009), so a single pending slot suffices; a retransmit of an already-seen
+// slice is caught by the (src,seq) dedup below and re-ACKed without touching this.
+static volatile bool gPutPending = false;
+static toot::Toot gPendingPut;
+
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
@@ -461,6 +469,8 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   }
   if (t.type == toot::TTDB_REQ) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
+  } else if (t.type == toot::TTDB_PUT) {
+    if (!gPutPending) { gPendingPut = t; gPutPending = true; }  // flash write -> loop()
   } else {
     handleToot(t, sendEspNow, nullptr);                         // cheap, no burst
   }
@@ -526,6 +536,15 @@ void loop() {
     gReqPending = false;
     if (gShare && TtdbShare::requestTarget(gPendingReq) == kNodeId)
       gShare->handleRequest(gPendingReq, sendEspNow, nullptr);
+  }
+
+  // Serve an ESP-NOW TTDB_PUT (belief slice) deferred from the recv callback: the
+  // slice write (and, on the final slice, the CRC-verify + re-index) is a flash op
+  // that must run on the main task. handleToot writes the slice and ACKs it back
+  // over ESP-NOW; the live-TTDB adoption append is itself deferred via gBeliefSyncPending.
+  if (gPutPending) {
+    gPutPending = false;
+    handleToot(gPendingPut, sendEspNow, nullptr);
   }
 
   // Write the TIME_SYNC log record deferred from the recv path (TTN-RFC-0008 §4):

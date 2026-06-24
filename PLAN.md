@@ -276,8 +276,10 @@ returns end-to-end.
 - [ ] Switch ESP-NOW to the orchestrator AP channel; HELLO-beacon convergence
       outward from V4-A.
 - [x] Re-author + push a node's belief over the link (`push`, TTN-RFC-0009) —
-      laptop → K10 verified. _Next: bridge-relayed push to an over-air node, and
-      serving `/belief.md` back for a byte-level diff._
+      laptop → K10 verified, **direct over USB and bridge-relayed over ESP-NOW**
+      (`push --port COM6 --node k10_1`, belief `id:4` adopted + verified, 2026-06-24).
+      The K10 defers a radio `TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson).
+      _Next: serve `/belief.md` back for a byte-level diff._
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into
       the master TTDB; node-to-node BELIEF gossip once a 2nd percept node exists.
 

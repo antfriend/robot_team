@@ -271,7 +271,8 @@ def request_ttdb(ser, reader, target, timeout=20.0):
     reassembled bytes, or None. Shared by `pull` and `verify`. A fresh toot_seq
     keeps a non-reset target from dedup-dropping a repeated request."""
     req_payload = bytes([TTDB_REQ_WHOLE]) + struct.pack("<I", target)
-    seq = int(time.time()) & 0x7FFFFFFF
+    seq = int(time.time() * 1000) & 0x7FFFFFFF   # ms resolution: back-to-back
+                                                 # retries get distinct (src,seq)
     write_serial_frame(ser, encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload))
 
     slices = {}            # offset -> bytes
@@ -1060,7 +1061,21 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
         if not push_belief(ser, reader, target, content, belief_id, rto0, attempts):
             sys.exit(f"belief id={belief_id} undelivered after {attempts} attempts")
         time.sleep(0.3)               # let the node's deferred adoption append land
-        node_ttdb = request_ttdb(ser, reader, target)
+        # Drain the push's leftover ACK bytes and reset the frame reader: the push
+        # burst can leave the OS buffer non-empty and the reader mid-frame, which
+        # desyncs the verify pull's TTDB_DATA framing. (Every clean pull starts from
+        # a drained buffer + fresh reader; match that here.)
+        ser.reset_input_buffer()
+        reader = SerialFrameReader()
+        # The verify pull rides the un-ACKed TTDB_DATA stream, which still drops ~1/6
+        # of the time over the bridge (the belief push itself is reliable/want_ack),
+        # so retry a few times to complete a bridge-relayed push cleanly end-to-end.
+        node_ttdb = None
+        for vattempt in range(1, 4):
+            node_ttdb = request_ttdb(ser, reader, target)
+            if node_ttdb is not None:
+                break
+            print(f"  verify pull empty (attempt {vattempt}/3), retrying...")
 
     if node_ttdb is None:
         sys.exit("could not pull node TTDB to verify adoption")

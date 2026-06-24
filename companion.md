@@ -202,14 +202,29 @@ If a fact lives in one of these, link to it from here — don't copy it.
   COM3 — belief `978 B` / `crc 65118C32`, all 6 slices ACKed first try, `bytes`/`crc`
   round-trip MATCH; a monotonic `belief_id` gives exactly-once adoption (`id:1`→`@LAT98LON0`,
   `id:2`→`@LAT98LON1`, no duplicate on re-ACK). Push log in `master/belief-log.md`.
+- **Bridge-relayed push ✅ (2026-06-24) — `push` reaches an over-air node through the
+  V4-A bridge.** `companion.py push --port COM6 --node k10_1` delivered a `978 B` belief
+  to the K10 *over ESP-NOW via the bridge*, all 6 `want_ack TTDB_PUT` slices ACKed, the
+  K10 CRC-verified and adopted (`id:4` → `@LAT98LON4`, `bytes`/`crc` MATCH), and the
+  in-band verify pull confirmed it. One firmware fix made this safe: the K10 now **defers
+  a radio `TTDB_PUT` to `loop()`** (like `TTDB_REQ`) — `handlePutSlice`'s flash write must
+  not run in the ESP-NOW recv callback (the Phase 1b lesson). Two `companion.py` fixes made
+  the in-`push` verify pull reliable: drain the OS buffer + use a fresh frame reader before
+  it (the push burst left the reader mid-frame, desyncing the un-ACKed `TTDB_DATA` stream),
+  and ms-resolution `toot_seq` so back-to-back retries get distinct `(src,seq)`.
+  **Subtlety found:** the exactly-once adoption gate (`gBeliefAdopted`/`gBeliefId`) is
+  RAM-only, so it does NOT survive a node reboot — a re-push of a *reused* `belief_id` after
+  a reset re-adopts (saw a duplicate `id:3` when an out-of-band COM3 pull reset the K10).
+  Safe in normal operation because `belief_id` is monotonic from `master/belief-log.md` and
+  never reused; the in-band (bridge) verify never resets the node.
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
-  (a) **Bridge-relayed push** — repeat the verified `push` to an over-air node *through
-  the V4-A bridge* (today's push is direct over the K10's USB), and serve `/belief.md`
-  back so the laptop can byte-diff what the node actually stored. (b) **Close the Dream
-  Cycle** — have a pushed belief *change node behavior* (the PLAN.md Phase 6 "Done when"),
-  e.g. the K10 reads `/belief.md` in its Agent32 loop. (c) **Pull-stream ACK** — add ACK
-  to the `TTDB_DATA` pull stream so a bridged pull is byte-exact every time (closes the
-  old ~1/6 drop). Phases 3–4 (V4-C edge, LoRa backbone) remain hardware-gated on V4-B/V4-C.
+  (a) **Close the Dream Cycle** — have a pushed belief *change node behavior* (PLAN.md
+  Phase 6 "Done when"), e.g. the K10 reads `/belief.md` in its Agent32 loop. (b) **Serve
+  `/belief.md` back** for a byte-level diff of what the node actually stored (today we
+  verify via the node's `BELIEF-ADOPTED` attestation, not the bytes themselves). (c)
+  **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a bridged pull is
+  byte-exact every time (closes the old ~1/6 drop; the `push` verify pull works around it
+  with retries today). Phases 3–4 (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -365,6 +380,11 @@ provenance) and exits non-zero on any `t_ms` disagreement — K10 `id:1`/`id:2` 
 separate `/belief.md`, CRC-verifies, and appends a `BELIEF-ADOPTED` record to its own
 TTDB (`@LAT98` lane). Verified K10/COM3 — `978 B` / `crc 65118C32`, 6/6 slices ACKed
 first try, round-trip MATCH; monotonic `belief_id` → exactly-once adoption (no
-duplicate on re-ACK). Push log: `master/belief-log.md`. **Next:** bridge-relay the push
-to an over-air node, serve `/belief.md` back for a byte-diff, and make a pushed belief
-*change node behavior* to close PLAN.md Phase 6.
+duplicate on re-ACK). Push log: `master/belief-log.md`. **Bridge-relayed push ✅
+(2026-06-24):** the same `push` now reaches the K10 *over ESP-NOW through the V4-A
+bridge* (`--port COM6`, belief `id:4`), once the K10 was taught to defer a radio
+`TTDB_PUT`'s flash write to `loop()` (Phase 1b lesson) and the in-`push` verify pull was
+made to drain its buffer + use a fresh frame reader (see §6 state). The exactly-once gate
+is RAM-only — a re-push of a reused `belief_id` after a node reset re-adopts, which is why
+`belief_id` is monotonic and never reused. **Next:** serve `/belief.md` back for a
+byte-diff, and make a pushed belief *change node behavior* to close PLAN.md Phase 6.
