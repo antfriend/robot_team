@@ -255,6 +255,14 @@ returns end-to-end.
 
 ## Phase 6 — Channel convergence & Dream Cycle
 
+> **Seed ✅ (2026-06-22): `reconcile` consolidates the fleet's sync logs.** The
+> minimal first instance of the Dream Cycle: `companion.py reconcile` pulls each
+> node's TTDB, folds the `@LAT99` sync records each node self-authored into one
+> `master/consolidated.md` with provenance (per-source `recv_ms`/`offset_ms`), and
+> confirms every node's logged `t_ms` agrees with the master. Verified on the K10
+> over COM3 — both `id:1`/`id:2` consolidated `agree:yes`. Episodic node records →
+> a semantic master record; next is BELIEF gossip + pushing a re-authored TTDB back.
+
 - [ ] Switch ESP-NOW to the orchestrator AP channel; HELLO-beacon convergence
       outward from V4-A.
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into

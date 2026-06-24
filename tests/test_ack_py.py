@@ -134,5 +134,19 @@ check(struct.pack("<HH", 880, 200) == bytes([0x70, 0x03, 0xC8, 0x00]),
 check(struct.pack("<H", 500) == bytes([0xF4, 0x01]),
       "set-interval arg layout: interval_ms u16 LE")
 
+# 14) reconcile parser: parse_sync_file reads full SYNC records (Dream-Cycle seed).
+d = tempfile.mkdtemp()
+mf = os.path.join(d, "m.md")
+with open(mf, "w", encoding="utf-8") as f:
+    f.write("**SYNC** id:1 t_ms:1782170699715 recv_ms:1782170699715 offset_ms:0\n")
+    # node-style: small recv_ms (millis), large offset; t_ms = recv_ms + offset
+    f.write("**SYNC** id:2 t_ms:1782170835676 recv_ms:50321 offset_ms:1782170785355\n")
+recs = c.parse_sync_file(mf)
+check(len(recs) == 2 and recs[0]["id"] == 1 and recs[0]["t_ms"] == 1782170699715
+      and recs[1]["recv_ms"] == 50321 and recs[1]["offset_ms"] == 1782170785355,
+      "parse_sync_file reads id/t_ms/recv_ms/offset_ms (laptop + node styles)")
+check(c.parse_sync_file(os.path.join(d, "nope.md")) == [],
+      "parse_sync_file returns [] for a missing file")
+
 print(("\n%d FAILED" % fails) if fails else "\nALL PASSED")
 sys.exit(1 if fails else 0)

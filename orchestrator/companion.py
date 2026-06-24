@@ -584,6 +584,48 @@ lon: 0
 
 # Match the firmware sync record so the same parser reads every node's log.
 SYNC_RE = re.compile(r"\*\*SYNC\*\*\s+id:(\d+)")
+# Full sync record (laptop master + every node write the same shape).
+SYNC_FULL_RE = re.compile(
+    r"\*\*SYNC\*\*\s+id:(\d+)\s+t_ms:(\d+)\s+recv_ms:(\d+)\s+offset_ms:(-?\d+)")
+
+CONSOLIDATED_HEADER = """# Orchestrator Consolidated Knowledge (Dream-Cycle seed)
+
+This file is authored by `companion.py reconcile`: it folds each node's
+self-reported `@LAT99` sync log into one master view with provenance, the minimal
+first instance of the Dream Cycle (TTDB-RFC-0007) — episodic node records
+consolidated into a semantic master record.
+
+```mmpdb
+db_id: orchestrator-consolidated-001
+db_name: Orchestrator Consolidated Knowledge
+coord_increment:
+  lat: 1
+  lon: 1
+collision_policy: reject
+timestamp_kind: unix
+umwelt:
+  umwelt_id: orchestrator
+  role: companion-orchestrator
+  scope: master
+```
+
+```cursor
+lat: 0
+lon: 0
+```
+"""
+
+
+def parse_sync_file(path):
+    """Extract every **SYNC** record from a TTDB file. Returns a list of
+    {id, t_ms, recv_ms, offset_ms} dicts (empty if the file is absent)."""
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    return [{"id": int(m.group(1)), "t_ms": int(m.group(2)),
+             "recv_ms": int(m.group(3)), "offset_ms": int(m.group(4))}
+            for m in SYNC_FULL_RE.finditer(text)]
 
 
 def next_sync_id(master_path):
@@ -781,6 +823,81 @@ def verify(port, baud, nodes, sync_id, bound_ms, master, settle, probes):
                  f"out of bound")
 
 
+def reconcile(port, baud, nodes, master, out, do_pull, settle):
+    """Dream-Cycle seed (TTDB-RFC-0007): consolidate each node's self-authored sync
+    log into one master view with provenance, and confirm the fleet agrees on every
+    timestamp. Pulls each node's TTDB first (unless --no-pull / no port)."""
+    sources = {"laptop": parse_sync_file(master)}
+    master_dir = os.path.dirname(master) or "."
+    node_paths = {n: os.path.join(master_dir, f"{n}.md") for n in nodes}
+
+    if do_pull:
+        try:
+            import serial  # pyserial
+        except ImportError:
+            sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+        for n in nodes:
+            if n not in NODE_IDS:
+                sys.exit(f"unknown node '{n}'. choices: {', '.join(NODE_IDS)}")
+        reader = SerialFrameReader()
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            time.sleep(settle)
+            ser.reset_input_buffer()
+            for n in nodes:
+                data = request_ttdb(ser, reader, NODE_IDS[n])
+                if data is None:
+                    print(f"warning: no TTDB from {n}; using existing file if present")
+                    continue
+                os.makedirs(os.path.dirname(os.path.abspath(node_paths[n])) or ".",
+                            exist_ok=True)
+                with open(node_paths[n], "wb") as f:
+                    f.write(data)
+                print(f"pulled {n}: {len(data)} B -> {node_paths[n]}")
+
+    for n in nodes:
+        sources[n] = parse_sync_file(node_paths[n])
+
+    # Group records by sync_id, tracking which sources reported each + their t_ms.
+    events = {}
+    for src, recs in sources.items():
+        for r in recs:
+            e = events.setdefault(r["id"], {"t_ms": set(), "by": {}})
+            e["t_ms"].add(r["t_ms"])
+            e["by"][src] = r
+
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    all_agree = True
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(CONSOLIDATED_HEADER)
+        for sid in sorted(events):
+            e = events[sid]
+            agree = len(e["t_ms"]) == 1
+            all_agree = all_agree and agree
+            t_ms = min(e["t_ms"])
+            names = ",".join(sorted(e["by"]))
+            f.write(f"\n---\n\n@LAT99LON{sid} | created:{t_ms // 1000} | "
+                    f"updated:{t_ms // 1000} | relates:knows@LAT0LON0\n\n")
+            f.write(f"**CONSOLIDATED-SYNC** id:{sid} t_ms:{t_ms} "
+                    f"agree:{'yes' if agree else 'NO'} confirmed_by:{names}\n")
+            for src in sorted(e["by"]):
+                r = e["by"][src]
+                mism = "" if r["t_ms"] == t_ms else f"  (t_ms MISMATCH {r['t_ms']})"
+                f.write(f"- {src}: recv_ms:{r['recv_ms']} "
+                        f"offset_ms:{r['offset_ms']}{mism}\n")
+
+    print(f"\nreconcile: {len(events)} sync event(s) across "
+          f"{{{', '.join(sorted(sources))}}}")
+    print(f"{'id':>3}  {'t_ms':<16}{'confirmed_by':<26}agree")
+    for sid in sorted(events):
+        e = events[sid]
+        agree = len(e["t_ms"]) == 1
+        print(f"{sid:>3}  {min(e['t_ms']):<16}{','.join(sorted(e['by'])):<26}"
+              f"{'yes' if agree else 'NO <--'}")
+    print(f"\nwrote {out}")
+    if not all_agree:
+        sys.exit("DISCREPANCY: a node's logged t_ms disagrees with the master")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -860,6 +977,20 @@ def main():
                     help="seconds per poll round")
     mo.add_argument("--rounds", type=int, default=0, help="0 = until Ctrl-C")
     mo.add_argument("--settle", type=float, default=2.5)
+
+    rc = sub.add_parser(
+        "reconcile",
+        help="Dream-Cycle seed: consolidate node sync logs into the master")
+    rc.add_argument("--port", default=None,
+                    help="port to pull nodes from (omit / --no-pull to use files)")
+    rc.add_argument("--baud", type=int, default=115200)
+    rc.add_argument("--nodes", default="k10_1")
+    rc.add_argument("--master", default=DEFAULT_MASTER_SYNC,
+                    help="laptop master sync log")
+    rc.add_argument("--out", default=os.path.join("master", "consolidated.md"))
+    rc.add_argument("--no-pull", action="store_true", dest="no_pull",
+                    help="don't pull; read existing master/<node>.md")
+    rc.add_argument("--settle", type=float, default=2.5)
     args = ap.parse_args()
 
     if args.cmd == "pull":
@@ -882,6 +1013,10 @@ def main():
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)
+    elif args.cmd == "reconcile":
+        do_pull = bool(args.port) and not args.no_pull
+        reconcile(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+                  args.master, args.out, do_pull, args.settle)
 
 
 if __name__ == "__main__":
