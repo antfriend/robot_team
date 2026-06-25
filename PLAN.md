@@ -102,7 +102,15 @@ bridge sketch: laptop↔mesh gateway over USB-CDC. Both radio nodes now exist.
 
 **Done when:** the laptop reassembles the K10's TTDB *through* the V4-A bridge over
 ESP-NOW ✅, and a duplicate injected over the air is dropped ✅. **Phase 1b complete.**
-Residual: ~1/6 runs drop a frame (no ACK/retry yet) — that reliability is **Phase 2**.
+Residual: ~1/6 runs dropped a frame (no ACK/retry yet). **Closed ✅ 2026-06-25:** the pull
+stream is now self-healing — `companion.py request_ttdb` takes the EOF marker as the true
+total length, detects gaps in offset coverage, and selectively re-requests the missing byte
+ranges via `TTDB_REQ_RANGE` (which `handleRequest` already serves — no firmware change) until
+byte-complete. Offline-gated by `tests/test_pull_py.py`; **on-device verified over COM3** with
+`pull --drop` (companion-side induced loss): `--drop 1,3` and `--drop 0,14` each recovered a
+byte-exact 2843-B TTDB vs the clean baseline, exercising the firmware `TTDB_REQ_RANGE` branch
+live for the first time. Bridged-over-COM6 confirmation deferred until V4-A is reconnected
+(same firmware serve code).
 
 ---
 
