@@ -106,11 +106,11 @@ Residual: ~1/6 runs dropped a frame (no ACK/retry yet). **Closed ✅ 2026-06-25:
 stream is now self-healing — `companion.py request_ttdb` takes the EOF marker as the true
 total length, detects gaps in offset coverage, and selectively re-requests the missing byte
 ranges via `TTDB_REQ_RANGE` (which `handleRequest` already serves — no firmware change) until
-byte-complete. Offline-gated by `tests/test_pull_py.py`; **on-device verified over COM3** with
-`pull --drop` (companion-side induced loss): `--drop 1,3` and `--drop 0,14` each recovered a
-byte-exact 2843-B TTDB vs the clean baseline, exercising the firmware `TTDB_REQ_RANGE` branch
-live for the first time. Bridged-over-COM6 confirmation deferred until V4-A is reconnected
-(same firmware serve code).
+byte-complete. Offline-gated by `tests/test_pull_py.py`; **on-device verified over COM3 and
+bridged over COM6** with `pull --drop` (companion-side induced loss): `--drop 1,3` and
+`--drop 0,14` each recovered a byte-exact 2843-B TTDB vs the clean baseline, exercising the
+firmware `TTDB_REQ_RANGE` branch live for the first time. The bridged run re-requested the
+gaps *over the air* through the V4-A bridge and recovered the same `ce3ca723…` bytes.
 
 ---
 
