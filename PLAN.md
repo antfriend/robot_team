@@ -300,6 +300,14 @@ returns end-to-end.
       §5.2). The Dream Cycle's "Done when" condition.
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into
       the master TTDB; node-to-node BELIEF gossip once a 2nd percept node exists.
+- [~] **3-node Dream Cycle (in progress, 2026-06-25)** — a 2nd Heltec V4 joins as
+      **V4-B**, the third mesh node. `firmware/v4b_relay` is built as a full ESP-NOW
+      participant (sync adopt + `@LAT99` append, deferred TTDB serve, belief `TTDB_PUT`
+      adopt + `@LAT98` attestation; compiles clean, on-device pending). Unblocks
+      `sync`/`reconcile`/`push` across `v4a_bridge,v4b_relay,k10_1` (companion already
+      supports the node list — zero changes). This is the laptop reconciling **3
+      self-authoring sources**, not 1. (True node-to-node belief *gossip* still wants a
+      2nd percept leaf; V4-B is a relay.)
 
 **Done when:** the orchestrator reconciles a multi-node belief and pushes an
 updated TTDB to a node that changes its behavior. ✅ **Achieved 2026-06-24** —
