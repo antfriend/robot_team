@@ -39,7 +39,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | Agent | Board | Role | Spine pos | Links | Power | Sketch | Status |
 |-------|-------|------|-----------|-------|-------|--------|--------|
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
-| **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ standalone on-device verified (COM9, 2026-06-25): boots, serves byte-exact TTDB (858 B) over USB-CDC, pull self-heal recovers, HMAC reject + radio-only dedup (`negchecks`). Full Dream-Cycle participant (deferred TTDB serve + paced burst, want_ack ACK/re-ACK, TIME_SYNC adopt+append, belief TTDB_PUT adopt, OLED); relay-forward + LoRa gated off. **3-node mesh Dream Cycle pending** (needs all 3 powered + cable on V4-A) |
+| **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**) |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -49,8 +49,8 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > **Hardware on hand: one K10 + two Heltec V4 (V4-A bridge + a 2nd V4 for V4-B).**
 > K10 = FQBN `UNIHIKER:esp32:k10` (COM3); the V4s = FQBN `esp32:esp32:esp32s3` (V4-A
 > on COM6). All use the ESP32-S3 native USB, so all need the **`CDCOnBoot=cdc`** flag
-> (see build note). The 2nd V4 is assigned the **V4-B relay** role; its firmware is
-> built + compiles clean, on-device flash/verify pending (see §6). V4-C unbuilt.
+> (see build note). The 2nd V4 is the **V4-B relay** — ✅ on-device verified as the 3rd
+> mesh node + Dream-Cycle participant (flashed COM9; sync/reconcile/push, §6). V4-C unbuilt.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -261,29 +261,33 @@ If a fact lives in one of these, link to it from here — don't copy it.
   the V4-A bridge over ESP-NOW): `--drop 1,3` re-requested the two gaps *over the air* and
   recovered the same byte-exact 2843 B / `ce3ca723…` — the relay path serves `TTDB_REQ_RANGE`
   transparently (the bridge forwards any `TTDB_REQ` without inspecting the mode).
-- **V4-B firmware built (2026-06-25) — a 2nd Heltec V4 joins as the relay/mid node.** A 2nd V4
-  is in hand; it comes up as **V4-B**, the third mesh node, so the fleet can be exercised beyond
-  two for the first time. `firmware/v4b_relay/v4b_relay.ino` is now a full **ESP-NOW Dream-Cycle
-  participant** (not yet the LoRa forwarder): TTDB serve deferred to `loop()` + paced bursts
-  (K10's Phase-1b/burst lessons), `want_ack` ACK + dedup re-ACK (TTN-RFC-0007 §5), TIME_SYNC
-  adopt + `@LAT99` append + TIME_REQ answer (TTN-RFC-0008), belief `TTDB_PUT` adopt + `@LAT98`
-  attestation (TTN-RFC-0009; stores+attests — no DIRECTIVE action, V4-B has no agent cadence),
-  and an OLED status page. Promiscuous store-and-forward is gated behind `USE_RELAY_FORWARD` (off,
-  so it doesn't re-broadcast the bridge's traffic in one room) and LoRa behind `USE_LORA` (off).
-  **Compiles clean** (`esp32:esp32:esp32s3:CDCOnBoot=cdc`, 73% flash / 16% RAM). The companion
-  needs **zero changes** — `sync`/`verify`/`monitor`/`reconcile` already take node lists incl.
-  `v4b_relay` (id `0x11`). **On-device pending:** flash V4-B (firmware + FS image via
-  `scripts/Upload-V4-FS.ps1 -Node v4b_relay`), verify a standalone byte-exact pull + `negchecks`,
-  then run the **3-node Dream Cycle**: `sync --expect v4a_bridge,v4b_relay,k10_1` → all three
-  adopt + append a `@LAT99` record; `reconcile --nodes …` folds 3 sources into
-  `master/consolidated.md`; `push --node v4b_relay` distributes a belief to the 2nd node.
-- **Next action:** (a) **Flash + on-device verify V4-B** and run the 3-node Dream Cycle above
-  (the immediate step; needs the bench cable moved to the 2nd V4 once). (b) **More directives** —
-  the `**DIRECTIVE**` record is extensible (warm threshold, LED policy, …); `sense_interval_ms`
-  is just the first. (c) **Range-readback for belief** — give `handleBufferRequest` a range path
-  so belief readback self-heals too. Phases 3–4 (V4-C edge, LoRa backbone) remain gated on V4-C +
-  enabling `USE_LORA`; node-to-node belief *gossip* still wants a 2nd percept node (V4-B is a
-  relay, not a percept leaf).
+- **3-node Dream Cycle ✅ on-device verified (2026-06-25) — a 2nd Heltec V4 joins as V4-B and the
+  fleet runs across three nodes for the first time.** `firmware/v4b_relay/v4b_relay.ino` is a full
+  **ESP-NOW Dream-Cycle participant** (not yet the LoRa forwarder): TTDB serve deferred to `loop()`
+  + paced bursts (K10's Phase-1b/burst lessons), `want_ack` ACK + dedup re-ACK (TTN-RFC-0007 §5),
+  TIME_SYNC adopt + `@LAT99` append + TIME_REQ answer (TTN-RFC-0008), belief `TTDB_PUT` adopt +
+  `@LAT98` attestation (TTN-RFC-0009; stores+attests — no DIRECTIVE action, no agent cadence), OLED
+  status. Promiscuous store-and-forward gated behind `USE_RELAY_FORWARD` (off, so it doesn't
+  re-broadcast the bridge's traffic in one room) and LoRa behind `USE_LORA` (off). Companion needed
+  **zero changes** (`sync`/`verify`/`reconcile` already take node lists; `v4b_relay` = id `0x11`).
+  Built blind from the K10 + V4-A patterns; **worked first try on hardware.** Verified: standalone
+  byte-exact pull (858 B) + self-heal + `negchecks` (COM9); then through the V4-A bridge over
+  ESP-NOW — `sync id=4` all three adopt+ACK (attempt 1); `verify id=4` all three carry the `@LAT99`
+  record within ±50 ms (v4a −2.0, v4b −45.0, k10 −45.3); `reconcile` folds **4 sources**
+  (k10_1/laptop/v4a_bridge/v4b_relay), id:3 & id:4 `agree:yes`; `push --node v4b_relay` lands belief
+  id=9 (1373 B/crc `9EFD9530`), 8/8 slices ACK attempt 1, byte-exact readback MATCH. Also hardened
+  `verify` to **retry the has_record pull 3×** (a transient bridged-pull miss read v4b as missing on
+  the first run). **Operational rule reconfirmed:** `reconcile`/`push` open the bridge WITH a
+  DTR/RTS reset, wiping V4-A's RAM clock offset — so a `verify` after them needs a fresh `sync`
+  first (`sync`/`verify` open without reset; the `@LAT99` records persist in flash regardless).
+- **Next action — pick one (no new hardware needed):** (a) **More directives** — the
+  `**DIRECTIVE**` record is extensible (warm threshold, LED policy, …); `sense_interval_ms` is just
+  the first. (b) **V4-B relay forwarding (multi-hop)** — flip `USE_RELAY_FORWARD` and prove TTL
+  decrement + midpoint dedup on a laptop→A→B→K10 path (needs peer allowlists to simulate
+  non-adjacency in one room). (c) **Range-readback for belief** — give `handleBufferRequest` a range
+  path so belief readback self-heals too. Phases 3–4 (V4-C edge, LoRa backbone) remain gated on
+  V4-C + enabling `USE_LORA`; node-to-node belief *gossip* still wants a 2nd percept leaf (V4-B is a
+  relay).
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -380,15 +384,16 @@ appends a `BELIEF-ADOPTED` record in its `@LAT98` lane (`push`, `@LAT90LON30`).
 
 @LAT0LON20 | created:1750000000 | updated:1750000000 | relates:routes_via@LAT0LON10,navigates_to@LAT0LON30
 
-**V4-B relay** (Heltec V4, spine mid) — 🟨 firmware built (2026-06-25), on-device
-pending. A 2nd Heltec V4 now fills this row. Firmware (`firmware/v4b_relay`) is a full
-**ESP-NOW Dream-Cycle participant** — deferred TTDB serve + paced burst, want_ack
-ACK/re-ACK, TIME_SYNC adopt + `@LAT99` append, belief `TTDB_PUT` adopt + `@LAT98`
-attestation, OLED status — built from the verified K10 + V4-A patterns; compiles clean
-(`esp32:esp32s3`, 73% flash). Pure LoRa store-and-forward (decrement `ttl`, dedup,
-re-sign, forward) stays gated behind `USE_RELAY_FORWARD` / `USE_LORA` until Phase 4 +
-range separation. Flash via `scripts/Upload-V4-FS.ps1 -Node v4b_relay`; then the 3-node
-Dream Cycle (`sync`/`reconcile`/`push` over `v4a_bridge,v4b_relay,k10_1`).
+**V4-B relay** (Heltec V4, spine mid) — ✅ on-device verified 2026-06-25 (COM9 flash).
+A 2nd Heltec V4 fills this row as the fleet's **3rd mesh node**. Firmware
+(`firmware/v4b_relay`) is a full **ESP-NOW Dream-Cycle participant** — deferred TTDB
+serve + paced burst, want_ack ACK/re-ACK, TIME_SYNC adopt + `@LAT99` append, belief
+`TTDB_PUT` adopt + `@LAT98` attestation (stores+attests, no DIRECTIVE action — no agent
+cadence), OLED status — built blind from the verified K10 + V4-A patterns and worked
+first try. Verified through the V4-A bridge: 3-node `sync`/`verify` (within ±50 ms),
+`reconcile` (4 sources `agree:yes`), `push` (belief id=9 byte-exact). Pure LoRa
+store-and-forward (decrement `ttl`, dedup, re-sign, forward) stays gated behind
+`USE_RELAY_FORWARD` / `USE_LORA` until Phase 4 + range separation.
 
 ---
 

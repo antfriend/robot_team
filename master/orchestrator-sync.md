@@ -30,3 +30,15 @@ lon: 0
 @LAT99LON1 | created:1782170835 | updated:1782170835 | relates:logs@LAT0LON0
 
 **SYNC** id:2 t_ms:1782170835676 recv_ms:1782170835676 offset_ms:0
+
+---
+
+@LAT99LON2 | created:1782429925 | updated:1782429925 | relates:logs@LAT0LON0
+
+**SYNC** id:3 t_ms:1782429925125 recv_ms:1782429925125 offset_ms:0
+
+---
+
+@LAT99LON3 | created:1782430029 | updated:1782430029 | relates:logs@LAT0LON0
+
+**SYNC** id:4 t_ms:1782430029108 recv_ms:1782430029108 offset_ms:0

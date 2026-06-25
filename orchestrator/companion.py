@@ -884,7 +884,16 @@ def verify(port, baud, nodes, sync_id, bound_ms, master, settle, probes):
         ser.reset_input_buffer()
         for name in nodes:
             target = NODE_IDS[name]
-            data = request_ttdb(ser, reader, target)         # Assertion A
+            # Assertion A — pull the node's TTDB and look for the sync record. A
+            # bridged over-air pull occasionally returns empty on one attempt (the
+            # whole burst missed; with no EOF there's no total for request_ttdb's
+            # range self-heal to gap-fill), so retry a few times — a transient miss
+            # must not read as a missing record (like push's verify pull).
+            data = None
+            for _ in range(3):
+                data = request_ttdb(ser, reader, target)
+                if data is not None and needle in data:
+                    break
             has = data is not None and needle in data
             best = ntp_probe(ser, reader, target, probes)     # Assertion B
             skew, rtt = (best if best else (None, None))

@@ -26,13 +26,13 @@ lon: 0
 
 ---
 
-@LAT0LON0 | created:1782170835 | updated:1782170835 | relates:knows@LAT1LON0,directs@LAT0LON1
+@LAT0LON0 | created:1782430029 | updated:1782430029 | relates:knows@LAT1LON0,directs@LAT0LON1
 
-**BELIEF** summary:fleet-observed-2-sync-events latest_t_ms:1782170835676
+**BELIEF** summary:fleet-observed-4-sync-events latest_t_ms:1782430029108
 
 ---
 
-@LAT0LON1 | created:1782170835 | updated:1782170835 | relates:directed_by@LAT0LON0
+@LAT0LON1 | created:1782430029 | updated:1782430029 | relates:directed_by@LAT0LON0
 
 **DIRECTIVE** sense_interval_ms:300
 
@@ -47,3 +47,15 @@ lon: 0
 @LAT2LON0 | created:1782170835 | updated:1782170835 | relates:derives@LAT0LON0
 
 **BELIEF-SYNC** id:2 t_ms:1782170835676
+
+---
+
+@LAT3LON0 | created:1782429925 | updated:1782429925 | relates:derives@LAT0LON0
+
+**BELIEF-SYNC** id:3 t_ms:1782429925125
+
+---
+
+@LAT4LON0 | created:1782430029 | updated:1782430029 | relates:derives@LAT0LON0
+
+**BELIEF-SYNC** id:4 t_ms:1782430029108
