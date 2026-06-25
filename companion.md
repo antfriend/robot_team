@@ -238,13 +238,32 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `autocrlf` was CRLF-mangling the byte-exact `master/*.md` + `data/*.md` artifacts on
   checkout; `.gitattributes` now pins them `eol=lf` so the repo copy matches the on-flash/
   on-wire bytes.
+- **Pull-stream reliability ✅ on-device verified (2026-06-25, K10 COM3).** The `TTDB_DATA`
+  pull stream is now self-healing: `request_ttdb` takes the EOF marker's offset as the true
+  total length, detects any gap in offset coverage (`missing_ranges`), and selectively
+  re-requests just the missing byte ranges via `TTDB_REQ_RANGE` until the object is
+  byte-complete (`rounds=4`) — the receiver-driven analogue of `reltest`'s per-chunk
+  retransmit, closing the old ~1/6 bridged-pull frame drop. **Zero firmware change**: the
+  K10/V4-A `handleRequest` already serves `TTDB_REQ_RANGE` (the offset-index path); the
+  companion's 13-byte `mode|target|start|end` payload matches it exactly, and `serveTtdbReq`
+  already routes mode 1 → `handleRequest`. Applies to the live TTDB only (belief readback
+  streams the whole buffer via `handleBufferRequest`, which has no range path). Gated offline
+  by `tests/test_pull_py.py`. **On-device confirm:** `pull --drop` discards chosen data slices
+  on the first pass (companion-side induced loss, live TTDB only), forcing the self-heal to run
+  deterministically. Two patterns over COM3 each recovered byte-exact vs a clean baseline (2843
+  B, sha256 `ce3ca723…`): `--drop 1,3` (interior slices) and `--drop 0,14` (first + the 15-B
+  partial tail) — **the firmware `TTDB_REQ_RANGE` branch ran live for the first time** and the
+  selective re-request reassembled identically. Confirmed *direct over COM3*; the bridged
+  variant (COM6) runs the same firmware serve code over the already-proven bridge-forward path,
+  but wasn't run this session (V4-A not connected).
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
-  (a) **Pull-stream ACK** — add ACK to the `TTDB_DATA` pull stream so a bridged pull is
-  byte-exact every time (closes the old ~1/6 drop; `push` sidesteps it with a fresh-session
-  verify + retries). (b) **More directives** — the `**DIRECTIVE**` record is extensible
-  (warm threshold, LED policy, …); `sense_interval_ms` is just the first. Phases 3–4
-  (V4-C edge, LoRa backbone) remain gated on V4-B/V4-C; multi-node belief gossip needs a
-  2nd percept node.
+  (a) **More directives** — the `**DIRECTIVE**` record is extensible (warm threshold, LED
+  policy, …); `sense_interval_ms` is just the first. (b) **Range-readback for belief** — give
+  `handleBufferRequest` a range path so belief readback is self-healing too (needs a firmware
+  change + a belief-range request mode). (c) **Re-confirm pull reliability bridged over COM6**
+  when V4-A is reconnected (same firmware code, but exercises the relay path under real air
+  loss too). Phases 3–4 (V4-C edge, LoRa backbone) remain gated on
+  V4-B/V4-C; multi-node belief gossip needs a 2nd percept node.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -384,7 +403,11 @@ repeatably; `radio_replay.py` confirms an over-the-air duplicate `(src,seq)` is
 dropped. Firmware lessons baked in: serve replies from `loop()` (not the recv
 callback), pace ESP-NOW bursts, fresh `toot_seq` per request. **Now → Phase 2**
 (`want_ack` + chunking) so every bridged pull is byte-exact under loss; ~1/6 still
-drops a frame today.
+drops a frame today. **Update (2026-06-25):** the pull stream is now self-healing —
+`request_ttdb` detects gaps against the EOF total length and selectively re-requests
+the missing byte ranges (`TTDB_REQ_RANGE`) until byte-complete, no firmware change
+(see §6). ✅ On-device verified over COM3 with `pull --drop` (induced loss recovers
+byte-exact; firmware RANGE branch ran live).
 
 ---
 

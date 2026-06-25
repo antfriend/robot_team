@@ -63,6 +63,7 @@ TIME_REQ = 10
 TIME_RESP = 11
 TTDB_PUT = 12
 TTDB_REQ_WHOLE = 0    # entire live TTDB
+TTDB_REQ_RANGE = 1    # bytes [start,end) of the live TTDB (selective re-request)
 TTDB_REQ_BELIEF = 2   # entire stored belief object (/belief.md, TTN-RFC-0009 §3)
 
 # TTDB_PUT payload (TTN-RFC-0009 §2.1): target u32 | belief_id u32 | total u32 |
@@ -239,7 +240,7 @@ class SerialFrameReader:
         return frames
 
 
-def pull(port, baud, node, out_path, timeout, which="ttdb"):
+def pull(port, baud, node, out_path, timeout, which="ttdb", drop=None):
     try:
         import serial  # pyserial
     except ImportError:
@@ -249,6 +250,9 @@ def pull(port, baud, node, out_path, timeout, which="ttdb"):
     target = NODE_IDS[node]
     mode = TTDB_REQ_BELIEF if which == "belief" else TTDB_REQ_WHOLE
     obj = "/belief.md" if which == "belief" else "whole TTDB"
+    if drop and which == "belief":
+        sys.exit("--drop only applies to the live TTDB (belief readback has no range "
+                 "re-request path)")
 
     reader = SerialFrameReader()
     with serial.Serial(port, baud, timeout=0.1) as ser:
@@ -259,7 +263,9 @@ def pull(port, baud, node, out_path, timeout, which="ttdb"):
         time.sleep(2.5)
         ser.reset_input_buffer()   # discard the boot log so it isn't parsed as frames
         print(f"requested {obj} from {node} (0x{target:08X}) on {port}")
-        data = request_ttdb(ser, reader, target, timeout, mode)
+        if drop:
+            print(f"induced loss: will drop first-pass slice(s) {sorted(drop)}")
+        data = request_ttdb(ser, reader, target, timeout, mode, drop=drop)
 
     if data is None:
         sys.exit("no data received (check port, node id, and the key)")
@@ -269,19 +275,26 @@ def pull(port, baud, node, out_path, timeout, which="ttdb"):
     print(f"wrote {len(data)} bytes to {out_path}")
 
 
-def request_ttdb(ser, reader, target, timeout=20.0, mode=TTDB_REQ_WHOLE):
-    """Request a node's whole object over an already-open link; return the
-    reassembled bytes, or None. `mode` selects the live TTDB (TTDB_REQ_WHOLE) or the
-    stored belief (TTDB_REQ_BELIEF) — both stream the same offset-addressed TTDB_DATA
-    slices. Shared by `pull`, `verify`, and `push`. A fresh toot_seq keeps a non-reset
-    target from dedup-dropping a repeated request."""
-    req_payload = bytes([mode]) + struct.pack("<I", target)
-    seq = int(time.time() * 1000) & 0x7FFFFFFF   # ms resolution: back-to-back
-                                                 # retries get distinct (src,seq)
+def _stream_request(ser, reader, target, req_payload, timeout, idle, drop=None):
+    """Send one TTDB_REQ and collect its TTDB_DATA reply until the stream's
+    zero-length EOF marker (or `idle` seconds of silence, or `timeout`). Returns
+    (slices, term_offset): slices is {file_offset: bytes}; term_offset is the EOF
+    marker's offset (the end of the served range), or None if no EOF was seen.
+
+    `drop` is a set of 0-based data-slice arrival indices to discard, simulating air
+    loss so the on-device re-request path is exercised deterministically (the EOF
+    marker is never a candidate, so the total length is always learned). It is the
+    receiver-side knob behind `pull --drop`.
+
+    A fresh ms-resolution toot_seq keeps a non-reset target from dedup-dropping a
+    repeated request (the link is un-deduped, but the radio path is)."""
+    drop = drop or set()
+    seq = int(time.time() * 1000) & 0x7FFFFFFF
     write_serial_frame(ser, encode_toot(TTDB_REQ, ORCHESTRATOR_ID, seq, req_payload))
 
     slices = {}            # offset -> bytes
-    eof_offset = None
+    term = None
+    idx = 0                # data-slice arrival index (for induced-loss matching)
     deadline = time.time() + timeout
     last_rx = time.time()
     while time.time() < deadline:
@@ -298,16 +311,82 @@ def request_ttdb(ser, reader, target, timeout=20.0, mode=TTDB_REQ_WHOLE):
                 off = struct.unpack("<I", p[0:4])[0]
                 n = struct.unpack("<H", p[4:6])[0]
                 if n == 0:
-                    eof_offset = off       # EOF marker
+                    term = off             # EOF marker (end of served range)
                 else:
-                    slices[off] = p[6:6 + n]
-        if eof_offset is not None:
+                    if idx in drop:
+                        print(f"  induced loss: dropped slice #{idx} "
+                              f"(offset {off}, {n} B)")
+                    else:
+                        slices[off] = p[6:6 + n]
+                    idx += 1
+        if term is not None:
             break
-        if time.time() - last_rx > 3.0:
+        if time.time() - last_rx > idle:
             break
-    if not slices and eof_offset is None:
+    return slices, term
+
+
+def missing_ranges(slices, total):
+    """Byte ranges in [0, total) that no slice in `slices` covers, as a list of
+    (start, end). The pull stream is offset-addressed, so a dropped slice is just a
+    hole; this is what we selectively re-request."""
+    gaps = []
+    cur = 0
+    for off in sorted(slices):
+        end = off + len(slices[off])
+        if off > cur:
+            gaps.append((cur, off))
+        if end > cur:
+            cur = end
+    if cur < total:
+        gaps.append((cur, total))
+    return gaps
+
+
+def request_ttdb(ser, reader, target, timeout=20.0, mode=TTDB_REQ_WHOLE, rounds=4,
+                 drop=None):
+    """Request a node's whole object over an already-open link; return the
+    reassembled bytes, or None. `mode` selects the live TTDB (TTDB_REQ_WHOLE) or the
+    stored belief (TTDB_REQ_BELIEF) — both stream the same offset-addressed TTDB_DATA
+    slices. Shared by `pull`, `verify`, and `push`.
+
+    Pull-stream reliability: after the first pass the EOF marker fixes the true
+    total length, so any dropped slice shows up as a gap in offset coverage. We then
+    selectively re-request just those byte ranges (TTDB_REQ_RANGE) until the object
+    is byte-complete or `rounds` is exhausted — the receiver-driven analogue of
+    reltest's per-chunk retransmit. This closes the old ~1/6 bridged-pull frame drop.
+    Range re-request needs the offset index (TTDB_REQ_RANGE -> handleRequest), so it
+    applies to the live TTDB only; belief readback streams the whole buffer in one
+    pass (handleBufferRequest has no range path).
+
+    `drop` (a set of data-slice indices) discards those slices on the FIRST pass only,
+    so the re-request recovery runs deterministically — the on-device test knob behind
+    `pull --drop`."""
+    base = bytes([mode]) + struct.pack("<I", target)
+    slices, total = _stream_request(ser, reader, target, base, timeout, idle=3.0,
+                                    drop=drop)
+    if not slices and total is None:
         return None
-    return reassemble(slices, eof_offset)
+    if total is None or mode != TTDB_REQ_WHOLE:
+        # No EOF (best-effort), or an object we can't range-re-request (belief).
+        return reassemble(slices, total)
+
+    for r in range(1, rounds + 1):
+        gaps = missing_ranges(slices, total)
+        if not gaps:
+            break
+        miss = sum(g1 - g0 for g0, g1 in gaps)
+        print(f"  pull round {r}: re-requesting {len(gaps)} gap(s), {miss} B")
+        for g0, g1 in gaps:
+            rp = bytes([TTDB_REQ_RANGE]) + struct.pack("<III", target, g0, g1)
+            got, _ = _stream_request(ser, reader, target, rp, timeout, idle=2.0)
+            slices.update(got)
+
+    gaps = missing_ranges(slices, total)
+    if gaps:
+        print(f"  warning: {len(gaps)} range(s) still missing after {rounds} "
+              f"rounds: {gaps}")
+    return reassemble(slices, total)
 
 
 def reassemble(slices, eof_offset):
@@ -1156,6 +1235,10 @@ def main():
     p.add_argument("--timeout", type=float, default=20.0)
     p.add_argument("--file", choices=["ttdb", "belief"], default="ttdb",
                    help="which object to pull: the live TTDB (default) or /belief.md")
+    p.add_argument("--drop", default="",
+                   help="comma-separated data-slice indices to discard on the first "
+                        "pass (induced loss; forces the TTDB_REQ_RANGE self-heal). "
+                        "live TTDB only. e.g. --drop 1,3")
 
     pg = sub.add_parser("ping", help="reliable want_ack round-trip (TTN-RFC-0007)")
     pg.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
@@ -1263,7 +1346,8 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == "pull":
-        pull(args.port, args.baud, args.node, args.out, args.timeout, args.file)
+        drop = {int(x) for x in args.drop.split(",") if x.strip() != ""}
+        pull(args.port, args.baud, args.node, args.out, args.timeout, args.file, drop)
     elif args.cmd == "ping":
         ping(args.port, args.baud, args.node, args.settle, args.rto0,
              args.attempts)
