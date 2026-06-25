@@ -238,7 +238,7 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `autocrlf` was CRLF-mangling the byte-exact `master/*.md` + `data/*.md` artifacts on
   checkout; `.gitattributes` now pins them `eol=lf` so the repo copy matches the on-flash/
   on-wire bytes.
-- **Pull-stream reliability ✅ on-device verified (2026-06-25, K10 COM3).** The `TTDB_DATA`
+- **Pull-stream reliability ✅ on-device verified (2026-06-25, K10 COM3 + bridged COM6).** The `TTDB_DATA`
   pull stream is now self-healing: `request_ttdb` takes the EOF marker's offset as the true
   total length, detects any gap in offset coverage (`missing_ranges`), and selectively
   re-requests just the missing byte ranges via `TTDB_REQ_RANGE` until the object is
@@ -253,16 +253,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
   deterministically. Two patterns over COM3 each recovered byte-exact vs a clean baseline (2843
   B, sha256 `ce3ca723…`): `--drop 1,3` (interior slices) and `--drop 0,14` (first + the 15-B
   partial tail) — **the firmware `TTDB_REQ_RANGE` branch ran live for the first time** and the
-  selective re-request reassembled identically. Confirmed *direct over COM3*; the bridged
-  variant (COM6) runs the same firmware serve code over the already-proven bridge-forward path,
-  but wasn't run this session (V4-A not connected).
+  selective re-request reassembled identically. Also confirmed **bridged over COM6** (through
+  the V4-A bridge over ESP-NOW): `--drop 1,3` re-requested the two gaps *over the air* and
+  recovered the same byte-exact 2843 B / `ce3ca723…` — the relay path serves `TTDB_REQ_RANGE`
+  transparently (the bridge forwards any `TTDB_REQ` without inspecting the mode).
 - **Next action — pick one (no new hardware on hand; V4-B/V4-C still unbuilt):**
   (a) **More directives** — the `**DIRECTIVE**` record is extensible (warm threshold, LED
   policy, …); `sense_interval_ms` is just the first. (b) **Range-readback for belief** — give
   `handleBufferRequest` a range path so belief readback is self-healing too (needs a firmware
-  change + a belief-range request mode). (c) **Re-confirm pull reliability bridged over COM6**
-  when V4-A is reconnected (same firmware code, but exercises the relay path under real air
-  loss too). Phases 3–4 (V4-C edge, LoRa backbone) remain gated on
+  change + a belief-range request mode). Phases 3–4 (V4-C edge, LoRa backbone) remain gated on
   V4-B/V4-C; multi-node belief gossip needs a 2nd percept node.
 
 Keep this section current. It is the first thing the next session reads.
@@ -406,8 +405,8 @@ callback), pace ESP-NOW bursts, fresh `toot_seq` per request. **Now → Phase 2*
 drops a frame today. **Update (2026-06-25):** the pull stream is now self-healing —
 `request_ttdb` detects gaps against the EOF total length and selectively re-requests
 the missing byte ranges (`TTDB_REQ_RANGE`) until byte-complete, no firmware change
-(see §6). ✅ On-device verified over COM3 with `pull --drop` (induced loss recovers
-byte-exact; firmware RANGE branch ran live).
+(see §6). ✅ On-device verified over COM3 *and bridged over COM6* with `pull --drop`
+(induced loss recovers byte-exact; firmware RANGE branch ran live, incl. over the air).
 
 ---
 
