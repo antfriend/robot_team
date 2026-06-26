@@ -56,6 +56,17 @@ default is CDC-on-boot *disabled*, which binds the sketch's `Serial` (and thus t
 `TootSerialLink` that `companion.py` pulls over) to **UART0**, not the native USB —
 so `companion.py pull` over USB-CDC gets nothing. With `CDCOnBoot=cdc`, `Serial`
 is the native USB CDC on the COM port and the toot link works.
+
+**K10 LCD = TFT_eSPI with K10 pins.** The K10 library hard-includes TFT_eSPI
+(`#include "../TFT_eSPI/TFT_eSPI.h"`), whose pin map is **compile-time** in
+`User_Setup.h`. arduino-cli resolves the *sketchbook* copy
+(`~/Documents/Arduino/libraries/TFT_eSPI`) over the core-bundled one, so that
+file must hold the K10 pins: `ILI9341, 240x320, TFT_MOSI 21, TFT_MISO -1,
+TFT_SCLK 12, TFT_CS 14, TFT_DC 13, TFT_RST -1, TFT_BL 45`. Generic ESP32-S3
+defaults there (MOSI 11 / CS 10 / DC 46) leave the panel **backlit but blank** —
+the firmware is fine, SPI is just wired to the wrong GPIOs. If a K10 renders
+backlight-only, check those pins before touching sketch code.
+
 The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `hardware_specs.md`
 (`USE_GC1109_PA` V4.2 / `USE_KCT8103L_PA` V4.3) once the LoRa path is enabled. The
 K10's only LittleFS-capable partition is `model` (subtype spiffs, @0x510000),

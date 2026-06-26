@@ -215,7 +215,8 @@ static void playStartupToot() {
 // Show TTDB identity + indexed records + live reasoning state on the LCD.
 static void renderScreen(float tempC) {
   char line[40];
-  k10.canvas->canvasClear(0x000000);
+  k10.canvas->canvasClear();   // full-canvas clear; canvasClear(0) hits the
+                               // single-row overload with an out-of-range row.
   k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
   snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
   k10.canvas->canvasText(String(line), 2, 0x2E7D32);
@@ -232,15 +233,15 @@ static void renderScreen(float tempC) {
 
   bool warm = gAgent.matchedThisCycle();
   snprintf(line, sizeof(line), "temp %.1f C", tempC);
-  k10.canvas->canvasText(String(line), 12, 0x00FF66);
+  k10.canvas->canvasText(String(line), 11, 0x00FF66);
   snprintf(line, sizeof(line), "cursor @LAT%dLON%d", gAgent.cursorLat(),
            gAgent.cursorLon());
-  k10.canvas->canvasText(String(line), 14, warm ? 0xCCFF90 : 0x2E7D32);
+  k10.canvas->canvasText(String(line), 12, warm ? 0xCCFF90 : 0x2E7D32);
   if (gLedOverride.enabled) {
     snprintf(line, sizeof(line), "LED: laptop #%06X", (unsigned)gLedOverride.color);
-    k10.canvas->canvasText(String(line), 16, 0x40C4FF);
+    k10.canvas->canvasText(String(line), 13, 0x40C4FF);
   } else {
-    k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 16,
+    k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 13,
                            warm ? 0xFF6F00 : 0x2E7D32);
   }
   k10.canvas->updateCanvas();
@@ -520,6 +521,14 @@ void setup() {
   k10.initScreen(2);        // 2 = default orientation
   k10.creatCanvas();
   k10.rgb->brightness(5);   // 0-9
+  // Boot banner so the screen isn't blank until the first agent cycle renders.
+  // NOTE: the K10's TFT is driven by the sketchbook TFT_eSPI whose User_Setup.h
+  // must hold the K10 SPI pins (MOSI 21 / SCLK 12 / CS 14 / DC 13); generic
+  // ESP32-S3 defaults there leave the panel lit but blank.
+  k10.canvas->canvasClear();
+  k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
+  k10.canvas->canvasText("booting...", 3, 0x00FF66);
+  k10.canvas->updateCanvas();
 #endif
 
   if (!LittleFS.begin(true, "/littlefs", 10, kFsLabel)) {
