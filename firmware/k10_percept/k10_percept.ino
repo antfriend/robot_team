@@ -213,38 +213,80 @@ static void playStartupToot() {
 }
 
 // Show TTDB identity + indexed records + live reasoning state on the LCD.
+//
+// The canvas is a persistent LVGL buffer. The full canvasClear() flushes an
+// all-black frame to the panel mid-render (it calls lv_task_handler internally),
+// so redrawing it every cycle made the screen blink black-then-text. Instead we
+// paint the static header/records ONCE, then per cycle overwrite only the
+// dynamic rows whose content changed: canvasText(row) already clears just that
+// row's 24px band before drawing (a cursor-position overwrite), and the single
+// updateCanvas() at the end flushes only the dirty bands — no full-screen flash.
 static void renderScreen(float tempC) {
   char line[40];
-  k10.canvas->canvasClear();   // full-canvas clear; canvasClear(0) hits the
-                               // single-row overload with an out-of-range row.
-  k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
-  snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
-  k10.canvas->canvasText(String(line), 2, 0x2E7D32);
-  snprintf(line, sizeof(line), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(),
-           gDb.recordCount());
-  k10.canvas->canvasText(String(line), 4, 0x00FF66);
 
-  int row = 6;
-  for (int i = 0; i < gDb.recordCount() && row <= 10; ++i) {
-    const TtdbRecord& r = gDb.record(i);
-    snprintf(line, sizeof(line), "  @LAT%dLON%d", r.lat, r.lon);
-    k10.canvas->canvasText(String(line), row++, 0x00FF66);
+  static bool init = false;
+  const bool firstRender = !init;
+  if (firstRender) {
+    init = true;
+    k10.canvas->canvasClear();   // one full clear, at first render only
+    k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
+    snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
+    k10.canvas->canvasText(String(line), 2, 0x2E7D32);
+    snprintf(line, sizeof(line), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(),
+             gDb.recordCount());
+    k10.canvas->canvasText(String(line), 4, 0x00FF66);
+
+    int row = 6;
+    for (int i = 0; i < gDb.recordCount() && row <= 10; ++i) {
+      const TtdbRecord& r = gDb.record(i);
+      snprintf(line, sizeof(line), "  @LAT%dLON%d", r.lat, r.lon);
+      k10.canvas->canvasText(String(line), row++, 0x00FF66);
+    }
   }
 
   bool warm = gAgent.matchedThisCycle();
+  bool dirty = firstRender;
+
+  // Row 11: temperature (changes most cycles).
+  static char lastTemp[16] = "";
   snprintf(line, sizeof(line), "temp %.1f C", tempC);
-  k10.canvas->canvasText(String(line), 11, 0x00FF66);
-  snprintf(line, sizeof(line), "cursor @LAT%dLON%d", gAgent.cursorLat(),
-           gAgent.cursorLon());
-  k10.canvas->canvasText(String(line), 12, warm ? 0xCCFF90 : 0x2E7D32);
-  if (gLedOverride.enabled) {
-    snprintf(line, sizeof(line), "LED: laptop #%06X", (unsigned)gLedOverride.color);
-    k10.canvas->canvasText(String(line), 13, 0x40C4FF);
-  } else {
-    k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 13,
-                           warm ? 0xFF6F00 : 0x2E7D32);
+  if (strncmp(line, lastTemp, sizeof(lastTemp)) != 0) {
+    strncpy(lastTemp, line, sizeof(lastTemp));
+    k10.canvas->canvasText(String(line), 11, 0x00FF66);
+    dirty = true;
   }
-  k10.canvas->updateCanvas();
+
+  // Row 12: reasoning cursor; its color also tracks the warm state.
+  static int lastLat = 0, lastLon = 0;
+  static bool lastWarm = false;
+  if (firstRender || gAgent.cursorLat() != lastLat ||
+      gAgent.cursorLon() != lastLon || warm != lastWarm) {
+    lastLat = gAgent.cursorLat();
+    lastLon = gAgent.cursorLon();
+    snprintf(line, sizeof(line), "cursor @LAT%dLON%d", lastLat, lastLon);
+    k10.canvas->canvasText(String(line), 12, warm ? 0xCCFF90 : 0x2E7D32);
+    dirty = true;
+  }
+
+  // Row 13: laptop LED override vs. local warm/cool indicator.
+  static uint32_t lastStatus = 0xFFFFFFFFu;
+  uint32_t status = gLedOverride.enabled
+                        ? (0x80000000u | (gLedOverride.color & 0x00FFFFFFu))
+                        : (warm ? 1u : 0u);
+  if (firstRender || status != lastStatus) {
+    lastStatus = status;
+    if (gLedOverride.enabled) {
+      snprintf(line, sizeof(line), "LED: laptop #%06X", (unsigned)gLedOverride.color);
+      k10.canvas->canvasText(String(line), 13, 0x40C4FF);
+    } else {
+      k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 13,
+                             warm ? 0xFF6F00 : 0x2E7D32);
+    }
+    dirty = true;
+  }
+  lastWarm = warm;
+
+  if (dirty) k10.canvas->updateCanvas();
 }
 #endif
 
