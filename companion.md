@@ -280,14 +280,98 @@ If a fact lives in one of these, link to it from here — don't copy it.
   the first run). **Operational rule reconfirmed:** `reconcile`/`push` open the bridge WITH a
   DTR/RTS reset, wiping V4-A's RAM clock offset — so a `verify` after them needs a fresh `sync`
   first (`sync`/`verify` open without reset; the `@LAT99` records persist in flash regardless).
-- **Next action — pick one (no new hardware needed):** (a) **More directives** — the
-  `**DIRECTIVE**` record is extensible (warm threshold, LED policy, …); `sense_interval_ms` is just
-  the first. (b) **V4-B relay forwarding (multi-hop)** — flip `USE_RELAY_FORWARD` and prove TTL
-  decrement + midpoint dedup on a laptop→A→B→K10 path (needs peer allowlists to simulate
-  non-adjacency in one room). (c) **Range-readback for belief** — give `handleBufferRequest` a range
-  path so belief readback self-heals too. Phases 3–4 (V4-C edge, LoRa backbone) remain gated on
-  V4-C + enabling `USE_LORA`; node-to-node belief *gossip* still wants a 2nd percept leaf (V4-B is a
-  relay).
+- **Fleet pulse — K10 lead ✅ on-device verified (2026-06-26), the band time-base
+  (TTN-RFC-0010).** A self-synchronizing ~1 Hz heartbeat designed as the basis for a
+  small band of musicians: the **first node up conducts** (lowest live id keeps the
+  baton, `era`-numbered handoff), joiners adopt the chart and fall into phase, and the
+  beat is **computed from a shared pulse clock** (`millis()` + an adopted offset, its own
+  register separate from the laptop wall clock) — **not** messaged per beat. New toot
+  type `PULSE = 13` (28-B chart beacon: conductor/era/conductor_epoch/downbeat/period/
+  meter/flags; `Toot::buildPulse`/`parsePulse`) carried **rarely** — drift-paced
+  (`PULSE_RESYNC_PERIOD_MS` 30 s, §5 ceiling-safe) plus an on-join fast-lock — broadcast,
+  **not** want_ack (a miss is corrected by the next). The portable **`Pulse` engine**
+  (`firmware/libraries/Pulse`) owns the election + beat detector; the sketch supplies
+  transport + instrument. On the K10 (COM3, `USE_PULSE 1`): self-conducts after the 3 s
+  listen window, sounds a toot + RGB flash on **every** beat with the **downbeat accented**
+  (C5/cyan vs G4/blue → "ONE-two-three-four"), hit scheduled a small humanize jitter after
+  the boundary (the ±50 ms is **swing**, not slop). **Measured:** beat intervals 999–1001
+  ms (mean 1000), and **51 beats elapsed with exactly ONE beacon on the wire** — the
+  "optimize for timing like musicians, use only as much traffic as needed" requirement,
+  proven. Adoption runs in the recv path (accurate `recv_ms`); the toot/LED render is
+  deferred to `loop()` (playTone blocks — Phase 1b discipline).
+- **All three pulse parts ✅ flashed + individually on-device verified (2026-06-26).** Same
+  `Pulse` engine, three instruments: **K10** lead (COM3 — toot + RGB every beat, downbeat
+  accented), **V4-A** timekeeper (COM6 — LED + OLED dot every beat), **V4-B** backbeat (COM9
+  — LED + dot on beats 2 & 4). Each verified pulsing at 1000 ms with **~1 beacon / 15 s**
+  (the minimal-traffic design). Each self-conducted because the bench's single USB lead
+  powers one at a time, so they booted alone (K10 `cond=0x100`, V4-A `0x10`, V4-B `0x11`,
+  all `era=1`). **V4 LED is GPIO35** (assumed Heltec white LED — confirm vs pinmap; OLED dot
+  is the fallback). The **ensemble** (three locked together) is now purely a power step: with
+  all three powered simultaneously they converge to V4-A conducting (lowest id, via the
+  on-join HELLO→beacon→better() yield path) within a few HELLO intervals, then play the 4/4
+  groove. Convergence reasoned through but **not yet observed live** (needs separate power on
+  two nodes while the third holds USB).
+- **`companion.py band` ✅ built + smoke-tested on hardware (2026-06-26).** The
+  measured-tightness verifier (TTN-RFC-0010 §8): probes each node with `CMD_GET_STATUS`,
+  reads a new **PULSE telemetry tail** appended to the STATUS payload (conductor_id/era/
+  beat_period/pulse_epoch/downbeat/beat/pstate — backward-compatible, so `monitor` still
+  reads the 15-B prefix; `STATUS_PULSE_PAYLOAD_LEN=43`), min-RTT NTP-lite projects every
+  node's beat phase to one laptop instant, and prints `node | conductor | era | bpm | beat
+  | phase_ms | skew_ms | rtt` with a PASS/FAIL on "one shared conductor + all within
+  ±bound" (`--watch` for a live table). **Smoke-tested against V4-A solo on COM6**:
+  `0x10*` conductor, 60 bpm, **skew +0.0 ms, rtt 2 ms, PASS** — validates the whole path
+  (firmware tail → bridge → probe → projection). **All three (V4-A, K10, V4-B) now reflashed
+  with the telemetry tail** — pulse parts unaffected, only the STATUS tail is new.
+- **FULL 3-NODE ENSEMBLE ✅ on-device verified (2026-06-26) — the band plays in sync.**
+  `companion.py band --port COM6 --nodes v4a_bridge,v4b_relay,k10_1` (all three powered,
+  V4-A bridging) printed every node on **one shared chart (conductor `0x11`, era 4, 60 bpm)**
+  with measured inter-node phase **skew V4-A +0.5 ms / V4-B 0 (ref) / K10 +10.4 ms → PASS,
+  band tight to ±10.4 ms** (well inside the ±50 ms swing budget). Skew tracks transport
+  delay honestly (rtt V4-A 1 ms direct USB, V4-B 11 ms one hop, K10 34 ms two hops via the
+  bridge). **Conductor election + handoff also exercised live:** physically plugging the USB
+  lead **reset V4-A**, which dropped its era-3 chart and restarted at era 1; the followers
+  correctly **ignored the lower-era beacon** and free-ran on era 3 (V4-B↔K10 stayed 10 ms
+  apart throughout), then the conductor-timeout promoted **V4-B to era 4** (keeping the
+  era-3 downbeat, no lurch) and rebooted V4-A adopted it — the baton moves to whoever is
+  counting (corrected §3: lowest-id is a tie-break, not a continuous coup). TTN-RFC-0010 is
+  now end-to-end verified on hardware. **Known rough edge:** a conductor reboot causes a
+  reconvergence gap bounded by `PULSE_CONDUCTOR_TIMEOUT_MS` (90 s) — long because the era is
+  RAM-only; tightening the beacon/timeout or persisting era in NVS would shrink it.
+- **Parts & melodies layer ✅ built (2026-06-26) — the band plays a tune.** A sequencer on
+  top of the pulse: `Pulse::stepTick` adds a sixteenth-note step clock
+  (`PULSE_STEPS_PER_BEAT=4`), and a new header-only **`Score`** lib (in the Pulse library)
+  defines `Note`/`Phrase` data tables + `noteAt()`. Each node now plays a **data-driven
+  part** off the shared clock — swap a note table to re-voice the band (TTN-RFC-0010 §7, the
+  seam for purpose-built instruments): **K10 = lead melody** (its speaker is the only pitched
+  instrument — default "Ode to Joy" PD, 4 bars/64 steps; tones via the deferred-beep path,
+  RGB color mapped by pitch), **V4-A = timekeeper** (four-on-the-floor, LED+OLED every beat),
+  **V4-B = backbeat** (beats 2 & 4). **V4-A + K10 flashed + verified on-device — melody is AUDIBLE.** V4-A's
+  timekeeper fires steps 0/4/8/12 (DOWNBEAT on 0, 1000 ms). **The K10 plays the melody ✅**
+  (COM3, confirmed audible 2026-06-26): once locked it sounds `E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 …` — the Ode to Joy opening,
+  each note on its beat, RGB colored by pitch. The capture also caught the K10 **joining the
+  running band live over ESP-NOW** mid-tune: it booted self-conducting (`cond 0x100 era 1`),
+  then adopted the band's chart (`cond 0x11 era 6`), snapping from step 24 → step 54 onto the
+  band's phrase. So pulse → election/handoff → data-driven parts → melody → live join is the
+  full verified stack, three nodes playing together. (V4-B still runs the pre-Score backbeat —
+  identical behavior; reflash for code consistency whenever its cable is free.)
+- **K10 audio gotcha fixed (2026-06-26): GPIO45 is the I2S speaker, not the backlight.** The
+  melody was silent at first (only the startup toot played) because the sketchbook TFT_eSPI
+  `User_Setup.h` had `TFT_BL 45` — GPIO45 is the K10's `IIS_DOUT` (speaker), so `tft.begin()`
+  in `initScreen()` seized it and clamped the speaker; the startup toot survived because it
+  plays before `initScreen`. Fix: removed `TFT_BL`/`TFT_BACKLIGHT_ON` from User_Setup.h
+  (backlight is lib-driven via `eLCD_BLK`, so the screen still renders). NOT a WiFi power-save
+  issue (that red herring's `WIFI_PS_NONE` was kept anyway — good for ESP-NOW latency).
+  Documented in CLAUDE.md + memory [[k10-gpio45-speaker-vs-tft-bl]].
+- **Next action — pick one:** (a) **More tunes / parts** — kLeadNotes is a one-table swap
+  (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
+  user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
+  + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot
+  re-locks in seconds, not ~90 s; still well within the minimal-traffic budget. (b)
+  **Parts/melodies** — the `Part`/`hit` split (TTN-RFC-0010 §7) is the seam for per-node
+  melodies on purpose-built hardware (the user's stated next progression). (c) Confirm the
+  **V4 white LED on GPIO35** actually blinks (OLED beat-dot is the fallback). Plus earlier
+  options: more `**DIRECTIVE**` types, V4-B relay forwarding, belief range-readback. Phases
+  3–4 (V4-C, LoRa) gated on V4-C + `USE_LORA`.
 
 Keep this section current. It is the first thing the next session reads.
 

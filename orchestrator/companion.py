@@ -94,6 +94,14 @@ STATUS_WARM = 1 << 0
 STATUS_LED_OVERRIDE = 1 << 1
 STATUS_SYNCED = 1 << 2
 
+# Optional PULSE telemetry tail (TTN-RFC-0010 §8), appended to STATUS after the 15
+# base bytes when a node is built with USE_PULSE: conductor_id u32 | era u32 |
+# beat_period_ms u16 | pulse_epoch u64 | downbeat_epoch u64 | beat_in_bar u8 | pstate
+# u8. `band` reads it to measure phase; `monitor` ignores it (reads only the prefix).
+STATUS_PULSE_PAYLOAD_LEN = 43
+PSTATE_PLAYING = 1 << 0
+PSTATE_CONDUCTOR = 1 << 1
+
 DEFAULT_MASTER_SYNC = os.path.join("master", "orchestrator-sync.md")
 
 # Flags (Toot.h Flags).
@@ -186,6 +194,25 @@ def parse_status(payload):
         "led": bool(flags & STATUS_LED_OVERRIDE),
         "synced": bool(flags & STATUS_SYNCED),
         "epoch_ms": epoch,
+    }
+
+
+def parse_status_pulse(payload):
+    """Read the PULSE telemetry tail of a STATUS payload (TTN-RFC-0010 §8). Returns a
+    dict, or None if the node didn't append it (not built with USE_PULSE)."""
+    if len(payload) < STATUS_PULSE_PAYLOAD_LEN:
+        return None
+    cond, era, period = struct.unpack("<IIH", payload[15:25])
+    pulse_epoch, downbeat = struct.unpack("<QQ", payload[25:41])
+    return {
+        "conductor_id": cond,
+        "era": era,
+        "period_ms": period,
+        "pulse_epoch": pulse_epoch,
+        "downbeat": downbeat,
+        "beat_in_bar": payload[41],
+        "playing": bool(payload[42] & PSTATE_PLAYING),
+        "conductor": bool(payload[42] & PSTATE_CONDUCTOR),
     }
 
 
@@ -924,6 +951,165 @@ def verify(port, baud, nodes, sync_id, bound_ms, master, settle, probes):
                  f"out of bound")
 
 
+# --- Fleet pulse (TTN-RFC-0010) --------------------------------------------
+def status_probe(ser, reader, target, probes=5, per_timeout=1.0):
+    """Probe a node with CMD_GET_STATUS and keep the minimum-RTT reply (NTP-lite, like
+    ntp_probe). Returns the PULSE telemetry dict augmented with 'rtt' and 't_mid' (the
+    laptop ms instant the node's pulse_epoch corresponds to, t0 + rtt/2), or
+    {'plain': True} if the node replied without the pulse tail (needs a reflash), or
+    None if it never answered. A FRESH toot_seq per probe dodges the radio dedup."""
+    best = None
+    saw_plain = False
+    base = int(time.time() * 1000) & 0x7FFFFFFF
+    old_to = ser.timeout
+    ser.timeout = 0   # non-blocking reads so t1 reflects arrival, not poll quantum
+    try:
+        for k in range(probes):
+            seq = (base + k) & 0x7FFFFFFF      # fresh seq == fresh (src,seq)
+            payload = bytes([CMD_GET_STATUS]) + struct.pack("<I", target)
+            frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload)
+            t0 = time.time() * 1000.0
+            write_serial_frame(ser, frame)
+            got = None
+            deadline = time.time() + per_timeout
+            while time.time() < deadline and got is None:
+                data = ser.read(256)
+                if not data:
+                    time.sleep(0.0005)
+                    continue
+                for fr in reader.feed(data):
+                    t = decode_toot(fr)
+                    if not t or t["type"] != PERCEPT or t["src"] != target:
+                        continue
+                    pp = parse_status_pulse(t["payload"])
+                    if pp is not None:
+                        got = pp
+                        break
+                    if parse_status(t["payload"]) is not None:
+                        saw_plain = True   # replied, but no pulse tail (old firmware)
+            if got is None:
+                continue
+            t1 = time.time() * 1000.0
+            rtt = t1 - t0
+            if best is None or rtt < best["rtt"]:
+                got["rtt"] = rtt
+                got["t_mid"] = t0 + rtt / 2.0
+                best = got
+    finally:
+        ser.timeout = old_to
+    if best is None and saw_plain:
+        return {"plain": True}
+    return best
+
+
+def circular_diff(a, b, period):
+    """Signed shortest distance from b to a on a circle of circumference `period`."""
+    d = (a - b) % period
+    if d > period / 2.0:
+        d -= period
+    return d
+
+
+def _render_band(probed, bound_ms, watch):
+    """Print one fleet-pulse table from a {name: status_probe(...) } map. Returns True
+    if the band is converged + tight (one conductor, every node within +/-bound_ms)."""
+    # Project each playing node's beat phase to a single laptop instant T. The pulse
+    # clock advances 1:1 with real time, so pulse_epoch at t_mid extrapolates linearly.
+    playing = {n: r for n, r in probed.items()
+               if r and not r.get("plain") and r.get("playing")}
+    T = max((r["t_mid"] for r in playing.values()), default=time.time() * 1000.0)
+    phases = {}
+    for n, r in playing.items():
+        proj = r["pulse_epoch"] + (T - r["t_mid"])
+        phases[n] = (proj - r["downbeat"]) % r["period_ms"]
+    # Reference phase = the conductor's (or the lowest conductor_id if none is probed).
+    ref = next((n for n, r in playing.items() if r.get("conductor")), None)
+    if ref is None and playing:
+        ref = min(playing, key=lambda n: playing[n]["conductor_id"])
+
+    if watch:
+        print(f"\n[{time.strftime('%H:%M:%S')}] fleet pulse (TTN-RFC-0010)")
+    print(f"{'node':<12}{'conductor':<13}{'era':>4}{'bpm':>6}{'beat':>5}"
+          f"{'phase_ms':>10}{'skew_ms':>9}{'rtt_ms':>8}")
+    conductors = set()
+    max_skew = 0.0
+    ok = True
+    for n in probed:
+        r = probed[n]
+        if not r:
+            print(f"{n:<12}(no reply)")
+            ok = False
+            continue
+        if r.get("plain"):
+            print(f"{n:<12}(no pulse telemetry — reflash with USE_PULSE)")
+            ok = False
+            continue
+        if not r.get("playing"):
+            print(f"{n:<12}(not playing yet)")
+            ok = False
+            continue
+        conductors.add(r["conductor_id"])
+        bpm = 60000.0 / r["period_ms"] if r["period_ms"] else 0.0
+        skew = circular_diff(phases[n], phases[ref], r["period_ms"]) if ref else 0.0
+        max_skew = max(max_skew, abs(skew))
+        label = f"0x{r['conductor_id']:08X}" + ("*" if r.get("conductor") else "")
+        flag = "" if abs(skew) <= bound_ms else "  <-- OUT"
+        print(f"{n:<12}{label:<13}{r['era']:>4}{bpm:>6.0f}{r['beat_in_bar']:>5}"
+              f"{phases[n]:>10.1f}{skew:>+9.1f}{r['rtt']:>7.0f}{flag}")
+        if abs(skew) > bound_ms:
+            ok = False
+    if len(conductors) > 1:
+        print("  ! not converged — "
+              f"{len(conductors)} conductors: "
+              f"{', '.join(f'0x{c:08X}' for c in sorted(conductors))}")
+        ok = False
+    elif playing:
+        print(f"  * = conductor;  band tight to +/-{max_skew:.1f} ms "
+              f"(bound +/-{bound_ms:.0f} ms)")
+    return ok
+
+
+def band(port, baud, nodes, bound_ms, probes, settle, watch, interval):
+    """Measure fleet-pulse tightness (TTN-RFC-0010 §8): probe each node's chart + beat
+    phase, project all phases to one laptop instant (min-RTT NTP-lite), and report
+    inter-node phase skew vs the conductor. Pass = one shared conductor and every node
+    within +/-bound_ms. The laptop has NO per-beat role here — it only observes."""
+    try:
+        import serial  # noqa: F401  (open_serial_no_reset imports it)
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    for name in nodes:
+        if name not in NODE_IDS:
+            sys.exit(f"unknown node '{name}'. choices: {', '.join(NODE_IDS)}")
+
+    reader = SerialFrameReader()
+    # Don't reset the bridge: a DTR/RTS reset would wipe V4-A's in-RAM pulse clock +
+    # conductor role and disrupt the very band we're measuring (cf. sync/verify).
+    ser = open_serial_no_reset(port, baud)
+    last_ok = False
+    try:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        first = True
+        while first or watch:
+            first = False
+            probed = {n: status_probe(ser, reader, NODE_IDS[n], probes) for n in nodes}
+            last_ok = _render_band(probed, bound_ms, watch)
+            if watch:
+                time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nstopped")
+        return
+    finally:
+        ser.close()
+
+    if not watch:
+        if last_ok:
+            print(f"\nPASS: band converged + tight within +/-{bound_ms:.0f} ms")
+        else:
+            sys.exit("\nFAIL: band not converged or a node out of bound")
+
+
 def reconcile(port, baud, nodes, master, out, do_pull, settle):
     """Dream-Cycle seed (TTDB-RFC-0007): consolidate each node's self-authored sync
     log into one master view with provenance, and confirm the fleet agrees on every
@@ -1295,6 +1481,20 @@ def main():
     vf.add_argument("--settle", type=float, default=0.5)
     vf.add_argument("--probes", type=int, default=5)
 
+    bd = sub.add_parser("band",
+                        help="measure fleet pulse phase tightness (TTN-RFC-0010)")
+    bd.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
+    bd.add_argument("--baud", type=int, default=115200)
+    bd.add_argument("--nodes", default="v4a_bridge,v4b_relay,k10_1",
+                    help="comma-separated nodes to probe")
+    bd.add_argument("--bound-ms", type=float, default=50.0, dest="bound_ms")
+    bd.add_argument("--probes", type=int, default=5)
+    bd.add_argument("--settle", type=float, default=0.5)
+    bd.add_argument("--watch", action="store_true",
+                    help="refresh the table live until Ctrl-C")
+    bd.add_argument("--interval", type=float, default=1.0,
+                    help="seconds between refreshes (--watch)")
+
     cm = sub.add_parser("cmd", help="send a CMD to a node (ping/set-led/clear-led)")
     cm.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     cm.add_argument("--baud", type=int, default=115200)
@@ -1369,6 +1569,9 @@ def main():
     elif args.cmd == "verify":
         verify(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                args.sync_id, args.bound_ms, args.master, args.settle, args.probes)
+    elif args.cmd == "band":
+        band(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+             args.bound_ms, args.probes, args.settle, args.watch, args.interval)
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)

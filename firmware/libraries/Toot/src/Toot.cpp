@@ -124,6 +124,34 @@ bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
   return true;
 }
 
+// --- PULSE beacon (TTN-RFC-0010) -------------------------------------------
+uint8_t buildPulse(uint8_t* p, uint32_t conductor_id, uint32_t era,
+                   uint64_t conductor_epoch, uint64_t downbeat_epoch,
+                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags) {
+  put_u32(p + 0, conductor_id);
+  put_u32(p + 4, era);
+  put_u64(p + 8, conductor_epoch);
+  put_u64(p + 16, downbeat_epoch);
+  put_u16(p + 24, beat_period_ms);
+  p[26] = meter_beats;
+  p[27] = flags;
+  return (uint8_t)PULSE_PAYLOAD_LEN;
+}
+
+bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
+                uint64_t& conductor_epoch, uint64_t& downbeat_epoch,
+                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags) {
+  if (t.type != PULSE || t.payload_len < PULSE_PAYLOAD_LEN) return false;
+  conductor_id = get_u32(t.payload + 0);
+  era = get_u32(t.payload + 4);
+  conductor_epoch = get_u64(t.payload + 8);
+  downbeat_epoch = get_u64(t.payload + 16);
+  beat_period_ms = get_u16(t.payload + 24);
+  meter_beats = t.payload[26];
+  flags = t.payload[27];
+  return true;
+}
+
 // CRC-32 (zlib/IEEE). Bitwise (no 1 KiB table) — pushes are small and infrequent,
 // so the table isn't worth the RAM on a percept node. Continuation-friendly so the
 // firmware can fold it slice-by-slice (TTN-RFC-0009 §3).

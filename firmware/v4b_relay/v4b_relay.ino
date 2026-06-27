@@ -30,10 +30,43 @@
 #include <TootEspNow.h>
 #include <TTDB.h>
 #include <TtdbShare.h>
+#include <Pulse.h>
+#include <Score.h>
 #include <RobotTeamConfig.h>
 
 #define USE_LORA 0           // Phase 4: SX1262 long hops to V4-A and V4-C.
 #define USE_RELAY_FORWARD 0  // multi-hop store-and-forward (needs range sep / LoRa).
+
+// --- fleet pulse (TTN-RFC-0010) ---------------------------------------------
+// V4-B plays the BACKBEAT part: pulse the onboard LED + an OLED dot on beats 2 & 4
+// of the bar (the "snare"), while V4-A keeps every beat and the K10 leads. The
+// shared Pulse engine owns the time-base + election; this sketch supplies transport
+// (PULSE codec) + instrument. Lowest id conducts, so V4-B (0x11) follows V4-A (0x10).
+#define USE_PULSE 1
+static pulse::Engine gPulse;
+// Heltec V4 onboard white LED (GPIO35 on V3, pin-compatible V4 — confirm vs pinmap;
+// OLED dot is the guaranteed-visible fallback per TTN-RFC-0010 §7.2).
+static const int      kLedPin = 35;
+static const uint32_t PULSE_LED_MS = 110;
+static uint32_t gLedClearMs = 0;
+static bool     gBeatFlash = false;
+// V4-B's PART (TTN-RFC-0010 §7): the backbeat — a flash on beats 2 & 4 (steps 4 & 12 of
+// the 16-step bar), the "snare" against V4-A's steady timekeeper and the K10's melody. A
+// Score::Phrase on the shared sequencer grid; REST = no tone (LED + OLED-dot hit only).
+static const score::Note kPartNotes[] = {
+  {4, score::REST, 1}, {12, score::REST, 1},
+};
+static const score::Phrase kPart = {kPartNotes, 2, 16};
+// New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
+static uint32_t gNeighbors[8] = {0};
+static int      gNeighborCount = 0;
+static bool neighborIsNew(uint32_t src) {
+  for (int i = 0; i < gNeighborCount; ++i)
+    if (gNeighbors[i] == src) return false;
+  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0])))
+    gNeighbors[gNeighborCount++] = src;
+  return true;
+}
 
 // --- onboard SSD1306 OLED (status display) ----------------------------------
 // Heltec V4: SSD1306 128x64 on I2C (SDA 17 / SCL 18 / RST 21), powered through
@@ -196,7 +229,24 @@ static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 4, 0);
   p[6] = gSynced ? toot::STATUS_SYNCED : 0;
   toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
+#if USE_PULSE
+  // PULSE telemetry tail (TTN-RFC-0010 §8) for `companion.py band`.
+  uint32_t now = millis();
+  uint8_t bib = 0; uint16_t ph = 0; uint32_t bc = 0;
+  bool playing = gPulse.phaseNow(now, bib, ph, bc);
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u32(p + 15, ch.conductor_id);
+  toot::put_u32(p + 19, ch.era);
+  toot::put_u16(p + 23, ch.beat_period_ms);
+  toot::put_u64(p + 25, playing ? (uint64_t)gPulse.pulseNow(now) : 0);
+  toot::put_u64(p + 33, ch.downbeat_epoch);
+  p[41] = bib;
+  p[42] = (playing ? toot::PSTATE_PLAYING : 0) |
+          (gPulse.conductor() ? toot::PSTATE_CONDUCTOR : 0);
+  return (uint8_t)toot::STATUS_PULSE_PAYLOAD_LEN;
+#else
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
+#endif
 }
 
 // Serve a TTDB_REQ addressed to this node: belief mode streams the stored /belief.md
@@ -234,7 +284,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
     case toot::CMD:
       if (toot::cmdTarget(t) == kNodeId) {
         if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
-          uint8_t body[toot::STATUS_PAYLOAD_LEN];
+          uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
           uint8_t slen = buildStatus(body);
           emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
         }
@@ -266,6 +316,21 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       }
       break;
     }
+#if USE_PULSE
+    case toot::PULSE: {
+      // Band time-base beacon (TTN-RFC-0010). Cheap (no flash) -> adopt inline;
+      // millis() here is the receipt time. Not want_ack: corrected by the next.
+      pulse::Chart c;
+      uint64_t cond_epoch;
+      if (toot::parsePulse(t, c.conductor_id, c.era, cond_epoch, c.downbeat_epoch,
+                           c.beat_period_ms, c.meter_beats, c.flags))
+        gPulse.onBeacon(c, cond_epoch, millis());
+      break;
+    }
+    case toot::HELLO:
+      if (neighborIsNew(t.src_node_id)) gPulse.noteNeighbor(millis());
+      break;
+#endif
     default:
       break;
   }
@@ -376,6 +441,10 @@ static void renderOled() {
   gOled.setFont(u8g2_font_6x10_tf);
   gOled.drawStr(0, 9, "V4-B RELAY");
   gOled.drawStr(78, 9, USE_LORA ? "LoRa+" : "LoRa-");
+#if USE_PULSE
+  if (gBeatFlash) gOled.drawDisc(124, 4, 3);   // backbeat dot (beats 2 & 4)
+  else gOled.drawCircle(124, 4, 3);
+#endif
 
   snprintf(l, sizeof(l), "id %08X", (unsigned)kNodeId);
   gOled.drawStr(0, 20, l);
@@ -405,6 +474,11 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+#if USE_PULSE
+  pinMode(kLedPin, OUTPUT);
+  digitalWrite(kLedPin, LOW);
+#endif
+
   pinMode(kVextCtrl, OUTPUT);
   digitalWrite(kVextCtrl, LOW);      // LOW = OLED power on (Heltec Vext)
   delay(50);
@@ -431,6 +505,9 @@ void setup() {
   peer.encrypt = false;
   esp_now_add_peer(&peer);
 
+#if USE_PULSE
+  gPulse.begin(kNodeId, millis());   // follows V4-A (lower id); plays the backbeat
+#endif
   Serial.printf("V4-B relay 0x%08X online (LoRa %s, forward %s)\n", kNodeId,
                 USE_LORA ? "on" : "off", USE_RELAY_FORWARD ? "on" : "off");
 }
@@ -467,6 +544,42 @@ void loop() {
   // Append the deferred TTDB log records (flash write + re-index).
   if (gSyncPending) { gSyncPending = false; appendSyncRecord(); }
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
+
+#if USE_PULSE
+  // --- fleet pulse (TTN-RFC-0010): backbeat part — LED + OLED dot on beats 2 & 4 ---
+  {
+    uint32_t pnow = millis();
+    pulse::Chart oc;
+    uint64_t oepoch;
+    if (gPulse.update(pnow, oc, oepoch)) {     // drift-paced / on-join only, not per beat
+      uint8_t body[toot::PULSE_PAYLOAD_LEN];
+      uint8_t blen = toot::buildPulse(body, oc.conductor_id, oc.era, oepoch,
+                                      oc.downbeat_epoch, oc.beat_period_ms,
+                                      oc.meter_beats, oc.flags);
+      emit(toot::PULSE, body, blen, sendEspNow, nullptr);
+      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums%s\n",
+                    (unsigned long)oc.era, (unsigned)oc.conductor_id,
+                    oc.beat_period_ms, gPulse.conductor() ? " (conductor)" : "");
+    }
+    // Backbeat part: flash the LED + OLED dot on each struck step of the phrase (2 & 4).
+    uint16_t sip;
+    uint32_t sc;
+    if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && score::noteAt(kPart, sip)) {
+      digitalWrite(kLedPin, HIGH);
+      gLedClearMs = pnow + PULSE_LED_MS;
+      gBeatFlash = true;
+      gOledDirty = true;
+      Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip, (sip / 4) % 4 + 1,
+                    (unsigned long)gPulse.chart().era);
+    }
+    if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
+      gLedClearMs = 0;
+      digitalWrite(kLedPin, LOW);
+      gBeatFlash = false;
+      gOledDirty = true;
+    }
+  }
+#endif
 
   // Periodic HELLO beacon + OLED heartbeat.
   static uint32_t lastBeacon = 0;

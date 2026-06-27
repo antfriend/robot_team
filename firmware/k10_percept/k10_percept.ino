@@ -19,6 +19,8 @@
 #include <TTDB.h>
 #include <TtdbShare.h>
 #include <Agent32.h>
+#include <Pulse.h>
+#include <Score.h>
 #include <RobotTeamConfig.h>
 
 // Real UNIHIKER K10 onboard hardware (DFRobot `unihiker_k10` library). Set to 0
@@ -83,6 +85,64 @@ static struct {
 static volatile bool gBeepPending = false;
 static int gBeepFreq = 0;
 static int gBeepBeat = 0;   // I2S samples @ 8 kHz: beat = dur_ms * 8 (beat/8000 = s)
+
+// --- fleet pulse + lead melody (TTN-RFC-0010) -------------------------------
+// The band time-base + conductor election lives in the portable Pulse engine; the
+// shared grid is ~1 Hz. The K10 is the band's LEAD — its onboard speaker is the only
+// pitched instrument — so its PART is a MELODY: a Score::Phrase played on the
+// sixteenth-note step grid (the V4s play rhythmic LED parts on the same clock). The
+// ~50 ms tolerance is musical swing: each note lands a small humanize jitter after its
+// step so the line breathes. Swap kLeadNotes to change the tune (TTN-RFC-0010 §7).
+#define USE_PULSE 1
+static pulse::Engine gPulse;
+static const int      PULSE_TONE_MS = 180;       // staccato note (playTone blocks; keep short)
+static const uint32_t PULSE_LED_MS = 160;        // note LED hold
+static const uint32_t PULSE_HUMANIZE_MS = 6;     // jitter so the line breathes
+
+// Default lead: "Ode to Joy" (Beethoven, public domain) — 4 bars of 4/4 = 64 steps at
+// PULSE_STEPS_PER_BEAT (4) per beat, so quarter notes land every 4 steps. dur_steps is
+// the LED/visual hold; the audible tone is fixed-short (PULSE_TONE_MS) so it never
+// smears the next note or stalls the loop.
+static const score::Note kLeadNotes[] = {
+  {0,  score::E4, 4}, {4,  score::E4, 4}, {8,  score::F4, 4}, {12, score::G4, 4},
+  {16, score::G4, 4}, {20, score::F4, 4}, {24, score::E4, 4}, {28, score::D4, 4},
+  {32, score::C4, 4}, {36, score::C4, 4}, {40, score::D4, 4}, {44, score::E4, 4},
+  {48, score::E4, 6}, {54, score::D4, 2}, {56, score::D4, 8},
+};
+static const score::Phrase kLead = {
+    kLeadNotes, sizeof(kLeadNotes) / sizeof(kLeadNotes[0]), 64};
+
+// Draw the melody on the RGB LED: pitch -> color (low warm, high cool).
+static uint32_t pitchColor(uint16_t f) {
+  if (f >= score::E5) return 0x3040FF;  // high — blue
+  if (f >= score::C5) return 0x00E0FF;  // teal
+  if (f >= score::G4) return 0x00FF40;  // green
+  if (f >= score::E4) return 0xC0FF00;  // yellow-green
+  if (f >= score::D4) return 0xFFA000;  // orange
+  return 0xFF2000;                      // low — red
+}
+
+// A struck note is rendered after a humanize delay (deferred; playTone blocks).
+static bool     gHitPending = false;
+static uint32_t gHitDueMs = 0;
+static int      gHitFreq = 0;
+static uint32_t gHitColor = 0;
+static uint32_t gLedClearMs = 0;     // 0 = LED not currently flashing
+// Conductor fast-lock (§4.2): only beacon when a *new* neighbor appears, not every HELLO.
+static uint32_t gNeighbors[8] = {0};
+static int      gNeighborCount = 0;
+static bool neighborIsNew(uint32_t src) {
+  for (int i = 0; i < gNeighborCount; ++i)
+    if (gNeighbors[i] == src) return false;
+  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0])))
+    gNeighbors[gNeighborCount++] = src;
+  return true;
+}
+static inline uint32_t pulseHumanize() {  // small bounded jitter, cheap LCG
+  static uint32_t s = 0x1234567u;
+  s = s * 1664525u + 1013904223u;
+  return (s >> 8) % (2 * PULSE_HUMANIZE_MS + 1);  // 0..2H -> centered below
+}
 
 // --- pushed belief (TTN-RFC-0009) -------------------------------------------
 // The companion re-authors fleet knowledge and pushes it back as offset-addressed
@@ -353,7 +413,24 @@ static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 4, (uint16_t)(int16_t)(t * 100.0f));
   p[6] = flags;
   toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
+#if USE_PULSE
+  // Append PULSE telemetry (TTN-RFC-0010 §8) so `companion.py band` can measure phase.
+  uint32_t now = millis();
+  uint8_t bib = 0; uint16_t ph = 0; uint32_t bc = 0;
+  bool playing = gPulse.phaseNow(now, bib, ph, bc);
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u32(p + 15, ch.conductor_id);
+  toot::put_u32(p + 19, ch.era);
+  toot::put_u16(p + 23, ch.beat_period_ms);
+  toot::put_u64(p + 25, playing ? (uint64_t)gPulse.pulseNow(now) : 0);
+  toot::put_u64(p + 33, ch.downbeat_epoch);
+  p[41] = bib;
+  p[42] = (playing ? toot::PSTATE_PLAYING : 0) |
+          (gPulse.conductor() ? toot::PSTATE_CONDUCTOR : 0);
+  return (uint8_t)toot::STATUS_PULSE_PAYLOAD_LEN;
+#else
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
+#endif
 }
 
 // Serve a TTDB_REQ addressed to this node. TTDB_REQ_BELIEF streams the stored
@@ -408,7 +485,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             gLedOverride.enabled = false;
             break;
           case toot::CMD_GET_STATUS: {
-            uint8_t body[toot::STATUS_PAYLOAD_LEN];
+            uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
             uint8_t slen = buildStatus(body);
             emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
             break;
@@ -470,7 +547,28 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       }
       break;
     }
+    case toot::PULSE: {
+      // Band time-base beacon (TTN-RFC-0010). Adoption is cheap (no flash) so it
+      // runs here in the recv path, where millis() is the accurate receipt time —
+      // the offset adopted is conductor_epoch - recv_ms. Rendering the beat is
+      // deferred to loop() (playTone blocks). Not want_ack: a miss is corrected by
+      // the next beacon, so we never ACK it.
+#if USE_PULSE
+      pulse::Chart c;
+      uint64_t cond_epoch;
+      if (toot::parsePulse(t, c.conductor_id, c.era, cond_epoch, c.downbeat_epoch,
+                           c.beat_period_ms, c.meter_beats, c.flags))
+        gPulse.onBeacon(c, cond_epoch, millis());
+#endif
+      break;
+    }
     case toot::HELLO:
+      // A neighbor announced itself: if we conduct, fast-lock a newcomer with an
+      // extra beacon (§4.2) so it joins the beat within a round trip.
+#if USE_PULSE
+      if (neighborIsNew(t.src_node_id)) gPulse.noteNeighbor(millis());
+#endif
+      break;
     case toot::PERCEPT:
     case toot::BELIEF:
       // Neighborhood awareness lands here; nothing to do for the floor demo.
@@ -586,6 +684,10 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  // Keep the WiFi radio always-on (default STA power-save adds ESP-NOW RX latency/drops);
+  // helps the pulse/mesh stay responsive. (The melody-silence bug was a GPIO45 pin clash,
+  // not power-save — see the TFT_BL note in CLAUDE.md / TFT_eSPI User_Setup.h.)
+  esp_wifi_set_ps(WIFI_PS_NONE);
   if (esp_now_init() != ESP_OK) {
     Serial.println("FATAL: esp_now_init failed");
   }
@@ -601,6 +703,9 @@ void setup() {
   gAgent.registerActuator(&kIndicator);
   gAgent.setInterval(1000);
   gAgent.setMatchThreshold(8);
+#if USE_PULSE
+  gPulse.begin(kNodeId, millis());  // first node up conducts after the listen window
+#endif
   Serial.printf("K10 percept node 0x%08X online\n", kNodeId);
 }
 
@@ -613,6 +718,65 @@ void loop() {
     if (toot::decode(buf, n, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
       handleToot(t, sendSerial, nullptr);
   }
+
+#if USE_PULSE
+  // --- fleet pulse (TTN-RFC-0010): keep time; glance at the conductor rarely -----
+  {
+    uint32_t pnow = millis();
+    // Emit a chart beacon only when due (drift-paced, §5) or to fast-lock a newcomer
+    // (§4.2) — never one per beat. As a lone node this fires once, then every 30 s.
+    pulse::Chart oc;
+    uint64_t oepoch;
+    if (gPulse.update(pnow, oc, oepoch)) {
+      uint8_t body[toot::PULSE_PAYLOAD_LEN];
+      uint8_t blen = toot::buildPulse(body, oc.conductor_id, oc.era, oepoch,
+                                      oc.downbeat_epoch, oc.beat_period_ms,
+                                      oc.meter_beats, oc.flags);
+      emit(toot::PULSE, body, blen, sendEspNow, nullptr);
+      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums%s\n",
+                    (unsigned long)oc.era, (unsigned)oc.conductor_id,
+                    oc.beat_period_ms, gPulse.conductor() ? " (conductor)" : "");
+    }
+    // The lead's melody: on each new sequencer step, strike the note (if any) at this
+    // phrase position. Empty steps and RESTs are silent. Scheduled a humanize-jitter
+    // after the step so the line breathes within the swing budget.
+    uint16_t sip;
+    uint32_t sc;
+    if (gPulse.stepTick(pnow, kLead.steps, sip, sc)) {
+      const score::Note* nt = score::noteAt(kLead, sip);
+      if (nt && nt->freq != score::REST) {
+        gHitFreq = nt->freq;
+        gHitColor = pitchColor(nt->freq);
+        gHitDueMs = pnow + pulseHumanize();
+        gHitPending = true;
+        Serial.printf("[melody] step %2u/%u bar %u beat %u  %4uHz  cond=0x%08X era=%lu\n",
+                      sip, kLead.steps, sip / 16 + 1, (sip / 4) % 4 + 1, nt->freq,
+                      (unsigned)gPulse.chart().conductor_id,
+                      (unsigned long)gPulse.chart().era);
+      }
+    }
+    // Fire a scheduled hit: toot (via the deferred-beep path) + LED flash.
+    if (gHitPending && (int32_t)(pnow - gHitDueMs) >= 0) {
+      gHitPending = false;
+      gBeepFreq = gHitFreq;
+      gBeepBeat = PULSE_TONE_MS * 8;  // beat = ms*8 (Music::playTone unit)
+      gBeepPending = true;            // played from the deferred-beep block below
+#if USE_K10_HW
+      if (!gLedOverride.enabled) {    // a laptop set-led still wins (RFC §7.2)
+        k10.rgb->write(-1, gHitColor);
+        gLedClearMs = pnow + PULSE_LED_MS;
+      }
+#endif
+    }
+    // Clear the LED flash after its window (non-blocking).
+    if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
+      gLedClearMs = 0;
+#if USE_K10_HW
+      if (!gLedOverride.enabled) k10.rgb->write(-1, 0x000000);
+#endif
+    }
+  }
+#endif
 
   // Serve an ESP-NOW TTDB_REQ deferred from the recv callback (so the reply
   // streams from the main task, where TX pacing via the send callback works).

@@ -62,10 +62,20 @@ is the native USB CDC on the COM port and the toot link works.
 `User_Setup.h`. arduino-cli resolves the *sketchbook* copy
 (`~/Documents/Arduino/libraries/TFT_eSPI`) over the core-bundled one, so that
 file must hold the K10 pins: `ILI9341, 240x320, TFT_MOSI 21, TFT_MISO -1,
-TFT_SCLK 12, TFT_CS 14, TFT_DC 13, TFT_RST -1, TFT_BL 45`. Generic ESP32-S3
+TFT_SCLK 12, TFT_CS 14, TFT_DC 13, TFT_RST -1`. Generic ESP32-S3
 defaults there (MOSI 11 / CS 10 / DC 46) leave the panel **backlit but blank** —
 the firmware is fine, SPI is just wired to the wrong GPIOs. If a K10 renders
 backlight-only, check those pins before touching sketch code.
+
+**Do NOT define `TFT_BL` in that User_Setup.h.** `GPIO45` on the K10 is the **I2S
+speaker** data line (`IIS_DOUT`), *not* the LCD backlight — the backlight is driven
+by the DFRobot board lib via its abstract `eLCD_BLK` pin (through the mainboard power
+chip). Setting `TFT_BL 45` makes `tft.begin()` (inside `k10.initScreen()`) seize
+GPIO45 and hold it HIGH, which **silences `Music::playTone` for everything after
+`initScreen()`** — the startup "toot" still plays (it runs *before* `initScreen`),
+which is the tell. Leave `TFT_BL` undefined: the backlight still works and the speaker
+keeps GPIO45. (A bad `TFT_BL 45` was the original cause of "only the startup toot is
+audible.")
 
 The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `hardware_specs.md`
 (`USE_GC1109_PA` V4.2 / `USE_KCT8103L_PA` V4.3) once the LoRa path is enabled. The

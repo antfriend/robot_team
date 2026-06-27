@@ -47,6 +47,7 @@ enum Type : uint8_t {
   TIME_REQ = 10,  // companion -> node: "report your epoch now" (skew probe)
   TIME_RESP = 11, // node -> companion: current epoch (ms)
   TTDB_PUT = 12,  // companion -> node: one slice of a pushed belief (TTN-RFC-0009)
+  PULSE = 13,     // conductor -> fleet: band chart + time-base beacon (TTN-RFC-0010)
 };
 
 enum Flags : uint8_t {
@@ -102,6 +103,21 @@ const size_t TTDB_PUT_MAX_SLICE = MAX_BODY - TTDB_PUT_HEADER_LEN;  // 186
 //   [6]     flags        u8       bit0 warm · bit1 led_override · bit2 synced
 //   [7..14] epoch_ms     u64 LE   (nowEpochMs(); 0 if unsynced)
 const size_t STATUS_PAYLOAD_LEN = 15;
+// Optional PULSE telemetry (TTN-RFC-0010 §8) appended after the 15 base bytes, so a
+// plain STATUS reader (monitor) still parses the prefix and a pulse-aware reader
+// (companion.py band) reads the tail. A node only appends this when USE_PULSE:
+//   [15..18] conductor_id  u32 LE   the chart owner this node is playing
+//   [19..22] era           u32 LE   chart revision
+//   [23..24] beat_period_ms u16 LE  tempo
+//   [25..32] pulse_epoch   u64 LE   pulseNow() sampled at reply build (0 if not playing)
+//   [33..40] downbeat_epoch u64 LE  band-epoch ms of beat 0
+//   [41]     beat_in_bar   u8       current beat position (0 = downbeat)
+//   [42]     pstate        u8       bit0 playing · bit1 conductor
+const size_t STATUS_PULSE_PAYLOAD_LEN = 43;
+enum PulseStateFlag : uint8_t {
+  PSTATE_PLAYING = 1 << 0,
+  PSTATE_CONDUCTOR = 1 << 1,
+};
 enum StatusFlag : uint8_t {
   STATUS_WARM = 1 << 0,
   STATUS_LED_OVERRIDE = 1 << 1,
@@ -214,6 +230,24 @@ bool parseTimeResp(const Toot& t, uint32_t& probe_id, uint64_t& node_epoch_ms);
 bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
               uint32_t& total_len, uint32_t& crc, uint32_t& offset,
               const uint8_t*& data, uint16_t& len);
+
+// --- PULSE beacon (TTN-RFC-0010) -------------------------------------------
+// The band chart + time-base: conductor_id | era | conductor_epoch | downbeat_epoch
+// | beat_period_ms | meter_beats | flags. Carried rarely (drift-paced), never per
+// beat. `conductor_epoch` is the conductor's pulseNow() sampled as the beacon is
+// built — a follower adopts (epoch - recv_millis) as its band-clock offset.
+const size_t PULSE_PAYLOAD_LEN = 28;
+enum PulseFlag : uint8_t {
+  PULSE_LAPTOP_TIMEBASE = 1 << 0,  // pulse clock == laptop wall epoch (TTN-RFC-0008)
+};
+// Build a PULSE payload into `p` (>= PULSE_PAYLOAD_LEN). Returns bytes written.
+uint8_t buildPulse(uint8_t* p, uint32_t conductor_id, uint32_t era,
+                   uint64_t conductor_epoch, uint64_t downbeat_epoch,
+                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags);
+// Read a PULSE payload. False if `t` is not PULSE or is too short.
+bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
+                uint64_t& conductor_epoch, uint64_t& downbeat_epoch,
+                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags);
 
 // Small ring of seen (src,seq) keys. seen() returns true if already present,
 // otherwise records the key and returns false.
