@@ -31,6 +31,7 @@
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <RobotTeamConfig.h>
+#include <Preferences.h>   // NVS: remember the song on/off across a power-cycle
 
 // Real T-Deck peripherals (ST7789 LCD + I2S speaker + I2C keyboard). Set to 0 to
 // build/verify the network floor headless (byte-exact pull, HMAC reject, sync/belief)
@@ -95,9 +96,16 @@ static int gTargetIdx = 0;
 static uint32_t gCmdTarget = NODE_K10_1;
 
 // The T-Deck's own musical part (part 2): a harmony a diatonic third below the K10's
-// Ode-to-Joy lead, on the shared pulse step grid. Boots silent; `g`/`x` (or a received
-// CMD_PLAY/CMD_STOP) toggle it, so one `g` starts both voices at once.
+// Ode-to-Joy lead, on the shared pulse step grid. `g`/`x` (or a received CMD_PLAY/STOP)
+// toggle it, so one `g` starts both voices at once. The on/off state is persisted in NVS
+// (setLocalPlay), so a power-cycle RESUMES the part — the T-Deck rejoins the song once it
+// re-locks to the band (played only as an in-phase follower; see the harmony gate below).
+static Preferences gPrefs;
 static bool gLocalPlay = false;
+static void setLocalPlay(bool on) {
+  gLocalPlay = on;
+  gPrefs.putBool("play", on);     // survive a reboot (screen refreshes within 1 s)
+}
 static const uint32_t PULSE_HARM_TONE_MS = 180;   // staccato note (blocks; keep short)
 static const score::Note kHarmNotes[] = {
   {0,  score::C4, 4}, {4,  score::C4, 4}, {8,  score::D4, 4}, {12, score::E4, 4},
@@ -351,8 +359,8 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
             break;
           }
-          case toot::CMD_PLAY: gLocalPlay = true;  break;   // start our harmony part
-          case toot::CMD_STOP: gLocalPlay = false; break;
+          case toot::CMD_PLAY: setLocalPlay(true);  break;  // start our harmony part
+          case toot::CMD_STOP: setLocalPlay(false); break;
           default: break;                                   // ping / set-* (no-op here)
         }
         accepted = true;
@@ -591,6 +599,11 @@ void setup() {
   digitalWrite(PIN_POWERON, HIGH);
   delay(100);
 
+  // Restore the song on/off state so a power-cycle rejoins the song (the harmony gate
+  // holds it silent until we re-lock to the band as a follower).
+  gPrefs.begin("tdeck", false);
+  gLocalPlay = gPrefs.getBool("play", false);
+
 #if USE_TDECK_HW
   // Audio first: bring up I2S and sound the boot "toot toot" (before the screen, like
   // the K10). The MAX98357A speaker rail is powered by PIN_POWERON (asserted above).
@@ -686,8 +699,8 @@ void loop() {
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
-      case 'g': gLocalPlay = true;  emitCmd(toot::CMD_PLAY, nullptr, 0); break;  // play both
-      case 'x': gLocalPlay = false; emitCmd(toot::CMD_STOP, nullptr, 0); break;  // stop both
+      case 'g': setLocalPlay(true);  emitCmd(toot::CMD_PLAY, nullptr, 0); break;  // play both
+      case 'x': setLocalPlay(false); emitCmd(toot::CMD_STOP, nullptr, 0); break;  // stop both
       case 's':
       default:  emitCmd(toot::CMD_GET_STATUS, nullptr, 0); break;
     }
@@ -711,9 +724,13 @@ void loop() {
     // Part 2: the harmony line. On each new step, sound its note (if playing) on the I2S
     // speaker — same shared clock as the K10 lead, so the two voices lock. toneI2S blocks
     // ~PULSE_HARM_TONE_MS, which is the K10's deferred-tone discipline (fine in loop()).
+    // Play only when the song is on AND we're locked to the band as a FOLLOWER — i.e. in
+    // phase with the K10 lead. While self-appointed (just rebooted, not yet re-locked) we
+    // stay silent so the harmony never plays out of phase; it resumes the moment we adopt
+    // the conductor's chart. This is what makes a power-cycled T-Deck rejoin cleanly.
     uint16_t sip;
     uint32_t sc;
-    if (gPulse.stepTick(pnow, kHarm.steps, sip, sc) && gLocalPlay) {
+    if (gPulse.stepTick(pnow, kHarm.steps, sip, sc) && gLocalPlay && !gPulse.conductor()) {
       const score::Note* nt = score::noteAt(kHarm, sip);
       if (nt && nt->freq != score::REST) {
 #if USE_TDECK_HW

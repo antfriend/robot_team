@@ -436,10 +436,20 @@ If a fact lives in one of these, link to it from here — don't copy it.
   [[pulse-tempo-lives-in-pulse-cpp]]. **V4-A/V4-B/T-Deck still run pre-fix firmware** (60 BPM if
   they conduct) — for the 120 duet keep the V4s off (K10 conducts); reflash them to bring the
   whole band to 120.
-- **Next action — pick one:** (a) **Confirm the 120 duet sounds right** (reset the T-Deck so it
-  drops its stale 60 BPM chart, keep V4s off, press `g`). (b) **Reflash V4-A/V4-B/T-Deck** to the
-  Pulse.h tempo so the whole band is 120 regardless of conductor. (c) **More tunes / parts** —
-  `kLeadNotes`/`kHarmNotes` are one-table swaps
+- **Duet ✅ confirmed at 120 BPM by the user; power-cycle-rejoin fixed (2026-07-06).** Two fixes
+  so a power-cycled T-Deck rejoins the song on its own: (1) the T-Deck **persists the song on/off
+  in NVS** (`Preferences`, `setLocalPlay`) so it resumes after a reboot, and its harmony now plays
+  **only as an in-phase follower** (`gLocalPlay && !gPulse.conductor()`) — silent while
+  self-appointed/re-locking, so it never plays out of phase; (2) the K10 (conductor) **fast-locks
+  a *returning* neighbor**, not just a brand-new one — `neighborNeedsLock()` tracks per-neighbor
+  last-seen and beacons immediately when one reappears after a >3 s gap (a power-cycle), instead of
+  making it wait up to `PULSE_RESYNC_PERIOD` (30 s). Steady-state traffic unchanged (a
+  steadily-present neighbor doesn't retrigger it). Both flashed; K10 verified conducting `era 1,
+  bpm 120`. Pending: user confirms the rejoin.
+- **Next action — pick one:** (a) **Confirm the power-cycle rejoin** (press `g`, power-cycle the
+  T-Deck, watch it resume the harmony in a few seconds). (b) **Reflash V4-A/V4-B** to the Pulse.h
+  tempo + fast-lock so the whole band is 120 and rejoins fast regardless of conductor. (c) **More
+  tunes / parts** — `kLeadNotes`/`kHarmNotes` are one-table swaps.
   (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
   user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
   + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot
