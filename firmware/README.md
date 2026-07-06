@@ -11,6 +11,7 @@ deployed with **arduino-cli**.
 | `v4a_bridge/`  | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 bridge / head |
 | `v4b_relay/`   | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 relay / mid |
 | `v4c_edge/`    | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 edge / tail |
+| `tdeck_console/` | `esp32:esp32:esp32s3` | esp32 3.x | LilyGo T-Deck handheld console / field operator |
 
 > The K10 uses UNIHIKER's own core, which is **arduino-esp32 2.x**; the Heltec
 > nodes use the **3.x** `esp32:esp32` core. The two differ in the ESP-NOW recv
@@ -78,6 +79,37 @@ that keeps the model partition and adds a separate user filesystem.
 
 > The bash `scripts/upload-fs.sh` uses generic offsets and is for the V4 / esp32
 > 3.x nodes; the K10 uses the dedicated `.ps1` with the `model`-partition offset.
+
+## LilyGo T-Deck console (`tdeck_console`)
+
+The T-Deck is a handheld ESP32-S3 with a 320×240 ST7789 LCD, a BlackBerry
+keyboard (its own MCU on I²C `0x55`), a trackball, an SX1262 LoRa radio, and an
+I²S speaker — the fleet's **operator console**: the keyboard injects CMD toots and
+the screen shows the fleet, so you can drive the swarm without the laptop.
+
+- **FQBN** `esp32:esp32:esp32s3:CDCOnBoot=cdc` (native USB, same as the V4/K10).
+- **Network floor is verifiable now, headless.** The sketch ships with
+  `#define USE_TDECK_HW 0`, so it builds and runs the full toot stack (byte-exact
+  pull, HMAC reject, `TIME_SYNC` adopt + `@LAT99`, belief `TTDB_PUT` adopt +
+  `@LAT98`, STATUS, PULSE follower) against a serial mock — exactly how the K10/V4
+  were first brought up. Flip to `1` on the bench to enable the LCD + keyboard.
+- **Board power-on:** `GPIO10` (`PIN_POWERON`) must be driven **HIGH** or the LCD,
+  keyboard, LoRa and SD are all unpowered. The sketch asserts it in `setup()` even
+  headless so LoRa can be enabled later.
+- **Display is TFT_eSPI (ST7789), pins compile-time — do NOT reuse the K10's
+  `User_Setup.h`.** That shared sketchbook file is pinned to the K10's ILI9341 map
+  (see the K10 note in `CLAUDE.md`); the T-Deck needs its own setup
+  (`ST7789_DRIVER`, `TFT_MOSI 41`, `TFT_SCLK 40`, `TFT_CS 12`, `TFT_DC 11`,
+  `TFT_BL 42`, 240×320). Select it with a build-time setup rather than editing the
+  K10 file, or the two boards fight over one pin map.
+- **Filesystem (TTDB):** reuse the V4 path — it's the same esp32-core default 4 MB
+  `spiffs` partition (@0x290000): `scripts/Upload-V4-FS.ps1 -Node tdeck_console
+  -Port COMx`. (16 MB flash; the default scheme wastes the top 12 MB — fine for a
+  ~1 KB TTDB. Switch to a 16 MB scheme later if the console needs more.)
+- **Pin map:** shared SPI bus `SCLK 40 / MOSI 41 / MISO 38` (LCD + LoRa + SD);
+  LCD `CS 12 / DC 11 / BL 42`; keyboard I²C `SDA 18 / SCL 8`; trackball `click 0,
+  up 3, down 15, left 1, right 2`; SX1262 `CS 9 / BUSY 13 / RST 17 / DIO1 45`; SD
+  `CS 39`. See `../hardware_specs.md §3`.
 
 ## LoRa (Phase 4)
 

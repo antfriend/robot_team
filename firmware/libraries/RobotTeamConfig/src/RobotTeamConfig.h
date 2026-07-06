@@ -26,4 +26,5 @@ enum RobotTeamNodeId : uint32_t {
   NODE_K10_1 = 0x00000100,
   NODE_K10_2 = 0x00000101,
   NODE_K10_3 = 0x00000102,
+  NODE_TDECK_1 = 0x00000200,  // LilyGo T-Deck handheld console / field operator
 };

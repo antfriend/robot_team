@@ -3,12 +3,16 @@
 Spec sheets for the ESP32 agent boards in the toot-toot network, plus the laptop
 orchestrator. Compiled for Arduino / PlatformIO development under the Locus framework.
 
-Two board roles:
+Three board roles:
 
 - **UNIHIKER K10** — *perception + UI node.* Color screen, camera, mics,
   accelerometer, environmental sensors. No LoRa. Rich `@PERCEPT` capture endpoint.
 - **Heltec WiFi LoRa 32 V4** — *comms / mesh node.* SX1262 LoRa + WiFi + BLE,
   small mono OLED. The long-range spine of the network.
+- **LilyGo T-Deck** — *handheld console / field operator.* Color screen +
+  BlackBerry keyboard + trackball + SX1262 LoRa + speaker. A mobile mini-orchestrator
+  that injects CMD toots and shows the fleet — the only node pairing a rich
+  screen+keyboard with LoRa.
 
 ---
 
@@ -138,7 +142,71 @@ if you want a proven transport layer under the toot-toot protocol.
 
 ---
 
-## 3. Laptop orchestrator
+## 3. LilyGo T-Deck
+
+Handheld ESP32-S3 with a keyboard, color screen, trackball, LoRa, and speaker —
+the fleet's operator console. (Specs for the standard T-Deck; the **T-Deck Plus**
+adds GPS, a bigger battery, and a vibration motor but keeps the same core pin map.)
+
+| Spec | Value |
+|---|---|
+| MCU | ESP32-S3FN16R8 (Xtensa LX7 dual-core, up to 240 MHz) |
+| PSRAM | 8 MB |
+| Flash | 16 MB external |
+| Wi-Fi | 2.4 GHz 802.11 b/g/n |
+| Bluetooth | BLE 5.0 |
+| LoRa | Semtech **SX1262** (shared SPI bus) |
+| LoRa band | module-dependent (433 / 868 / 915 MHz variants) |
+| Display | 2.8" **ST7789 IPS LCD, 320×240**, SPI |
+| Input | **BlackBerry Q10 keyboard** (own MCU, I²C `0x55`) + trackball (5-way) |
+| Audio out | I²S amp (MAX98357A) + speaker |
+| Audio in | I²S digital microphone |
+| Storage | MicroSD (shared SPI) |
+| Ports | USB Type-C, JST battery, expansion header, Grove |
+| Power | USB-C / Li-ion; **`GPIO10` gates the peripheral rail (drive HIGH)** |
+| Programming | Arduino (ESP32-S3), ESP-IDF, MicroPython |
+
+### Key GPIO map (T-Deck)
+
+| Function | GPIO | | Function | GPIO |
+|---|---|---|---|---|
+| **Board power-on** (rail enable) | **10** | | Keyboard I²C SDA | 18 |
+| Shared SPI SCLK (LCD/LoRa/SD) | 40 | | Keyboard I²C SCL | 8 |
+| Shared SPI MOSI | 41 | | Trackball click (also BOOT) | 0 |
+| Shared SPI MISO | 38 | | Trackball up / down | 3 / 15 |
+| LCD CS | 12 | | Trackball left / right | 1 / 2 |
+| LCD DC | 11 | | LoRa (SX1262) NSS/CS | 9 |
+| LCD backlight | 42 | | LoRa BUSY | 13 |
+| SD CS | 39 | | LoRa RST | 17 |
+| I²S BCLK / WS / DOUT | 7 / 5 / 6 | | LoRa DIO1 | 45 |
+
+> **`GPIO10` must be driven HIGH first** — the keyboard, LCD, LoRa and SD are all
+> unpowered until then. This is the T-Deck's #1 bring-up gotcha.
+>
+> **The keyboard has its own microcontroller.** The host doesn't scan a matrix; it
+> reads one byte (ASCII of the last pressed key) from I²C address `0x55`. A read of
+> `0` means no key. The keyboard MCU must be flashed with its firmware (ships
+> pre-flashed on retail units).
+>
+> **The display is an ST7789, not the K10's ILI9341** — and TFT_eSPI's pin map is
+> compile-time in a single sketchbook `User_Setup.h`. Give the T-Deck its own
+> setup (`ST7789_DRIVER`, MOSI 41 / SCLK 40 / CS 12 / DC 11 / BL 42, 240×320);
+> don't reuse the K10's file or the two boards clash (see `firmware/README.md`).
+
+### Role in the network
+The operator's handheld — a mobile mini-orchestrator. The keyboard injects CMD
+toots (`ping` / `get-status` / `beep` / …) and the screen renders a fleet view
+(who answered, temp, warm/synced flags, band phase). It reaches the mesh over
+ESP-NOW in range, and — uniquely for a screen+keyboard node — can join the LoRa
+spine directly via its SX1262, so it can drive the swarm off-grid without the
+laptop. Also a natural pitched **band instrument** (I²S speaker + keyboard).
+
+### Official resources
+- Product / schematic / pinout: `https://github.com/Xinyuan-LilyGO/T-Deck`
+
+---
+
+## 4. Laptop orchestrator
 
 Not a fixed spec — but for the toot-toot network design, the relevant interfaces:
 
@@ -165,21 +233,22 @@ Suggested topology for Locus:
 
 ---
 
-## 4. Quick comparison
+## 5. Quick comparison
 
-| | UNIHIKER K10 | Heltec WiFi LoRa 32 V4 |
-|---|---|---|
-| MCU | ESP32-S3 (LX7) | ESP32-S3R2 (LX7) |
-| PSRAM / Flash | 8 MB / 16 MB | 2 MB / 16 MB |
-| LoRa | ✗ | ✓ SX1262, 28 dBm |
-| Wi-Fi / BLE | ✓ / ✓ | ✓ / ✓ |
-| Display | 240×320 color LCD | 128×64 mono OLED |
-| Camera / mics | 2 MP + 2 mic | ✗ |
-| Onboard sensors | temp, humidity, light, accel | ✗ |
-| Free fast GPIO | limited (I²C expander) | yes (40-pin native) |
-| Battery / solar | battery port | battery + solar + GNSS |
-| Native USB serial | yes | yes (no UART bridge chip) |
-| Best role | perception + UI endpoint | long-range mesh node / gateway |
+| | UNIHIKER K10 | Heltec WiFi LoRa 32 V4 | LilyGo T-Deck |
+|---|---|---|---|
+| MCU | ESP32-S3 (LX7) | ESP32-S3R2 (LX7) | ESP32-S3 (LX7) |
+| PSRAM / Flash | 8 MB / 16 MB | 2 MB / 16 MB | 8 MB / 16 MB |
+| LoRa | ✗ | ✓ SX1262, 28 dBm | ✓ SX1262 |
+| Wi-Fi / BLE | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
+| Display | 240×320 color LCD | 128×64 mono OLED | 320×240 color LCD |
+| Input | 2 buttons | 2 buttons | keyboard + trackball |
+| Camera / mics | 2 MP + 2 mic | ✗ | 1 mic |
+| Onboard sensors | temp, humidity, light, accel | ✗ | ✗ |
+| Free fast GPIO | limited (I²C expander) | yes (40-pin native) | limited (shared SPI + I²C kbd) |
+| Battery / solar | battery port | battery + solar + GNSS | battery (Plus adds GPS) |
+| Native USB serial | yes | yes (no UART bridge chip) | yes |
+| Best role | perception + UI endpoint | long-range mesh node / gateway | handheld operator console |
 
 ---
 

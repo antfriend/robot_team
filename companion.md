@@ -42,15 +42,22 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**) |
+| **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). LCD (ST7789) + keyboard (I²C 0x55) + keyboard→CMD gated behind `USE_TDECK_HW` (default 0) — console UI is the next on-bench step. LoRa gated. |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
 
-> **Hardware on hand: one K10 + two Heltec V4 (V4-A bridge + a 2nd V4 for V4-B).**
-> K10 = FQBN `UNIHIKER:esp32:k10` (COM3); the V4s = FQBN `esp32:esp32:esp32s3` (V4-A
-> on COM6). All use the ESP32-S3 native USB, so all need the **`CDCOnBoot=cdc`** flag
-> (see build note). The 2nd V4 is the **V4-B relay** — ✅ on-device verified as the 3rd
-> mesh node + Dream-Cycle participant (flashed COM9; sync/reconcile/push, §6). V4-C unbuilt.
+> **Hardware on hand: one K10 + two Heltec V4 (V4-A bridge + a 2nd V4 for V4-B) + one
+> LilyGo T-Deck.** K10 = FQBN `UNIHIKER:esp32:k10` (COM3); the V4s + the T-Deck = FQBN
+> `esp32:esp32:esp32s3` (V4-A on COM6). All use the ESP32-S3 native USB, so all need the
+> **`CDCOnBoot=cdc`** flag (see build note). The 2nd V4 is the **V4-B relay** — ✅
+> on-device verified as the 3rd mesh node + Dream-Cycle participant (flashed COM9;
+> sync/reconcile/push, §6). The **T-Deck** is the handheld console (`firmware/tdeck_console`,
+> node id `0x200`) — ✅ network floor on-device verified (COM10: byte-exact pull + HMAC
+> reject); its LCD + keyboard are gated behind `USE_TDECK_HW`, the next on-bench step.
+> **T-Deck flashing needs manual bootloader entry** (native-USB auto-reset is flaky): hold
+> the trackball-click (GPIO0/BOOT) + tap RST to enter download mode (port re-enumerates,
+> e.g. COM11→COM10), then tap RST *without* the trackball to boot the app. V4-C unbuilt.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -362,7 +369,30 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (backlight is lib-driven via `eLCD_BLK`, so the screen still renders). NOT a WiFi power-save
   issue (that red herring's `WIFI_PS_NONE` was kept anyway — good for ESP-NOW latency).
   Documented in CLAUDE.md + memory [[k10-gpio45-speaker-vs-tft-bl]].
-- **Next action — pick one:** (a) **More tunes / parts** — kLeadNotes is a one-table swap
+- **T-Deck console added ✅ network floor on-device verified (2026-07-06, COM10).** A LilyGo
+  T-Deck joins the fleet as **T-DECK-1** (`firmware/tdeck_console`, node id `0x200`, map
+  `@LAT10LON0`) — the handheld **operator console**: keyboard injects CMD toots, 320×240 screen
+  shows the fleet, so the swarm can be driven without the laptop. Built from the V4-B
+  participant pattern; the network floor is **verified on real hardware**: boots from TTDB,
+  `companion.py pull --node tdeck_1` reassembled a **byte-exact 1351 B (sha `fd95360b…`)** and
+  `negchecks.py` gave **wrong-key/tampered → 0 frames** (HMAC reject), served-replay by design
+  (radio-only dedup). It's a full Dream-Cycle participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`,
+  belief `TTDB_PUT`+`@LAT98` store-and-attest, STATUS, PULSE follower), so `sync`/`reconcile`/
+  `push`/`monitor`/`band` should work over the air once it's on the mesh with the bridge.
+  companion.py node map + `RobotTeamConfig` updated. **Flashing gotchas hit + recorded:** the
+  T-Deck's native-USB auto-reset is flaky — flashing needed a **manual bootloader entry** (hold
+  the trackball-click = GPIO0/BOOT, tap RST) which re-enumerates the port (COM11→COM10), and
+  after flashing it needed a **clean RST tap** (not touching the trackball) to leave download
+  mode and boot the app; asserting DTR+RTS together drops it back into the bootloader. The LCD
+  (ST7789, **its own** TFT_eSPI setup — must NOT reuse the K10's `User_Setup.h`) + keyboard (I²C
+  `0x55`) + the keyboard→CMD operator loop are gated behind `USE_TDECK_HW` (default 0); `GPIO10`
+  gates the peripheral rail. Carries an SX1262 (LoRa-spine-capable, `USE_LORA`). FS via
+  `scripts/Upload-V4-FS.ps1 -Node tdeck_console`.
+- **Next action — pick one:** (a) **Bring up the T-Deck console UI** — flip `USE_TDECK_HW 1`,
+  give the T-Deck its own TFT_eSPI ST7789 setup, and verify the screen fleet-view + keyboard→CMD
+  inject on the bench (then it can drive the fleet over ESP-NOW via the bridge). (b) **T-Deck on
+  the live mesh** — power it alongside V4-A + K10 and confirm bridged `pull`/`sync`/`band --node
+  tdeck_1` over the air. (c) **More tunes / parts** — kLeadNotes is a one-table swap
   (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
   user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
   + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot
@@ -463,6 +493,23 @@ bridge. Reflashed 2026-06-20 to radio-only dedup (see `@LAT90LON0`) and re-verif
 with `negchecks.py` — now consistent with the V4-A. Self-writes its TTDB at runtime:
 `@LAT99` time-sync logs (`sync`), and on a pushed belief adopts `/belief.md` and
 appends a `BELIEF-ADOPTED` record in its `@LAT98` lane (`push`, `@LAT90LON30`).
+
+---
+
+@LAT10LON0 | created:1782259200 | updated:1782259200 | relates:commands@LAT0LON10,connected_over@LAT0LON10,knows@LAT0LON0
+
+**T-DECK-1 console** (LilyGo T-Deck, roaming handheld operator) — ✅ network floor
+on-device verified 2026-07-06 (COM10). FQBN `esp32:esp32:esp32s3:CDCOnBoot=cdc`, node
+id `0x200`, sketch `firmware/tdeck_console`. A mobile mini-orchestrator: a BlackBerry
+keyboard injects CMD toots and a 320×240 color screen renders the fleet view, so an
+operator drives the swarm without the laptop. Full ESP-NOW Dream-Cycle participant —
+verified: **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks`
+wrong-key/tampered → 0); `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`
+store-and-attest, STATUS, PULSE follower built in (over-air pending mesh power-up). The
+LCD (ST7789) + keyboard (I²C `0x55`) + keyboard→CMD are gated behind `USE_TDECK_HW` for
+on-bench bring-up (next step). Carries an SX1262, so it can join the LoRa spine directly
+(`USE_LORA`) — the only screen+keyboard node that reaches long-haul. `GPIO10` gates the
+peripheral rail (drive HIGH first); native-USB flashing needs manual BOOT/RST (see §6).
 
 ---
 

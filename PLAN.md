@@ -259,6 +259,20 @@ LoRa with correct TTL and no duplicates.
 **Done when:** a CMD toot from the laptop reaches cluster C and telemetry
 returns end-to-end.
 
+> **Handheld console added ✅ network floor on-device verified (2026-07-06): T-DECK-1.**
+> A LilyGo T-Deck joins as a **portable operator console** — a mobile mini-orchestrator
+> whose keyboard injects CMD toots and whose 320×240 screen shows the fleet, so the swarm
+> is drivable without the laptop. `firmware/tdeck_console` (node id `0x200`) is built from
+> the V4-B participant pattern; **verified on hardware** (COM10): boots from TTDB,
+> `companion.py pull --node tdeck_1` reassembled a byte-exact 1351 B (sha `fd95360b…`) and
+> `negchecks.py` rejected wrong-key/tampered toots (HMAC → 0 frames). Full Dream-Cycle
+> participant (pull/HMAC, sync+`@LAT99`, belief+`@LAT98`, STATUS, PULSE follower);
+> `companion.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). The LCD (ST7789)
+> + keyboard (I²C `0x55`) are gated behind `USE_TDECK_HW` for on-bench bring-up (next
+> step). It also carries an SX1262 (LoRa-spine-capable, `USE_LORA`). **Flashing note:**
+> native-USB auto-reset is flaky — manual BOOT/RST bootloader entry required (see
+> `companion.md §6`). **Next:** enable the console UI (keyboard→CMD, fleet view).
+
 ---
 
 ## Phase 6 — Channel convergence & Dream Cycle
