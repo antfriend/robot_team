@@ -12,7 +12,10 @@
 namespace pulse {
 
 #ifndef PULSE_DEFAULT_BEAT_MS
-#define PULSE_DEFAULT_BEAT_MS 1000      // ~1 Hz heartbeat (60 BPM); the tempo
+#define PULSE_DEFAULT_BEAT_MS 500       // 120 BPM (500 ms/beat); the band tempo.
+// NOTE: this is the ONE place the tempo lives. selfAppoint() (Pulse.cpp) reads it, and a
+// library .cpp is its own translation unit — a `#define` in a sketch does NOT reach it, so
+// per-sketch overrides of the tempo do nothing. Change it here (and reflash the conductor).
 #endif
 #ifndef PULSE_DEFAULT_METER
 #define PULSE_DEFAULT_METER 4           // beats per bar

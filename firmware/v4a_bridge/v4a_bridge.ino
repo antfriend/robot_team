@@ -22,7 +22,7 @@
 #include <TootEspNow.h>
 #include <TTDB.h>
 #include <TtdbShare.h>
-#include <Pulse.h>
+#include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <RobotTeamConfig.h>
 

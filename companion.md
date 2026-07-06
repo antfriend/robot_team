@@ -420,9 +420,26 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (Caveat: `cmd` over USB resets the K10 on port-open, so the clean no-reset control is the
   T-Deck over the air — `t`→K10 then `g`/`x`.) Firmware-only flash; the TTDB on the `model`
   partition persists.
-- **Next action — pick one:** (a) **Confirm T-Deck→K10 song control over the air** — `t`→K10,
-  `g`/`x` start/stop the song with no reboot (the real handheld use case). (b) **More tunes /
-  parts** — kLeadNotes is a one-table swap
+- **Two-part Ode to Joy ✅ built + flashed (2026-07-06).** The K10 plays the **lead** (part 1,
+  `kLeadNotes`) and the **T-Deck plays a harmony a third below** (part 2, `kHarmNotes` — C–C–D–E–
+  E–D–C–B–A–A–B–C…) on its I²S speaker, locked to the shared pulse step grid so the voices align.
+  Tempo is **120 BPM** (`PULSE_DEFAULT_BEAT_MS 500`). The T-Deck defaults its target to **K10**
+  and **`g`** starts *both* voices (local harmony + `CMD_PLAY` to the K10), **`x`** stops both;
+  screen shows `song: PLAYING part 2`. Both boot silent.
+- **Tempo-change gotcha found + fixed (2026-07-06) — set the tempo in `Pulse.h`, not a sketch
+  `#define`.** `PULSE_DEFAULT_BEAT_MS` in a sketch does NOT reach `Engine::selfAppoint()`
+  (`Pulse.cpp` is a separate TU with no `-D`), so earlier "75 BPM" reflashes silently stayed at
+  60. Fixed by setting the default in `Pulse.h` (now **500 ms = 120 BPM**) and removing the dead
+  per-sketch defines. **Also:** the `era` latch keeps the old tempo across a reflash (a running
+  node's higher-era chart wins), so changing tempo means **reflash the conductor + cold-start the
+  fleet**. Verified: `band --port COM3 --nodes k10_1` → K10 conducts `era 1, bpm 120`. See
+  [[pulse-tempo-lives-in-pulse-cpp]]. **V4-A/V4-B/T-Deck still run pre-fix firmware** (60 BPM if
+  they conduct) — for the 120 duet keep the V4s off (K10 conducts); reflash them to bring the
+  whole band to 120.
+- **Next action — pick one:** (a) **Confirm the 120 duet sounds right** (reset the T-Deck so it
+  drops its stale 60 BPM chart, keep V4s off, press `g`). (b) **Reflash V4-A/V4-B/T-Deck** to the
+  Pulse.h tempo so the whole band is 120 regardless of conductor. (c) **More tunes / parts** —
+  `kLeadNotes`/`kHarmNotes` are one-table swaps
   (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
   user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
   + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot

@@ -28,7 +28,8 @@
 #include <TootEspNow.h>
 #include <TTDB.h>
 #include <TtdbShare.h>
-#include <Pulse.h>
+#include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
+#include <Score.h>
 #include <RobotTeamConfig.h>
 
 // Real T-Deck peripherals (ST7789 LCD + I2S speaker + I2C keyboard). Set to 0 to
@@ -84,13 +85,28 @@ static const char* kBeliefPath = "/belief.md";
 static const uint8_t kBroadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 
-// Which node the keyboard drives. Cycled with the 't' key. Default V4-B: unlike the
-// V4-A bridge (which only answers CMDs from the laptop over USB, not from the mesh),
-// V4-B answers a get-status over the air, so 's' shows a live reply on the screen.
-static const uint32_t kTargets[] = {NODE_V4B_RELAY, NODE_K10_1, NODE_V4A_BRIDGE};
+// Which node the keyboard drives. Cycled with the 't' key. Default K10: it plays the
+// Ode-to-Joy lead, so `g`/`x` on it (plus the T-Deck's own harmony) is the duet. Both
+// the K10 and V4-B answer a get-status over the air (the V4-A bridge does not — it only
+// answers CMDs from the laptop over USB).
+static const uint32_t kTargets[] = {NODE_K10_1, NODE_V4B_RELAY, NODE_V4A_BRIDGE};
 static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
 static int gTargetIdx = 0;
-static uint32_t gCmdTarget = NODE_V4B_RELAY;
+static uint32_t gCmdTarget = NODE_K10_1;
+
+// The T-Deck's own musical part (part 2): a harmony a diatonic third below the K10's
+// Ode-to-Joy lead, on the shared pulse step grid. Boots silent; `g`/`x` (or a received
+// CMD_PLAY/CMD_STOP) toggle it, so one `g` starts both voices at once.
+static bool gLocalPlay = false;
+static const uint32_t PULSE_HARM_TONE_MS = 180;   // staccato note (blocks; keep short)
+static const score::Note kHarmNotes[] = {
+  {0,  score::C4, 4}, {4,  score::C4, 4}, {8,  score::D4, 4}, {12, score::E4, 4},
+  {16, score::E4, 4}, {20, score::D4, 4}, {24, score::C4, 4}, {28, score::B3, 4},
+  {32, score::A3, 4}, {36, score::A3, 4}, {40, score::B3, 4}, {44, score::C4, 4},
+  {48, score::C4, 6}, {54, score::B3, 2}, {56, score::B3, 8},
+};
+static const score::Phrase kHarm = {
+    kHarmNotes, sizeof(kHarmNotes) / sizeof(kHarmNotes[0]), 64};
 
 // Friendly short name for a node id (for the screen).
 static const char* nodeName(uint32_t id) {
@@ -328,12 +344,18 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       break;
     case toot::CMD:
       if (toot::cmdTarget(t) == kNodeId) {
-        if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
-          uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
-          uint8_t slen = buildStatus(body);
-          emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
+        switch (toot::cmdOp(t)) {
+          case toot::CMD_GET_STATUS: {
+            uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
+            uint8_t slen = buildStatus(body);
+            emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
+            break;
+          }
+          case toot::CMD_PLAY: gLocalPlay = true;  break;   // start our harmony part
+          case toot::CMD_STOP: gLocalPlay = false; break;
+          default: break;                                   // ping / set-* (no-op here)
         }
-        accepted = true;             // ping / set-* (no-op here) / get-status all ACK
+        accepted = true;
       }
       break;
     case toot::PERCEPT: {
@@ -547,10 +569,12 @@ static void renderScreen() {
   else
     snprintf(l, sizeof(l), "(awaiting a reply...)");
   drawRow(90, ST77XX_YELLOW, l);
-  // Key legend (two rows).
-  drawRow(112, ST77XX_WHITE, "keys:");
-  drawRow(126, ST77XX_WHITE, "t=target s=status p=ping");
-  drawRow(140, ST77XX_WHITE, "b=beep g=play x=stop");
+  // Song (part 2) state.
+  snprintf(l, sizeof(l), "song: %s", gLocalPlay ? "PLAYING part 2" : "stopped");
+  drawRow(104, gLocalPlay ? ST77XX_GREEN : ST77XX_WHITE, l);
+  // Key legend.
+  drawRow(126, ST77XX_WHITE, "keys: t=target s=status");
+  drawRow(140, ST77XX_WHITE, "p=ping b=beep g=play x=stop");
   snprintf(l, sizeof(l), "up %lus  last key '%c'", (unsigned long)(millis() / 1000),
            gLastKey ? gLastKey : ' ');
   drawRow(160, ST77XX_CYAN, l);
@@ -662,8 +686,8 @@ void loop() {
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
-      case 'g': emitCmd(toot::CMD_PLAY, nullptr, 0); break;   // go / play the song
-      case 'x': emitCmd(toot::CMD_STOP, nullptr, 0); break;   // stop the song
+      case 'g': gLocalPlay = true;  emitCmd(toot::CMD_PLAY, nullptr, 0); break;  // play both
+      case 'x': gLocalPlay = false; emitCmd(toot::CMD_STOP, nullptr, 0); break;  // stop both
       case 's':
       default:  emitCmd(toot::CMD_GET_STATUS, nullptr, 0); break;
     }
@@ -683,6 +707,20 @@ void loop() {
                                       oc.downbeat_epoch, oc.beat_period_ms,
                                       oc.meter_beats, oc.flags);
       emit(toot::PULSE, body, blen, sendEspNow, nullptr);
+    }
+    // Part 2: the harmony line. On each new step, sound its note (if playing) on the I2S
+    // speaker — same shared clock as the K10 lead, so the two voices lock. toneI2S blocks
+    // ~PULSE_HARM_TONE_MS, which is the K10's deferred-tone discipline (fine in loop()).
+    uint16_t sip;
+    uint32_t sc;
+    if (gPulse.stepTick(pnow, kHarm.steps, sip, sc) && gLocalPlay) {
+      const score::Note* nt = score::noteAt(kHarm, sip);
+      if (nt && nt->freq != score::REST) {
+#if USE_TDECK_HW
+        toneI2S((float)nt->freq, PULSE_HARM_TONE_MS);
+#endif
+        Serial.printf("[harmony] step %2u/%u  %4uHz\n", sip, kHarm.steps, nt->freq);
+      }
     }
   }
 #endif
