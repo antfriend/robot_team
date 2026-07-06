@@ -84,9 +84,12 @@ CMD_CLEAR_LED = 2
 CMD_GET_STATUS = 3   # used by `monitor`; node replies a STATUS PERCEPT (no ACK)
 CMD_BEEP = 4
 CMD_SET_INTERVAL = 5
+CMD_PLAY = 6         # start the node's melody/part (K10 song); nodes boot with it off
+CMD_STOP = 7         # stop the node's melody/part
 # User-facing `cmd` ops only (GET_STATUS is internal to `monitor`).
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
-           "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL}
+           "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
+           "play": CMD_PLAY, "stop": CMD_STOP}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.

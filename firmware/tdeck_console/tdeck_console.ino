@@ -84,9 +84,25 @@ static const char* kBeliefPath = "/belief.md";
 static const uint8_t kBroadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 
-// The console's default CMD target (which node the keyboard drives). V4-A is the
-// bridge/head — a good default. On the bench this could cycle with a trackball.
-static uint32_t gCmdTarget = NODE_V4A_BRIDGE;
+// Which node the keyboard drives. Cycled with the 't' key. Default V4-B: unlike the
+// V4-A bridge (which only answers CMDs from the laptop over USB, not from the mesh),
+// V4-B answers a get-status over the air, so 's' shows a live reply on the screen.
+static const uint32_t kTargets[] = {NODE_V4B_RELAY, NODE_K10_1, NODE_V4A_BRIDGE};
+static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
+static int gTargetIdx = 0;
+static uint32_t gCmdTarget = NODE_V4B_RELAY;
+
+// Friendly short name for a node id (for the screen).
+static const char* nodeName(uint32_t id) {
+  switch (id) {
+    case NODE_V4A_BRIDGE: return "V4-A";
+    case NODE_V4B_RELAY:  return "V4-B";
+    case NODE_V4C_EDGE:   return "V4-C";
+    case NODE_K10_1:      return "K10";
+    case NODE_TDECK_1:    return "T-Deck";
+    default:              return "?";
+  }
+}
 
 Ttdb gDb;
 TtdbShare* gShare = nullptr;
@@ -520,20 +536,24 @@ static void renderScreen() {
   drawRow(34, ST77XX_WHITE, l);
   snprintf(l, sizeof(l), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(), gDb.recordCount());
   drawRow(48, ST77XX_GREEN, l);
-  snprintf(l, sizeof(l), "drive -> 0x%08X", (unsigned)gCmdTarget);
+  snprintf(l, sizeof(l), "drive -> %s (0x%X)", nodeName(gCmdTarget), (unsigned)gCmdTarget);
   drawRow(62, ST77XX_CYAN, l);
   snprintf(l, sizeof(l), "cmd %lu  rx %lu  reply %lu", (unsigned long)gCmdSent,
            (unsigned long)gEspRx, (unsigned long)gReplies);
   drawRow(76, ST77XX_GREEN, l);
   if (gLastReplySrc)
-    snprintf(l, sizeof(l), "last 0x%08X %.1fC", (unsigned)gLastReplySrc,
+    snprintf(l, sizeof(l), "reply %s  %.1fC", nodeName(gLastReplySrc),
              gLastReplyTemp / 100.0f);
   else
-    snprintf(l, sizeof(l), "keys: s=status p=ping b=beep");
+    snprintf(l, sizeof(l), "(awaiting a reply...)");
   drawRow(90, ST77XX_YELLOW, l);
-  snprintf(l, sizeof(l), "up %lus  key '%c'", (unsigned long)(millis() / 1000),
+  // Key legend (two rows).
+  drawRow(112, ST77XX_WHITE, "keys:");
+  drawRow(126, ST77XX_WHITE, "t=target s=status p=ping");
+  drawRow(140, ST77XX_WHITE, "b=beep g=play x=stop");
+  snprintf(l, sizeof(l), "up %lus  last key '%c'", (unsigned long)(millis() / 1000),
            gLastKey ? gLastKey : ' ');
-  drawRow(104, ST77XX_WHITE, l);
+  drawRow(160, ST77XX_CYAN, l);
 }
 #endif
 
@@ -625,16 +645,26 @@ void loop() {
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
 
 #if USE_TDECK_HW
-  // Console keyboard: a printable key injects a CMD at gCmdTarget (the operator
-  // function). 's' -> query STATUS (answer lands in the fleet view); 'p' -> ping;
-  // 'b' -> beep. Any other printable key defaults to a status query.
+  // Console keyboard — the operator function. Each key injects a CMD at gCmdTarget
+  // (no "enter"; every press sends immediately):
+  //   t = cycle target   s = get-status   p = ping   b = beep
+  //   g = play (start the target's song)  x = stop
+  // Any other key defaults to a status query. See the on-screen legend.
   char k = readKey();
   if (k) {
     gLastKey = k;
     switch (k) {
+      case 't':
+        gTargetIdx = (gTargetIdx + 1) % kNumTargets;
+        gCmdTarget = kTargets[gTargetIdx];
+        gScreenDirty = true;
+        break;
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
+      case 'g': emitCmd(toot::CMD_PLAY, nullptr, 0); break;   // go / play the song
+      case 'x': emitCmd(toot::CMD_STOP, nullptr, 0); break;   // stop the song
+      case 's':
       default:  emitCmd(toot::CMD_GET_STATUS, nullptr, 0); break;
     }
   }

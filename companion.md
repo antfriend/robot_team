@@ -401,10 +401,28 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `emitCmd` maps s=get-status / p=ping / b=beep at `gCmdTarget` (default V4-A). Libs:
   `arduino-cli lib install "Adafruit ST7735 and ST7789 Library"` (+GFX +BusIO); `ESP_I2S`
   ships with the esp32 core. See [[tdeck-flashing-manual-bootloader]].
-- **Next action — pick one:** (a) **T-Deck on the live mesh** — power it alongside V4-A + K10
-  and confirm bridged `pull`/`sync`/`band --node tdeck_1` over the air, and that the keyboard
-  actually drives the fleet (s/p/b → the target ACKs, STATUS reply lands in the T-Deck's fleet
-  view). (b) **More tunes / parts** — kLeadNotes is a one-table swap
+- **T-Deck live on the mesh ✅ + fleet-remote firmware (2026-07-06).** Verified over the air
+  through the V4-A bridge (COM6): **bridged pull byte-exact** (1351 B), **STATUS via bridge**
+  (all of v4a/v4b/tdeck report), and **`sync` id=5 adopted+ACKed by all three attempt 1** — the
+  T-Deck self-wrote its `@LAT99` record (pulled back, `has_record: yes`; skew −53 ms = honest
+  one-hop air delay, matches v4b −53). Keyboard **confirmed driving CMDs** (the `cmd` counter
+  ticks per press). Learned: the **V4-A bridge only forwards replies** (`TTDB_DATA`/`PERCEPT`/
+  `ACK`/`BELIEF`/`TIME_RESP`) up to USB, **not `HELLO`/`CMD`** ([v4a_bridge.ino:216](firmware/v4a_bridge/v4a_bridge.ino#L216)) — so a laptop sniff can't see raw T-Deck TX,
+  and a CMD aimed at the bridge gets no mesh reply (it answers CMDs only over USB). Reflashed
+  the T-Deck as a **proper fleet remote**: default target **V4-B** (answers over the air), **`t`**
+  cycles target (V4-B→K10→V4-A), **`s`**=get-status, **`p`**=ping, **`b`**=beep, **`g`**=play,
+  **`x`**=stop; screen shows the target name + a key legend + last reply. New `CmdOp`s
+  **`CMD_PLAY=6` / `CMD_STOP=7`** (Toot.h + `companion.py cmd --op play/stop`).
+- **K10 song start/stop ✅ flashed + verified (2026-07-06, COM3).** The K10 melody now **boots
+  silent** (`gPlayEnabled=false`) and only sounds between `CMD_PLAY` and `CMD_STOP` — the step
+  clock keeps running while stopped so it stays in band phase; only the audible/LED hit is muted.
+  `companion.py cmd --op play/stop --node k10_1 --port COM3` both **ACKed APPLIED attempt 1**.
+  (Caveat: `cmd` over USB resets the K10 on port-open, so the clean no-reset control is the
+  T-Deck over the air — `t`→K10 then `g`/`x`.) Firmware-only flash; the TTDB on the `model`
+  partition persists.
+- **Next action — pick one:** (a) **Confirm T-Deck→K10 song control over the air** — `t`→K10,
+  `g`/`x` start/stop the song with no reboot (the real handheld use case). (b) **More tunes /
+  parts** — kLeadNotes is a one-table swap
   (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
   user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
   + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot

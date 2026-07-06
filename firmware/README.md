@@ -92,6 +92,13 @@ the screen shows the fleet, so you can drive the swarm without the laptop.
   renders a fleet view on the 320×240 screen; set `USE_TDECK_HW 0` to build the network
   floor headless (byte-exact pull, HMAC reject, `TIME_SYNC`+`@LAT99`, belief
   `TTDB_PUT`+`@LAT98`, STATUS, PULSE) against a serial mock.
+- **Keyboard = fleet remote** (each key sends a CMD immediately, no "enter"):
+  **`t`** cycle target (V4-B → K10 → V4-A), **`s`** get-status, **`p`** ping, **`b`** beep,
+  **`g`** play, **`x`** stop. Default target is **V4-B** — the V4-A bridge only answers
+  CMDs from the laptop over USB, not from the mesh, so aiming keys at it gives no reply;
+  V4-B/K10 answer over the air (`s` → a `reply <node>` line appears on the screen).
+  `g`/`x` map to `CMD_PLAY` / `CMD_STOP` (Toot.h `CmdOp` 6/7) — with target = K10 they
+  start/stop the K10's song (the K10 boots silent).
 - **Display = Adafruit_ST7789, NOT TFT_eSPI.** Pins are passed at runtime
   (`SPI.begin(SCLK 40, MISO 38, MOSI 41, CS 12)` + `Adafruit_ST7789(&spi, CS 12, DC 11,
   RST -1)`), so it never touches the shared K10 `User_Setup.h`. `init(240,320)` +

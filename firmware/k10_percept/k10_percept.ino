@@ -128,6 +128,10 @@ static uint32_t gHitDueMs = 0;
 static int      gHitFreq = 0;
 static uint32_t gHitColor = 0;
 static uint32_t gLedClearMs = 0;     // 0 = LED not currently flashing
+// The melody boots SILENT and only plays between CMD_PLAY and CMD_STOP (the T-Deck's
+// g/x keys, or `companion.py cmd --op play/stop`). The step clock keeps running while
+// stopped so the K10 stays in band phase; only the audible/LED hit is muted.
+static bool     gPlayEnabled = false;
 // Conductor fast-lock (§4.2): only beacon when a *new* neighbor appears, not every HELLO.
 static uint32_t gNeighbors[8] = {0};
 static int      gNeighborCount = 0;
@@ -509,6 +513,13 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               gAgent.setInterval(ms);
             }
             break;
+          case toot::CMD_PLAY:                    // start the song (boots silent)
+            gPlayEnabled = true;
+            break;
+          case toot::CMD_STOP:                    // stop the song
+            gPlayEnabled = false;
+            gHitPending = false;                  // drop any already-scheduled note
+            break;
           default:  // CMD_PING / unknown: nothing to do but ACK
             break;
         }
@@ -744,7 +755,7 @@ void loop() {
     uint32_t sc;
     if (gPulse.stepTick(pnow, kLead.steps, sip, sc)) {
       const score::Note* nt = score::noteAt(kLead, sip);
-      if (nt && nt->freq != score::REST) {
+      if (gPlayEnabled && nt && nt->freq != score::REST) {  // muted until CMD_PLAY
         gHitFreq = nt->freq;
         gHitColor = pitchColor(nt->freq);
         gHitDueMs = pnow + pulseHumanize();

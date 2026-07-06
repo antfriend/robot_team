@@ -52,9 +52,3 @@ laptop.
 
 Fleet view. Where collected STATUS / PERCEPT replies land for on-screen display:
 which node answered, its cursor, temperature, warm/synced flags, and band phase.
-
----
-
-@LAT99LON0 | created:1783367393 | updated:1783367393 | relates:logs@LAT0LON0
-
-**SYNC** id:5 t_ms:1783367393574 recv_ms:658665 offset_ms:1783366734909

@@ -81,6 +81,8 @@ enum CmdOp : uint8_t {
   CMD_GET_STATUS = 3,    // no args — node replies a STATUS PERCEPT (not want_ack)
   CMD_BEEP = 4,          // args: freq_hz u16 | dur_ms u16 (both LE; 0 args = default)
   CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
+  CMD_PLAY = 6,          // no args — start the node's melody/part (K10 song); boots off
+  CMD_STOP = 7,          // no args — stop the node's melody/part
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a

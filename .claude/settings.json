@@ -3,7 +3,8 @@
     "allow": [
       "Bash('/c/Program Files/Arduino CLI/arduino-cli.exe' compile --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc --libraries firmware/libraries firmware/tdeck_console)",
       "Bash('/c/Program Files/Arduino CLI/arduino-cli.exe' compile --upload -p COM11 --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc --libraries firmware/libraries firmware/tdeck_console)",
-      "Bash(python orchestrator/companion.py pull --port COM10 --node tdeck_1 --out master/tdeck.md)"
+      "Bash(python orchestrator/companion.py pull --port COM10 --node tdeck_1 --out master/tdeck.md)",
+      "Bash(python orchestrator/companion.py pull --port COM6 --node tdeck_1 --out master/tdeck_bridged.md)"
     ]
   }
 }
