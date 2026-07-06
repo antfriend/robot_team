@@ -42,7 +42,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**) |
-| **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). LCD (ST7789) + keyboard (I²C 0x55) + keyboard→CMD gated behind `USE_TDECK_HW` (default 0) — console UI is the next on-bench step. LoRa gated. |
+| **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
@@ -388,11 +388,23 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `0x55`) + the keyboard→CMD operator loop are gated behind `USE_TDECK_HW` (default 0); `GPIO10`
   gates the peripheral rail. Carries an SX1262 (LoRa-spine-capable, `USE_LORA`). FS via
   `scripts/Upload-V4-FS.ps1 -Node tdeck_console`.
-- **Next action — pick one:** (a) **Bring up the T-Deck console UI** — flip `USE_TDECK_HW 1`,
-  give the T-Deck its own TFT_eSPI ST7789 setup, and verify the screen fleet-view + keyboard→CMD
-  inject on the bench (then it can drive the fleet over ESP-NOW via the bridge). (b) **T-Deck on
-  the live mesh** — power it alongside V4-A + K10 and confirm bridged `pull`/`sync`/`band --node
-  tdeck_1` over the air. (c) **More tunes / parts** — kLeadNotes is a one-table swap
+- **T-Deck console UI ✅ on-device verified (2026-07-06, `USE_TDECK_HW 1`).** On boot it
+  sounds a **"toot toot"** (two rising tones G3→C4) and renders a **320×240 fleet view**
+  (id/channel/sync, TTDB size, drive-target, live cmd/rx/reply counters). Both confirmed by
+  the user on hardware. Audio: the speaker is an **I²S MAX98357A amp** (no analog/PWM path
+  like the K10 `Music`), so `toneI2S()` synthesizes a 16-bit sine over `ESP_I2S` (BCLK 7 / WS
+  5 / DOUT 6, 16 kHz stereo L=R). Display: **Adafruit_ST7789 with runtime pins** (SPI SCLK 40
+  / MISO 38 / MOSI 41 / CS 12, DC 11, RST -1, BL 42) — deliberately NOT TFT_eSPI, so it never
+  touches the K10's shared `User_Setup.h`; `init(240,320)` + **`setRotation(3)`** is
+  right-side-up (rotation 1 was upside-down on this panel). Flicker-free draw (static title
+  once, rows overwritten in place — the K10 canvas-blink lesson). Keyboard (I²C `0x55`) →
+  `emitCmd` maps s=get-status / p=ping / b=beep at `gCmdTarget` (default V4-A). Libs:
+  `arduino-cli lib install "Adafruit ST7735 and ST7789 Library"` (+GFX +BusIO); `ESP_I2S`
+  ships with the esp32 core. See [[tdeck-flashing-manual-bootloader]].
+- **Next action — pick one:** (a) **T-Deck on the live mesh** — power it alongside V4-A + K10
+  and confirm bridged `pull`/`sync`/`band --node tdeck_1` over the air, and that the keyboard
+  actually drives the fleet (s/p/b → the target ACKs, STATUS reply lands in the T-Deck's fleet
+  view). (b) **More tunes / parts** — kLeadNotes is a one-table swap
   (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
   user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
   + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot

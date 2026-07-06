@@ -88,11 +88,20 @@ I²S speaker — the fleet's **operator console**: the keyboard injects CMD toot
 the screen shows the fleet, so you can drive the swarm without the laptop.
 
 - **FQBN** `esp32:esp32:esp32s3:CDCOnBoot=cdc` (native USB, same as the V4/K10).
-- **Network floor is verifiable now, headless.** The sketch ships with
-  `#define USE_TDECK_HW 0`, so it builds and runs the full toot stack (byte-exact
-  pull, HMAC reject, `TIME_SYNC` adopt + `@LAT99`, belief `TTDB_PUT` adopt +
-  `@LAT98`, STATUS, PULSE follower) against a serial mock — exactly how the K10/V4
-  were first brought up. Flip to `1` on the bench to enable the LCD + keyboard.
+- **Console UI is live (`USE_TDECK_HW 1`).** On boot it sounds a **"toot toot"** and
+  renders a fleet view on the 320×240 screen; set `USE_TDECK_HW 0` to build the network
+  floor headless (byte-exact pull, HMAC reject, `TIME_SYNC`+`@LAT99`, belief
+  `TTDB_PUT`+`@LAT98`, STATUS, PULSE) against a serial mock.
+- **Display = Adafruit_ST7789, NOT TFT_eSPI.** Pins are passed at runtime
+  (`SPI.begin(SCLK 40, MISO 38, MOSI 41, CS 12)` + `Adafruit_ST7789(&spi, CS 12, DC 11,
+  RST -1)`), so it never touches the shared K10 `User_Setup.h`. `init(240,320)` +
+  **`setRotation(3)`** = 320×240 landscape right-side-up (rotation 1 is upside-down on
+  this panel). Backlight on `GPIO42` (HIGH). Install:
+  `arduino-cli lib install "Adafruit ST7735 and ST7789 Library"` (pulls GFX + BusIO).
+- **Audio = I²S sine on the MAX98357A amp** (BCLK 7 / WS 5 / DOUT 6) — no analog/PWM
+  path like the K10's `Music`. `ESP_I2S` (bundled in the esp32 core) at 16 kHz, 16-bit
+  stereo (L=R); `toneI2S()` synthesizes the boot toot. Blocking, so it runs from
+  `setup()`/`loop()` only.
 - **Board power-on:** `GPIO10` (`PIN_POWERON`) must be driven **HIGH** or the LCD,
   keyboard, LoRa and SD are all unpowered. The sketch asserts it in `setup()` even
   headless so LoRa can be enabled later.

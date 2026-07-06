@@ -31,12 +31,12 @@
 #include <Pulse.h>
 #include <RobotTeamConfig.h>
 
-// Real T-Deck peripherals (ST7789 LCD + I2C keyboard). Set to 0 to build/verify the
-// network floor headless (byte-exact pull, HMAC reject, sync/belief) with a serial
-// mock — exactly how the K10/V4 were first brought up (USE_K10_HW). Flip to 1 on the
-// bench once TFT_eSPI is configured for the T-Deck pins (see the User_Setup note
-// below) and Wire is wired to the keyboard. The floor works either way.
-#define USE_TDECK_HW 0
+// Real T-Deck peripherals (ST7789 LCD + I2S speaker + I2C keyboard). Set to 0 to
+// build/verify the network floor headless (byte-exact pull, HMAC reject, sync/belief)
+// with a serial mock — exactly how the K10/V4 were first brought up (USE_K10_HW). At 1
+// the console drives the color screen, sounds a "toot toot" on boot, and reads the
+// keyboard. The floor works either way.
+#define USE_TDECK_HW 1
 #define USE_LORA 0        // Phase 4: the T-Deck's SX1262 can join the LoRa spine.
 #define USE_PULSE 1       // follow the band clock so `band`/`monitor` see this node.
 
@@ -55,19 +55,27 @@ static const int PIN_KBD_SCL   = 8;
 static const uint8_t KBD_ADDR  = 0x55;  // reads one byte = ASCII of the pressed key
 static const int PIN_TB_CLICK  = 0;   // trackball click (also BOOT); UP3 DN15 L1 R2
 static const int PIN_LORA_CS   = 9;   // SX1262 (shared SPI): BUSY13 RST17 DIO1 45
+static const int PIN_I2S_BCLK  = 7;   // MAX98357A speaker amp (I2S)
+static const int PIN_I2S_WS    = 5;   // word select / LRCLK
+static const int PIN_I2S_DOUT  = 6;   // data to amp
 
 #if USE_TDECK_HW
 #include <Wire.h>
 #include <SPI.h>
-// The T-Deck LCD is an ST7789 driven by TFT_eSPI, whose pin map is COMPILE-TIME in
-// the sketchbook User_Setup.h. IMPORTANT: that same file is currently pinned to the
-// K10's ILI9341 pins (CLAUDE.md) — the two boards cannot share one User_Setup. Give
-// the T-Deck its own TFT_eSPI setup selected at build time (a -DUSER_SETUP_ID / a
-// setup header with ST7789_DRIVER, TFT_MOSI 41, TFT_SCLK 40, TFT_CS 12, TFT_DC 11,
-// TFT_BL 42, 240x320 rotated) rather than editing the shared K10 file. This block is
-// the on-bench iteration surface; the floor below is what we verify first.
-#include <TFT_eSPI.h>
-static TFT_eSPI gTft;
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include <ESP_I2S.h>
+// The T-Deck LCD is an ST7789 on the shared SPI bus. We drive it with Adafruit_ST7789
+// (pins passed at RUNTIME in the constructor / SPI.begin) rather than TFT_eSPI, whose
+// pin map is compile-time in a single sketchbook User_Setup.h — which is already pinned
+// to the K10's ILI9341 map (CLAUDE.md). Runtime pins sidestep that clash entirely, so
+// the K10 and T-Deck never fight over one setup file.
+static SPIClass gDispSpi(HSPI);
+static Adafruit_ST7789 gTft(&gDispSpi, PIN_TFT_CS, PIN_TFT_DC, /*rst=*/-1);
+// Speaker is a MAX98357A I2S amp (no analog/PWM path like the K10's Music lib), so a
+// tone is synthesized as 16-bit I2S samples (see toneI2S).
+static I2SClass gI2S;
+static const uint32_t I2S_RATE = 16000;
 #endif
 
 static const uint32_t kNodeId = NODE_TDECK_1;
@@ -444,8 +452,36 @@ static void appendBeliefRecord() {
     Serial.println("[belief] appendRecord FAILED");
 }
 
-// --- console UI (gated) -----------------------------------------------------
+// --- console UI + audio (gated) ---------------------------------------------
 #if USE_TDECK_HW
+// Synthesize a tone on the I2S speaker: a `ms`-long sine at `freq`, written as 16-bit
+// stereo samples (L=R; the MAX98357A is mono but takes stereo frames). Blocks ~ms, so
+// it runs from setup()/loop() only — never a callback.
+static void toneI2S(float freq, uint32_t ms) {
+  const int N = 256;                          // samples per write chunk
+  int16_t buf[N * 2];                         // interleaved L,R
+  uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
+  float phase = 0.0f, inc = 2.0f * (float)M_PI * freq / (float)I2S_RATE;
+  uint32_t done = 0;
+  while (done < total) {
+    uint32_t n = total - done; if (n > (uint32_t)N) n = N;
+    for (uint32_t i = 0; i < n; ++i) {
+      int16_t s = (int16_t)(9000.0f * sinf(phase));
+      phase += inc; if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
+      buf[2 * i] = s; buf[2 * i + 1] = s;
+    }
+    gI2S.write((uint8_t*)buf, n * 2 * sizeof(int16_t));
+    done += n;
+  }
+}
+
+// The Toot-Toot signature on boot — two rising toots (G3 then C4), mirroring the K10.
+static void playStartupToot() {
+  toneI2S(196.0f, 220);   // toot  (G3)
+  delay(40);
+  toneI2S(262.0f, 380);   // toot  (C4)
+}
+
 // Read one keycode from the BlackBerry keyboard (its own MCU answers on I2C 0x55; a
 // read of 0 means no key). Returns 0 if nothing pending.
 static char readKey() {
@@ -454,36 +490,50 @@ static char readKey() {
   return (c > 0) ? (char)c : 0;
 }
 
-// Draw the fleet view: who we drive, counters, last reply, band phase. Kept coarse —
-// full per-node tables are the on-bench iteration surface.
-static void renderScreen() {
-  gTft.fillScreen(TFT_BLACK);
-  gTft.setTextColor(TFT_GREEN, TFT_BLACK);
-  gTft.setTextSize(2);
-  gTft.setCursor(4, 4);
-  gTft.print("T-DECK CONSOLE");
+// Draw one padded row (opaque background) so a re-print overwrites in place — no
+// full-screen clear per cycle (the K10 canvas-blink lesson). The fixed width erases
+// any old trailing characters.
+static void drawRow(int y, uint16_t color, const char* s) {
+  char pad[34];
+  snprintf(pad, sizeof(pad), "%-32s", s);
+  gTft.setTextColor(color, ST77XX_BLACK);
   gTft.setTextSize(1);
+  gTft.setCursor(4, y);
+  gTft.print(pad);
+}
+
+// Fleet view: identity, TTDB, who we drive, live counters, last reply. The static
+// title is painted once; the dynamic rows overwrite in place each update.
+static void renderScreen() {
+  static bool inited = false;
+  if (!inited) {
+    inited = true;
+    gTft.fillScreen(ST77XX_BLACK);
+    gTft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+    gTft.setTextSize(2);
+    gTft.setCursor(4, 4);
+    gTft.print("T-DECK CONSOLE");
+  }
   char l[40];
-  int y = 34;
-  snprintf(l, sizeof(l), "id 0x%08X  ch%d  sync%s", (unsigned)kNodeId,
+  snprintf(l, sizeof(l), "id 0x%08X ch%d sync%s", (unsigned)kNodeId,
            ROBOT_TEAM_ESPNOW_CHANNEL, gSynced ? "+" : "-");
-  gTft.setCursor(4, y); gTft.print(l); y += 16;
-  snprintf(l, sizeof(l), "TTDB %uB %dr", (unsigned)gDb.fileSize(), gDb.recordCount());
-  gTft.setCursor(4, y); gTft.print(l); y += 16;
+  drawRow(34, ST77XX_WHITE, l);
+  snprintf(l, sizeof(l), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(), gDb.recordCount());
+  drawRow(48, ST77XX_GREEN, l);
   snprintf(l, sizeof(l), "drive -> 0x%08X", (unsigned)gCmdTarget);
-  gTft.setCursor(4, y); gTft.print(l); y += 16;
+  drawRow(62, ST77XX_CYAN, l);
   snprintf(l, sizeof(l), "cmd %lu  rx %lu  reply %lu", (unsigned long)gCmdSent,
            (unsigned long)gEspRx, (unsigned long)gReplies);
-  gTft.setCursor(4, y); gTft.print(l); y += 16;
-  if (gLastReplySrc) {
-    snprintf(l, sizeof(l), "last 0x%08X  %.1fC", (unsigned)gLastReplySrc,
+  drawRow(76, ST77XX_GREEN, l);
+  if (gLastReplySrc)
+    snprintf(l, sizeof(l), "last 0x%08X %.1fC", (unsigned)gLastReplySrc,
              gLastReplyTemp / 100.0f);
-    gTft.setCursor(4, y); gTft.print(l); y += 16;
-  }
-  if (gLastKey) {
-    snprintf(l, sizeof(l), "key '%c'", gLastKey);
-    gTft.setCursor(4, y); gTft.print(l);
-  }
+  else
+    snprintf(l, sizeof(l), "keys: s=status p=ping b=beep");
+  drawRow(90, ST77XX_YELLOW, l);
+  snprintf(l, sizeof(l), "up %lus  key '%c'", (unsigned long)(millis() / 1000),
+           gLastKey ? gLastKey : ' ');
+  drawRow(104, ST77XX_WHITE, l);
 }
 #endif
 
@@ -498,15 +548,26 @@ void setup() {
   delay(100);
 
 #if USE_TDECK_HW
+  // Audio first: bring up I2S and sound the boot "toot toot" (before the screen, like
+  // the K10). The MAX98357A speaker rail is powered by PIN_POWERON (asserted above).
+  gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT);
+  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO))
+    playStartupToot();
+  else
+    Serial.println("I2S begin failed");
+
+  // Keyboard I2C + the ST7789 on its own HSPI bus (shared with LoRa/SD, both idle here).
   Wire.begin(PIN_KBD_SDA, PIN_KBD_SCL);
-  gTft.init();
-  gTft.setRotation(1);            // landscape 320x240
+  gDispSpi.begin(PIN_SPI_SCLK, PIN_SPI_MISO, PIN_SPI_MOSI, PIN_TFT_CS);
+  gTft.init(240, 320);            // ST7789 native res; setRotation makes it 320x240
+  gTft.setRotation(3);            // landscape (T-Deck: USB on the left, keyboard up)
   pinMode(PIN_TFT_BL, OUTPUT);
   digitalWrite(PIN_TFT_BL, HIGH); // backlight on
-  gTft.fillScreen(TFT_BLACK);
-  gTft.setTextColor(TFT_GREEN, TFT_BLACK);
+  gTft.fillScreen(ST77XX_BLACK);
+  gTft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+  gTft.setTextSize(2);
   gTft.setCursor(4, 4);
-  gTft.print("booting...");
+  gTft.print("T-DECK booting");
 #endif
 
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
