@@ -1,7 +1,7 @@
 # TTN-RFC-0010: Fleet Pulse — Self-Synchronizing Heartbeat and the Band Time-Base
 
 **Version:** 1.0
-**Status:** Proposed
+**Status:** Implemented — end-to-end on-device verified 2026-06-26 (3-node ensemble ±10.4 ms) through 2026-07-06 (parts/melodies, 120 BPM duet)
 **RFC Number:** 0010
 **Project:** robot_team
 **Component:** Toot Toot Network (TTN)

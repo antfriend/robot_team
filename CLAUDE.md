@@ -18,10 +18,15 @@ firmware/
     Toot/               Wire frame + portable SHA-256/HMAC + dedup + serial link
     TTDB/               Streaming TTDB reader + TtdbShare (TTDB-over-network)
     Agent32/            Sense-reason-act loop scaffold
+    Pulse/              Band time-base: pulse-clock election + beat/step
+                        sequencer + Score.h note tables (TTN-RFC-0010)
     RobotTeamConfig/    Shared key, channel, node ids
-  k10_percept/          arduino-cli sketch + data/ttdb.md  (Phase 1 node)
+  k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
   v4a_bridge/  v4b_relay/  v4c_edge/   LoRa spine sketches (LoRa gated off)
-orchestrator/companion.py   Laptop side: pull a node's TTDB over the link
+  tdeck_console/        LilyGo T-Deck handheld console (fleet remote + harmony voice)
+orchestrator/companion.py   Laptop side: pull/sync/verify/reconcile/push/cmd/
+                            monitor/band over the link
+master/                 Laptop-side artifacts: consolidated + belief TTDBs, logs
 scripts/                setup / build / deploy / upload-fs (arduino-cli)
 tests/                  Native test for the portable libs (g++ + make)
 RFCs/                   Governing specs (A32, TTDB, TTN, TTCP)
@@ -97,6 +102,17 @@ The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
 so no PA-variant flag is needed until Phase 4.
+
+The **LilyGo T-Deck** (`firmware/tdeck_console`) builds exactly like the V4
+(`esp32:esp32:esp32s3:CDCOnBoot=cdc`; FS via `Upload-V4-FS.ps1 -Node tdeck_console`
+— same default spiffs partition) plus three T-Deck-specific rules: (1) **flashing
+needs manual bootloader entry** (native-USB auto-reset is flaky) — hold the
+trackball-click (GPIO0/BOOT) + tap RST to enter download mode (the port
+re-enumerates), then tap RST alone to boot the app; (2) its **ST7789 display uses
+Adafruit_ST7789 with runtime pins** (`arduino-cli lib install "Adafruit ST7735 and
+ST7789 Library"`), deliberately NOT TFT_eSPI, so it never touches the K10's shared
+`User_Setup.h`; (3) **GPIO10 must be driven HIGH** first or the LCD/keyboard/LoRa/SD
+are unpowered. Audio is I²S (MAX98357A) via the core's `ESP_I2S` — no analog tone path.
 
 ## TTDB on the filesystem, shared over the network
 

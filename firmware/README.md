@@ -7,7 +7,7 @@ deployed with **arduino-cli**.
 
 | Sketch | Board (FQBN) | Core | Role |
 |--------|--------------|------|------|
-| `k10_percept/` | `UNIHIKER:esp32:k10` | UNIHIKER 0.0.3 (arduino-esp32 **2.x**) | UNIHIKER K10 percept leaf (Phase 1) |
+| `k10_percept/` | `UNIHIKER:esp32:k10` | UNIHIKER 0.0.3 (arduino-esp32 **2.x**) | UNIHIKER K10 percept leaf + band lead (melody) |
 | `v4a_bridge/`  | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 bridge / head |
 | `v4b_relay/`   | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 relay / mid |
 | `v4c_edge/`    | `esp32:esp32:esp32s3` | esp32 3.x | Heltec V4 edge / tail |
@@ -16,7 +16,7 @@ deployed with **arduino-cli**.
 > The K10 uses UNIHIKER's own core, which is **arduino-esp32 2.x**; the Heltec
 > nodes use the **3.x** `esp32:esp32` core. The two differ in the ESP-NOW recv
 > callback signature — `Toot/src/TootEspNow.h` (`ESPNOW_RECV_CB`) papers over it
-> so the same sketches build on both. All four compile clean (verified).
+> so the same sketches build on both. All five compile clean (verified).
 
 Each sketch folder also holds `data/ttdb.md` — the node's knowledge base,
 flashed to LittleFS separately from the firmware.
@@ -31,6 +31,8 @@ copied into `~/Arduino/libraries`:
 - **TTDB** — streaming reader (`Ttdb`) + `TtdbShare` (serve any byte range of
   the on-disk TTDB to the companion as `TTDB_DATA` toots).
 - **Agent32** — sense-reason-act loop scaffold.
+- **Pulse** — the band time-base (TTN-RFC-0010): pulse-clock election / `era`
+  handoff + beat/step detector, plus `Score.h` note tables for data-driven parts.
 - **RobotTeamConfig** — shared HMAC key, ESP-NOW channel, node ids.
 
 ## Build / deploy
@@ -112,12 +114,6 @@ the screen shows the fleet, so you can drive the swarm without the laptop.
 - **Board power-on:** `GPIO10` (`PIN_POWERON`) must be driven **HIGH** or the LCD,
   keyboard, LoRa and SD are all unpowered. The sketch asserts it in `setup()` even
   headless so LoRa can be enabled later.
-- **Display is TFT_eSPI (ST7789), pins compile-time — do NOT reuse the K10's
-  `User_Setup.h`.** That shared sketchbook file is pinned to the K10's ILI9341 map
-  (see the K10 note in `CLAUDE.md`); the T-Deck needs its own setup
-  (`ST7789_DRIVER`, `TFT_MOSI 41`, `TFT_SCLK 40`, `TFT_CS 12`, `TFT_DC 11`,
-  `TFT_BL 42`, 240×320). Select it with a build-time setup rather than editing the
-  K10 file, or the two boards fight over one pin map.
 - **Filesystem (TTDB):** reuse the V4 path — it's the same esp32-core default 4 MB
   `spiffs` partition (@0x290000): `scripts/Upload-V4-FS.ps1 -Node tdeck_console
   -Port COMx`. (16 MB flash; the default scheme wastes the top 12 MB — fine for a

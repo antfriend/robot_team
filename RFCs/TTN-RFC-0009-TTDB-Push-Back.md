@@ -1,6 +1,6 @@
 # TTN-RFC-0009: TTDB Push-Back (Belief Distribution)
 
-**Status:** Proposed
+**Status:** Implemented — on-device verified 2026-06-24, incl. bridge-relayed push + directive actuation (PLAN.md Phase 6)
 **Depends on:** TTN-RFC-0007 (Reliable Delivery), TTDB-RFC-0007 (Locus Point and
 Dream Cycle), TTN-RFC-0008 (Time-Sync — sync_id exactly-once pattern)
 **Phase:** PLAN.md Phase 6 (Dream Cycle — propagation half)

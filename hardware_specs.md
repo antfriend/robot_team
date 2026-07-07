@@ -1,7 +1,8 @@
 # Toot-Toot Network — Hardware Reference
 
 Spec sheets for the ESP32 agent boards in the toot-toot network, plus the laptop
-orchestrator. Compiled for Arduino / PlatformIO development under the Locus framework.
+orchestrator. Compiled for Arduino development (this project builds with
+arduino-cli — see `CLAUDE.md`) under the Locus framework.
 
 Three board roles:
 
@@ -188,10 +189,12 @@ adds GPS, a bigger battery, and a vibration motor but keeps the same core pin ma
 > `0` means no key. The keyboard MCU must be flashed with its firmware (ships
 > pre-flashed on retail units).
 >
-> **The display is an ST7789, not the K10's ILI9341** — and TFT_eSPI's pin map is
-> compile-time in a single sketchbook `User_Setup.h`. Give the T-Deck its own
-> setup (`ST7789_DRIVER`, MOSI 41 / SCLK 40 / CS 12 / DC 11 / BL 42, 240×320);
-> don't reuse the K10's file or the two boards clash (see `firmware/README.md`).
+> **The display is an ST7789, not the K10's ILI9341.** The as-built console
+> drives it with **Adafruit_ST7789 and runtime pins** (SPI SCLK 40 / MOSI 41 /
+> MISO 38, CS 12, DC 11, RST −1, BL 42; `init(240,320)` + `setRotation(3)`) —
+> deliberately not TFT_eSPI, whose pin map is compile-time in the single
+> sketchbook `User_Setup.h` that is pinned to the K10's ILI9341 map. Two boards,
+> one file: they'd clash (see `firmware/README.md`).
 
 ### Role in the network
 The operator's handheld — a mobile mini-orchestrator. The keyboard injects CMD

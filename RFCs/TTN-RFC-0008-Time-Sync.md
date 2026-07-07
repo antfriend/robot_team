@@ -1,7 +1,7 @@
 # TTN-RFC-0008: Fleet Time-Sync — Timestamp Push, TTDB Logging, and Skew Verification
 
 **Version:** 1.0
-**Status:** Proposed
+**Status:** Implemented — on-device verified 2026-06-22 (PLAN.md Phase 2.5)
 **RFC Number:** 0008
 **Project:** robot_team
 **Component:** Toot Toot Network (TTN)

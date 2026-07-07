@@ -175,7 +175,7 @@ Per project convention (new toot type → RFC before code). Three types:
 - `TIME_RESP = 11` — node → laptop. Payload: `probe_id (u32) | node_epoch_ms (u64 LE)`.
 
 ### Firmware (K10 + V4-A)
-- [ ] `Ttdb::appendRecord(text, len)` in `libraries/TTDB`: open the LittleFS
+- [x] `Ttdb::appendRecord(text, len)` in `libraries/TTDB`: open the LittleFS
       `ttdb.md` in append mode, write a well-formed record block, close, re-run the
       offset index. Record uses a reserved time-log lane so it doesn't collide with
       the `collision_policy: reject` header — coordinate `@LAT99LON<sync_id>`:
@@ -184,18 +184,18 @@ Per project convention (new toot type → RFC before code). Three types:
       @LAT99LON<sync_id> | created:<T> | updated:<T> | relates:
       **SYNC** id:<sync_id> t_ms:<T> recv_ms:<millis> offset_ms:<T-millis>
       ```
-- [ ] Clock module: hold `gClockOffsetMs`; `nowEpochMs() = millis() + gClockOffsetMs`.
-- [ ] `handleToot`: on `TIME_SYNC` set the offset + `appendRecord`; on `TIME_REQ`
+- [x] Clock module: hold `gClockOffsetMs`; `nowEpochMs() = millis() + gClockOffsetMs`.
+- [x] `handleToot`: on `TIME_SYNC` set the offset + `appendRecord`; on `TIME_REQ`
       reply `TIME_RESP(probe_id, nowEpochMs())`. Keep dedup **radio-only** as today.
-- [ ] Delivery: `TIME_SYNC` is fire-and-forget today (~5/6 bridged frames land),
+- [x] Delivery: `TIME_SYNC` is fire-and-forget today (~5/6 bridged frames land),
       so resend it N times (or set `FLAG_WANT_ACK` once Phase 2 lands). The K10
       still serves replies from `loop()`, not the recv callback (Phase 1b lesson).
 
 ### Companion (`orchestrator/companion.py`)
-- [ ] `sync` subcommand: pick `sync_id` + `T = now_ms`, broadcast `TIME_SYNC` through
+- [x] `sync` subcommand: pick `sync_id` + `T = now_ms`, broadcast `TIME_SYNC` through
       the bridge port, and append the same record to the laptop master
       (`master/orchestrator-sync.md`) so the laptop is the 3rd "node."
-- [ ] `verify --sync-id N` subcommand, two assertions:
+- [x] `verify --sync-id N` subcommand, two assertions:
       1. **Has the record** — `pull` the K10 (through the bridge) and the V4-A
          (local), parse for a record with `id:N`; confirm laptop master has it too.
       2. **In sync** — NTP-lite per node: note `t0`, send `TIME_REQ`, read
@@ -205,6 +205,17 @@ Per project convention (new toot type → RFC before code). Three types:
 **Done when:** after one `companion.py sync`, all three TTDBs (K10, V4-A, laptop
 master) carry the same `sync_id` log record, and the NTP-lite probe shows the K10
 and V4-A clocks within a stated bound (target: ≤ 50 ms) of the laptop. Reproducible.
+
+> **Sibling milestone — Fleet Pulse & the band ✅ end-to-end on hardware
+> (TTN-RFC-0010, 2026-06-26 → 2026-07-06).** Built on the time-sync layer: a
+> self-synchronizing beat (shared pulse clock, first-up-conducts election with
+> `era` handoff, drift-paced `PULSE` beacons — zero per-beat traffic). Verified:
+> **3-node ensemble on one chart, phase skew ≤ ±10.4 ms** (`companion.py band`
+> PASS), conductor reboot/handoff exercised live, then `Score.h` data-driven
+> parts — K10 lead + T-Deck harmony playing the **two-part Ode to Joy duet at
+> 120 BPM**, boot-silent and started/stopped via `CMD_PLAY`/`CMD_STOP`. Details
+> and gotchas (tempo lives in `Pulse.h`; era latch survives reflashes): see
+> `companion.md §6` + `@LAT90LON40`.
 
 ---
 
@@ -267,11 +278,15 @@ returns end-to-end.
 > `companion.py pull --node tdeck_1` reassembled a byte-exact 1351 B (sha `fd95360b…`) and
 > `negchecks.py` rejected wrong-key/tampered toots (HMAC → 0 frames). Full Dream-Cycle
 > participant (pull/HMAC, sync+`@LAT99`, belief+`@LAT98`, STATUS, PULSE follower);
-> `companion.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). The LCD (ST7789)
-> + keyboard (I²C `0x55`) are gated behind `USE_TDECK_HW` for on-bench bring-up (next
-> step). It also carries an SX1262 (LoRa-spine-capable, `USE_LORA`). **Flashing note:**
-> native-USB auto-reset is flaky — manual BOOT/RST bootloader entry required (see
-> `companion.md §6`). **Next:** enable the console UI (keyboard→CMD, fleet view).
+> `companion.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). It also carries
+> an SX1262 (LoRa-spine-capable, `USE_LORA`). **Flashing note:** native-USB auto-reset is
+> flaky — manual BOOT/RST bootloader entry required (see `companion.md §6`).
+> **Console UI ✅ on-device verified (2026-07-06, `USE_TDECK_HW 1`):** boot "toot toot"
+> (I²S sine on the MAX98357A) + 320×240 fleet view (Adafruit_ST7789, runtime pins,
+> rotation 3 — not TFT_eSPI); the keyboard is a **fleet remote** (`t` cycle target,
+> `s` status / `p` ping / `b` beep / `g` play / `x` stop), verified live over the air
+> through the V4-A bridge (bridged pull, STATUS, `sync` id=5). It also plays the harmony
+> part of the 120 BPM duet and rejoins after a power-cycle (NVS-persisted song state).
 
 ---
 

@@ -41,7 +41,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
-| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**) |
+| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
@@ -53,8 +53,10 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > **`CDCOnBoot=cdc`** flag (see build note). The 2nd V4 is the **V4-B relay** — ✅
 > on-device verified as the 3rd mesh node + Dream-Cycle participant (flashed COM9;
 > sync/reconcile/push, §6). The **T-Deck** is the handheld console (`firmware/tdeck_console`,
-> node id `0x200`) — ✅ network floor on-device verified (COM10: byte-exact pull + HMAC
-> reject); its LCD + keyboard are gated behind `USE_TDECK_HW`, the next on-bench step.
+> node id `0x200`) — ✅ on-device verified end-to-end: network floor (COM10: byte-exact pull
+> + HMAC reject), console UI (`USE_TDECK_HW 1`: boot "toot toot" + 320×240 fleet view),
+> keyboard fleet remote, live on the mesh via the bridge, and the harmony voice of the
+> 120 BPM duet (§6).
 > **T-Deck flashing needs manual bootloader entry** (native-USB auto-reset is flaky): hold
 > the trackball-click (GPIO0/BOOT) + tap RST to enter download mode (port re-enumerates,
 > e.g. COM11→COM10), then tap RST *without* the trackball to boot the app. V4-C unbuilt.
@@ -447,18 +449,16 @@ If a fact lives in one of these, link to it from here — don't copy it.
   steadily-present neighbor doesn't retrigger it). Both flashed; K10 verified conducting `era 1,
   bpm 120`. Pending: user confirms the rejoin.
 - **Next action — pick one:** (a) **Confirm the power-cycle rejoin** (press `g`, power-cycle the
-  T-Deck, watch it resume the harmony in a few seconds). (b) **Reflash V4-A/V4-B** to the Pulse.h
-  tempo + fast-lock so the whole band is 120 and rejoins fast regardless of conductor. (c) **More
-  tunes / parts** — `kLeadNotes`/`kHarmNotes` are one-table swaps.
-  (TTN-RFC-0010 §7); add a song selector or a 2nd pitched node (purpose-built hardware — the
-  user's stated progression). (b) **Faster reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS`
-  + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or persist `era` in NVS) so a conductor reboot
-  re-locks in seconds, not ~90 s; still well within the minimal-traffic budget. (b)
-  **Parts/melodies** — the `Part`/`hit` split (TTN-RFC-0010 §7) is the seam for per-node
-  melodies on purpose-built hardware (the user's stated next progression). (c) Confirm the
-  **V4 white LED on GPIO35** actually blinks (OLED beat-dot is the fallback). Plus earlier
-  options: more `**DIRECTIVE**` types, V4-B relay forwarding, belief range-readback. Phases
-  3–4 (V4-C, LoRa) gated on V4-C + `USE_LORA`.
+  T-Deck, watch it resume the harmony in a few seconds — the last unverified piece of the duet).
+  (b) **Reflash V4-A/V4-B** to the Pulse.h tempo + fast-lock so the whole band is 120 BPM and
+  rejoins fast regardless of which node conducts. (c) **More tunes / parts** —
+  `kLeadNotes`/`kHarmNotes` are one-table swaps (TTN-RFC-0010 §7); add a song selector or a 2nd
+  pitched node (purpose-built hardware — the user's stated progression). (d) **Faster
+  reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS` + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or
+  persist `era` in NVS) so a conductor reboot re-locks in seconds, not ~90 s; still well within
+  the minimal-traffic budget. (e) Confirm the **V4 white LED on GPIO35** actually blinks (OLED
+  beat-dot is the fallback). Plus earlier options: more `**DIRECTIVE**` types, V4-B relay
+  forwarding, belief range-readback. Phases 3–4 (V4-C, LoRa) gated on V4-C + `USE_LORA`.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -522,8 +522,8 @@ USB-CDC or through the V4-A bridge into the mesh. Verified: byte-exact pulls of
 both built nodes (K10 1114 B, V4-A 976 B). Auth/replay floor checked with
 `orchestrator/negchecks.py`. Also `cmd`/`monitor` (drive + observe nodes),
 `reconcile` (fold node `@LAT99` sync logs → `master/consolidated.md`, Dream-Cycle
-seed), and `push` (re-author + distribute a belief → `master/belief.md`, see
-`@LAT90LON30`).
+seed), `push` (re-author + distribute a belief → `master/belief.md`, see
+`@LAT90LON30`), and `band` (measured band-tightness verifier, see `@LAT90LON40`).
 
 ---
 
@@ -553,20 +553,23 @@ appends a `BELIEF-ADOPTED` record in its `@LAT98` lane (`push`, `@LAT90LON30`).
 
 ---
 
-@LAT10LON0 | created:1782259200 | updated:1782259200 | relates:commands@LAT0LON10,connected_over@LAT0LON10,knows@LAT0LON0
+@LAT10LON0 | created:1782259200 | updated:1783382400 | relates:commands@LAT0LON10,connected_over@LAT0LON10,knows@LAT0LON0
 
-**T-DECK-1 console** (LilyGo T-Deck, roaming handheld operator) — ✅ network floor
-on-device verified 2026-07-06 (COM10). FQBN `esp32:esp32:esp32s3:CDCOnBoot=cdc`, node
-id `0x200`, sketch `firmware/tdeck_console`. A mobile mini-orchestrator: a BlackBerry
-keyboard injects CMD toots and a 320×240 color screen renders the fleet view, so an
-operator drives the swarm without the laptop. Full ESP-NOW Dream-Cycle participant —
-verified: **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks`
-wrong-key/tampered → 0); `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`
-store-and-attest, STATUS, PULSE follower built in (over-air pending mesh power-up). The
-LCD (ST7789) + keyboard (I²C `0x55`) + keyboard→CMD are gated behind `USE_TDECK_HW` for
-on-bench bring-up (next step). Carries an SX1262, so it can join the LoRa spine directly
-(`USE_LORA`) — the only screen+keyboard node that reaches long-haul. `GPIO10` gates the
-peripheral rail (drive HIGH first); native-USB flashing needs manual BOOT/RST (see §6).
+**T-DECK-1 console** (LilyGo T-Deck, roaming handheld operator) — ✅ on-device verified
+end-to-end 2026-07-06. FQBN `esp32:esp32:esp32s3:CDCOnBoot=cdc`, node id `0x200`,
+sketch `firmware/tdeck_console`. A mobile mini-orchestrator: the BlackBerry keyboard
+(I²C `0x55`) is a **fleet remote** (`t` cycle target V4-B→K10→V4-A, `s` status, `p`
+ping, `b` beep, `g` play, `x` stop) and the 320×240 screen renders the live fleet view,
+so an operator drives the swarm without the laptop. Full ESP-NOW Dream-Cycle
+participant, verified on the floor (**byte-exact pull 1351 B, sha `fd95360b…`** + HMAC
+reject) *and* over the air through the V4-A bridge (bridged pull, STATUS, `sync` id=5
+adopt + `@LAT99` self-write). Console UI live (`USE_TDECK_HW 1`): boot "toot toot"
+(I²S sine on the MAX98357A) + fleet view on **Adafruit_ST7789 (runtime pins, rotation
+3 — deliberately not TFT_eSPI)**. Plays the **harmony part of the 120 BPM Ode-to-Joy
+duet** with the K10, song state persisted in NVS so it rejoins after a power-cycle.
+Carries an SX1262, so it can join the LoRa spine directly (`USE_LORA`) — the only
+screen+keyboard node that reaches long-haul. `GPIO10` gates the peripheral rail (drive
+HIGH first); native-USB flashing needs manual BOOT/RST (see §6).
 
 ---
 
@@ -653,3 +656,21 @@ reused. **Dream Cycle CLOSED ✅ (2026-06-24):** the belief carries a `**DIRECTI
 sense_interval_ms:<N>` the K10 acts on — its loop cadence retuned **1000→300→700 ms**
 across pushes (TTN-RFC-0009 §5.2, PLAN.md Phase 6 "Done when"). **Next:** serve
 `/belief.md` back for a byte-diff; add further directives (warm threshold, LED policy).
+
+---
+
+@LAT90LON40 | created:1783382400 | updated:1783382400 | relates:derived_from@LAT0LON10,derived_from@LAT10LON10,derived_from@LAT10LON0,refines@LAT90LON30
+
+**Milestone — Fleet Pulse & the band (TTN-RFC-0010) ✅ end-to-end on hardware
+(2026-06-26 → 2026-07-06).** The band time-base: a shared pulse clock (`millis()` +
+adopted offset), first-up-conducts election with `era`-numbered handoff, and
+drift-paced `PULSE` beacons (~1 per 15–30 s — zero per-beat traffic; 51 beats on one
+beacon measured). Verified: **3-node ensemble locked to one chart, skew ≤ ±10.4 ms**
+(`companion.py band` PASS, well inside the ±50 ms swing budget); conductor reboot +
+era-latch handoff exercised live. On top of it, `Score.h` note tables give each node a
+**data-driven part**: K10 = lead melody (Ode to Joy), T-Deck = harmony a third below,
+V4-A = timekeeper, V4-B = backbeat. **120 BPM two-part duet confirmed by the user**;
+both voices boot silent and start/stop via `CMD_PLAY`/`CMD_STOP` (keyboard `g`/`x`).
+Gotchas baked into CLAUDE.md/memory: tempo lives in `Pulse.h` (a sketch `#define`
+never reaches `Pulse.cpp`), the era latch keeps an old tempo across a reflash
+(cold-start the fleet), and K10 GPIO45 is the speaker, not the backlight.

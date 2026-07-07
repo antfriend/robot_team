@@ -30,6 +30,14 @@ LoRa node.
 - **No LoRa.** Reaches the network over ESP-NOW (default) or Wi-Fi.
 - To send anything across the long-range mesh, it hands off to a nearby V4.
 
+### Console node — LilyGo T-Deck (roaming leaf)
+- Handheld **operator console** (node id `0x200`): the BlackBerry keyboard injects
+  CMD toots, the 320×240 screen renders the fleet — a mobile mini-orchestrator, so
+  the swarm can be driven without the laptop.
+- Full ESP-NOW participant (pull/HMAC/dedup, time-sync, belief adoption, STATUS,
+  PULSE follower). Carries an **SX1262**, so it can join the LoRa spine directly
+  (gated behind `USE_LORA`) — the only screen+keyboard node that reaches long-haul.
+
 ### Mesh nodes — 3× Heltec WiFi LoRa 32 V4 (the spine)
 
 All three share the base hardware — SX1262 LoRa (28 dBm), WiFi, BLE, 128×64 mono
@@ -191,6 +199,15 @@ reassembled on `(src_node_id, toot_seq)`.
 - **ACK** — confirms `(src,seq[,chunk])`; absence triggers retry.
 - **RELAY** — a toot whose destination is out of local range; a LoRa node picks
   it up and forwards. `ttl` decrements per hop; drop at 0.
+
+Types added since this design doc (the authoritative registry is the `Type` enum
+in `firmware/libraries/Toot/src/Toot.h`):
+
+- **TTDB_REQ / TTDB_DATA** (7/8) — TTDB-share: request + offset-addressed slices
+  of a node's TTDB (whole file, byte range, or stored belief).
+- **TIME_SYNC / TIME_REQ / TIME_RESP** (9–11) — fleet time-sync (TTN-RFC-0008).
+- **TTDB_PUT** (12) — pushed-belief slice, CRC-checked (TTN-RFC-0009).
+- **PULSE** (13) — band chart + time-base beacon (TTN-RFC-0010).
 
 ### Reliability
 ESP-NOW gives a TX-success callback but no end-to-end guarantee. Layer on:

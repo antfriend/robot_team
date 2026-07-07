@@ -1,7 +1,7 @@
 # TTN-RFC-0007: Reliable Delivery — ACK, Retransmission, and Chunk Reassembly
 
 **Version:** 1.0
-**Status:** Proposed
+**Status:** Implemented — on-device verified 2026-06-22 (PLAN.md Phase 2)
 **RFC Number:** 0007
 **Project:** robot_team
 **Component:** Toot Toot Network (TTN)
