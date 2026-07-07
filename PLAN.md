@@ -375,14 +375,29 @@ with something measured.
 
 ## SP0 — Instrumentation (every frame becomes a percept)
 
-- [ ] Capture per-frame RSSI in each node's ESP-NOW recv callback
-      (`rx_ctrl.rssi`); LoRa RSSI/SNR from the SX1262 driver once Phase 4 is up.
-- [ ] RAM ring buffer (~64 obs) + batched flush to a rolling `@PERCEPT:LINK`
-      lane in the TTDB — never per-packet writes (flash wear).
+- [x] Capture per-frame RSSI in each node's ESP-NOW recv callback — **built +
+      compile-verified 2026-07-07** on V4-A / V4-B / T-Deck (`ESPNOW_RECV_CB_INFO`
+      + `tootEspNowRssi` in `TootEspNow.h`, 3.x `rx_ctrl->rssi`; logged after
+      HMAC verify, before dedup — a retried duplicate is a real reception). The
+      **K10 is deferred**: its 2.x core's recv callback carries no RX metadata
+      (needs the promiscuous-RX trick — a later sub-step; meanwhile the K10 is
+      still *observed* by the three 3.x nodes, so its links are covered
+      one-directionally). LoRa RSSI/SNR from the SX1262 once Phase 4 is up.
+- [x] Batched accumulation + flush — **built**: `firmware/libraries/LinkPercept`
+      keeps fixed per-peer RSSI *histograms* (~1.5 KB RAM, exact min/med/max, no
+      per-packet flash writes) and flushes one `@LAT97LON<n>` TTDB record per
+      window (default 60 s; `**LINKWIN**` context + one `**LINK**` line per
+      peer/proto). Lane-capped (`LINKPERCEPT_MAX_LANE` 48) so the TTDB index
+      can't fill before SP1 pruning exists. Format pinned by
+      `tests/test_linkpercept.cpp` (g++ gate; this machine is device-first).
+      Read back with **`companion.py percepts --node <n> --port <p>`**.
+- [ ] **On-device verify (the SP0 gate):** flash V4-A/V4-B/T-Deck, let the mesh
+      chatter a window, `percepts` shows real RSSI stats from every 3.x node.
 - [ ] Piggyback each node's recent per-peer RSSI into existing beacons so both
       directions of every link are known (asymmetry is diagnostic).
 - [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`;
       **BLE advertise + scan on all boards** as the near-range (~10–30 m) tier.
+- [ ] K10 RSSI capture via the 2.x promiscuous-RX workaround (or a core bump).
 
 **Done when:** `pull` returns a percept lane with link + entity observations
 from every powered node; verified with a serial dump. Pure plumbing, no inference.

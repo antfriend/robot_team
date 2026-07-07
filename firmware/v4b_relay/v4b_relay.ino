@@ -32,6 +32,7 @@
 #include <TtdbShare.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <RobotTeamConfig.h>
 
 #define USE_LORA 0           // Phase 4: SX1262 long hops to V4-A and V4-C.
@@ -95,6 +96,11 @@ TtdbShare* gShare = nullptr;
 toot::DedupSet gDedup(128);
 TootSerialLink gSerial(Serial);
 static uint32_t gSeq = 1;
+
+// --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
+// Per-peer RSSI histograms fed from the ESP-NOW recv callback; flushed from
+// loop() as one @LAT97 TTDB record per window (see LinkPercept.h).
+static linkpercept::Log gLinkLog;
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
 // No RTC: epoch ms = millis() + offset adopted on TIME_SYNC. Exactly-once adoption
@@ -345,10 +351,13 @@ static toot::Toot gPendingReq;
 static volatile bool gPutPending = false;
 static toot::Toot gPendingPut;
 
-static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
+static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t)) return;
+  // SP0 link percept: an authenticated frame is a distance measurement in
+  // disguise. Logged BEFORE dedup — a retried duplicate is a real reception.
+  gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
   if (t.chunk_total > 1) return;            // no chunked consumer on V4-B (no reltest)
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {
     // TTN-RFC-0007 §5: the original ACK was lost (sender retried); re-ACK the dup
@@ -544,6 +553,26 @@ void loop() {
   // Append the deferred TTDB log records (flash write + re-index).
   if (gSyncPending) { gSyncPending = false; appendSyncRecord(); }
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
+
+  // SP0: flush the link-percept window into the @LAT97 lane (flash write from
+  // loop(), never the recv callback). Lane-capped until SP1 adds pruning.
+  if (gLinkLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 97) ++lane;
+    if (lane >= LINKPERCEPT_MAX_LANE) {
+      gLinkLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                      gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
 
 #if USE_PULSE
   // --- fleet pulse (TTN-RFC-0010): backbeat part — LED + OLED dot on beats 2 & 4 ---

@@ -9,7 +9,10 @@
       "Bash(git -C /c/git/TTN remote -v)",
       "Bash(git -C /c/git/toot-toot-engineering remote -v)",
       "Bash(gh api *)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/v4b_relay)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/v4a_bridge)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/tdeck_console)"
     ]
   }
 }

@@ -1423,6 +1423,89 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
     print(f"verified — logged BELIEF-PUSH id={belief_id} to {belief_log}")
 
 
+# --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
+# A node's @LAT97 lane holds one record per flush window, each with a **LINKWIN**
+# context line and one **LINK** line per (peer, proto). This is the raw evidence
+# SP1 consolidates into @BELIEF:PROXIMITY.
+LINKWIN_RE = re.compile(
+    r"\*\*LINKWIN\*\*\s+t_ms:(\d+)\s+synced:([01])\s+window_ms:(\d+)")
+LINK_RE = re.compile(
+    r"\*\*LINK\*\*\s+peer:0x([0-9A-Fa-f]{8})\s+proto:(\w+)\s+n:(\d+)\s+"
+    r"rssi_min:(-?\d+)\s+rssi_med:(-?\d+)\s+rssi_max:(-?\d+)")
+
+
+def parse_link_percepts(text):
+    """Parse a TTDB's @LAT97 lane into a list of windows:
+    {lane, t_ms, synced, window_ms, links: [{peer, proto, n, min, med, max}]}."""
+    windows = []
+    cur = None
+    for line in text.splitlines():
+        if line.startswith("@LAT97LON"):
+            lane = int(re.match(r"@LAT97LON(\d+)", line).group(1))
+            cur = {"lane": lane, "t_ms": None, "synced": None,
+                   "window_ms": None, "links": []}
+            windows.append(cur)
+            continue
+        if line.startswith("@"):     # any other record header ends the window
+            cur = None
+            continue
+        if cur is None:
+            continue
+        m = LINKWIN_RE.search(line)
+        if m:
+            cur["t_ms"] = int(m.group(1))
+            cur["synced"] = int(m.group(2))
+            cur["window_ms"] = int(m.group(3))
+            continue
+        m = LINK_RE.search(line)
+        if m:
+            cur["links"].append({
+                "peer": int(m.group(1), 16), "proto": m.group(2),
+                "n": int(m.group(3)), "min": int(m.group(4)),
+                "med": int(m.group(5)), "max": int(m.group(6))})
+    return windows
+
+
+def percepts(port, baud, node, save):
+    """Pull a node's TTDB and print its link-percept windows (@LAT97 lane) —
+    the SP0 'Done when' check: the node is accumulating positioning evidence."""
+    try:
+        import serial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    target = NODE_IDS[node]
+    reader = SerialFrameReader()
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(2.5)              # port-open resets the S3; wait out boot
+        ser.reset_input_buffer()
+        data = request_ttdb(ser, reader, target, 20.0, TTDB_REQ_WHOLE)
+    if data is None:
+        sys.exit("no data received (check port, node id, and the key)")
+    if save:
+        os.makedirs(os.path.dirname(os.path.abspath(save)), exist_ok=True)
+        with open(save, "wb") as f:
+            f.write(data)
+        print(f"wrote {len(data)} bytes to {save}")
+    windows = parse_link_percepts(data.decode("utf-8", errors="replace"))
+    nobs = sum(l["n"] for w in windows for l in w["links"])
+    print(f"{node}: {len(windows)} link-percept window(s), "
+          f"{nobs} observation(s) (@LAT97 lane)")
+    if not windows:
+        print("no @LAT97 records yet — leave the mesh chattering for a window "
+              "(default 60 s) and re-run")
+        return
+    print(f"{'lane':>4}  {'t_ms':>14}  {'sync':>4}  {'win_ms':>7}  "
+          f"{'peer':>10}  {'proto':6}  {'n':>5}  {'min':>4}  {'med':>4}  {'max':>4}")
+    for w in windows:
+        first = True
+        for l in w["links"]:
+            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {w['synced']:>4}  "
+                    f"{w['window_ms']:>7}") if first else " " * 35
+            first = False
+            print(f"{lead}  0x{l['peer']:08X}  {l['proto']:6}  {l['n']:>5}  "
+                  f"{l['min']:>4}  {l['med']:>4}  {l['max']:>4}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1514,6 +1597,15 @@ def main():
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
 
+    pc = sub.add_parser(
+        "percepts",
+        help="pull + print a node's link-percept windows (@LAT97, SP0)")
+    pc.add_argument("--port", required=True, help="serial port (COM6, direct or bridge)")
+    pc.add_argument("--baud", type=int, default=115200)
+    pc.add_argument("--node", required=True, choices=list(NODE_IDS))
+    pc.add_argument("--save", default=None,
+                    help="also write the pulled TTDB to this path")
+
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
@@ -1579,6 +1671,8 @@ def main():
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)
+    elif args.cmd == "percepts":
+        percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

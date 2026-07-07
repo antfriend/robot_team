@@ -475,17 +475,34 @@ If a fact lives in one of these, link to it from here — don't copy it.
   leg grows the console fleet view into a native TTCP mini-renderer with trackball cursor
   navigation per TTCP-RFC-0002). Everything verified so far — toots/HMAC, self-healing pull,
   time-sync, reconcile/push, pulse — is the instrumentation floor for this proof.
-- **Next action — Act II, in order:** (a) **SP0 instrumentation** — capture per-frame RSSI in
-  every ESP-NOW recv callback (`rx_ctrl.rssi`) as `@PERCEPT:LINK` records (RAM ring buffer,
-  batched TTDB flush — flash-wear discipline), piggyback per-peer RSSI into existing beacons,
-  add duty-cycled WiFi-scan entity percepts; verify by pulling a node's percept lane. (b) **SP1
-  calibration walk** — two V4s at 5/20/50/100 m, fit the path-loss model, store as
-  `@BELIEF:CALIBRATION`. (c) **SP2 embedding** — `reconcile` grows the proximity/position
-  consolidation job; T-Deck GPS comes online as the roaming anchor/verifier. Then SP3–SP6 per
-  PLAN.md Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop +
-  T-Deck). **Band/maintenance backlog (secondary):** confirm the T-Deck power-cycle rejoin;
-  reflash V4-A/V4-B to the 120 BPM Pulse.h + fast-lock build; more tunes/parts; faster pulse
-  reconvergence; confirm the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**` types.
+- **SP0 first increment BUILT + compile-verified (2026-07-07) — link-percept capture.**
+  New portable lib **`firmware/libraries/LinkPercept`**: the ESP-NOW recv callback logs every
+  **HMAC-verified** frame's RSSI (before dedup — a retried duplicate is a real reception) into
+  fixed per-peer histograms (~1.5 KB RAM, exact min/med/max, zero per-packet flash writes);
+  once per 60 s window `loop()` appends one **`@LAT97LON<n>`** record (`**LINKWIN**` context +
+  one `**LINK**` line per peer/proto), lane-capped at 48 until SP1 pruning.
+  `ESPNOW_RECV_CB_INFO` + `tootEspNowRssi` (TootEspNow.h) expose the 3.x `rx_ctrl->rssi`;
+  wired into **V4-A, V4-B, T-Deck** (all three + the untouched K10 compile clean). **K10
+  capture deferred** (2.x recv cb has no RX metadata — promiscuous-RX trick later; the K10 is
+  still observed one-directionally by the other three). Companion: **`companion.py percepts
+  --node <n> --port <p>`** pulls and prints the lane. Format pinned by
+  `tests/test_linkpercept.cpp` (no g++ on this machine — device-first, as ever). T-Deck
+  confirmed **Plus variant (has GPS)** — the SP2 anchor/verifier hardware is real.
+  **Next on-bench:** flash V4-A (COM6), V4-B (COM9), T-Deck (COM10, manual BOOT/RST), power
+  all three, wait a window, then `percepts --node v4a_bridge --port COM6` (direct) and
+  `--node v4b_relay` / `--node tdeck_1` through the bridge — real RSSI in every lane = SP0
+  first increment verified on-device.
+- **Next action — Act II, in order:** (a) **SP0 on-device verify** (flash + `percepts`, above),
+  then the remaining SP0 sub-steps: beacon RSSI piggyback (both link directions), WiFi-scan
+  `@PERCEPT:ENTITY`, **BLE advertise+scan** (the near-range tier), K10 promiscuous RSSI.
+  (b) **SP1 calibration walk** — two V4s at 5/20/50/100 m, fit the path-loss model, store as
+  `@BELIEF:CALIBRATION`; `reconcile` grows the `@BELIEF:PROXIMITY` consolidation + `@LAT97`
+  pruning. (c) **SP2 embedding** — spring relaxation + T-Deck GPS as the roaming
+  anchor/verifier. Then SP3–SP6 per PLAN.md Act II (env TDoA → address loop → transport
+  auto-switch → TTCP render on laptop + T-Deck). **Band/maintenance backlog (secondary):**
+  confirm the T-Deck power-cycle rejoin; reflash V4-A/V4-B to the 120 BPM Pulse.h + fast-lock
+  build (free with the SP0 reflash!); more tunes/parts; faster pulse reconvergence; confirm
+  the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**` types.
 
 Keep this section current. It is the first thing the next session reads.
 

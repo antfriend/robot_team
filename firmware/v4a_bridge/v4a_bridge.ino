@@ -24,7 +24,13 @@
 #include <TtdbShare.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <RobotTeamConfig.h>
+
+// --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
+// Per-peer RSSI histograms fed from the ESP-NOW recv callback; flushed from
+// loop() as one @LAT97 TTDB record per window (see LinkPercept.h).
+static linkpercept::Log gLinkLog;
 
 #define USE_LORA 0  // Phase 4: set 1 and wire RadioLib SX1262 (GPIO 8/9/10/11).
 
@@ -204,11 +210,14 @@ static uint8_t buildStatus(uint8_t* p) {
 #endif
 }
 
-static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
+static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   if (len <= 0) return;
   toot::Toot t;
   if (!toot::decode(data, (size_t)len, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, t))
     return;
+  // SP0 link percept: an authenticated frame is a distance measurement in
+  // disguise. Logged BEFORE dedup — a retried duplicate is a real reception.
+  gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
   if (gDedup.seen(t.src_node_id, t.toot_seq)) return;
   gEspRx++;
   gLastSrc = t.src_node_id;
@@ -415,6 +424,26 @@ void loop() {
     }
   }
 #endif
+
+  // SP0: flush the link-percept window into the @LAT97 lane (flash write from
+  // loop(), never the recv callback). Lane-capped until SP1 adds pruning.
+  if (gLinkLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 97) ++lane;
+    if (lane >= LINKPERCEPT_MAX_LANE) {
+      gLinkLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                      gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
 
   // Refresh the OLED on change, plus a ~1s heartbeat to tick the uptime.
   static uint32_t lastRender = 0;

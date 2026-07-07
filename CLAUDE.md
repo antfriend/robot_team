@@ -26,6 +26,8 @@ firmware/
     Agent32/            Sense-reason-act loop scaffold
     Pulse/              Band time-base: pulse-clock election + beat/step
                         sequencer + Score.h note tables (TTN-RFC-0010)
+    LinkPercept/        SP0 positioning evidence: per-peer RSSI histograms ->
+                        @LAT97 TTDB records (ttn-semantic-positioning.md)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
   v4a_bridge/  v4b_relay/  v4c_edge/   LoRa spine sketches (LoRa gated off)

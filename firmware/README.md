@@ -33,6 +33,10 @@ copied into `~/Arduino/libraries`:
 - **Agent32** — sense-reason-act loop scaffold.
 - **Pulse** — the band time-base (TTN-RFC-0010): pulse-clock election / `era`
   handoff + beat/step detector, plus `Score.h` note tables for data-driven parts.
+- **LinkPercept** — SP0 semantic-positioning instrumentation
+  (`ttn-semantic-positioning.md`): per-peer RSSI histograms fed from the radio
+  recv callback, flushed as `@LAT97` TTDB records (`**LINK**` lines, min/med/max
+  per peer). Portable; format pinned by `tests/test_linkpercept.cpp`.
 - **RobotTeamConfig** — shared HMAC key, ESP-NOW channel, node ids.
 
 ## Build / deploy
