@@ -12,7 +12,17 @@
       "WebFetch(domain:github.com)",
       "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/v4b_relay)",
       "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/v4a_bridge)",
-      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/tdeck_console)"
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/tdeck_console)",
+      "Bash(python orchestrator/companion.py pull --node v4a_bridge --port COM6 --out master/v4a_sp0_check.md)",
+      "Bash(python orchestrator/companion.py percepts --node v4a_bridge --port COM6)",
+      "Bash(python -c ' *)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --upload -p COM9 --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/v4b_relay)",
+      "Bash(python orchestrator/companion.py pull --node v4b_relay --port COM9 --out master/v4b_sp0_check.md)",
+      "Bash(\"/c/Program Files/Arduino CLI/arduino-cli.exe\" compile --upload -p COM10 --fqbn \"esp32:esp32:esp32s3:CDCOnBoot=cdc\" --libraries firmware/libraries firmware/tdeck_console)",
+      "Bash(python orchestrator/companion.py pull --node tdeck_1 --port COM10 --out master/tdeck_sp0_check.md)",
+      "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM10)",
+      "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM6)",
+      "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM6)"
     ]
   }
 }

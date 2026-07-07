@@ -391,8 +391,14 @@ with something measured.
       can't fill before SP1 pruning exists. Format pinned by
       `tests/test_linkpercept.cpp` (g++ gate; this machine is device-first).
       Read back with **`companion.py percepts --node <n> --port <p>`**.
-- [ ] **On-device verify (the SP0 gate):** flash V4-A/V4-B/T-Deck, let the mesh
-      chatter a window, `percepts` shows real RSSI stats from every 3.x node.
+- [x] **On-device verify (the SP0 gate) ✅ 2026-07-07.** V4-A (COM6), V4-B
+      (COM9), T-Deck (COM10) all flashed, hash-verified, byte-exact pull
+      confirmed on each (regression: the new instrumentation didn't disturb
+      the floor). `percepts` over the bridge shows every node logging real,
+      **asymmetric** RSSI for every peer in one window: V4-A↔T-Deck (-60/-46/-36
+      vs -49…-59/-42…-50/-37…-44), V4-A↔V4-B (-44/-34/-33 vs -47/-34/-32),
+      V4-B↔T-Deck (-53/-29/-26 vs -38/-34/-30). Exactly the "distance
+      measurement in disguise" the spec calls for — first real evidence.
 - [ ] Piggyback each node's recent per-peer RSSI into existing beacons so both
       directions of every link are known (asymmetry is diagnostic).
 - [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`;

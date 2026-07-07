@@ -488,10 +488,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
   --node <n> --port <p>`** pulls and prints the lane. Format pinned by
   `tests/test_linkpercept.cpp` (no g++ on this machine — device-first, as ever). T-Deck
   confirmed **Plus variant (has GPS)** — the SP2 anchor/verifier hardware is real.
-  **Next on-bench:** flash V4-A (COM6), V4-B (COM9), T-Deck (COM10, manual BOOT/RST), power
-  all three, wait a window, then `percepts --node v4a_bridge --port COM6` (direct) and
-  `--node v4b_relay` / `--node tdeck_1` through the bridge — real RSSI in every lane = SP0
-  first increment verified on-device.
+  **SP0 gate ✅ ACHIEVED on-device (2026-07-07).** All three flashed (V4-A COM6, V4-B COM9,
+  T-Deck COM10 — the T-Deck's auto-reset worked first try, no manual BOOT/RST needed this
+  round), each hash-verified and byte-exact-pull regression-checked (the new instrumentation
+  didn't disturb the floor). `percepts` over the V4-A bridge shows **every node logging real,
+  asymmetric RSSI** for every peer in one ~60 s window: V4-A sees T-Deck n=33 (-60/-46/-36)
+  and V4-B n=15 (-44/-34/-33); V4-B sees V4-A n=27 (-47/-34/-32) and T-Deck n=33
+  (-53/-29/-26); T-Deck sees V4-A n=12+26 (-49…-59/-42…-50/-37…-44) and V4-B n=29
+  (-38/-34/-30). This is the spec's "distance measurement in disguise," live for the first
+  time — three nodes, six directional links, all logged with zero per-packet flash writes.
 - **Next action — Act II, in order:** (a) **SP0 on-device verify** (flash + `percepts`, above),
   then the remaining SP0 sub-steps: beacon RSSI piggyback (both link directions), WiFi-scan
   `@PERCEPT:ENTITY`, **BLE advertise+scan** (the near-range tier), K10 promiscuous RSSI.
