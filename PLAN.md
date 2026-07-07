@@ -453,8 +453,17 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
 
 ## SP2 — Embedding + anchoring (position beliefs)
 
-- [ ] Weighted spring relaxation over the proximity matrix (~40 lines of C, or
-      laptop-side first); anchor on V4-A's known position.
+- [x] **Embedding solver ✅ built + first fleet self-map (2026-07-07):**
+      `companion.py positions` — weighted spring relaxation (conf/sigma²
+      weights, 8 random restarts to escape fold minima) over the
+      `@BELIEF:PROXIMITY` matrix → **`@BELIEF:POSITION`** records
+      (`master/positions.md`) in a canonical relative frame (V4-A origin, 2nd
+      node +x, mirror flagged `flip_resolved: false` until GPS) + an ASCII
+      fleet map. Offline gate `tests/test_embed_py.py` (10 checks: exact
+      square recovery, honest stress on inconsistent input, outlier-weight
+      immunity, parser round-trip, determinism). **First live embed: 4 nodes,
+      6 pairs, stress 0.01 m** — worst pair-fit error 4 cm; the fleet's six
+      independent distance beliefs agree on one 2D layout (~4.3 × 3.9 m bench).
 - [ ] **T-Deck GPS online as the roaming anchor + verifier** — each GPS-stamped
       visit pins the embedding; flip ambiguity resolved statistically (dual
       candidates with split `conf` until then).

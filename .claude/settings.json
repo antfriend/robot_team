@@ -34,7 +34,9 @@
       "Bash(python orchestrator/companion.py cmd --op clear-percepts --node v4b_relay --port COM9)",
       "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM9)",
       "Bash(python orchestrator/companion.py cmd --op clear-percepts --node tdeck_1 --port COM10)",
-      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1 --last 5 --clear)"
+      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1 --last 5 --clear)",
+      "Bash(python tests/test_embed_py.py)",
+      "Bash(python orchestrator/companion.py positions)"
     ]
   }
 }

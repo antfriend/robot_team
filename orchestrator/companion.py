@@ -1813,6 +1813,204 @@ def proximity(port, baud, nodes, out, do_pull, settle,
                                     else "NO ACK — lane NOT cleared"))
 
 
+# --- position embedding (semantic positioning SP2) ---------------------------
+# Turn the pairwise @BELIEF:PROXIMITY matrix into per-node @BELIEF:POSITION via
+# weighted spring relaxation (stress majorization-lite — the spec's "~40 lines",
+# ttn-semantic-positioning.md §3 Phase 2). Laptop-side first; the same loop is
+# portable to the head node later. One anchor (V4-A) pins translation only, so
+# the output frame is RELATIVE: V4-A at the origin, V4-B along +x, and the
+# mirror image unresolved (flip_resolved: false) until the T-Deck GPS supplies
+# a second, roaming anchor.
+DEFAULT_POSITIONS_OUT = os.path.join("master", "positions.md")
+
+POSITIONS_HEADER = """# Fleet Position Beliefs (semantic positioning SP2)
+
+Authored by `companion.py positions`: the @BELIEF:PROXIMITY pair matrix embedded
+into 2D by weighted spring relaxation, then canonicalized — anchor at the
+origin, second node on +x, third node at +y. The frame is RELATIVE (one anchor
+fixes translation only): rotation and reflection are unresolved until a second
+anchor (the T-Deck GPS) pins them, so flip_resolved stays false. sigma_m folds
+each node's incident edge residuals + pair sigmas; stress is the fit's honesty.
+"""
+
+
+def parse_proximity_file(path):
+    """Parse master/proximity.md -> [{a, b, proto, dist, sigma, n, conf}]."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    pairs = []
+    for chunk in text.split("@BELIEF:PROXIMITY")[1:]:
+        m_pair = re.match(r"\s*@pair\((\w+),\s*(\w+)\)", chunk)
+        fields = {k: re.search(k + r":\s*(-?[\d.]+)", chunk)
+                  for k in ("dist_est_m", "dist_sigma_m", "n_obs", "conf")}
+        m_proto = re.search(r"proto:\s*(\w+)", chunk)
+        if not m_pair or not all(fields.values()):
+            continue
+        pairs.append({"a": m_pair.group(1), "b": m_pair.group(2),
+                      "proto": m_proto.group(1) if m_proto else "?",
+                      "dist": float(fields["dist_est_m"].group(1)),
+                      "sigma": float(fields["dist_sigma_m"].group(1)),
+                      "n": int(float(fields["n_obs"].group(1))),
+                      "conf": float(fields["conf"].group(1))})
+    return pairs
+
+
+def embed_positions(pairs, iters=1500, seed=1, anchor="v4a_bridge", restarts=8):
+    """Weighted spring relaxation of the pair-distance graph into 2D, with
+    random restarts (a folded start is a local minimum springs cannot uncross;
+    for <=10 nodes, restart-and-keep-best is cheaper than being clever).
+    Returns (pos {node: (x, y)}, residuals [(a, b, want, got)], stress_m)."""
+    import math
+    import random
+    nodes = sorted({p["a"] for p in pairs} | {p["b"] for p in pairs})
+    if len(nodes) < 2:
+        sys.exit("positions: need at least 2 nodes with proximity beliefs")
+    # Weight: confidence over variance (a wide-sigma pair may not drag the map).
+    springs = [(p["a"], p["b"], p["dist"], p["conf"] / max(p["sigma"], 0.1) ** 2)
+               for p in pairs]
+    wmax = max(w for _, _, _, w in springs)
+    dmean = sum(p["dist"] for p in pairs) / len(pairs)
+
+    def relax(rng):
+        p = {nd: [rng.uniform(-dmean, dmean), rng.uniform(-dmean, dmean)]
+             for nd in nodes}
+        for it in range(iters):
+            eta = 0.25 * (1.0 - it / iters) + 0.02
+            for a, b, d, w in springs:
+                dx, dy = p[b][0] - p[a][0], p[b][1] - p[a][1]
+                cur = math.hypot(dx, dy) or 1e-6
+                f = eta * (w / wmax) * (cur - d) / cur  # >0 pulls together
+                p[a][0] += f * dx / 2
+                p[a][1] += f * dy / 2
+                p[b][0] -= f * dx / 2
+                p[b][1] -= f * dy / 2
+        num = sum(w * (math.hypot(p[a][0] - p[b][0], p[a][1] - p[b][1]) - d) ** 2
+                  for a, b, d, w in springs)
+        return p, (num / sum(w for _, _, _, w in springs)) ** 0.5
+
+    pos, best = None, None
+    for r in range(restarts):
+        cand, st = relax(random.Random(seed + r))
+        if best is None or st < best:
+            pos, best = cand, st
+
+    # Canonical relative frame: anchor -> origin, next node -> +x axis,
+    # first off-axis node -> +y half-plane (deterministic mirror choice; the
+    # TRUE mirror stays unknown — flip_resolved: false).
+    import math as _m
+    anch = anchor if anchor in pos else nodes[0]
+    ax, ay = pos[anch]
+    for nd in nodes:
+        pos[nd][0] -= ax
+        pos[nd][1] -= ay
+    ref = next((nd for nd in nodes if nd != anch), None)
+    theta = _m.atan2(pos[ref][1], pos[ref][0])
+    c, s = _m.cos(-theta), _m.sin(-theta)
+    for nd in nodes:
+        x, y = pos[nd]
+        pos[nd] = [x * c - y * s, x * s + y * c]
+    third = next((nd for nd in nodes if abs(pos[nd][1]) > 1e-6), None)
+    if third and pos[third][1] < 0:
+        for nd in nodes:
+            pos[nd][1] = -pos[nd][1]
+
+    residuals = []
+    num = den = 0.0
+    for a, b, d, w in springs:
+        got = math.hypot(pos[a][0] - pos[b][0], pos[a][1] - pos[b][1])
+        residuals.append((a, b, d, got))
+        num += w * (got - d) ** 2
+        den += w
+    stress = (num / den) ** 0.5 if den else 0.0
+    return {nd: (pos[nd][0], pos[nd][1]) for nd in nodes}, residuals, stress
+
+
+def ascii_map(pos, width=57, height=19):
+    """Tiny TTCP foreshadow: the fleet's self-map as terminal art."""
+    xs = [p[0] for p in pos.values()]
+    ys = [p[1] for p in pos.values()]
+    pad = 0.5
+    x0, x1 = min(xs) - pad, max(xs) + pad
+    y0, y1 = min(ys) - pad, max(ys) + pad
+    grid = [[" "] * width for _ in range(height)]
+    for name, (x, y) in sorted(pos.items()):
+        cx = int((x - x0) / (x1 - x0) * (width - 8))
+        cy = int((1.0 - (y - y0) / (y1 - y0)) * (height - 1))
+        label = "*" + name[:7]
+        for k, ch in enumerate(label):
+            if 0 <= cx + k < width:
+                grid[cy][cx + k] = ch
+    lines = ["  +" + "-" * width + "+"]
+    lines += ["  |" + "".join(row) + "|" for row in grid]
+    lines += ["  +" + "-" * width + "+",
+              f"   {x1 - x0:.1f} m wide x {y1 - y0:.1f} m tall  "
+              f"(relative frame; mirror unresolved)"]
+    return "\n".join(lines)
+
+
+def positions(proximity_path, out, iters):
+    """SP2: embed the proximity beliefs into @BELIEF:POSITION records + a map."""
+    pairs = parse_proximity_file(proximity_path)
+    if not pairs:
+        sys.exit(f"no @BELIEF:PROXIMITY records in {proximity_path} — run "
+                 f"`companion.py proximity` first")
+    pos, residuals, stress = embed_positions(pairs, iters)
+
+    # embedding_rev: monotonic per output file (warm-start bookkeeping).
+    rev = 1
+    try:
+        with open(out, encoding="utf-8") as f:
+            revs = re.findall(r"embedding_rev:\s*(\d+)", f.read())
+        if revs:
+            rev = max(int(r) for r in revs) + 1
+    except FileNotFoundError:
+        pass
+
+    # Per-node honesty: rms of incident-edge residuals + mean pair sigma.
+    inc = {nd: [] for nd in pos}
+    conf_inc = {nd: [] for nd in pos}
+    for p in pairs:
+        got = next(g for a, b, _, g in residuals
+                   if (a, b) == (p["a"], p["b"]))
+        for nd in (p["a"], p["b"]):
+            inc[nd].append((got - p["dist"]) ** 2 + p["sigma"] ** 2)
+            conf_inc[nd].append(p["conf"])
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(POSITIONS_HEADER)
+        for nd, (x, y) in sorted(pos.items()):
+            sigma = (sum(inc[nd]) / len(inc[nd])) ** 0.5 if inc[nd] else 0.0
+            conf = sum(conf_inc[nd]) / len(conf_inc[nd]) if conf_inc[nd] else 0.1
+            conf = round(max(0.1, min(0.8, conf - min(0.3, stress / 4.0))), 2)
+            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
+                    f"frame: relative   # anchor v4a_bridge at origin, "
+                    f"2nd node on +x, 3rd at +y\n"
+                    f"x_m: {x:.2f}\ny_m: {y:.2f}\n"
+                    f"sigma_m: {sigma:.2f}\n"
+                    f"anchor_chain: [v4a_bridge]\n"
+                    f"embedding_rev: {rev}\n"
+                    f"flip_resolved: false   # one anchor; T-Deck GPS resolves\n"
+                    f"stress_m: {stress:.2f}\n"
+                    f"conf: {conf}\n"
+                    f"touched: {now_iso}\n")
+
+    print(f"positions: embedded {len(pos)} node(s) from {len(pairs)} pair "
+          f"belief(s)  (rev {rev}, stress {stress:.2f} m)")
+    print(f"{'node':<12} {'x_m':>7} {'y_m':>7} {'sigma_m':>8}")
+    for nd, (x, y) in sorted(pos.items()):
+        sigma = (sum(inc[nd]) / len(inc[nd])) ** 0.5 if inc[nd] else 0.0
+        print(f"{nd:<12} {x:>7.2f} {y:>7.2f} {sigma:>8.2f}")
+    print(f"\npair fit (want -> got):")
+    for a, b, want, got in residuals:
+        print(f"  {a:<11}<->{b:<11} {want:>6.2f} -> {got:>6.2f}  "
+              f"({got - want:+.2f})")
+    print()
+    print(ascii_map(pos))
+    print(f"\nwrote {out}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1943,6 +2141,14 @@ def main():
     ca.add_argument("--note", default="",
                     help="provenance: how the station RSSI values were derived")
 
+    po = sub.add_parser(
+        "positions",
+        help="SP2: embed @BELIEF:PROXIMITY into @BELIEF:POSITION + a fleet map")
+    po.add_argument("--proximity", default=DEFAULT_PROXIMITY_OUT,
+                    help="proximity beliefs to embed (companion.py proximity)")
+    po.add_argument("--out", default=DEFAULT_POSITIONS_OUT)
+    po.add_argument("--iters", type=int, default=3000)
+
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
@@ -2017,6 +2223,8 @@ def main():
                   args.clear)
     elif args.cmd == "calibrate":
         calibrate(args.proto, args.station, args.out, args.note)
+    elif args.cmd == "positions":
+        positions(args.proximity, args.out, args.iters)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

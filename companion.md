@@ -534,10 +534,21 @@ If a fact lives in one of these, link to it from here — don't copy it.
   2.9, V4-B↔K10 2.2, V4-B↔T-Deck 3.0, K10↔T-Deck 3.9 (sigma 0.3–0.7 m, conf up to 0.8) —
   **the K10 entered the map with zero firmware change**, one-directionally observed by the
   3.x nodes. Caveat: bench pairs sit just below the fit's 3.75 m valid-range floor.
-- **Next action — Act II, in order:** (a) *(optional SP1 close-out)* stride-count one or two
-  bench pairs and check the map's 2.2–4.0 m against truth (the spec's 30–50% bar). (b) **SP2
-  embedding** — spring relaxation over the proximity matrix (laptop-side first) +
-  **T-Deck GPS bring-up** as the roaming anchor/verifier (Plus variant confirmed on hand).
+- **SP2 EMBEDDING ✅ — THE FLEET DREW ITS FIRST MAP OF ITSELF (2026-07-07).**
+  `companion.py positions`: weighted spring relaxation (conf/sigma² weights, 8 random
+  restarts — the fold local-minimum bit during testing and restarts fixed it) embeds the
+  proximity matrix into **`@BELIEF:POSITION`** records (`master/positions.md`) in a
+  canonical relative frame (V4-A origin, 2nd node on +x, `flip_resolved: false` until the
+  T-Deck GPS pins the mirror), with an ASCII fleet map. Gated by `tests/test_embed_py.py`
+  (10 checks incl. exact square recovery + outlier immunity). **First live embed: 4 nodes /
+  6 pairs, stress 0.01 m, worst pair-fit 4 cm** — six independent calibrated distances agree
+  on one 2D layout: V4-A(0,0), K10(3.1,0), T-Deck(0.4,2.9), V4-B(3.3,2.2), a ~4.3 × 3.9 m
+  bench. Umwelt overlap → geometry, live, end to end.
+- **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
+  bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
+  (b) **SP2 remainder** — T-Deck GPS bring-up (Plus confirmed: UART GPS, hardware_specs) as
+  the roaming anchor/verifier; publish `@BELIEF:POSITION` back to nodes (ride TTN-RFC-0009
+  push or a compact POSITION toot — needs the RFC-before-code convention if a new type).
   (c) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE advertise+scan**
   (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI. Then SP3–SP6 per PLAN.md
   Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop + T-Deck).
