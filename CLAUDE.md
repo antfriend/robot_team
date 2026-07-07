@@ -6,13 +6,19 @@ A team of autonomous **ESP32 robots** (A32 agents) coordinated by a laptop
 **companion**. Each robot reasons from a Toot-Toot Database (TTDB) markdown file
 on its filesystem — no cloud LLM, no neural inference. Start every session by
 reading [companion.md](companion.md); it is the orchestrator and source of truth.
-The build roadmap is [PLAN.md](PLAN.md).
+The build roadmap is [PLAN.md](PLAN.md). The **primary hypothesis** the fleet
+exists to prove is **semantic positioning**
+([ttn-semantic-positioning.md](ttn-semantic-positioning.md)): infer node
+positions from umwelt overlap, verify against the T-Deck GPS, auto-switch links
+ESP-NOW ↔ LoRa from the resulting beliefs, and render fleet/node status as TTCP
+on the laptop and the T-Deck (PLAN.md Act II).
 
 ## Layout
 
 ```
 companion.md            Orchestrator brain (read first)
-PLAN.md                 Phased build plan
+PLAN.md                 Phased build plan (Act I floor -> Act II hypothesis)
+ttn-semantic-positioning.md   The primary hypothesis + its proof legs
 firmware/
   libraries/            Shared Arduino libs (added per-build via --libraries)
     Toot/               Wire frame + portable SHA-256/HMAC + dedup + serial link

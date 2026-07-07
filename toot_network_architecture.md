@@ -9,6 +9,12 @@ as distance grows. ESP-NOW is the default whenever peers are in range; LoRa is
 the long-haul backbone; the orchestrator bridges into the mesh through a tethered
 LoRa node.
 
+> **Planned (Act II):** the rung choice becomes *belief-driven*. Semantic
+> positioning (`ttn-semantic-positioning.md`) supplies per-pair distance
+> beliefs that **auto-switch each link between ESP-NOW and LoRa** with
+> hysteresis — no manual transport config (PLAN.md SP5). BLE is used as a
+> near-range *evidence* tier for that inference, never as a toot transport.
+
 ```
  Latency / cost  →  low ............................. high
  Range           →  short ............................ long

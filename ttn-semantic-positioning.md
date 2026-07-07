@@ -2,7 +2,40 @@
 
 **Inferring Relative Physical Position of ESP32 Nodes from TTDB Semantic Relationships**
 
-*Draft 0.1 — Toot Toot Engineering — July 2026*
+*Draft 0.2 — Toot Toot Engineering — July 2026*
+
+**Status: PRIMARY HYPOTHESIS of robot_team (adopted 2026-07-07).** This is the
+claim the fleet now exists to prove. The build order is PLAN.md **Act II**;
+companion.md §6 tracks its live state. Everything verified so far — toots,
+HMAC, sync, Dream Cycle, pulse — is the floor this proof stands on.
+
+---
+
+## 0. The Hypothesis — and the three proofs
+
+> **A mesh of ESP32 nodes can infer its own physical arrangement from the
+> semantic structure of what it perceives** — umwelt overlap implies spatial
+> proximity — **accurately enough to be useful.**
+
+"Useful" is pinned to three concrete, falsifiable proof legs:
+
+1. **Verified.** Position beliefs land within their own stated `sigma` of
+   ground truth, measured against the **T-Deck's GPS** used as a roaming
+   verification instrument (§4). The map must be *honest*, not just pretty.
+2. **Actuated.** The inferred pairwise proximity **drives the transport ladder
+   automatically**: each node pair selects **ESP-NOW when the belief says
+   in-range and falls back to LoRa when it doesn't**, with hysteresis, without
+   configuration (§3, Phase 5). Position belief becomes behavior.
+3. **Rendered.** The emergent map is *visible* as **TTCP** — network + node
+   status drawn from the master TTDB on the **laptop** (browser viewer, the
+   [antfriend.github.io](https://github.com/antfriend/antfriend.github.io)
+   pattern) and natively on the **T-Deck's 320×240 screen** (§3, Phase 6).
+   The fleet draws a live map of itself.
+
+**Falsifier:** the ablation study (§4.3) compares RSSI-only against
+RSSI+semantic evidence (entity co-occurrence, BLE near-range, environmental
+TDoA). If the semantic layer adds nothing over plain radio ranging, the
+hypothesis fails, and this document records why.
 
 ---
 
@@ -23,6 +56,8 @@ Three families of evidence, all naturally representable as paired `@PERCEPT:befo
 2. **Shared-entity co-occurrence.** Nodes log sightings of external entities: WiFi SSIDs/BSSIDs, BLE advertisement MACs, acoustic events, recognized RF beacons. The Jaccard overlap of two nodes' entity sets is a coarse proximity measure. Shared visible WiFi APs alone typically bound two observers to within ~50–100 m of each other; BLE overlap bounds tighter (~10–30 m).
 
 3. **Environmental gradient timing.** Spatially propagating transients — rain fronts, temperature drops, sunrise/sunset light curves, pressure waves — arrive at different nodes at different times. Time-difference-of-arrival between correlated environmental percepts yields directional constraints. Solar charge curves (V4-B) additionally encode shading geometry and panel orientation at zero sensor cost.
+
+4. **BLE near-range approximation.** Every board carries BLE 5.0. Nodes advertise and scan: inter-node BLE advertisement visibility (and its RSSI) bounds a pair to roughly 10–30 m — a short-range proximity tier that tightens `dist_sigma_m` exactly where ESP-NOW RSSI is least informative (near-field flattening: past a few meters of separation, strong ESP-NOW RSSI barely changes). Same percept schema as link observations, `proto: ble`. BLE is an *approximation tool*, never a transport: it contributes evidence, not toots.
 
 ### 1.2 Synthesis
 
@@ -139,7 +174,7 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 
 - Build the symmetric distance matrix from proximity beliefs, weighting entries by `conf` (missing/low-conf pairs get large sigma, not zero weight).
 - **Solver:** for ≤10 nodes, skip classical MDS eigendecomposition and use weighted spring relaxation (stress majorization): iterate `xᵢ ← xᵢ + η·Σⱼ wᵢⱼ·(‖xᵢ−xⱼ‖ − dᵢⱼ)·(xⱼ−xᵢ)/‖xᵢ−xⱼ‖`. It's ~40 lines of C, converges in hundreds of iterations, handles missing entries natively, and warm-starts from the previous embedding so incremental updates are nearly free.
-- **Anchoring:** translate/rotate the relative embedding so V4-A lands on its known `@LATxLONy`. With one anchor, orientation remains free — resolve with a declared bearing constraint or a second anchor (e.g., temporarily place a phone-GPS-assisted node).
+- **Anchoring:** translate/rotate the relative embedding so V4-A lands on its known `@LATxLONy`. With one anchor, orientation remains free — resolve with a declared bearing constraint or a second anchor. **The T-Deck is the second anchor:** its GPS gives it an authoritative position wherever it happens to be, and because it *roams*, it is effectively many anchors over time — each GPS-stamped position it visits pins the relative embedding a little harder and breaks flip ambiguity statistically (the mobile-node/SLAM-lite mode of §5, promoted to a core role).
 - **Flip handling:** evaluate stress for both mirror images; if within noise of each other, emit both candidates with split `conf` and mark `flip_resolved: false`.
 - Run on the head node (V4-A) or attached host; publish resulting position beliefs back over the mesh so each node stores its own.
 
@@ -161,14 +196,64 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 - Node self-address update: when `@BELIEF:POSITION` `conf` exceeds a threshold and disagrees with the node's configured `@LATxLONy` beyond `sigma`, raise a revision event. Policy choice per deployment: auto-adopt (fully emergent addressing) or flag-for-operator (conservative).
 - Movement detection falls out for free: a sustained shift in a node's link-RSSI profile drops the `conf` of stale proximity beliefs via `touched` decay, triggering re-embedding. The mesh notices it was rearranged.
 
+### Phase 5: Transport Auto-Switch (proof leg 2 — actuation)
+
+*Goal: proximity beliefs drive the range-adaptive ladder without configuration.*
+
+- Each node holds a per-peer transport choice derived from belief, not config:
+  **ESP-NOW** if `dist_est_m + k·dist_sigma_m` is inside the calibrated ESP-NOW
+  envelope *and* link percepts for that peer are fresh; otherwise **LoRa**
+  (`USE_LORA` finally earns its Phase-4 bring-up — the SX1262 path on the V4s
+  and the T-Deck).
+- **Hysteresis is mandatory:** switch on `k·sigma` margins plus a freshness
+  timeout, never on a single observation. A flapping link is worse than a slow
+  one. Switch events are rare and logged.
+- Each switch decision is itself a percept (*before:* chosen transport +
+  expected delivery, *after:* delivery outcome), so the Dream Cycle audits
+  whether the belief chose well — **the actuation loop feeds its own evidence.**
+- Pass criterion: with one pair walked out of ESP-NOW range (T-Deck roaming, or
+  V4-C fielded), traffic falls back to LoRa *before* ESP-NOW delivery dies and
+  returns to ESP-NOW when back in range — with zero manual transport config.
+
+### Phase 6: TTCP Rendering (proof leg 3 — the payoff render)
+
+*Goal: the emergent map of network + node status, visible on two very
+different screens from the same TTDB.*
+
+- **Laptop:** the master TTDB (`reconcile` output + `@BELIEF:PROXIMITY` /
+  `@BELIEF:POSITION` records) rendered in the browser per the TTCP RFCs
+  (`RFCs/TTCP-RFC-0001..0003`: record rendering, knowledge globe + cursor
+  navigation, toot URIs). The working example is
+  **[antfriend.github.io](https://github.com/antfriend/antfriend.github.io)** —
+  a dependency-free JS viewer that loads a TTDB via `?ttdb=<file>.md`; the
+  companion's job is to keep emitting a master file that viewer can render, so
+  the laptop leg is mostly *authoring discipline, not new renderer code*.
+  Node status (last-seen, sync skew, transport in use, position `conf`/`sigma`)
+  rides on each node's record; proximity beliefs render as typed edges.
+- **T-Deck:** a native TTCP mini-renderer on the 320×240 (the console's fleet
+  view grown up): the fleet globe drawn from the on-flash TTDB — nodes at
+  their believed `@LATxLONy` with `sigma` circles, edges colored by transport
+  (ESP-NOW / LoRa) and link health, trackball moves the cursor (TTCP-RFC-0002
+  cursor semantics), keyboard keeps its CMD remote role. The T-Deck pulls
+  belief updates over the mesh like any Dream-Cycle participant — the map it
+  draws is the map it *carries*.
+- Pass criterion: laptop and T-Deck render **the same fleet state from the
+  same TTDB lineage**, and a physical rearrangement of the bench shows up on
+  both screens within a stated number of Dream Cycles.
+
 ---
 
 ## 4. Validation Plan
 
-1. **Ground truth:** tape measure / phone GPS positions for all three nodes. Record once.
-2. **Metrics:** pairwise distance error (%), embedded position error (m) after anchoring, flip-resolution correctness, time-to-converge after a node move.
-3. **Ablation:** RSSI-only vs. RSSI+entity vs. all three sources — quantifies what the semantic layer adds over plain radio ranging. This comparison is the interesting result: it's the difference between "we did RSSI localization" and "umwelt overlap measurably improves spatial self-knowledge," which is the Locus-flavored claim.
-4. **Stress test:** move V4-C 50 m and measure how many Dream Cycles until the map catches up.
+1. **Ground truth: the T-Deck GPS is the verification instrument.** Walk the
+   T-Deck to each static node and record a GPS fix beside it (plus tape measure
+   for pairs under GPS resolution); the roaming T-Deck also continuously scores
+   its *own* position belief against its live fix — an always-on residual for
+   proof leg 1. (GPS is the *verifier*, never an input to the inference under
+   test — keep the legs separate or the proof is circular.)
+2. **Metrics:** pairwise distance error (%), embedded position error (m) after anchoring vs. GPS truth, flip-resolution correctness, time-to-converge after a node move, and transport-switch correctness (Phase 5 pass criterion).
+3. **Ablation:** RSSI-only vs. RSSI+entity vs. RSSI+entity+BLE vs. all four sources — quantifies what the semantic layer adds over plain radio ranging. This comparison is the interesting result: it's the difference between "we did RSSI localization" and "umwelt overlap measurably improves spatial self-knowledge," which is the Locus-flavored claim — and it is the hypothesis's falsifier (§0).
+4. **Stress test:** move V4-C 50 m and measure how many Dream Cycles until the map catches up — on both TTCP renders.
 
 ---
 
@@ -200,9 +285,11 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 |---|---|---|---|
 | 0 Instrumentation | 1–2 wk | Flash wear from percept volume | RAM buffering, batched writes, aggressive pruning |
 | 1 Pairwise distance | 1–2 wk | RSSI noise → bad estimates | Median-of-top-quartile, calibration walk, sigma honesty |
-| 2 Embedding | 2–3 wk | Flip ambiguity, single anchor | Dual-candidate beliefs, declared bearing, 2nd anchor |
+| 2 Embedding | 2–3 wk | Flip ambiguity, single anchor | Dual-candidate beliefs, T-Deck GPS roaming anchor |
 | 3 Env TDoA | 2–4 wk | Clock sync precision | Slow signals first; μs sync deferred |
 | 4 Address loop | 1 wk | Runaway self-revision | Conf threshold + operator flag mode default |
+| 5 Transport auto-switch | 1–2 wk | Link flapping | k·sigma hysteresis + freshness timeout; switch events logged |
+| 6 TTCP rendering | 2–3 wk | Two renderers drifting apart | One TTDB lineage; laptop leg reuses the existing viewer (authoring, not renderer code) |
 
 ## Appendix B: Calibration Procedure (Phase 1)
 

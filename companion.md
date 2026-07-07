@@ -27,6 +27,15 @@ laptop **orchestrator** running the Locus reasoning loop and Dream Cycle.
 - **One protocol, the "toot."** Every message is a 250-byte toot frame, HMAC
   signed, dedup-keyed on `(src_node_id, toot_seq)`. See
   `toot_network_architecture.md`.
+- **The primary hypothesis is SEMANTIC POSITIONING** (adopted 2026-07-07, spec:
+  `ttn-semantic-positioning.md`): the fleet can infer its own physical
+  arrangement from umwelt overlap, and prove it three ways — **verified**
+  (position beliefs within their stated `sigma` of the T-Deck's GPS ground
+  truth, BLE as the near-range approximation tier), **actuated** (proximity
+  beliefs auto-switch each link between ESP-NOW and LoRa), and **rendered**
+  (network + node status drawn as TTCP on the laptop *and* the T-Deck screen —
+  the end goal). Everything verified so far is the floor this proof stands on.
+  Build order: PLAN.md **Act II**.
 
 ---
 
@@ -133,6 +142,8 @@ orchestrates them live:
 | TBEW parser extension ([ew] blocks) | `RFCs/A32-RFC-0002-Amendment-A-TBEW.md` |
 | TTDB file format / edges / weights | `RFCs/TTDB-RFC-000{1..8}` |
 | Mesh transport, toot frame, bring-up order | `toot_network_architecture.md` |
+| **Semantic positioning — the primary hypothesis** | `ttn-semantic-positioning.md` |
+| TTCP rendering (records, globe, URIs) | `RFCs/TTCP-RFC-000{1..3}`; live reference viewer: [antfriend.github.io](https://github.com/antfriend/antfriend.github.io) |
 | Board specs, GPIO maps, gotchas | `hardware_specs.md` |
 | Build plan & milestones | `PLAN.md` |
 | RFC catalog | `RFCs/INDEX.md` |
@@ -448,17 +459,33 @@ If a fact lives in one of these, link to it from here — don't copy it.
   making it wait up to `PULSE_RESYNC_PERIOD` (30 s). Steady-state traffic unchanged (a
   steadily-present neighbor doesn't retrigger it). Both flashed; K10 verified conducting `era 1,
   bpm 120`. Pending: user confirms the rejoin.
-- **Next action — pick one:** (a) **Confirm the power-cycle rejoin** (press `g`, power-cycle the
-  T-Deck, watch it resume the harmony in a few seconds — the last unverified piece of the duet).
-  (b) **Reflash V4-A/V4-B** to the Pulse.h tempo + fast-lock so the whole band is 120 BPM and
-  rejoins fast regardless of which node conducts. (c) **More tunes / parts** —
-  `kLeadNotes`/`kHarmNotes` are one-table swaps (TTN-RFC-0010 §7); add a song selector or a 2nd
-  pitched node (purpose-built hardware — the user's stated progression). (d) **Faster
-  reconvergence** — shorten `PULSE_RESYNC_PERIOD_MS` + `PULSE_CONDUCTOR_TIMEOUT_MS` (and/or
-  persist `era` in NVS) so a conductor reboot re-locks in seconds, not ~90 s; still well within
-  the minimal-traffic budget. (e) Confirm the **V4 white LED on GPIO35** actually blinks (OLED
-  beat-dot is the fallback). Plus earlier options: more `**DIRECTIVE**` types, V4-B relay
-  forwarding, belief range-readback. Phases 3–4 (V4-C, LoRa) gated on V4-C + `USE_LORA`.
+- **PROJECT REORIENTED (2026-07-07) — SEMANTIC POSITIONING is now the primary hypothesis to
+  prove** (`ttn-semantic-positioning.md`, promoted from draft to governing spec; build order
+  PLAN.md **Act II**, SP0–SP6). The claim: the fleet infers its own physical arrangement from
+  umwelt overlap (link RSSI percepts, shared-entity co-occurrence, **BLE as the near-range
+  approximation tier**, environmental TDoA), consolidated by the Dream Cycle into
+  `@BELIEF:PROXIMITY` / `@BELIEF:POSITION`. Three proof legs: **verified** (beliefs within
+  their stated `sigma` of ground truth, the **T-Deck GPS as the roaming verification
+  instrument** — verifier only, never an input, or the proof is circular); **actuated**
+  (proximity beliefs **auto-switch each link between ESP-NOW and LoRa** with k·sigma
+  hysteresis — this is what finally un-gates `USE_LORA`); **rendered** (the end goal:
+  **network + node status as TTCP on both the laptop and the T-Deck** — the laptop leg
+  re-uses the existing [antfriend.github.io](https://github.com/antfriend/antfriend.github.io)
+  viewer over the master TTDB, so it's authoring discipline, not renderer code; the T-Deck
+  leg grows the console fleet view into a native TTCP mini-renderer with trackball cursor
+  navigation per TTCP-RFC-0002). Everything verified so far — toots/HMAC, self-healing pull,
+  time-sync, reconcile/push, pulse — is the instrumentation floor for this proof.
+- **Next action — Act II, in order:** (a) **SP0 instrumentation** — capture per-frame RSSI in
+  every ESP-NOW recv callback (`rx_ctrl.rssi`) as `@PERCEPT:LINK` records (RAM ring buffer,
+  batched TTDB flush — flash-wear discipline), piggyback per-peer RSSI into existing beacons,
+  add duty-cycled WiFi-scan entity percepts; verify by pulling a node's percept lane. (b) **SP1
+  calibration walk** — two V4s at 5/20/50/100 m, fit the path-loss model, store as
+  `@BELIEF:CALIBRATION`. (c) **SP2 embedding** — `reconcile` grows the proximity/position
+  consolidation job; T-Deck GPS comes online as the roaming anchor/verifier. Then SP3–SP6 per
+  PLAN.md Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop +
+  T-Deck). **Band/maintenance backlog (secondary):** confirm the T-Deck power-cycle rejoin;
+  reflash V4-A/V4-B to the 120 BPM Pulse.h + fast-lock build; more tunes/parts; faster pulse
+  reconvergence; confirm the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**` types.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -674,3 +701,23 @@ both voices boot silent and start/stop via `CMD_PLAY`/`CMD_STOP` (keyboard `g`/`
 Gotchas baked into CLAUDE.md/memory: tempo lives in `Pulse.h` (a sketch `#define`
 never reaches `Pulse.cpp`), the era latch keeps an old tempo across a reflash
 (cold-start the fleet), and K10 GPIO45 is the speaker, not the backlight.
+
+---
+
+@LAT90LON50 | created:1783382400 | updated:1783382400 | relates:refines@LAT0LON0,supports@LAT10LON0,derived_from@LAT90LON40
+
+**Decision — SEMANTIC POSITIONING is the primary hypothesis (2026-07-07).** The
+project's governing claim (`ttn-semantic-positioning.md`): nodes infer their
+physical arrangement from umwelt overlap — link RSSI percepts, shared-entity
+co-occurrence, **BLE near-range approximation**, environmental TDoA — fused by
+the Dream Cycle into `@BELIEF:PROXIMITY` / `@BELIEF:POSITION`. Proof legs:
+**verified** against the **T-Deck GPS** (roaming ground-truth instrument,
+never an inference input), **actuated** (beliefs auto-switch each link
+**ESP-NOW ↔ LoRa** with hysteresis — the reason `USE_LORA` finally comes up),
+and **rendered** (the end goal: network + node status as **TTCP on the laptop
+and the T-Deck** — laptop via the existing
+[antfriend.github.io](https://github.com/antfriend/antfriend.github.io) viewer
+over the master TTDB, T-Deck via a native mini-renderer grown from the console
+fleet view). Build order: PLAN.md Act II (SP0 instrumentation → SP1 calibration
+→ SP2 embedding/anchoring → SP3 env TDoA → SP4 address loop → SP5 transport
+auto-switch → SP6 TTCP render).

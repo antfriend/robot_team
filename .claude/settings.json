@@ -5,7 +5,11 @@
       "Bash('/c/Program Files/Arduino CLI/arduino-cli.exe' compile --upload -p COM11 --fqbn esp32:esp32:esp32s3:CDCOnBoot=cdc --libraries firmware/libraries firmware/tdeck_console)",
       "Bash(python orchestrator/companion.py pull --port COM10 --node tdeck_1 --out master/tdeck.md)",
       "Bash(python orchestrator/companion.py pull --port COM6 --node tdeck_1 --out master/tdeck_bridged.md)",
-      "Bash(python orchestrator/companion.py band --port COM3 --nodes k10_1)"
+      "Bash(python orchestrator/companion.py band --port COM3 --nodes k10_1)",
+      "Bash(git -C /c/git/TTN remote -v)",
+      "Bash(git -C /c/git/toot-toot-engineering remote -v)",
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

@@ -204,6 +204,12 @@ ESP-NOW in range, and — uniquely for a screen+keyboard node — can join the L
 spine directly via its SX1262, so it can drive the swarm off-grid without the
 laptop. Also a natural pitched **band instrument** (I²S speaker + keyboard).
 
+Two Act-II roles (semantic positioning, `ttn-semantic-positioning.md`): its
+**GPS** (Plus variant) makes it the fleet's **roaming ground-truth instrument**
+— each GPS-stamped position verifies (and anchors) the emergent position map —
+and its screen is the target for the native **TTCP fleet render** (PLAN.md SP6),
+the map the mesh draws of itself, carried in the hand.
+
 ### Official resources
 - Product / schematic / pinout: `https://github.com/Xinyuan-LilyGO/T-Deck`
 

@@ -5,9 +5,15 @@ Build plan for `robot_team`. The orchestration model lives in
 order**; `companion.md` is the **who and why**.
 
 **Goal:** a working swarm of A32 (ESP32) robots — 3× Heltec V4 LoRa spine
-(bridge/relay/edge) + UNIHIKER K10 percept nodes — coordinated by the laptop
-orchestrator, exchanging HMAC-signed toots, consolidating beliefs via the Dream
-Cycle into a master TTDB. No cloud LLM on any device.
+(bridge/relay/edge) + UNIHIKER K10 percept nodes + the T-Deck console —
+coordinated by the laptop orchestrator, exchanging HMAC-signed toots,
+consolidating beliefs via the Dream Cycle into a master TTDB. No cloud LLM on
+any device. **Act I (Phases 0–7) builds that floor; Act II proves the primary
+hypothesis on top of it: SEMANTIC POSITIONING** (`ttn-semantic-positioning.md`)
+— the fleet infers its own physical arrangement from umwelt overlap, verified
+against the T-Deck GPS, actuating automatic ESP-NOW↔LoRa transport selection,
+and rendered as **TTCP network/node-status views on both the laptop and the
+T-Deck** (the end goal).
 
 **Strategy:** additive and bottom-up. Every phase ends with something that runs
 and is verified. We never wire the long-range mesh before the in-range default
@@ -354,6 +360,95 @@ K10's cadence (1000→300→700 ms). Remaining items are multi-node (gated on V4
 
 **Done when:** the fielded spine delivers toots both directions over real
 distance, off-grid.
+
+---
+
+# Act II — Semantic Positioning (the primary hypothesis)
+
+Spec: **`ttn-semantic-positioning.md`** (§0 states the hypothesis and its three
+proof legs; §3 details each phase below). Adopted 2026-07-07 as the claim the
+fleet exists to prove. Act I's remaining phases now *serve* Act II: Phase 3
+(V4-C) adds the 4th static node that breaks flip ambiguity, Phase 4 (LoRa)
+supplies the long rung SP5 switches to, Phase 7 (field) provides the distances
+that make positioning non-trivial. Same additive strategy: every SP phase ends
+with something measured.
+
+## SP0 — Instrumentation (every frame becomes a percept)
+
+- [ ] Capture per-frame RSSI in each node's ESP-NOW recv callback
+      (`rx_ctrl.rssi`); LoRa RSSI/SNR from the SX1262 driver once Phase 4 is up.
+- [ ] RAM ring buffer (~64 obs) + batched flush to a rolling `@PERCEPT:LINK`
+      lane in the TTDB — never per-packet writes (flash wear).
+- [ ] Piggyback each node's recent per-peer RSSI into existing beacons so both
+      directions of every link are known (asymmetry is diagnostic).
+- [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`;
+      **BLE advertise + scan on all boards** as the near-range (~10–30 m) tier.
+
+**Done when:** `pull` returns a percept lane with link + entity observations
+from every powered node; verified with a serial dump. Pure plumbing, no inference.
+
+## SP1 — Pairwise distance (calibration + consolidation)
+
+- [ ] Calibration walk (two V4s at 5/20/50/100 m), fit the log-distance
+      path-loss model, store as `@BELIEF:CALIBRATION` (per protocol — ESP-NOW
+      and LoRa differ).
+- [ ] Dream-Cycle job in `reconcile`: raw percepts → `@BELIEF:PROXIMITY` per
+      pair (median-of-top-quartile RSSI, entity-Jaccard cap, BLE bound), with
+      honest `dist_sigma_m`; prune consumed percepts.
+
+**Done when:** `dist_est_m` within ~30–50 % of tape-measure truth for every
+powered pair, `sigma` honest.
+
+## SP2 — Embedding + anchoring (position beliefs)
+
+- [ ] Weighted spring relaxation over the proximity matrix (~40 lines of C, or
+      laptop-side first); anchor on V4-A's known position.
+- [ ] **T-Deck GPS online as the roaming anchor + verifier** — each GPS-stamped
+      visit pins the embedding; flip ambiguity resolved statistically (dual
+      candidates with split `conf` until then).
+- [ ] Publish `@BELIEF:POSITION` back to each node over the mesh.
+
+**Done when:** the embedded map recovers the bench/yard geometry within stated
+`sigma`, scored against T-Deck GPS fixes (GPS is the verifier, never an input).
+
+## SP3 — Environmental TDoA (directional evidence; parallelizable)
+
+- [ ] Onset detection on temp/light/pressure channels → `@PERCEPT:ENV`;
+      cross-correlate onsets across nodes (slow fronts first — the ±ms
+      TTN-RFC-0008 sync is already sufficient).
+
+## SP4 — Position as living belief (address loop)
+
+- [ ] High-`conf` position disagreeing with the configured `@LATxLONy` raises a
+      revision event (flag-for-operator default); movement detection via
+      `touched` decay → re-embedding.
+
+## SP5 — Transport auto-switch (proof leg 2: actuation)
+
+- [ ] Per-peer transport choice from belief: ESP-NOW when `dist_est + k·sigma`
+      fits the calibrated envelope and percepts are fresh, else **LoRa**
+      (un-gates `USE_LORA`, Phase 4). Hysteresis mandatory; switch events are
+      logged percepts so the Dream Cycle audits its own choices.
+
+**Done when:** a pair walked out of ESP-NOW range falls back to LoRa *before*
+delivery dies and returns when back in range — zero manual transport config.
+
+## SP6 — TTCP rendering (proof leg 3: the payoff render, the end goal)
+
+- [ ] **Laptop:** master TTDB (+ proximity/position beliefs, node status:
+      last-seen, skew, transport, `conf`/`sigma`) rendered in the browser per
+      `RFCs/TTCP-RFC-0001..0003` — the working example is
+      [antfriend.github.io](https://github.com/antfriend/antfriend.github.io)
+      (dependency-free JS viewer, loads `?ttdb=<file>.md`); this leg is
+      authoring discipline, not new renderer code.
+- [ ] **T-Deck:** native TTCP mini-renderer on the 320×240, grown from the
+      console fleet view — nodes at believed `@LATxLONy` with `sigma` circles,
+      edges colored by transport + link health, trackball cursor
+      (TTCP-RFC-0002), keyboard keeps the CMD-remote role.
+
+**Done when:** laptop and T-Deck render the same fleet state from the same TTDB
+lineage, and physically rearranging the bench shows up on both screens within a
+stated number of Dream Cycles. **This is the project's end goal.**
 
 ---
 
