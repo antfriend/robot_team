@@ -54,3 +54,57 @@ dedups on (src,seq).
 @LAT99LON1 | created:1782430029 | updated:1782430029 | relates:logs@LAT0LON0
 
 **SYNC** id:4 t_ms:1782430029108 recv_ms:149590 offset_ms:1782429879518
+
+---
+
+@LAT98LON0 | created:1782430070 | updated:1782430070 | relates:adopts@LAT0LON0
+
+**BELIEF-ADOPTED** id:9 bytes:1373 crc:9EFD9530 recv_ms:191382
+
+---
+
+@LAT99LON2 | created:1783367393 | updated:1783367393 | relates:logs@LAT0LON0
+
+**SYNC** id:5 t_ms:1783367393574 recv_ms:249323 offset_ms:1783367144251
+
+---
+
+@LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60006 synced:0 window_ms:60006
+**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-47 rssi_med:-34 rssi_max:-32
+**LINK** peer:0x00000200 proto:espnow n:33 rssi_min:-53 rssi_med:-29 rssi_max:-26
+
+---
+
+@LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120006 synced:0 window_ms:60000
+**LINK** peer:0x00000010 proto:espnow n:30 rssi_min:-39 rssi_med:-34 rssi_max:-33
+**LINK** peer:0x00000200 proto:espnow n:41 rssi_min:-37 rssi_med:-33 rssi_max:-32
+**LINK** peer:0x00000001 proto:espnow n:2 rssi_min:-34 rssi_med:-34 rssi_max:-33
+
+---
+
+@LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:180015 synced:0 window_ms:60009
+**LINK** peer:0x00000010 proto:espnow n:28 rssi_min:-41 rssi_med:-35 rssi_max:-32
+**LINK** peer:0x00000200 proto:espnow n:43 rssi_min:-38 rssi_med:-34 rssi_max:-27
+**LINK** peer:0x00000001 proto:espnow n:2 rssi_min:-38 rssi_med:-38 rssi_max:-34
+
+---
+
+@LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:240043 synced:0 window_ms:60028
+**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-37 rssi_med:-32 rssi_max:-30
+**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-34 rssi_med:-29 rssi_max:-27
+
+---
+
+@LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:300043 synced:0 window_ms:60000
+**LINK** peer:0x00000010 proto:espnow n:28 rssi_min:-39 rssi_med:-33 rssi_max:-31
+**LINK** peer:0x00000200 proto:espnow n:29 rssi_min:-30 rssi_med:-27 rssi_max:-27

@@ -412,13 +412,24 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
 
 - [ ] Calibration walk (two V4s at 5/20/50/100 m), fit the log-distance
       path-loss model, store as `@BELIEF:CALIBRATION` (per protocol — ESP-NOW
-      and LoRa differ).
-- [ ] Dream-Cycle job in `reconcile`: raw percepts → `@BELIEF:PROXIMITY` per
-      pair (median-of-top-quartile RSSI, entity-Jaccard cap, BLE bound), with
-      honest `dist_sigma_m`; prune consumed percepts.
+      and LoRa differ). **The bench-only bottleneck** — everything downstream
+      runs uncalibrated with widened sigma until this lands.
+- [x] Consolidation job — **built + first live run 2026-07-07**:
+      `companion.py proximity` pulls the fleet, fuses each pair's directional
+      `@LAT97` windows (median of per-window `rssi_max` per direction,
+      directions averaged; sigma from spread + asymmetry, ×2 while
+      uncalibrated; the orchestrator pseudo-peer `0x1` excluded) into
+      **`@BELIEF:PROXIMITY`** records in `master/proximity.md`. Offline gate:
+      `tests/test_prox_py.py` (21 checks). **First fleet proximity map:**
+      V4-A↔V4-B 0.34 m ±0.18 (n=282), V4-A↔T-Deck 1.21 m ±1.78 (n=303),
+      V4-B↔T-Deck 0.26 m ±0.15 (n=352) — plausible bench geometry, and the
+      triangle-inequality violation (0.34+0.26 < 1.21) is the expected
+      uncalibrated-RSSI distortion, honestly covered by the wide sigma.
+- [ ] Entity-Jaccard cap + BLE bound terms (gated on the SP0 entity/BLE
+      sub-steps); prune consumed `@LAT97` percepts after consolidation.
 
 **Done when:** `dist_est_m` within ~30–50 % of tape-measure truth for every
-powered pair, `sigma` honest.
+powered pair, `sigma` honest. (Needs the calibration walk.)
 
 ## SP2 — Embedding + anchoring (position beliefs)
 

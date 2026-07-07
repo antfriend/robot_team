@@ -497,17 +497,29 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (-53/-29/-26); T-Deck sees V4-A n=12+26 (-49…-59/-42…-50/-37…-44) and V4-B n=29
   (-38/-34/-30). This is the spec's "distance measurement in disguise," live for the first
   time — three nodes, six directional links, all logged with zero per-packet flash writes.
-- **Next action — Act II, in order:** (a) **SP0 on-device verify** (flash + `percepts`, above),
-  then the remaining SP0 sub-steps: beacon RSSI piggyback (both link directions), WiFi-scan
-  `@PERCEPT:ENTITY`, **BLE advertise+scan** (the near-range tier), K10 promiscuous RSSI.
-  (b) **SP1 calibration walk** — two V4s at 5/20/50/100 m, fit the path-loss model, store as
-  `@BELIEF:CALIBRATION`; `reconcile` grows the `@BELIEF:PROXIMITY` consolidation + `@LAT97`
-  pruning. (c) **SP2 embedding** — spring relaxation + T-Deck GPS as the roaming
-  anchor/verifier. Then SP3–SP6 per PLAN.md Act II (env TDoA → address loop → transport
-  auto-switch → TTCP render on laptop + T-Deck). **Band/maintenance backlog (secondary):**
-  confirm the T-Deck power-cycle rejoin; reflash V4-A/V4-B to the 120 BPM Pulse.h + fast-lock
-  build (free with the SP0 reflash!); more tunes/parts; faster pulse reconvergence; confirm
-  the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**` types.
+- **SP1 consolidation BUILT + FIRST FLEET PROXIMITY MAP ✅ (2026-07-07).** New
+  **`companion.py proximity`** pulls the fleet and fuses each pair's directional `@LAT97`
+  windows into **`@BELIEF:PROXIMITY`** records (`master/proximity.md`, spec §2.1 format):
+  median of per-window `rssi_max` per direction, directions averaged; sigma from spread +
+  asymmetry, ×2 while uncalibrated; the **orchestrator pseudo-peer `0x1` excluded** (the
+  laptop's own bridged pulls show up as receptions — real physics, meaningless range; found
+  live, filtered by design). Offline gate `tests/test_prox_py.py` (21 checks). **First live
+  run over the bridge (937 obs):** V4-A↔V4-B **0.34 m ±0.18** (n=282), V4-A↔T-Deck
+  **1.21 m ±1.78** (n=303), V4-B↔T-Deck **0.26 m ±0.15** (n=352). The triangle-inequality
+  violation (0.34+0.26 < 1.21) is the predicted uncalibrated-RSSI distortion, honestly inside
+  the wide sigma — SP2's solver weighs by sigma, so it absorbs this. Bonus: two pulls
+  air-dropped frames and the `TTDB_REQ_RANGE` self-heal recovered both transparently.
+- **Next action — Act II, in order:** (a) **SP1 calibration walk** (bench-only bottleneck) —
+  two V4s at 5/20/50/100 m, fit the path-loss model, store as `@BELIEF:CALIBRATION`, wire it
+  into `proximity`. (b) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE
+  advertise+scan** (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI; plus
+  `@LAT97` pruning after consolidation. (c) **SP2 embedding** — spring relaxation over the
+  proximity matrix + T-Deck GPS as the roaming anchor/verifier. Then SP3–SP6 per PLAN.md
+  Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop + T-Deck).
+  **Band/maintenance backlog (secondary):** confirm the T-Deck power-cycle rejoin (V4-A/V4-B
+  are now on the 120 BPM + fast-lock build via the SP0 reflash); more tunes/parts; faster
+  pulse reconvergence; confirm the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**`
+  types.
 
 Keep this section current. It is the first thing the next session reads.
 

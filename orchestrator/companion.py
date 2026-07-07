@@ -1506,6 +1506,183 @@ def percepts(port, baud, node, save):
                   f"{l['min']:>4}  {l['med']:>4}  {l['max']:>4}")
 
 
+# --- proximity consolidation (semantic positioning SP1) ----------------------
+# Fold the fleet's @LAT97 link-percept windows into one @BELIEF:PROXIMITY record
+# per node pair (ttn-semantic-positioning.md §2.1) — the first Dream-Cycle job of
+# Act II. Distance comes from a log-distance path-loss model; until the SP1
+# calibration walk writes real parameters, the defaults below apply and sigma is
+# widened so the estimate stays honest.
+ORCHESTRATOR_ID = 0x00000001  # laptop-injected toots (pull/CMD via the bridge)
+                              # — not a radio-fixed node, so RSSI→distance is
+                              # meaningless for it; excluded from beliefs.
+
+PATHLOSS_DEFAULTS = {  # per proto: RSSI at d0 + path-loss exponent n
+    "espnow": {"rssi_d0": -45.0, "d0_m": 1.0, "n": 2.7},
+}
+UNCAL_SIGMA_FACTOR = 2.0   # sigma multiplier while the model is uncalibrated
+DEFAULT_PROXIMITY_OUT = os.path.join("master", "proximity.md")
+
+PROXIMITY_HEADER = """# Fleet Proximity Beliefs (semantic positioning SP1)
+
+Authored by `companion.py proximity`: each node's @LAT97 link-percept windows
+(SP0 evidence) fused into one @BELIEF:PROXIMITY record per node pair
+(ttn-semantic-positioning.md §2.1). Estimator: median of per-window rssi_max
+per direction (the strongest receptions sit nearest line-of-sight truth;
+fading only subtracts), directions averaged; sigma from window spread +
+direction asymmetry, widened while the path-loss model is uncalibrated.
+"""
+
+
+def rssi_to_dist_m(rssi_dbm, proto):
+    p = PATHLOSS_DEFAULTS.get(proto)
+    if p is None:
+        return None
+    return p["d0_m"] * 10.0 ** ((p["rssi_d0"] - rssi_dbm) / (10.0 * p["n"]))
+
+
+def _median(xs):
+    s = sorted(xs)
+    m = len(s) // 2
+    return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2.0
+
+
+def consolidate_proximity(windows_by_node):
+    """windows_by_node: {node_name: [parse_link_percepts window, ...]}.
+    Returns a list of pair-belief dicts, one per (unordered pair, proto)."""
+    id_to_name = {v: k for k, v in NODE_IDS.items()}
+    directed = {}  # (obs_id, peer_id, proto) -> {"maxes": [...], "n": int, "windows": int}
+    for name, wins in windows_by_node.items():
+        obs_id = NODE_IDS[name]
+        for w in wins:
+            for l in w["links"]:
+                if l["peer"] == ORCHESTRATOR_ID:
+                    continue  # laptop pseudo-peer: real reception, useless range
+                k = (obs_id, l["peer"], l["proto"])
+                d = directed.setdefault(k, {"maxes": [], "n": 0, "windows": 0})
+                d["maxes"].append(l["max"])
+                d["n"] += l["n"]
+                d["windows"] += 1
+
+    pairs = {}
+    for (a, b, proto), d in directed.items():
+        key = (min(a, b), max(a, b), proto)
+        pairs.setdefault(key, {})[(a, b)] = d
+
+    beliefs = []
+    for (lo, hi, proto), dirs in sorted(pairs.items()):
+        ab = dirs.get((lo, hi))          # lo hears hi
+        ba = dirs.get((hi, lo))          # hi hears lo
+        ests, all_maxes, n_obs = [], [], 0
+        for d in (ab, ba):
+            if d:
+                ests.append(_median(d["maxes"]))
+                all_maxes.extend(d["maxes"])
+                n_obs += d["n"]
+        rssi_est = sum(ests) / len(ests)
+        asym = abs(ests[0] - ests[1]) if len(ests) == 2 else 0.0
+        spread = (max(all_maxes) - min(all_maxes)) if len(all_maxes) > 1 else 0.0
+        rssi_sigma = max(3.0, spread / 2.0, asym / 2.0)
+
+        dist = rssi_to_dist_m(rssi_est, proto)
+        d_lo = rssi_to_dist_m(rssi_est + rssi_sigma, proto)  # stronger = closer
+        d_hi = rssi_to_dist_m(rssi_est - rssi_sigma, proto)
+        sigma = ((d_hi - d_lo) / 2.0) * UNCAL_SIGMA_FACTOR if dist else None
+
+        # Confidence: grows with sample count, shrinks with direction asymmetry;
+        # capped low while uncalibrated (TBEW-style honesty, heuristic for now).
+        conf = 0.3 + 0.3 * min(1.0, n_obs / 200.0) + 0.2 * max(0.0, 1.0 - asym / 6.0)
+        conf = round(max(0.1, min(0.7, conf)), 2)
+
+        beliefs.append({
+            "a": id_to_name.get(lo, f"0x{lo:08X}"),
+            "b": id_to_name.get(hi, f"0x{hi:08X}"),
+            "proto": proto, "rssi_est": round(rssi_est, 1),
+            "rssi_ab": (round(ests[0], 1) if ab else None),
+            "rssi_ba": (round(ests[-1], 1) if ba else None),
+            "n_ab": ab["n"] if ab else 0, "n_ba": ba["n"] if ba else 0,
+            "windows": (ab["windows"] if ab else 0) + (ba["windows"] if ba else 0),
+            "asym_db": round(asym, 1), "rssi_sigma_db": round(rssi_sigma, 1),
+            "dist_est_m": (round(dist, 2) if dist else None),
+            "dist_sigma_m": (round(sigma, 2) if sigma else None),
+            "n_obs": n_obs, "conf": conf,
+        })
+    return beliefs
+
+
+def proximity(port, baud, nodes, out, do_pull, settle):
+    """SP1: pull each node's TTDB, fuse the @LAT97 lanes into @BELIEF:PROXIMITY
+    records (master/proximity.md), and print the pair table."""
+    master_dir = os.path.dirname(out) or "master"
+    node_paths = {n: os.path.join(master_dir, f"{n}.md") for n in nodes}
+    for n in nodes:
+        if n not in NODE_IDS:
+            sys.exit(f"unknown node '{n}'. choices: {', '.join(NODE_IDS)}")
+
+    if do_pull:
+        try:
+            import serial
+        except ImportError:
+            sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+        reader = SerialFrameReader()
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            time.sleep(settle)
+            ser.reset_input_buffer()
+            for n in nodes:
+                data = request_ttdb(ser, reader, NODE_IDS[n])
+                if data is None:
+                    print(f"warning: no TTDB from {n}; using existing file if present")
+                    continue
+                os.makedirs(os.path.dirname(os.path.abspath(node_paths[n])) or ".",
+                            exist_ok=True)
+                with open(node_paths[n], "wb") as f:
+                    f.write(data)
+                print(f"pulled {n}: {len(data)} B -> {node_paths[n]}")
+
+    windows_by_node = {}
+    for n in nodes:
+        try:
+            with open(node_paths[n], encoding="utf-8", errors="replace") as f:
+                windows_by_node[n] = parse_link_percepts(f.read())
+        except FileNotFoundError:
+            print(f"warning: {node_paths[n]} missing; {n} contributes nothing")
+    beliefs = consolidate_proximity(windows_by_node)
+
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(PROXIMITY_HEADER)
+        for b in beliefs:
+            f.write(f"\n---\n\n@BELIEF:PROXIMITY @pair({b['a']}, {b['b']})\n"
+                    f"proto: {b['proto']}\n"
+                    f"rssi_est_dbm: {b['rssi_est']}\n"
+                    f"rssi_ab_dbm: {b['rssi_ab']}   # {b['a']} hears {b['b']}"
+                    f" (n:{b['n_ab']})\n"
+                    f"rssi_ba_dbm: {b['rssi_ba']}   # {b['b']} hears {b['a']}"
+                    f" (n:{b['n_ba']})\n"
+                    f"asym_db: {b['asym_db']}\n"
+                    f"dist_est_m: {b['dist_est_m']}\n"
+                    f"dist_sigma_m: {b['dist_sigma_m']}\n"
+                    f"n_obs: {b['n_obs']}\n"
+                    f"windows: {b['windows']}\n"
+                    f"sources: {{ rssi: 1.0 }}\n"
+                    f"calibrated: no   # default path-loss "
+                    f"{PATHLOSS_DEFAULTS.get(b['proto'])} — run the SP1 "
+                    f"calibration walk\n"
+                    f"conf: {b['conf']}\n"
+                    f"touched: {now_iso}\n")
+
+    print(f"\nproximity: {len(beliefs)} pair belief(s) from "
+          f"{{{', '.join(sorted(windows_by_node))}}}")
+    print(f"{'pair':<28} {'proto':6} {'rssi':>6} {'asym':>5} {'dist_m':>7} "
+          f"{'sigma_m':>8} {'n':>5} {'conf':>5}")
+    for b in beliefs:
+        print(f"{b['a'] + ' <-> ' + b['b']:<28} {b['proto']:6} "
+              f"{b['rssi_est']:>6} {b['asym_db']:>5} {b['dist_est_m']:>7} "
+              f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5}")
+    print(f"\nwrote {out}  (uncalibrated model — distances are order-of-"
+          f"magnitude until the calibration walk)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1606,6 +1783,18 @@ def main():
     pc.add_argument("--save", default=None,
                     help="also write the pulled TTDB to this path")
 
+    px = sub.add_parser(
+        "proximity",
+        help="SP1: fuse fleet @LAT97 percepts into @BELIEF:PROXIMITY per pair")
+    px.add_argument("--port", default=None,
+                    help="port to pull nodes from (omit / --no-pull to use files)")
+    px.add_argument("--baud", type=int, default=115200)
+    px.add_argument("--nodes", default="v4a_bridge,v4b_relay,tdeck_1")
+    px.add_argument("--out", default=DEFAULT_PROXIMITY_OUT)
+    px.add_argument("--no-pull", action="store_true", dest="no_pull",
+                    help="don't pull; read existing master/<node>.md")
+    px.add_argument("--settle", type=float, default=2.5)
+
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
@@ -1673,6 +1862,10 @@ def main():
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
+    elif args.cmd == "proximity":
+        do_pull = bool(args.port) and not args.no_pull
+        proximity(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+                  args.out, do_pull, args.settle)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

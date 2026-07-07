@@ -22,7 +22,9 @@
       "Bash(python orchestrator/companion.py pull --node tdeck_1 --port COM10 --out master/tdeck_sp0_check.md)",
       "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM10)",
       "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM6)",
-      "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM6)"
+      "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM6)",
+      "Bash(python tests/test_prox_py.py)",
+      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1)"
     ]
   }
 }
