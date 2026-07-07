@@ -34,6 +34,12 @@ class Ttdb {
   // file can't be opened/written or the re-index fails.
   bool appendRecord(const char* text, size_t len);
 
+  // Rewrite the TTDB without any record at latitude `lat` (percept-lane prune,
+  // semantic positioning SP1 — CMD_CLEAR_PERCEPTS drops lane 97). Idempotent
+  // (no such records -> true, no rewrite); re-indexes on success. This is a
+  // flash rewrite: call from loop(), never a radio recv callback.
+  bool removeLane(int16_t lat);
+
   // Byte span of record `index` (header line through just before the next
   // record or EOF).
   bool recordSpan(int index, size_t& offset, size_t& length) const;

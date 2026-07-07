@@ -61,49 +61,30 @@ which node answered, its cursor, temperature, warm/synced flags, and band phase.
 
 ---
 
+
+---
+
 @LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **LINKWIN** t_ms:60000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:12 rssi_min:-49 rssi_med:-42 rssi_max:-37
+**LINK** peer:0x00000100 proto:espnow n:59 rssi_min:-45 rssi_med:-37 rssi_max:-35
+**LINK** peer:0x00000010 proto:espnow n:28 rssi_min:-49 rssi_med:-34 rssi_max:-31
+**LINK** peer:0x00000011 proto:espnow n:9 rssi_min:-47 rssi_med:-34 rssi_max:-32
 
 ---
 
 @LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:60000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:26 rssi_min:-59 rssi_med:-50 rssi_max:-44
-**LINK** peer:0x00000011 proto:espnow n:29 rssi_min:-38 rssi_med:-34 rssi_max:-30
+**LINKWIN** t_ms:120000 synced:0 window_ms:60000
+**LINK** peer:0x00000011 proto:espnow n:30 rssi_min:-36 rssi_med:-34 rssi_max:-32
+**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-40 rssi_med:-35 rssi_max:-33
+**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-36 rssi_med:-32 rssi_max:-31
 
 ---
 
 @LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:120000 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:40 rssi_min:-38 rssi_med:-36 rssi_max:-33
-**LINK** peer:0x00000010 proto:espnow n:30 rssi_min:-64 rssi_med:-58 rssi_max:-47
-**LINK** peer:0x00000001 proto:espnow n:2 rssi_min:-61 rssi_med:-61 rssi_max:-51
-
----
-
-@LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
-
 **LINKWIN** t_ms:180000 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:43 rssi_min:-38 rssi_med:-37 rssi_max:-31
-**LINK** peer:0x00000010 proto:espnow n:29 rssi_min:-53 rssi_med:-47 rssi_max:-45
-**LINK** peer:0x00000001 proto:espnow n:2 rssi_min:-47 rssi_med:-47 rssi_max:-46
-
----
-
-@LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:240000 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:32 rssi_min:-35 rssi_med:-33 rssi_max:-31
-**LINK** peer:0x00000010 proto:espnow n:26 rssi_min:-63 rssi_med:-56 rssi_max:-46
-
----
-
-@LAT97LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:300144 synced:0 window_ms:60144
-**LINK** peer:0x00000011 proto:espnow n:32 rssi_min:-35 rssi_med:-32 rssi_max:-31
-**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-68 rssi_med:-55 rssi_max:-48
+**LINK** peer:0x00000011 proto:espnow n:30 rssi_min:-36 rssi_med:-33 rssi_max:-32
+**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-42 rssi_med:-40 rssi_max:-35
+**LINK** peer:0x00000010 proto:espnow n:29 rssi_min:-37 rssi_med:-34 rssi_max:-31

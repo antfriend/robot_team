@@ -86,10 +86,12 @@ CMD_BEEP = 4
 CMD_SET_INTERVAL = 5
 CMD_PLAY = 6         # start the node's melody/part (K10 song); nodes boot with it off
 CMD_STOP = 7         # stop the node's melody/part
+CMD_CLEAR_PERCEPTS = 8  # drop the @LAT97 link-percept lane (SP1 prune, no args)
 # User-facing `cmd` ops only (GET_STATUS is internal to `monitor`).
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
-           "play": CMD_PLAY, "stop": CMD_STOP}
+           "play": CMD_PLAY, "stop": CMD_STOP,
+           "clear-percepts": CMD_CLEAR_PERCEPTS}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -1512,9 +1514,9 @@ def percepts(port, baud, node, save):
 # Act II. Distance comes from a log-distance path-loss model; until the SP1
 # calibration walk writes real parameters, the defaults below apply and sigma is
 # widened so the estimate stays honest.
-ORCHESTRATOR_ID = 0x00000001  # laptop-injected toots (pull/CMD via the bridge)
-                              # — not a radio-fixed node, so RSSI→distance is
-                              # meaningless for it; excluded from beliefs.
+# ORCHESTRATOR_ID (defined top-of-file) appears as a percept peer because the
+# laptop's bridged pulls/CMDs are real receptions — but it is not a radio-fixed
+# node, so RSSI→distance is meaningless for it; excluded from beliefs.
 
 PATHLOSS_DEFAULTS = {  # per proto: RSSI at d0 + path-loss exponent n
     "espnow": {"rssi_d0": -45.0, "d0_m": 1.0, "n": 2.7},
@@ -1533,8 +1535,95 @@ direction asymmetry, widened while the path-loss model is uncalibrated.
 """
 
 
-def rssi_to_dist_m(rssi_dbm, proto):
-    p = PATHLOSS_DEFAULTS.get(proto)
+DEFAULT_CALIBRATION = os.path.join("master", "calibration.md")
+
+CALIBRATION_HEADER = """# Fleet Path-Loss Calibration (semantic positioning SP1)
+
+Authored by `companion.py calibrate` from a measured calibration walk
+(ttn-semantic-positioning.md Appendix B): per-station fused RSSI vs ground-truth
+distance, least-squares fit of the log-distance model
+RSSI(d) = rssi_d0 - 10*n*log10(d/d0). `proximity` reads this file and uses the
+fitted model (and drops its uncalibrated-sigma penalty). The model is only
+trustworthy inside valid_range_m — the rssi_d0 intercept is an extrapolation,
+not a near-field measurement.
+"""
+
+CALIB_RE = re.compile(
+    r"@BELIEF:CALIBRATION\s+proto:(\w+)[\s\S]*?rssi_d0_dbm:\s*(-?[\d.]+)"
+    r"[\s\S]*?d0_m:\s*([\d.]+)[\s\S]*?\bn:\s*([\d.]+)[\s\S]*?rmse_db:\s*([\d.]+)")
+
+
+def fit_pathloss(stations):
+    """stations: [(d_m, rssi_dbm), ...] -> (rssi_d0 @ 1 m, n, rmse_db).
+    Least squares on RSSI = rssi_d0 - n * (10*log10(d))."""
+    import math
+    xs = [10.0 * math.log10(d) for d, _ in stations]
+    ys = [r for _, r in stations]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    sxx = sum((x - mx) ** 2 for x in xs)
+    if sxx == 0:
+        sys.exit("calibrate: need stations at >= 2 distinct distances")
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
+    n = -slope
+    rssi_d0 = my - slope * mx
+    resid = [y - (rssi_d0 + slope * x) for x, y in zip(xs, ys)]
+    rmse = (sum(r * r for r in resid) / len(resid)) ** 0.5
+    return rssi_d0, n, rmse
+
+
+def load_calibration(path):
+    """Parse @BELIEF:CALIBRATION records -> {proto: params}. {} if no file."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return {}
+    calib = {}
+    for m in CALIB_RE.finditer(text):
+        calib[m.group(1)] = {"rssi_d0": float(m.group(2)),
+                             "d0_m": float(m.group(3)),
+                             "n": float(m.group(4)),
+                             "rmse_db": float(m.group(5))}
+    return calib
+
+
+def calibrate(proto, station_args, out, note):
+    """SP1 calibration: fit the walk's station data, write @BELIEF:CALIBRATION."""
+    stations = []
+    for s in station_args:
+        d, _, r = s.partition(":")
+        stations.append((float(d), float(r)))
+    if len(stations) < 2:
+        sys.exit("calibrate: need at least 2 --station d_m:rssi points")
+    rssi_d0, n, rmse = fit_pathloss(stations)
+    dmin, dmax = min(d for d, _ in stations), max(d for d, _ in stations)
+
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    st_str = ", ".join(f"{d}:{r}" for d, r in stations)
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(CALIBRATION_HEADER)
+        f.write(f"\n---\n\n@BELIEF:CALIBRATION proto:{proto}\n"
+                f"rssi_d0_dbm: {rssi_d0:.1f}\n"
+                f"d0_m: 1.0\n"
+                f"n: {n:.2f}\n"
+                f"rmse_db: {rmse:.1f}\n"
+                f"valid_range_m: {dmin}-{dmax}\n"
+                f"stations: {st_str}\n"
+                f"note: {note}\n"
+                f"conf: 0.75\n"
+                f"touched: {now_iso}\n")
+    print(f"fit: RSSI(d) = {rssi_d0:.1f} - {10 * n:.1f}*log10(d)   "
+          f"(n = {n:.2f}, rmse = {rmse:.1f} dB, valid {dmin}-{dmax} m)")
+    for d, r in stations:
+        pred = rssi_d0 - 10.0 * n * (0 if d == 1 else __import__("math").log10(d))
+        print(f"  {d:>6.2f} m: obs {r:>6.1f}  model {pred:>6.1f}  "
+              f"resid {r - pred:>+5.1f} dB")
+    print(f"wrote {out}")
+
+
+def rssi_to_dist_m(rssi_dbm, proto, calib=None):
+    p = (calib or {}).get(proto) or PATHLOSS_DEFAULTS.get(proto)
     if p is None:
         return None
     return p["d0_m"] * 10.0 ** ((p["rssi_d0"] - rssi_dbm) / (10.0 * p["n"]))
@@ -1546,13 +1635,19 @@ def _median(xs):
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2.0
 
 
-def consolidate_proximity(windows_by_node):
+def consolidate_proximity(windows_by_node, calib=None, last=None):
     """windows_by_node: {node_name: [parse_link_percepts window, ...]}.
+    calib: load_calibration() output (fitted path-loss per proto), or None.
+    last: use only each node's newest N windows — the recency filter. A node
+    that moved (the calibration walk!) leaves stale-distance windows behind;
+    position is a *current* belief, so recent evidence must be able to win.
     Returns a list of pair-belief dicts, one per (unordered pair, proto)."""
     id_to_name = {v: k for k, v in NODE_IDS.items()}
     directed = {}  # (obs_id, peer_id, proto) -> {"maxes": [...], "n": int, "windows": int}
     for name, wins in windows_by_node.items():
         obs_id = NODE_IDS[name]
+        if last:
+            wins = wins[-last:]
         for w in wins:
             for l in w["links"]:
                 if l["peer"] == ORCHESTRATOR_ID:
@@ -1581,17 +1676,20 @@ def consolidate_proximity(windows_by_node):
         rssi_est = sum(ests) / len(ests)
         asym = abs(ests[0] - ests[1]) if len(ests) == 2 else 0.0
         spread = (max(all_maxes) - min(all_maxes)) if len(all_maxes) > 1 else 0.0
-        rssi_sigma = max(3.0, spread / 2.0, asym / 2.0)
+        calibrated = bool(calib) and proto in calib
+        rmse = calib[proto]["rmse_db"] if calibrated else 0.0
+        rssi_sigma = max(3.0, spread / 2.0, asym / 2.0, rmse)
 
-        dist = rssi_to_dist_m(rssi_est, proto)
-        d_lo = rssi_to_dist_m(rssi_est + rssi_sigma, proto)  # stronger = closer
-        d_hi = rssi_to_dist_m(rssi_est - rssi_sigma, proto)
-        sigma = ((d_hi - d_lo) / 2.0) * UNCAL_SIGMA_FACTOR if dist else None
+        dist = rssi_to_dist_m(rssi_est, proto, calib)
+        d_lo = rssi_to_dist_m(rssi_est + rssi_sigma, proto, calib)  # stronger = closer
+        d_hi = rssi_to_dist_m(rssi_est - rssi_sigma, proto, calib)
+        sig_factor = 1.0 if calibrated else UNCAL_SIGMA_FACTOR
+        sigma = ((d_hi - d_lo) / 2.0) * sig_factor if dist else None
 
         # Confidence: grows with sample count, shrinks with direction asymmetry;
-        # capped low while uncalibrated (TBEW-style honesty, heuristic for now).
+        # capped lower while uncalibrated (TBEW-style honesty, heuristic for now).
         conf = 0.3 + 0.3 * min(1.0, n_obs / 200.0) + 0.2 * max(0.0, 1.0 - asym / 6.0)
-        conf = round(max(0.1, min(0.7, conf)), 2)
+        conf = round(max(0.1, min(0.85 if calibrated else 0.7, conf)), 2)
 
         beliefs.append({
             "a": id_to_name.get(lo, f"0x{lo:08X}"),
@@ -1604,14 +1702,20 @@ def consolidate_proximity(windows_by_node):
             "asym_db": round(asym, 1), "rssi_sigma_db": round(rssi_sigma, 1),
             "dist_est_m": (round(dist, 2) if dist else None),
             "dist_sigma_m": (round(sigma, 2) if sigma else None),
-            "n_obs": n_obs, "conf": conf,
+            "n_obs": n_obs, "conf": conf, "calibrated": calibrated,
         })
     return beliefs
 
 
-def proximity(port, baud, nodes, out, do_pull, settle):
+def proximity(port, baud, nodes, out, do_pull, settle,
+              calib_path=DEFAULT_CALIBRATION, last=None, clear=False):
     """SP1: pull each node's TTDB, fuse the @LAT97 lanes into @BELIEF:PROXIMITY
     records (master/proximity.md), and print the pair table."""
+    calib = load_calibration(calib_path)
+    if calib:
+        for proto, p in calib.items():
+            print(f"calibration: {proto} RSSI(d) = {p['rssi_d0']:.1f} - "
+                  f"{10 * p['n']:.1f}*log10(d)  (rmse {p['rmse_db']} dB)")
     master_dir = os.path.dirname(out) or "master"
     node_paths = {n: os.path.join(master_dir, f"{n}.md") for n in nodes}
     for n in nodes:
@@ -1645,7 +1749,7 @@ def proximity(port, baud, nodes, out, do_pull, settle):
                 windows_by_node[n] = parse_link_percepts(f.read())
         except FileNotFoundError:
             print(f"warning: {node_paths[n]} missing; {n} contributes nothing")
-    beliefs = consolidate_proximity(windows_by_node)
+    beliefs = consolidate_proximity(windows_by_node, calib, last)
 
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1665,10 +1769,12 @@ def proximity(port, baud, nodes, out, do_pull, settle):
                     f"n_obs: {b['n_obs']}\n"
                     f"windows: {b['windows']}\n"
                     f"sources: {{ rssi: 1.0 }}\n"
-                    f"calibrated: no   # default path-loss "
-                    f"{PATHLOSS_DEFAULTS.get(b['proto'])} — run the SP1 "
-                    f"calibration walk\n"
-                    f"conf: {b['conf']}\n"
+                    + (f"calibrated: yes   # {calib_path} "
+                       f"{calib.get(b['proto'])}\n" if b["calibrated"] else
+                       f"calibrated: no   # default path-loss "
+                       f"{PATHLOSS_DEFAULTS.get(b['proto'])} — run the SP1 "
+                       f"calibration walk\n")
+                    + f"conf: {b['conf']}\n"
                     f"touched: {now_iso}\n")
 
     print(f"\nproximity: {len(beliefs)} pair belief(s) from "
@@ -1679,8 +1785,32 @@ def proximity(port, baud, nodes, out, do_pull, settle):
         print(f"{b['a'] + ' <-> ' + b['b']:<28} {b['proto']:6} "
               f"{b['rssi_est']:>6} {b['asym_db']:>5} {b['dist_est_m']:>7} "
               f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5}")
-    print(f"\nwrote {out}  (uncalibrated model — distances are order-of-"
-          f"magnitude until the calibration walk)")
+    if all(b["calibrated"] for b in beliefs) and beliefs:
+        print(f"\nwrote {out}  (calibrated model — mind the fit's valid range)")
+    else:
+        print(f"\nwrote {out}  (uncalibrated model — distances are order-of-"
+              f"magnitude until the calibration walk)")
+
+    # The Dream-Cycle prune (SP1): the consumed raw percepts are consolidated
+    # into beliefs above, so tell each node to drop its @LAT97 lane (also
+    # un-wedges a node that hit LINKPERCEPT_MAX_LANE). Fresh serial session;
+    # want_ack so an unacked clear is loud, not silent.
+    if clear and port:
+        import serial
+        print("clearing consumed @LAT97 lanes (CMD clear-percepts)...")
+        reader = SerialFrameReader()
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            time.sleep(settle)
+            ser.reset_input_buffer()
+            for n in nodes:
+                target = NODE_IDS[n]
+                payload = bytes([CMD_CLEAR_PERCEPTS]) + struct.pack("<I", target)
+                seq = int(time.time() * 1000) & 0x7FFFFFFF
+                frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload,
+                                    flags=FLAG_WANT_ACK)
+                acked = send_reliable(ser, reader, frame, target, seq)
+                print(f"  {n}: " + (f"cleared (ACK attempt {acked})" if acked
+                                    else "NO ACK — lane NOT cleared"))
 
 
 def main():
@@ -1794,6 +1924,24 @@ def main():
     px.add_argument("--no-pull", action="store_true", dest="no_pull",
                     help="don't pull; read existing master/<node>.md")
     px.add_argument("--settle", type=float, default=2.5)
+    px.add_argument("--calibration", default=DEFAULT_CALIBRATION,
+                    help="fitted path-loss file (companion.py calibrate)")
+    px.add_argument("--last", type=int, default=None,
+                    help="use only each node's newest N windows (recency "
+                         "filter — a moved node leaves stale windows behind)")
+    px.add_argument("--clear", action="store_true",
+                    help="after consolidating, CMD each node to drop its "
+                         "@LAT97 lane (the Dream-Cycle prune; needs --port)")
+
+    ca = sub.add_parser(
+        "calibrate",
+        help="SP1: fit the path-loss model from calibration-walk stations")
+    ca.add_argument("--proto", default="espnow", choices=["espnow", "lora", "ble"])
+    ca.add_argument("--station", action="append", required=True,
+                    help="d_m:rssi_dbm (repeat per station, e.g. --station 9:-54.8)")
+    ca.add_argument("--out", default=DEFAULT_CALIBRATION)
+    ca.add_argument("--note", default="",
+                    help="provenance: how the station RSSI values were derived")
 
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
@@ -1865,7 +2013,10 @@ def main():
     elif args.cmd == "proximity":
         do_pull = bool(args.port) and not args.no_pull
         proximity(args.port, args.baud, [s for s in args.nodes.split(",") if s],
-                  args.out, do_pull, args.settle)
+                  args.out, do_pull, args.settle, args.calibration, args.last,
+                  args.clear)
+    elif args.cmd == "calibrate":
+        calibrate(args.proto, args.station, args.out, args.note)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

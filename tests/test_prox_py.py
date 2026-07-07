@@ -101,6 +101,39 @@ check(abs(c.rssi_to_dist_m(-45, "espnow") - 1.0) < 1e-9,
       "model anchored at rssi_d0/d0_m")
 check(c.rssi_to_dist_m(-50, "ble") is None, "unknown proto -> no distance")
 
+# ---------------------------------------------------------------------------
+# 5) fit_pathloss recovers a known model exactly (points generated from
+#    RSSI(d) = -40 - 30*log10(d), i.e. rssi_d0 = -40, n = 3).
+a, n, rmse = c.fit_pathloss([(1.0, -40.0), (10.0, -70.0), (100.0, -100.0)])
+check(abs(a + 40.0) < 1e-9 and abs(n - 3.0) < 1e-9 and rmse < 1e-9,
+      "fit recovers exact synthetic model (rssi_d0 -40, n 3, rmse 0)")
+
+# 6) calibrate -> load_calibration round trip; calibrated model drives
+#    rssi_to_dist_m and consolidate_proximity.
+import tempfile
+cal_path = os.path.join(tempfile.mkdtemp(), "calibration.md")
+c.calibrate("espnow", ["1:-40", "10:-70", "100:-100"], cal_path, "unit test")
+calib = c.load_calibration(cal_path)
+check("espnow" in calib, "calibration file round-trips through the parser")
+check(abs(calib["espnow"]["n"] - 3.0) < 0.01, "fitted n survives the file")
+check(abs(c.rssi_to_dist_m(-70.0, "espnow", calib) - 10.0) < 0.1,
+      "calibrated model overrides the default in rssi_to_dist_m")
+b_cal = c.consolidate_proximity({"v4a_bridge": c.parse_link_percepts(TEXT_A)},
+                                calib)[0]
+check(b_cal["calibrated"], "belief marked calibrated")
+b_uncal = c.consolidate_proximity({"v4a_bridge": c.parse_link_percepts(TEXT_A)})[0]
+check(b_uncal["dist_sigma_m"] > 0 and not b_uncal["calibrated"],
+      "no calibration -> uncalibrated belief with widened sigma")
+check(c.load_calibration("no/such/file.md") == {},
+      "missing calibration file -> empty (defaults apply)")
+
+# 7) recency filter: last=1 uses only the newest window per node.
+b_last = c.consolidate_proximity({"v4a_bridge": c.parse_link_percepts(TEXT_A)},
+                                 last=1)[0]
+check(b_last["n_ab"] == 30 and b_last["windows"] == 1,
+      "last=1 keeps only the newest window (n from lane 1 only)")
+check(b_last["rssi_ab"] == -37.0, "estimate from the newest window's max")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

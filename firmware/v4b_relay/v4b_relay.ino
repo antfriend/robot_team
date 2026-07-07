@@ -294,7 +294,16 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           uint8_t slen = buildStatus(body);
           emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
         }
-        accepted = true;  // ping / set-* (no-op on V4-B) / get-status all ACK
+        if (toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
+          // Flash rewrite: reaches here only from loop() (radio path defers).
+          // ACK only on success, so a failed prune is loud (laptop retries).
+          accepted = gDb.removeLane(97);
+          if (accepted)
+            Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
+                          (unsigned)gDb.fileSize(), gDb.recordCount());
+        } else {
+          accepted = true;  // ping / set-* (no-op on V4-B) / get-status all ACK
+        }
       }
       break;
     case toot::TIME_SYNC: {
@@ -350,6 +359,8 @@ static volatile bool gReqPending = false;
 static toot::Toot gPendingReq;
 static volatile bool gPutPending = false;
 static toot::Toot gPendingPut;
+static volatile bool gClearPending = false;
+static toot::Toot gPendingClear;
 
 static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   if (len <= 0) return;
@@ -376,6 +387,11 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   }
   if (t.type == toot::TTDB_PUT) {
     if (!gPutPending) { gPendingPut = t; gPutPending = true; }   // defer flash to loop()
+    return;
+  }
+  if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId &&
+      toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
+    if (!gClearPending) { gPendingClear = t; gClearPending = true; }  // flash: loop()
     return;
   }
 
@@ -548,6 +564,12 @@ void loop() {
   if (gPutPending) {
     gPutPending = false;
     handleToot(gPendingPut, sendEspNow, nullptr);
+  }
+
+  // Serve a deferred CMD_CLEAR_PERCEPTS (TTDB rewrite on the main task).
+  if (gClearPending) {
+    gClearPending = false;
+    handleToot(gPendingClear, sendEspNow, nullptr);
   }
 
   // Append the deferred TTDB log records (flash write + re-index).

@@ -83,6 +83,9 @@ enum CmdOp : uint8_t {
   CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
   CMD_PLAY = 6,          // no args — start the node's melody/part (K10 song); boots off
   CMD_STOP = 7,          // no args — stop the node's melody/part
+  CMD_CLEAR_PERCEPTS = 8,  // no args — drop the @LAT97 link-percept lane from the
+                           // live TTDB (SP1 prune after consolidation; flash
+                           // rewrite, so radio callers MUST defer it to loop())
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a

@@ -410,10 +410,20 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
 
 ## SP1 — Pairwise distance (calibration + consolidation)
 
-- [ ] Calibration walk (two V4s at 5/20/50/100 m), fit the log-distance
-      path-loss model, store as `@BELIEF:CALIBRATION` (per protocol — ESP-NOW
-      and LoRa differ). **The bench-only bottleneck** — everything downstream
-      runs uncalibrated with widened sigma until this lands.
+- [x] **Calibration walk ✅ DONE 2026-07-07** ("walking range test"): V4-A fixed
+      in the workroom, V4-B walked to 4 stations (strides ×0.75 m): workroom
+      far side 3.75 m, hall end 9 m, deck 19.5 m NLOS, front yard 37.5 m,
+      ~3 min dwell each; both directions logged. Fused per-station RSSI
+      (median of window maxes): -33 / -54.8 / -67.5 / -82.5. **Fit
+      (`companion.py calibrate` → `master/calibration.md`): RSSI(d) = −6.3 −
+      48.4·log₁₀(d), n = 4.84, rmse 1.4 dB, valid 3.75–37.5 m** — through-wall
+      home propagation (open air would be n≈2.7; recalibrate per environment).
+      `proximity` now auto-loads it (calibrated sigma, no ×2 penalty). Bonus
+      finding: the **ESP-NOW envelope ≈ −90 dBm** (frame counts collapse
+      30→4/min) → model says the link dies at **~54 m through-house** — SP5's
+      auto-switch threshold, measured. Also added `proximity --last N`
+      (recency filter — the walk proved a moved node's stale windows pollute
+      the fuse).
 - [x] Consolidation job — **built + first live run 2026-07-07**:
       `companion.py proximity` pulls the fleet, fuses each pair's directional
       `@LAT97` windows (median of per-window `rssi_max` per direction,
@@ -425,8 +435,18 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       V4-B↔T-Deck 0.26 m ±0.15 (n=352) — plausible bench geometry, and the
       triangle-inequality violation (0.34+0.26 < 1.21) is the expected
       uncalibrated-RSSI distortion, honestly covered by the wide sigma.
+- [x] **Prune ✅ (2026-07-07): `CMD_CLEAR_PERCEPTS` (op 8) + `Ttdb::removeLane`**
+      — streaming TTDB compaction (idempotent, ACK gated on success, radio path
+      deferred to `loop()` like every flash write); `proximity --clear` closes
+      the loop: pull → consolidate → prune consumed `@LAT97` lanes over the
+      air. Verified live on all three nodes (V4-A over USB; V4-B + T-Deck
+      **through the bridge over ESP-NOW**, ACK attempt 1) — also un-wedged
+      V4-B from its 48-lane cap. **First full-loop run produced a 6-pair
+      calibrated bench map (2.2–4.0 m, sigma 0.3–0.7 m) that includes the
+      K10** — mapped one-directionally by the other nodes' observations, no
+      K10 firmware change.
 - [ ] Entity-Jaccard cap + BLE bound terms (gated on the SP0 entity/BLE
-      sub-steps); prune consumed `@LAT97` percepts after consolidation.
+      sub-steps).
 
 **Done when:** `dist_est_m` within ~30–50 % of tape-measure truth for every
 powered pair, `sigma` honest. (Needs the calibration walk.)

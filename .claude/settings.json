@@ -24,7 +24,17 @@
       "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM6)",
       "Bash(python orchestrator/companion.py percepts --node tdeck_1 --port COM6)",
       "Bash(python tests/test_prox_py.py)",
-      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1)"
+      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 -Node v4a_bridge -Port COM6)",
+      "Bash(python orchestrator/companion.py percepts --node v4a_bridge --port COM6 --save master/walk_v4a.md)",
+      "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM6 --save master/walk_v4b.md)",
+      "Bash(python orchestrator/companion.py calibrate --proto espnow --station 3.75:-33.0 --station 9:-54.8 --station 19.5:-67.5 --station 37.5:-82.5 --note \"2026-07-07 walking range test: V4-A fixed in workroom, V4-B walked. Stations \\(strides x0.75m\\): workroom far side 5, hall end 12, deck 26 \\(NLOS\\), front yard 50. RSSI = median of per-window rssi_max, both directions fused, from master/walk_v4a.md lanes 13-25 + master/walk_v4b.md lanes 31-47. Through-wall/home propagation, NOT open air.\")",
+      "Bash(python orchestrator/companion.py cmd --op clear-percepts --node v4a_bridge --port COM6)",
+      "Bash(python orchestrator/companion.py pull --node v4a_bridge --port COM6 --out master/v4a_postclear.md)",
+      "Bash(python orchestrator/companion.py cmd --op clear-percepts --node v4b_relay --port COM9)",
+      "Bash(python orchestrator/companion.py percepts --node v4b_relay --port COM9)",
+      "Bash(python orchestrator/companion.py cmd --op clear-percepts --node tdeck_1 --port COM10)",
+      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1 --last 5 --clear)"
     ]
   }
 }

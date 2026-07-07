@@ -509,12 +509,37 @@ If a fact lives in one of these, link to it from here — don't copy it.
   violation (0.34+0.26 < 1.21) is the predicted uncalibrated-RSSI distortion, honestly inside
   the wide sigma — SP2's solver weighs by sigma, so it absorbs this. Bonus: two pulls
   air-dropped frames and the `TTDB_REQ_RANGE` self-heal recovered both transparently.
-- **Next action — Act II, in order:** (a) **SP1 calibration walk** (bench-only bottleneck) —
-  two V4s at 5/20/50/100 m, fit the path-loss model, store as `@BELIEF:CALIBRATION`, wire it
-  into `proximity`. (b) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE
-  advertise+scan** (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI; plus
-  `@LAT97` pruning after consolidation. (c) **SP2 embedding** — spring relaxation over the
-  proximity matrix + T-Deck GPS as the roaming anchor/verifier. Then SP3–SP6 per PLAN.md
+- **SP1 CALIBRATION ✅ (2026-07-07, the "walking range test").** V4-A fixed (workroom),
+  V4-B walked 4 stations (3.75 / 9 / 19.5 NLOS / 37.5 m — strides ×0.75), ~3 min each,
+  both directions logged; V4-A's clock wall-anchored by a timed reset (15:19:53). Fused
+  station RSSI −33 / −54.8 / −67.5 / −82.5 → **`companion.py calibrate` fit: RSSI(d) =
+  −6.3 − 48.4·log₁₀(d), n = 4.84, rmse 1.4 dB** (`master/calibration.md`,
+  `@BELIEF:CALIBRATION`; valid 3.75–37.5 m — the intercept is extrapolation, and this is
+  **through-wall home propagation**, not open air). `proximity` auto-loads it (no ×2
+  sigma penalty, conf cap 0.85). **Measured ESP-NOW envelope ≈ −90 dBm** (frame counts
+  collapse 30→4/min at the yard's edge) → **link death ~54 m through-house** per the
+  model — SP5's auto-switch threshold, from data. Walk lessons: added `proximity --last
+  N` (recency filter — a moved node's stale windows pollute the fuse; found because the
+  walk IS a moving node), and **V4-B hit the 48-lane cap** on its final return window —
+  its `@LAT97` lane is full and it records nothing new until reset (FS reflash, or build
+  a remote lane-clear CMD).
+- **REMOTE PRUNE + FIRST CALIBRATED FLEET MAP ✅ (2026-07-07).** `CMD_CLEAR_PERCEPTS`
+  (op 8) + **`Ttdb::removeLane(97)`** (streaming TTDB compaction; idempotent; ACK gated on
+  success; radio path deferred to `loop()`); `companion.py cmd --op clear-percepts` and
+  **`proximity --clear`** = the whole Dream-Cycle loop in one command: pull → consolidate →
+  **prune the consumed lanes over the air**. All three nodes reflashed + verified (every
+  clear ACK attempt 1; V4-B/T-Deck took it **through the bridge over ESP-NOW**; V4-B
+  un-wedged from its 48-lane cap; compaction is surgical — V4-A back to its 2-record base
+  TTDB). **First calibrated 6-pair bench map:** V4-A↔V4-B 4.0 m, V4-A↔K10 3.1, V4-A↔T-Deck
+  2.9, V4-B↔K10 2.2, V4-B↔T-Deck 3.0, K10↔T-Deck 3.9 (sigma 0.3–0.7 m, conf up to 0.8) —
+  **the K10 entered the map with zero firmware change**, one-directionally observed by the
+  3.x nodes. Caveat: bench pairs sit just below the fit's 3.75 m valid-range floor.
+- **Next action — Act II, in order:** (a) *(optional SP1 close-out)* stride-count one or two
+  bench pairs and check the map's 2.2–4.0 m against truth (the spec's 30–50% bar). (b) **SP2
+  embedding** — spring relaxation over the proximity matrix (laptop-side first) +
+  **T-Deck GPS bring-up** as the roaming anchor/verifier (Plus variant confirmed on hand).
+  (c) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE advertise+scan**
+  (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI. Then SP3–SP6 per PLAN.md
   Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop + T-Deck).
   **Band/maintenance backlog (secondary):** confirm the T-Deck power-cycle rejoin (V4-A/V4-B
   are now on the 120 BPM + fast-lock build via the SP0 reflash); more tunes/parts; faster

@@ -368,12 +368,21 @@ void loop() {
       } else if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId) {
         // CMD addressed to the bridge itself: answer GET_STATUS with a PERCEPT,
         // and ACK any want_ack CMD. (Relayed CMDs for mesh nodes fall through.)
+        bool ok = true;
         if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
           uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
           uint8_t slen = buildStatus(body);
           emitSerial(toot::PERCEPT, body, slen);
+        } else if (toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
+          // SP1 prune. Serial CMDs already run in loop(), so the TTDB rewrite
+          // is safe here. ACK only on success (a failed prune must be loud).
+          ok = gDb.removeLane(97);
+          if (ok)
+            Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
+                          (unsigned)gDb.fileSize(), gDb.recordCount());
         }
-        if (t.flags & toot::FLAG_WANT_ACK) emitAckSerial(t, toot::ACK_ACCEPTED);
+        if (ok && (t.flags & toot::FLAG_WANT_ACK))
+          emitAckSerial(t, toot::ACK_ACCEPTED);
       } else {
         injectToMesh(buf, n);
         gInjected++;
