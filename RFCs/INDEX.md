@@ -2,6 +2,12 @@
 
 This index lists RFCs included in the TTE 1.0 bundle.
 
+**Compressed form:** [rfc.ttdb.md](rfc.ttdb.md) is the semantic compression of this
+corpus — a conformant TTDB with one record per RFC (normative gist + `depends_on`
+edge graph + `[ew]` status weights) and a `lat 98` belief lane recording where
+implemented reality diverges from spec text. Each record's `src:` line is its
+deterministic expansion target (TTN-RFC-0004 applied to the corpus itself).
+
 
 ## TTDB (Toot-Toot Database)
 - [TTDB-RFC-0001-File-Format.md](TTDB-RFC-0001-File-Format.md): File Format and Sections
