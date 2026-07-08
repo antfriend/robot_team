@@ -36,7 +36,21 @@
       "Bash(python orchestrator/companion.py cmd --op clear-percepts --node tdeck_1 --port COM10)",
       "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,tdeck_1 --last 5 --clear)",
       "Bash(python tests/test_embed_py.py)",
-      "Bash(python orchestrator/companion.py positions)"
+      "Bash(python orchestrator/companion.py positions)",
+      "Bash(g++ -std=c++11 -Wall -Wextra -O2 -I c:/git/robot_team/firmware/libraries/TTDB/src test_rfc_ttdb.cpp c:/git/robot_team/firmware/libraries/TTDB/src/TtdbParse.cpp -o test_rfc_ttdb)",
+      "Bash(./test_rfc_ttdb c:/git/robot_team/RFCs/rfc.ttdb.md)",
+      "Bash(wsl.exe -l -q)",
+      "Bash(\"/c/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe\" -latest -property installationPath)",
+      "Bash(wsl.exe bash *)",
+      "Bash(cmd //c '\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\VC\\\\Auxiliary\\\\Build\\\\vcvars64.bat\" >nul && cl /nologo /EHsc /W4 /O2 /I c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp /Fe:test_rfc_ttdb.exe && test_rfc_ttdb.exe c:\\\\git\\\\robot_team\\\\RFCs\\\\rfc.ttdb.md')",
+      "PowerShell($sp = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; Get-ChildItem $sp | Select-Object Name, Length; cmd /c \"$sp\\\\build_and_run.bat\")",
+      "PowerShell(cmd /c \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\build_and_run.bat\")",
+      "PowerShell(\\(Get-ChildItem \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\VC\\\\Tools\\\\MSVC\\\\14.38.33130\\\\include\" -ErrorAction SilentlyContinue | Measure-Object\\).Count; wsl.exe bash -c \"for c in gcc cc clang tcc cpp; do command -v `$c; done; sudo -n true 2>/dev/null && echo SUDO_OK || echo SUDO_NEEDS_PASSWORD\")",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; curl.exe -sL -o zig.zip https://ziglang.org/download/0.13.0/zig-windows-x86_64-0.13.0.zip; \\(Get-Item zig.zip\\).Length)",
+      "PowerShell($sp = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; Expand-Archive \"$sp\\\\zig.zip\" -DestinationPath $sp -Force; & \"$sp\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\" version)",
+      "PowerShell($sp = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; Set-Location $sp; & \"$sp\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\" c++ -std=c++11 -Wall -Wextra -O2 -I c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe; if \\($?\\) { & \"$sp\\\\test_rfc_ttdb.exe\" c:\\\\git\\\\robot_team\\\\RFCs\\\\rfc.ttdb.md })",
+      "PowerShell($zig = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\"; Set-Location \"c:\\\\git\\\\robot_team\\\\tests\"; & $zig c++ -std=c++11 -Wall -Wextra -O2 -I ..\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp ..\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe 2>$null; if \\($?\\) { .\\\\test_rfc_ttdb.exe }; Write-Output \"--- make available?\"; \\(Get-Command make -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell($zig = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\"; Set-Location \"c:\\\\git\\\\robot_team\\\\tests\"; & $zig c++ -std=c++11 -O2 -I ..\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp ..\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe 2>&1 | Select-String -NotMatch \"libunwind|Unwind|dllexport|note:|warning:|\\\\^|extern|_LIBUNWIND|generated\\\\.\" | Select-Object -First 20; Write-Output \"--- exit: $LASTEXITCODE ---\"; if \\(Test-Path .\\\\test_rfc_ttdb.exe\\) { .\\\\test_rfc_ttdb.exe })"
     ]
   }
 }
