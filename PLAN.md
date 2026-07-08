@@ -22,6 +22,40 @@ and is verified. We never wire the long-range mesh before the in-range default
 
 ---
 
+## What's Next for antfriend
+
+The software side is running ahead of the bench: SP2 just produced the fleet's
+first self-map. The remaining moves all need **you and the hardware** — a human
+in the room, a cable, or a walk outside. In priority order:
+
+1. **Reality-check the first fleet map (2 min, no cable).** Open
+   [master/positions.md](master/positions.md). It claims: V4-A at the origin,
+   **K10 ~3.1 m** out, **V4-B ~3.9 m** and **T-Deck ~2.9 m** off to one side
+   (~4.3 × 3.9 m room). Eyeball it, or stride-count one or two pairs. If it
+   matches up to rotation/mirror, that's SP1's accuracy bar **and** SP2's sanity
+   gate met in one glance — tell me "map checks out" or where it's wrong.
+2. **T-Deck GPS bring-up (cable + a step outside).** Plug the T-Deck into COM10
+   (manual BOOT/RST — native-USB auto-reset is flaky), then carry it somewhere
+   with sky view for a fix. This is the roaming **anchor + verifier**: it
+   resolves the map's unresolved mirror (`flip_resolved: false`) and starts
+   proof leg 1 (positioning scored against GPS, never fed into it). I'll build
+   the NMEA read + `@BELIEF:POSITION` GPS-anchoring first; you supply the sky.
+3. **Be the flash-cycle partner when I have firmware ready.** The next few
+   software steps each end in a per-node flash: the **BLE near-range tier**
+   (SP0 leftover — tightens same-room sigmas), and **publishing positions back**
+   to the nodes. Each needs you to plug in one node at a time (one cable on the
+   bench) and, on the T-Deck, do the BOOT/RST dance.
+4. **Later, gated on the above:** attach the LoRa antennas **before** powering
+   the V4s (SX1262 PA safety, `hardware_specs.md`) when we un-gate `USE_LORA`
+   for SP5; build the **V4-C edge** node (the 4th static anchor that breaks flip
+   ambiguity without GPS); and, for Phase 7 / SP5, **walk a node out of ESP-NOW
+   range** so the transport auto-switch has real distance to react to.
+
+Everything else on the list I can build and offline-test solo (native `zig c++`
+tests + arduino-cli compiles); I'll queue firmware so your cable time is batched.
+
+---
+
 ## Phase 0 — Scaffold (arduino-cli project + portable libs) ✅ scaffolded
 
 Deploy path is **command-line arduino-cli**, not PlatformIO (the A32-RFC default
@@ -513,9 +547,29 @@ stated number of Dream Cycles. **This is the project's end goal.**
 
 ---
 
+> **Cross-cutting ✅ (2026-07-08): the RFC corpus is now fleet-carryable.**
+> `RFCs/rfc.ttdb.md` semantically compresses the 28-file, ~266 KB RFC corpus
+> **8.4:1** into one conformant TTDB — one record per RFC (normative gist +
+> `depends_on` edge graph + `[ew]` status/salience), each record's `src:` line
+> its deterministic expansion target (TTN-RFC-0004 applied to itself), plus a
+> `lat-98` belief lane recording where implemented reality diverges from spec
+> text (arduino-cli vs PlatformIO, radio-only dedup, defer-to-loop, …).
+> `tests/test_rfc_ttdb.cpp` streams the real file through the firmware's
+> *unmodified* `TtdbParse.cpp` and replicates `Ttdb::begin()`'s two-pass index —
+> 33/33 records, all 79 edges resolve, headers fit the 256 B on-device line cap,
+> spans tile the file — so the compression stays verified as the RFCs evolve.
+> Side effect worth noting: this brought up a **working native test toolchain
+> (portable `zig c++`)** on the dev machine, retiring the long-standing "no
+> compiler here" caveat — `test_toot` / `test_linkpercept` / `test_rfc_ttdb` now
+> actually run off-device. A robot can carry its own governing specs; the same
+> record is directly TTCP-renderable (foreshadows SP6).
+
+---
+
 ## Definition of Done (every phase)
 
-1. Native tests pass (`pio run -e native`) where logic is testable off-device.
+1. Native tests pass (`tests/`, `make` or portable `zig c++` — SHA/HMAC, codec,
+   TTDB parse, RFC round-trip) where logic is testable off-device.
 2. On-device serial assertions pass for hardware-bound behavior.
 3. The relevant A32 agent contract items (`companion.md §3`) hold.
 4. `companion.md §2` fleet status and `§6` next-action are updated.
