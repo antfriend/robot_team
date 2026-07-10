@@ -68,7 +68,14 @@
       "Bash(python orchestrator/companion.py anchor)",
       "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\cmp.py\")",
       "Bash(sed -n '/void BLEAdvertising::setManufacturerData/,/^}/p' /c/Users/antfr/AppData/Local/Arduino15/packages/esp32/hardware/esp32/3.3.10/libraries/BLE/src/BLEAdvertising.cpp)",
-      "Bash(sed -n '/String BLEAdvertisedDevice::getManufacturerData/,/^}/p' /c/Users/antfr/AppData/Local/Arduino15/packages/esp32/hardware/esp32/3.3.10/libraries/BLE/src/BLEAdvertisedDevice.cpp)"
+      "Bash(sed -n '/String BLEAdvertisedDevice::getManufacturerData/,/^}/p' /c/Users/antfr/AppData/Local/Arduino15/packages/esp32/hardware/esp32/3.3.10/libraries/BLE/src/BLEAdvertisedDevice.cpp)",
+      "Bash(python orchestrator/companion.py cmd --node v4a_bridge --op clear-percepts --port COM6)",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 12)",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 25)",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 30)",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 60)",
+      "Bash(tee /dev/stderr)",
+      "Bash(xargs -I{} echo \"crash indicators: {}\")"
     ]
   }
 }

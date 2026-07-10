@@ -610,9 +610,26 @@ If a fact lives in one of these, link to it from here — don't copy it.
   −59 dBm@1 m, n≈2). Wired into **V4-A/V4-B/T-Deck** behind `USE_BLE`; **all compile on the
   default partition** (V4-A 90%, V4-B ~90%, **T-Deck 95%** — Bluedroid fits with 64 KB to
   spare, so no NimBLE/partition change and the FS/TTDB offset is untouched). K10 deferred (2.x
-  core, same as its ESP-NOW SP0 deferral). **Not yet flashed** — needs a per-node flash
-  session; then `proximity` will emit proto:ble beliefs to compare against ESP-NOW + GPS truth,
-  the point being BLE's short range should hold up where far ESP-NOW ranging decorrelated.
+  core, same as its ESP-NOW SP0 deferral).
+- **BLE TIER ✅ ON-DEVICE (2026-07-10) — first proto:ble percept, + a T-Deck OOM crash found
+  & fixed.** Flashed the T-Deck (COM10) and V4-A (COM6). With the T-Deck beside V4-A, a fresh
+  60 s window on V4-A logged **`peer:0x200 proto:ble n:56 rssi -81/-43/-40`** — V4-A's passive
+  scan caught the T-Deck's advert 56×, verified the key tag, decoded id 0x200, logged PROTO_BLE
+  through the existing @LAT97 pipeline. Clean negative control: only the T-Deck appears over BLE
+  (K10/V4-B not advertising). BLE reads weaker than ESP-NOW (med −43 vs −29); the estimator uses
+  `rssi_max` (−40). **Crash found + fixed:** the memory-tight T-Deck crash-looped with BLE on —
+  `abort() on core 0`, backtrace `operator new`→bad_alloc→`std::terminate` (C++ exceptions are
+  OFF) inside the core's `BLEAdvertisedDevice::parseAdvertisement` (a `vector<BLEUUID>`
+  push_back), which parses **every** advert in range (all the neighborhood phones/beacons) →
+  heap exhaustion. Fixed in `BleLink`: register the scan **`shouldParse=false`** and parse the
+  manufacturer field (AD type 0xFF) from the **raw payload** ourselves — zero per-advert heap
+  allocation. Reflashed; **30 s + 60 s clean, no abort** (was `rst:0xc`, not brownout — the core
+  BLE lib is NimBLE-backed, per the backtrace). V4-A didn't crash (far more free heap) but shares
+  the fixed lib. **Gotcha:** old percept windows persist across an app-flash and fill the
+  48-record @LAT97 cap, dropping new BLE windows until `cmd --op clear-percepts`. **Still to do:**
+  reflash V4-A/V4-B with the fixed lib, flash V4-B (3rd advertiser), then `proximity` emits
+  proto:ble beliefs vs ESP-NOW + GPS truth — the point being BLE's short range should hold up
+  where far ESP-NOW ranging decorrelated.
 - **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
   bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
   (b) **SP2 GPS anchor — flash + field it** (firmware/companion above are built + green):

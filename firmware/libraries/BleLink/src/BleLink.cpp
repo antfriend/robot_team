@@ -13,16 +13,32 @@ static ObserveFn gCb = nullptr;
 static const uint8_t* gKey = nullptr;
 static size_t gKeyLen = 0;
 
-// Scan-result handler: decode manufacturer data as a fleet advert (magic + key tag)
-// and report the peer + RSSI. Runs in the BLE task — keep it light (Phase-1b discipline).
+// Scan-result handler. Runs in the BLE host task for EVERY advertisement in range
+// (phones, watches, beacons, …), so it must be allocation-free: we register with
+// shouldParse=false (see begin()), which makes the core store only the RAW payload and
+// skip its own advert parser — that parser's per-advert std::vector<BLEUUID> allocations
+// exhausted the memory-tight T-Deck's heap and, with C++ exceptions disabled, aborted
+// (operator new -> bad_alloc -> std::terminate). Here we walk the raw AD structures for
+// the manufacturer-specific field (type 0xFF) ourselves and verify the fleet key tag —
+// no String, no vector, no heap churn.
 class ScanCB : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice dev) override {
-    if (!gCb || !dev.haveManufacturerData()) return;
-    String md = dev.getManufacturerData();
-    uint32_t peer;
-    if (toot::parseBleAdvert(reinterpret_cast<const uint8_t*>(md.c_str()),
-                             md.length(), gKey, gKeyLen, peer))
-      gCb(peer, dev.getRSSI());
+    if (!gCb) return;
+    const uint8_t* p = dev.getPayload();
+    size_t n = dev.getPayloadLength();
+    if (!p || n == 0) return;
+    for (size_t i = 0; i + 1 < n;) {          // AD structures: [len][type][data..]
+      uint8_t len = p[i];
+      if (len == 0 || i + 1 + len > n) break;
+      if (p[i + 1] == 0xFF) {                  // manufacturer-specific data
+        uint32_t peer;
+        if (toot::parseBleAdvert(p + i + 2, (size_t)(len - 1), gKey, gKeyLen, peer)) {
+          gCb(peer, dev.getRSSI());
+          return;
+        }
+      }
+      i += 1 + len;
+    }
   }
 };
 
@@ -49,7 +65,10 @@ void begin(uint32_t node_id, const uint8_t* key, size_t key_len, ObserveFn cb) {
   // Passive, duty-cycled scan; wantDuplicates=true so every reception feeds the
   // histogram (we WANT repeats). Passive = listen only, less airtime for WiFi coexist.
   BLEScan* scan = BLEDevice::getScan();
-  scan->setAdvertisedDeviceCallbacks(new ScanCB(), /*wantDuplicates=*/true);
+  // shouldParse=false: hand us the raw payload, skip the core's allocating advert parser
+  // (the T-Deck OOM/abort fix — we parse the manufacturer field ourselves in ScanCB).
+  scan->setAdvertisedDeviceCallbacks(new ScanCB(), /*wantDuplicates=*/true,
+                                     /*shouldParse=*/false);
   scan->setActiveScan(false);
   scan->setInterval(160);   // 100 ms
   scan->setWindow(60);      // 37.5 ms listen (~37% duty) — leaves airtime for ESP-NOW
