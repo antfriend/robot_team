@@ -152,6 +152,33 @@ bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
   return true;
 }
 
+// --- BLE proximity advert (SP0 near-range tier) -----------------------------
+size_t buildBleAdvert(uint8_t* out, size_t cap, uint32_t node_id,
+                      const uint8_t* key, size_t key_len) {
+  if (cap < BLE_ADVERT_LEN) return 0;
+  put_u16(out + 0, BLE_COMPANY_ID);
+  out[2] = BLE_ADVERT_MAGIC;
+  out[3] = BLE_ADVERT_VERSION;
+  put_u32(out + 4, node_id);
+  uint8_t mac[32];
+  hmac_sha256(key, key_len, out + 2, 6, mac);   // tag over magic|version|node_id
+  out[8] = mac[0];
+  out[9] = mac[1];
+  return BLE_ADVERT_LEN;
+}
+
+bool parseBleAdvert(const uint8_t* data, size_t len, const uint8_t* key, size_t key_len,
+                    uint32_t& node_id) {
+  if (len < BLE_ADVERT_LEN) return false;
+  if (get_u16(data + 0) != BLE_COMPANY_ID) return false;
+  if (data[2] != BLE_ADVERT_MAGIC || data[3] != BLE_ADVERT_VERSION) return false;
+  uint8_t mac[32];
+  hmac_sha256(key, key_len, data + 2, 6, mac);
+  if (data[8] != mac[0] || data[9] != mac[1]) return false;   // key-possession filter
+  node_id = get_u32(data + 4);
+  return true;
+}
+
 // CRC-32 (zlib/IEEE). Bitwise (no 1 KiB table) — pushes are small and infrequent,
 // so the table isn't worth the RAM on a percept node. Continuation-friendly so the
 // firmware can fold it slice-by-slice (TTN-RFC-0009 §3).

@@ -25,6 +25,7 @@
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
+#include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <RobotTeamConfig.h>
 
 // --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
@@ -33,6 +34,15 @@
 static linkpercept::Log gLinkLog;
 
 #define USE_LORA 0  // Phase 4: set 1 and wire RadioLib SX1262 (GPIO 8/9/10/11).
+#define USE_BLE  1  // SP0 near-range tier: also advertise+scan over BLE (proto:ble).
+
+// Feed a decoded, key-verified BLE fleet advert into the same link-percept histogram as
+// ESP-NOW, tagged PROTO_BLE (runs in the BLE scan task — add() is increment-only/safe).
+#if USE_BLE
+static void onBleObserve(uint32_t peer, int rssi) {
+  gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
 
 // --- fleet pulse (TTN-RFC-0010) ---------------------------------------------
 // The bridge has the lowest node id (0x10), so when it is present it conducts the
@@ -325,8 +335,17 @@ void setup() {
 #if USE_PULSE
   gPulse.begin(kNodeId, millis());   // lowest id -> usually conducts the band
 #endif
-  Serial.printf("V4-A bridge 0x%08X online (LoRa %s)\n", kNodeId,
-                USE_LORA ? "on" : "off");
+
+#if USE_BLE
+  // Near-range tier: advertise this node + passively scan peers over BLE, feeding RSSI
+  // into the same @LAT97 lane as ESP-NOW (proto:ble). Starts after WiFi/ESP-NOW so the
+  // radio arbiter coexists them.
+  blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
+  Serial.println("BLE near-range tier up (advert + passive scan)");
+#endif
+
+  Serial.printf("V4-A bridge 0x%08X online (LoRa %s, BLE %s)\n", kNodeId,
+                USE_LORA ? "on" : "off", USE_BLE ? "on" : "off");
 }
 
 void loop() {

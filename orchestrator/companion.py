@@ -1525,6 +1525,10 @@ def percepts(port, baud, node, save):
 
 PATHLOSS_DEFAULTS = {  # per proto: RSSI at d0 + path-loss exponent n
     "espnow": {"rssi_d0": -45.0, "d0_m": 1.0, "n": 2.7},
+    # BLE near-range tier (SP0): a low-power advert reads ~-59 dBm at 1 m; n~2 indoors.
+    # Uncalibrated default so proto:ble beliefs still estimate distance — recalibrate
+    # per environment with `calibrate --proto ble`.
+    "ble": {"rssi_d0": -59.0, "d0_m": 1.0, "n": 2.0},
 }
 UNCAL_SIGMA_FACTOR = 2.0   # sigma multiplier while the model is uncalibrated
 DEFAULT_PROXIMITY_OUT = os.path.join("master", "proximity.md")

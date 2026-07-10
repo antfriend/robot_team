@@ -443,8 +443,18 @@ with something measured.
       measurement in disguise" the spec calls for — first real evidence.
 - [ ] Piggyback each node's recent per-peer RSSI into existing beacons so both
       directions of every link are known (asymmetry is diagnostic).
-- [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`;
-      **BLE advertise + scan on all boards** as the near-range (~10–30 m) tier.
+- [~] **BLE advertise + scan as the near-range tier — BUILT + compile-verified
+      2026-07-10** (motivated by the garden RSSI failure: an independent second
+      ranging radio). Portable key-tagged advert codec in Toot
+      (`build/parseBleAdvert`, native-tested) + ESP32 glue lib
+      `firmware/libraries/BleLink` (advertise fleet id + passive duty-cycled scan →
+      `LinkPercept` PROTO_BLE). Flows through the existing `(pair, proto)` proximity
+      pipeline with zero new code (added a BLE path-loss default). Wired into
+      V4-A/V4-B/T-Deck behind `USE_BLE`; **all fit the default partition** (V4-A 90 %,
+      T-Deck 95 % — Bluedroid, no NimBLE/partition change). K10 deferred (2.x core).
+      **Not yet flashed.**
+- [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`
+      (the entity-co-occurrence tier — still to build).
 - [ ] K10 RSSI capture via the 2.x promiscuous-RX workaround (or a core bump).
 
 **Done when:** `pull` returns a percept lane with link + entity observations

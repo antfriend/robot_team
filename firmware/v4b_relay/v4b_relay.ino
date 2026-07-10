@@ -33,6 +33,7 @@
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
+#include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <RobotTeamConfig.h>
 
 #define USE_LORA 0           // Phase 4: SX1262 long hops to V4-A and V4-C.
@@ -101,6 +102,15 @@ static uint32_t gSeq = 1;
 // Per-peer RSSI histograms fed from the ESP-NOW recv callback; flushed from
 // loop() as one @LAT97 TTDB record per window (see LinkPercept.h).
 static linkpercept::Log gLinkLog;
+
+#define USE_BLE 1  // SP0 near-range tier: also advertise+scan over BLE (proto:ble).
+#if USE_BLE
+// Feed a decoded, key-verified BLE fleet advert into the same link-percept histogram as
+// ESP-NOW, tagged PROTO_BLE (BLE scan task — add() is increment-only/safe).
+static void onBleObserve(uint32_t peer, int rssi) {
+  gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
 // No RTC: epoch ms = millis() + offset adopted on TIME_SYNC. Exactly-once adoption
@@ -533,8 +543,15 @@ void setup() {
 #if USE_PULSE
   gPulse.begin(kNodeId, millis());   // follows V4-A (lower id); plays the backbeat
 #endif
-  Serial.printf("V4-B relay 0x%08X online (LoRa %s, forward %s)\n", kNodeId,
-                USE_LORA ? "on" : "off", USE_RELAY_FORWARD ? "on" : "off");
+
+#if USE_BLE
+  blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
+  Serial.println("BLE near-range tier up (advert + passive scan)");
+#endif
+
+  Serial.printf("V4-B relay 0x%08X online (LoRa %s, forward %s, BLE %s)\n", kNodeId,
+                USE_LORA ? "on" : "off", USE_RELAY_FORWARD ? "on" : "off",
+                USE_BLE ? "on" : "off");
 }
 
 void loop() {

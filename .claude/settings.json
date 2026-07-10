@@ -66,7 +66,9 @@
       "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at k10_1)",
       "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at v4a_bridge)",
       "Bash(python orchestrator/companion.py anchor)",
-      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\cmp.py\")"
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\cmp.py\")",
+      "Bash(sed -n '/void BLEAdvertising::setManufacturerData/,/^}/p' /c/Users/antfr/AppData/Local/Arduino15/packages/esp32/hardware/esp32/3.3.10/libraries/BLE/src/BLEAdvertising.cpp)",
+      "Bash(sed -n '/String BLEAdvertisedDevice::getManufacturerData/,/^}/p' /c/Users/antfr/AppData/Local/Arduino15/packages/esp32/hardware/esp32/3.3.10/libraries/BLE/src/BLEAdvertisedDevice.cpp)"
     ]
   }
 }

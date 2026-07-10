@@ -31,6 +31,7 @@
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
+#include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <Nmea.h>         // SP2: portable NMEA GGA decode for the roaming GPS anchor
 #include <RobotTeamConfig.h>
 #include <Preferences.h>   // NVS: remember the song on/off across a power-cycle
@@ -53,6 +54,15 @@ static linkpercept::Log gLinkLog;
 #define USE_GPS 1         // SP2: T-Deck Plus GPS as the roaming ground-truth anchor.
                           // Safe on a non-Plus unit (the UART just stays silent ->
                           // CMD_GET_GPS answers quality:0). Independent of USE_TDECK_HW.
+#define USE_BLE 1         // SP0 near-range tier: advertise+scan over BLE (proto:ble).
+
+// Feed a decoded, key-verified BLE fleet advert into the same link-percept histogram as
+// ESP-NOW, tagged PROTO_BLE (runs in the BLE scan task — add() is increment-only/safe).
+#if USE_BLE
+static void onBleObserve(uint32_t peer, int rssi) {
+  gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
 
 // --- T-Deck board pin map (LilyGo T-Deck / T-Deck Plus) ---------------------
 // Documented here (and in hardware_specs.md) even when USE_TDECK_HW is 0 so the
@@ -772,6 +782,14 @@ void setup() {
   gpsProbeBaud();   // ~1 s: lock the NMEA baud (SP2 roaming anchor). No fix needed here.
   Serial.printf("GPS UART1 (rx %d tx %d) @ %lu baud\n", PIN_GPS_RX, PIN_GPS_TX,
                 (unsigned long)gGpsBaud);
+#endif
+
+#if USE_BLE
+  // Near-range tier: advertise this node + passively scan peers over BLE, feeding RSSI
+  // into the same @LAT97 lane as ESP-NOW (proto:ble). The roaming console is the most
+  // valuable BLE node — near-range RSSI holds up where far ESP-NOW ranging degrades.
+  blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
+  Serial.println("BLE near-range tier up (advert + passive scan)");
 #endif
 
   Serial.printf("T-Deck console 0x%08X online (hw %s, LoRa %s, GPS %s)\n", kNodeId,

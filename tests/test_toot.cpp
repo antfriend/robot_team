@@ -264,6 +264,31 @@ int main() {
   CHECK(ttdbNearest(recs, 3, 9, 1) == 1, "nearest picks the warm record");
   CHECK(ttdbNearest(recs, 0, 0, 0) == -1, "nearest of empty index is -1");
 
+  // 9) BLE proximity advert (SP0 near-range tier): build/parse round-trip + the
+  // key-possession tag rejects wrong-key and tampered adverts.
+  uint8_t adv[toot::BLE_ADVERT_LEN];
+  size_t alen2 = toot::buildBleAdvert(adv, sizeof(adv), 0x00000200u, key, 16);
+  CHECK(alen2 == toot::BLE_ADVERT_LEN, "buildBleAdvert length");
+  CHECK(toot::get_u16(adv) == toot::BLE_COMPANY_ID &&
+            adv[2] == toot::BLE_ADVERT_MAGIC && adv[3] == toot::BLE_ADVERT_VERSION,
+        "advert carries company/magic/version");
+  uint32_t adv_id = 0;
+  CHECK(toot::parseBleAdvert(adv, alen2, key, 16, adv_id) && adv_id == 0x00000200u,
+        "parseBleAdvert round-trips the node id");
+  const uint8_t wrong_key[16] = {9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9};
+  CHECK(!toot::parseBleAdvert(adv, alen2, wrong_key, 16, adv_id),
+        "wrong key -> advert rejected (key-possession tag)");
+  uint8_t adv_bad[toot::BLE_ADVERT_LEN];
+  memcpy(adv_bad, adv, sizeof(adv_bad));
+  adv_bad[5] ^= 0x01;  // flip a node-id bit; the tag no longer matches
+  CHECK(!toot::parseBleAdvert(adv_bad, sizeof(adv_bad), key, 16, adv_id),
+        "tampered advert rejected");
+  adv_bad[5] ^= 0x01; adv_bad[2] = 0x00;  // restore id, corrupt the magic
+  CHECK(!toot::parseBleAdvert(adv_bad, sizeof(adv_bad), key, 16, adv_id),
+        "non-fleet magic rejected");
+  CHECK(!toot::parseBleAdvert(adv, toot::BLE_ADVERT_LEN - 1, key, 16, adv_id),
+        "short advert rejected");
+
   printf(g_fail ? "\n%d FAILED\n" : "\nALL PASSED\n", g_fail);
   return g_fail ? 1 : 0;
 }

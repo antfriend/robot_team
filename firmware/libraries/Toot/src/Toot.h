@@ -274,6 +274,33 @@ bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
                 uint64_t& conductor_epoch, uint64_t& downbeat_epoch,
                 uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags);
 
+// --- BLE proximity advert (semantic positioning SP0, near-range tier) --------
+// A tiny BLE manufacturer-specific-data blob so a node can be heard + ranged by RSSI
+// over Bluetooth as well as ESP-NOW (ttn-semantic-positioning.md §3 Phase 0). It is NOT
+// a 250-byte toot — a BLE advertisement is ~24 usable bytes — so it carries only the
+// sender's node id plus a key-derived tag. The tag is a static HMAC (a beacon is
+// inherently replayable), so it PROVES key possession — enough to keep non-fleet /
+// keyless BLE devices out of the percept histogram — but is not per-message auth like a
+// toot. Layout (all multi-byte fields little-endian):
+//   [0..1]  company_id u16 = BLE_COMPANY_ID (required BLE AD framing)
+//   [2]     magic      u8  = BLE_ADVERT_MAGIC
+//   [3]     version    u8  = BLE_ADVERT_VERSION
+//   [4..7]  node_id    u32
+//   [8..9]  tag        u16 = first 2 bytes of HMAC-SHA256(key, bytes[2..7])
+const size_t BLE_ADVERT_LEN = 10;
+const uint16_t BLE_COMPANY_ID = 0xFFFF;   // reserved/no-company id (test use)
+const uint8_t BLE_ADVERT_MAGIC = 0x54;    // 'T' (Toot)
+const uint8_t BLE_ADVERT_VERSION = 1;
+
+// Write the fleet BLE advert for `node_id` into `out` (>= BLE_ADVERT_LEN). Returns the
+// byte count written (BLE_ADVERT_LEN), or 0 if `cap` is too small.
+size_t buildBleAdvert(uint8_t* out, size_t cap, uint32_t node_id,
+                      const uint8_t* key, size_t key_len);
+// Parse a candidate BLE manufacturer-data blob. Returns true and sets `node_id` only
+// when company/magic/version match AND the key tag verifies; false otherwise.
+bool parseBleAdvert(const uint8_t* data, size_t len, const uint8_t* key, size_t key_len,
+                    uint32_t& node_id);
+
 // Small ring of seen (src,seq) keys. seen() returns true if already present,
 // otherwise records the key and returns false.
 class DedupSet {

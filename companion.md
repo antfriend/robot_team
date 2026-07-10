@@ -595,6 +595,24 @@ If a fact lives in one of these, link to it from here — don't copy it.
   the correlation is gone) or, better, the **SP0 multi-tier evidence** (BLE near-range,
   entity co-occurrence, TDoA) to survive obstructed real sites; (3) `master/gps-fixes.md`
   now holds DGPS ground truth for all 4 nodes — the map's true geometry, GPS-scored.
+- **SP0 BLE near-range tier BUILT + compile-verified (2026-07-10) — a second, independent
+  ranging radio, motivated directly by the garden RSSI failure above.** New portable advert
+  codec in Toot (`buildBleAdvert`/`parseBleAdvert`: a 10-byte manufacturer-data blob =
+  company+magic+version+node_id + a 2-byte **key-derived tag** so only key-holders count as
+  evidence; a beacon is replayable so it's key-possession, not per-message auth — native-tested,
+  `test_toot` 10 new checks). New ESP32-only glue lib **`firmware/libraries/BleLink`** wraps the
+  core BLE stack: each node advertises its fleet id and **passively, duty-cycled** scans for
+  peers (37% window so ESP-NOW/WiFi coexist via the radio arbiter), decoding each fleet advert
+  and feeding **`(peer, rssi, PROTO_BLE)`** into the *same* `LinkPercept` histogram as ESP-NOW.
+  **Zero new pipeline:** LinkPercept already had `PROTO_BLE`, `consolidate_proximity` already
+  keys beliefs by `(pair, proto)`, and `calibrate --proto ble` already exists — so BLE windows
+  flow straight through to `@BELIEF:PROXIMITY proto:ble` (added a BLE path-loss default:
+  −59 dBm@1 m, n≈2). Wired into **V4-A/V4-B/T-Deck** behind `USE_BLE`; **all compile on the
+  default partition** (V4-A 90%, V4-B ~90%, **T-Deck 95%** — Bluedroid fits with 64 KB to
+  spare, so no NimBLE/partition change and the FS/TTDB offset is untouched). K10 deferred (2.x
+  core, same as its ESP-NOW SP0 deferral). **Not yet flashed** — needs a per-node flash
+  session; then `proximity` will emit proto:ble beliefs to compare against ESP-NOW + GPS truth,
+  the point being BLE's short range should hold up where far ESP-NOW ranging decorrelated.
 - **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
   bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
   (b) **SP2 GPS anchor — flash + field it** (firmware/companion above are built + green):
