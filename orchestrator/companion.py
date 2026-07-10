@@ -87,7 +87,12 @@ CMD_SET_INTERVAL = 5
 CMD_PLAY = 6         # start the node's melody/part (K10 song); nodes boot with it off
 CMD_STOP = 7         # stop the node's melody/part
 CMD_CLEAR_PERCEPTS = 8  # drop the @LAT97 link-percept lane (SP1 prune, no args)
-# User-facing `cmd` ops only (GET_STATUS is internal to `monitor`).
+CMD_GET_GPS = 9      # GPS-bearing node replies a GPS PERCEPT (SP2 roaming anchor)
+# GPS PERCEPT payload (Toot.h GPS_PERCEPT_PAYLOAD_LEN): lat_1e7 i32 | lon_1e7 i32 |
+# alt_cm i32 | quality u8 | sats u8 | hdop_x10 u16 | epoch_ms u64. 24 B distinguishes
+# it from a STATUS PERCEPT (15/43). Returned in answer to CMD_GET_GPS.
+GPS_PERCEPT_PAYLOAD_LEN = 24
+# User-facing `cmd` ops only (GET_STATUS/GET_GPS are internal to monitor/gps).
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
            "play": CMD_PLAY, "stop": CMD_STOP,
@@ -2011,6 +2016,290 @@ def positions(proximity_path, out, iters):
     print(f"\nwrote {out}")
 
 
+# --- GPS: the roaming ground-truth anchor (semantic positioning SP2) --------
+# The T-Deck Plus GPS is the fleet's VERIFIER and second anchor: a fix taken beside a
+# static node ties the emergent relative map (positions.md) to absolute coordinates and
+# resolves its mirror (ttn-semantic-positioning.md §3 Phase 2). GPS is never an inference
+# input — only a score/anchor. `gps` reads a fix; `anchor` fits the relative map to geo.
+DEFAULT_GPS_FIXES = os.path.join("master", "gps-fixes.md")
+DEFAULT_ANCHORED_OUT = os.path.join("master", "anchored.md")
+M_PER_DEG_LAT = 111319.4908    # metres per degree latitude (spherical earth)
+
+
+def parse_gps(payload):
+    """Decode a GPS PERCEPT payload -> dict, or None if it isn't one (len != 24)."""
+    if len(payload) != GPS_PERCEPT_PAYLOAD_LEN:
+        return None
+    lat_1e7, lon_1e7, alt_cm = struct.unpack("<iii", payload[0:12])
+    quality, sats = payload[12], payload[13]
+    hdop_x10 = struct.unpack("<H", payload[14:16])[0]
+    epoch_ms = struct.unpack("<Q", payload[16:24])[0]
+    return {"lat_deg": lat_1e7 / 1e7, "lon_deg": lon_1e7 / 1e7,
+            "alt_m": alt_cm / 100.0, "quality": quality, "sats": sats,
+            "hdop": hdop_x10 / 10.0, "epoch_ms": epoch_ms}
+
+
+def gps_probe(ser, reader, target, probes=6, per_timeout=1.2):
+    """Query a node with CMD_GET_GPS and keep the best reply (most sats, then lowest
+    HDOP). Returns the parse_gps dict, or None if the node never answered. A fresh
+    toot_seq per probe dodges the radio dedup (like status_probe)."""
+    best = None
+    base = int(time.time() * 1000) & 0x7FFFFFFF
+    old_to = ser.timeout
+    ser.timeout = 0
+    try:
+        for k in range(probes):
+            seq = (base + k) & 0x7FFFFFFF
+            payload = bytes([CMD_GET_GPS]) + struct.pack("<I", target)
+            write_serial_frame(ser, encode_toot(CMD, ORCHESTRATOR_ID, seq, payload))
+            deadline = time.time() + per_timeout
+            got = None
+            while time.time() < deadline and got is None:
+                data = ser.read(256)
+                if not data:
+                    time.sleep(0.0005)
+                    continue
+                for fr in reader.feed(data):
+                    t = decode_toot(fr)
+                    if not t or t["type"] != PERCEPT or t["src"] != target:
+                        continue
+                    g = parse_gps(t["payload"])
+                    if g is not None:
+                        got = g
+                        break
+            if got is None:
+                continue
+            better = (best is None or got["sats"] > best["sats"] or
+                      (got["sats"] == best["sats"] and got["hdop"] and
+                       (not best["hdop"] or got["hdop"] < best["hdop"])))
+            if better:
+                best = got
+    finally:
+        ser.timeout = old_to
+    return best
+
+
+def gps(port, baud, node, at, probes, settle, fixes_path):
+    """SP2: read the node's GPS fix (CMD_GET_GPS). With --at NODE, record it as a
+    ground-truth tie point beside that static node for `anchor` to consume."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    if at is not None and at not in NODE_IDS:
+        sys.exit(f"unknown --at node '{at}'. choices: {', '.join(NODE_IDS)}")
+    target = NODE_IDS[node]
+    reader = SerialFrameReader()
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        print(f"querying GPS on {node} (0x{target:08X}) via {port} ...")
+        fix = gps_probe(ser, reader, target, probes)
+
+    if fix is None:
+        sys.exit(f"no GPS PERCEPT from {node} — is it powered and on the mesh/bridge?")
+    q = fix["quality"]
+    if q == 0:
+        print(f"{node}: NO FIX yet (quality 0, {fix['sats']} sats) — the GPS is talking "
+              f"but hasn't locked. Give it sky view + a minute, then retry.")
+        return
+    qual = {1: "GPS", 2: "DGPS"}.get(q, f"q{q}")
+    print(f"{node} FIX ({qual}): {fix['lat_deg']:.7f}, {fix['lon_deg']:.7f}  "
+          f"alt {fix['alt_m']:.1f} m  sats {fix['sats']}  HDOP {fix['hdop']:.1f}")
+
+    if at is None:
+        print("(no --at given: not recorded. Re-run with --at <static-node> beside the "
+              "node whose position this fix ties down.)")
+        return
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    header = ("# Fleet GPS Fixes (semantic positioning SP2 ground truth)\n\n"
+              "Authored by `companion.py gps --at <node>`: each record is a T-Deck GPS\n"
+              "fix taken beside a static node. `companion.py anchor` fits the relative\n"
+              "@BELIEF:POSITION map to these absolute tie points (GPS is the verifier +\n"
+              "anchor, never an inference input). >=3 non-collinear ties resolve the "
+              "mirror.\n")
+    os.makedirs(os.path.dirname(os.path.abspath(fixes_path)) or ".", exist_ok=True)
+    if not os.path.exists(fixes_path):
+        with open(fixes_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(header)
+    with open(fixes_path, "a", encoding="utf-8", newline="\n") as f:
+        f.write(f"\n---\n\n@PERCEPT:GPS @at({at})\n"
+                f"lat_deg: {fix['lat_deg']:.7f}\nlon_deg: {fix['lon_deg']:.7f}\n"
+                f"alt_m: {fix['alt_m']:.1f}\nquality: {q}\nsats: {fix['sats']}\n"
+                f"hdop: {fix['hdop']:.1f}\nsource_node: {node}\n"
+                f"node_epoch_ms: {fix['epoch_ms']}\ntouched: {now_iso}\n")
+    print(f"recorded a tie point for '{at}' -> {fixes_path}")
+
+
+def parse_gps_fixes(path):
+    """Parse master/gps-fixes.md -> {node: (lat_deg, lon_deg)} averaging quality>0
+    fixes per tie node."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    acc = {}
+    for chunk in text.split("@PERCEPT:GPS")[1:]:
+        m_at = re.match(r"\s*@at\((\w+)\)", chunk)
+        fields = {k: re.search(k + r":\s*(-?[\d.]+)", chunk)
+                  for k in ("lat_deg", "lon_deg", "quality")}
+        if not m_at or not all(fields.values()):
+            continue
+        if int(float(fields["quality"].group(1))) == 0:
+            continue
+        node = m_at.group(1)
+        lat, lon = float(fields["lat_deg"].group(1)), float(fields["lon_deg"].group(1))
+        acc.setdefault(node, []).append((lat, lon))
+    return {nd: (sum(p[0] for p in v) / len(v), sum(p[1] for p in v) / len(v))
+            for nd, v in acc.items()}
+
+
+def procrustes_2d(src, dst):
+    """Best-fit 2D similarity (scale + rotation + translation, reflection allowed)
+    mapping src points onto dst, in closed form (no numpy). src/dst: equal-length
+    lists of (x, y). Returns a dict with theta, scale, reflect, centroids and rmse.
+    Reflection is chosen when it lowers the residual — this is what resolves the
+    embedding's mirror once >=3 non-collinear ties exist (2 ties leave it ambiguous)."""
+    import math
+    n = len(src)
+    sx = sum(p[0] for p in src) / n
+    sy = sum(p[1] for p in src) / n
+    dx = sum(q[0] for q in dst) / n
+    dy = sum(q[1] for q in dst) / n
+    Q = [(q[0] - dx, q[1] - dy) for q in dst]
+
+    def fit(reflect):
+        P = [(p[0] - sx, -(p[1] - sy) if reflect else (p[1] - sy)) for p in src]
+        a = sum(P[i][0] * Q[i][0] + P[i][1] * Q[i][1] for i in range(n))
+        b = sum(P[i][0] * Q[i][1] - P[i][1] * Q[i][0] for i in range(n))
+        theta = math.atan2(b, a)
+        denom = sum(P[i][0] ** 2 + P[i][1] ** 2 for i in range(n)) or 1e-9
+        s = math.hypot(a, b) / denom
+        c, sn = math.cos(theta), math.sin(theta)
+        res = 0.0
+        for i in range(n):
+            rx = s * (c * P[i][0] - sn * P[i][1])
+            ry = s * (sn * P[i][0] + c * P[i][1])
+            res += (rx - Q[i][0]) ** 2 + (ry - Q[i][1]) ** 2
+        return theta, s, res
+
+    th0, s0, r0 = fit(False)
+    th1, s1, r1 = fit(True)
+    reflect = r1 < r0 - 1e-9
+    theta, s, res = (th1, s1, r1) if reflect else (th0, s0, r0)
+    return {"theta": theta, "scale": s, "reflect": reflect,
+            "src_centroid": (sx, sy), "dst_centroid": (dx, dy),
+            "rmse": (res / n) ** 0.5}
+
+
+def apply_fit(fit, x, y):
+    """Map a relative (x, y) through a procrustes_2d fit -> dst-frame (east, north) m."""
+    import math
+    px = x - fit["src_centroid"][0]
+    py = -(y - fit["src_centroid"][1]) if fit["reflect"] else (y - fit["src_centroid"][1])
+    c, sn = math.cos(fit["theta"]), math.sin(fit["theta"])
+    ex = fit["scale"] * (c * px - sn * py) + fit["dst_centroid"][0]
+    en = fit["scale"] * (sn * px + c * py) + fit["dst_centroid"][1]
+    return ex, en
+
+
+def parse_positions_file(path):
+    """Parse master/positions.md -> ({node: (x_m, y_m)}, {node: sigma_m})."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    pos, sig = {}, {}
+    for chunk in text.split("@BELIEF:POSITION")[1:]:
+        m = re.match(r"\s*@node\((\w+)\)", chunk)
+        fx = re.search(r"x_m:\s*(-?[\d.]+)", chunk)
+        fy = re.search(r"y_m:\s*(-?[\d.]+)", chunk)
+        fs = re.search(r"sigma_m:\s*(-?[\d.]+)", chunk)
+        if not (m and fx and fy):
+            continue
+        pos[m.group(1)] = (float(fx.group(1)), float(fy.group(1)))
+        sig[m.group(1)] = float(fs.group(1)) if fs else 0.0
+    return pos, sig
+
+
+def anchor(positions_path, fixes_path, out):
+    """SP2 anchoring: fit the relative @BELIEF:POSITION map to the T-Deck GPS tie
+    points and emit absolute-coordinate @BELIEF:POSITION records (lat/lon), resolving
+    the mirror when >=3 non-collinear ties are available."""
+    import math
+    pos, sig = parse_positions_file(positions_path)
+    if not pos:
+        sys.exit(f"no @BELIEF:POSITION in {positions_path} — run `positions` first")
+    try:
+        ties_geo = parse_gps_fixes(fixes_path)
+    except FileNotFoundError:
+        sys.exit(f"no GPS fixes at {fixes_path} — run `gps --at <node>` at >=2 (ideally "
+                 f">=3) static nodes first")
+    ties = [nd for nd in ties_geo if nd in pos]
+    if len(ties) < 2:
+        sys.exit(f"need GPS ties at >=2 embedded nodes; have {len(ties)} ({ties}). "
+                 f"Walk the T-Deck to more static nodes and `gps --at` each.")
+
+    # Geo reference = tie centroid; project ties to a local ENU (metres) tangent plane.
+    lat0 = sum(ties_geo[nd][0] for nd in ties) / len(ties)
+    lon0 = sum(ties_geo[nd][1] for nd in ties) / len(ties)
+    m_per_deg_lon = M_PER_DEG_LAT * math.cos(math.radians(lat0))
+
+    def geo_to_enu(lat, lon):
+        return ((lon - lon0) * m_per_deg_lon, (lat - lat0) * M_PER_DEG_LAT)
+
+    def enu_to_geo(e, n):
+        return (lat0 + n / M_PER_DEG_LAT, lon0 + e / m_per_deg_lon)
+
+    src = [pos[nd] for nd in ties]
+    dst = [geo_to_enu(*ties_geo[nd]) for nd in ties]
+    fit = procrustes_2d(src, dst)
+    flip_resolved = len(ties) >= 3
+    # Scale should be ~1 (both frames are metric); a big departure flags a calibration
+    # or tie-measurement error worth surfacing rather than silently absorbing.
+    scale_warn = "" if 0.85 <= fit["scale"] <= 1.15 else "  <-- WARN: far from 1.0"
+
+    geo = {}
+    for nd, (x, y) in pos.items():
+        e, n = apply_fit(fit, x, y)
+        geo[nd] = enu_to_geo(e, n)
+
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write("# Fleet Anchored Position Beliefs (semantic positioning SP2)\n\n"
+                "Authored by `companion.py anchor`: the relative @BELIEF:POSITION map\n"
+                "(positions.md) fitted onto the T-Deck GPS tie points (gps-fixes.md) by\n"
+                "a 2D similarity (scale+rotation+translation, reflection allowed). GPS is\n"
+                "the verifier + anchor, never an inference input. flip_resolved is true\n"
+                "only with >=3 non-collinear ties (2 leave the mirror ambiguous).\n\n"
+                f"fit: ties={len(ties)} {ties}  scale={fit['scale']:.4f}{scale_warn}  "
+                f"reflected={fit['reflect']}  tie_rmse={fit['rmse']:.2f} m  "
+                f"flip_resolved={flip_resolved}\n")
+        for nd in sorted(geo):
+            lat, lon = geo[nd]
+            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
+                    f"frame: geo   # absolute, GPS-anchored\n"
+                    f"lat_deg: {lat:.7f}\nlon_deg: {lon:.7f}\n"
+                    f"x_m: {pos[nd][0]:.2f}\ny_m: {pos[nd][1]:.2f}   # relative frame\n"
+                    f"sigma_m: {sig.get(nd, 0.0):.2f}\n"
+                    f"anchor_chain: [v4a_bridge, gps]\n"
+                    f"is_tie: {'yes' if nd in ties else 'no'}\n"
+                    f"flip_resolved: {'true' if flip_resolved else 'false'}\n"
+                    f"tie_rmse_m: {fit['rmse']:.2f}\n"
+                    f"touched: {now_iso}\n")
+
+    print(f"anchor: fitted {len(pos)} node(s) to {len(ties)} GPS tie(s) {ties}")
+    print(f"  scale {fit['scale']:.4f}{scale_warn}  reflected {fit['reflect']}  "
+          f"tie rmse {fit['rmse']:.2f} m  flip_resolved {flip_resolved}")
+    if not flip_resolved:
+        print("  NOTE: 2 ties fix rotation+translation but NOT the mirror. A 3rd "
+              "non-collinear GPS tie resolves flip_resolved.")
+    print(f"  {'node':<12} {'lat_deg':>13} {'lon_deg':>13}  tie")
+    for nd in sorted(geo):
+        lat, lon = geo[nd]
+        print(f"  {nd:<12} {lat:>13.7f} {lon:>13.7f}  {'*' if nd in ties else ''}")
+    print(f"\nwrote {out}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2149,6 +2438,28 @@ def main():
     po.add_argument("--out", default=DEFAULT_POSITIONS_OUT)
     po.add_argument("--iters", type=int, default=3000)
 
+    gp = sub.add_parser(
+        "gps", help="SP2: read the T-Deck GPS fix; --at records a ground-truth tie")
+    gp.add_argument("--port", required=True, help="serial port (COM10 direct, or bridge)")
+    gp.add_argument("--baud", type=int, default=115200)
+    gp.add_argument("--node", default="tdeck_1", choices=list(NODE_IDS),
+                    help="the GPS-bearing node to query (default tdeck_1)")
+    gp.add_argument("--at", default=None, choices=list(NODE_IDS),
+                    help="record this fix as a tie point beside this static node")
+    gp.add_argument("--probes", type=int, default=6)
+    gp.add_argument("--settle", type=float, default=2.5)
+    gp.add_argument("--fixes", default=DEFAULT_GPS_FIXES,
+                    help="tie-point file `anchor` consumes")
+
+    an = sub.add_parser(
+        "anchor",
+        help="SP2: fit the relative position map to GPS ties -> absolute lat/lon")
+    an.add_argument("--positions", default=DEFAULT_POSITIONS_OUT,
+                    help="relative @BELIEF:POSITION map (companion.py positions)")
+    an.add_argument("--fixes", default=DEFAULT_GPS_FIXES,
+                    help="GPS tie points (companion.py gps --at)")
+    an.add_argument("--out", default=DEFAULT_ANCHORED_OUT)
+
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
@@ -2225,6 +2536,11 @@ def main():
         calibrate(args.proto, args.station, args.out, args.note)
     elif args.cmd == "positions":
         positions(args.proximity, args.out, args.iters)
+    elif args.cmd == "gps":
+        gps(args.port, args.baud, args.node, args.at, args.probes, args.settle,
+            args.fixes)
+    elif args.cmd == "anchor":
+        anchor(args.positions, args.fixes, args.out)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

@@ -34,12 +34,20 @@ in the room, a cable, or a walk outside. In priority order:
    (~4.3 × 3.9 m room). Eyeball it, or stride-count one or two pairs. If it
    matches up to rotation/mirror, that's SP1's accuracy bar **and** SP2's sanity
    gate met in one glance — tell me "map checks out" or where it's wrong.
-2. **T-Deck GPS bring-up (cable + a step outside).** Plug the T-Deck into COM10
-   (manual BOOT/RST — native-USB auto-reset is flaky), then carry it somewhere
-   with sky view for a fix. This is the roaming **anchor + verifier**: it
-   resolves the map's unresolved mirror (`flip_resolved: false`) and starts
-   proof leg 1 (positioning scored against GPS, never fed into it). I'll build
-   the NMEA read + `@BELIEF:POSITION` GPS-anchoring first; you supply the sky.
+2. **T-Deck GPS bring-up — ▶ the software is built + green; it needs your cable +
+   sky (2026-07-10).** The NMEA read and the `@BELIEF:POSITION` GPS-anchoring are
+   done and offline-verified (`test_nmea` 27/27, `test_anchor_py` 20/20; T-Deck
+   compiles at 78% flash). Your part now: (i) **flash the T-Deck** — plug into
+   COM10, manual BOOT/RST (native-USB auto-reset is flaky), upload firmware **+
+   the FS image** (`Upload-V4-FS.ps1 -Node tdeck_console`); (ii) **get a lock** —
+   carry it to sky view; `companion.py gps --node tdeck_1 --port COM10` should
+   print a fix (its screen shows one too), and until then honestly says "no fix";
+   (iii) **walk the ties** — stand beside each static node and
+   `companion.py gps --at <that-node>`, then `companion.py anchor`. **≥3
+   non-collinear ties resolve the mirror** (`flip_resolved: false → true`) and
+   start proof leg 1 (positioning scored against GPS, never fed into it). Tell me
+   the baud it locked (screen shows it) if the fix never comes — the auto-probe
+   tries 38400/9600/115200/57600.
 3. **Be the flash-cycle partner when I have firmware ready.** The next few
    software steps each end in a per-node flash: the **BLE near-range tier**
    (SP0 leftover — tightens same-room sigmas), and **publishing positions back**
@@ -498,9 +506,23 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       immunity, parser round-trip, determinism). **First live embed: 4 nodes,
       6 pairs, stress 0.01 m** — worst pair-fit error 4 cm; the fleet's six
       independent distance beliefs agree on one 2D layout (~4.3 × 3.9 m bench).
-- [ ] **T-Deck GPS online as the roaming anchor + verifier** — each GPS-stamped
-      visit pins the embedding; flip ambiguity resolved statistically (dual
-      candidates with split `conf` until then).
+- [~] **T-Deck GPS online as the roaming anchor + verifier** — NMEA read + the
+      `anchor` fit are **built + offline-verified 2026-07-10, awaiting a sky-view
+      flash session.** Portable `firmware/libraries/Gps` (GGA parser, checksum +
+      hemisphere-signed, `test_nmea.cpp` 27/27); the T-Deck reads its u-blox on
+      UART1 (GPIO44/43, auto-baud), shows the fix, and answers `CMD_GET_GPS`
+      (op 9) with a 24-B GPS PERCEPT (compiles, 78% flash, not yet flashed).
+      `companion.py gps [--at <node>]` records ground-truth ties; `companion.py
+      anchor` fits the relative map onto them by 2D Procrustes (reflection
+      allowed) → absolute lat/lon `@BELIEF:POSITION` in `master/anchored.md`,
+      **flip resolved with ≥3 non-collinear ties** (2 ties emit `flip_resolved:
+      false`, honest). `test_anchor_py.py` 20/20 (3-tie recovers geo within
+      0.3 cm). GPS is verifier+anchor only, never an inference input.
+      **READ ✅ LIVE ON HARDWARE 2026-07-10 (T-Deck COM10):** flashed first try,
+      `gps --node tdeck_1` returned a clean 12-sat lock indoors (43.65248,
+      -116.33647, HDOP 1.1) — auto-baud + NMEA decode + `CMD_GET_GPS` round-trip
+      all verified on real signal. **Pending:** walk the ties (`gps --at`) +
+      `anchor` to resolve the mirror.
 - [ ] Publish `@BELIEF:POSITION` back to each node over the mesh.
 
 **Done when:** the embedded map recovers the bench/yard geometry within stated

@@ -51,7 +51,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
-| **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. |
+| **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
@@ -544,11 +544,64 @@ If a fact lives in one of these, link to it from here — don't copy it.
   6 pairs, stress 0.01 m, worst pair-fit 4 cm** — six independent calibrated distances agree
   on one 2D layout: V4-A(0,0), K10(3.1,0), T-Deck(0.4,2.9), V4-B(3.3,2.2), a ~4.3 × 3.9 m
   bench. Umwelt overlap → geometry, live, end to end.
+- **SP2 GPS anchor — NMEA read + `anchor` BUILT + offline-verified (2026-07-10), awaiting
+  the sky.** The roaming ground-truth leg (proof leg 1) is coded end to end and ready for a
+  cable+sky-view session. **Firmware:** new portable **`firmware/libraries/Gps`** (NMEA-0183
+  GGA parser — checksum-validated, allocation-free, hemisphere-signed; `tests/test_nmea.cpp`
+  27/27 under `zig c++`); the T-Deck reads its **u-blox on UART1 (GPIO44 RX / 43 TX**, freed
+  by native-USB CDC), auto-probes the NMEA baud (38400 default), shows the live fix on its
+  screen, and answers the new **`CMD_GET_GPS`** (op 9) with a 24-B **GPS PERCEPT** (lat/lon
+  1e7, alt, quality, sats, HDOP, epoch — a PERCEPT payload convention, no new toot type/RFC).
+  Compiles at **78% flash; not yet flashed.** **Companion:** `companion.py gps --node tdeck_1
+  [--at <static-node>]` reads a fix and records it as a ground-truth tie in
+  `master/gps-fixes.md`; `companion.py anchor` fits the relative `positions.md` map onto the
+  GPS ties by a closed-form 2D Procrustes (scale+rotation+translation, **reflection allowed**)
+  → absolute-lat/lon `@BELIEF:POSITION` in `master/anchored.md`, **resolving the mirror when
+  ≥3 non-collinear ties exist** (2 ties fix rotation+translation but leave flip ambiguous —
+  emitted honestly as `flip_resolved: false`). `tests/test_anchor_py.py` 20/20: a 3-tie fit
+  recovers synthetic geo within **0.3 cm** incl. the non-tie node, flip resolves at 3, and a
+  scale far from 1.0 warns (calibration guard). GPS stays verifier+anchor only, never an
+  inference input (keeps the proof non-circular).
+- **GPS READ ✅ LIVE ON HARDWARE (2026-07-10, T-Deck COM10) — first fix decoded, first try.**
+  Flashed the GPS firmware (auto-reset cooperated — no manual BOOT/RST this round; FS untouched,
+  TTDB persists). `companion.py gps --node tdeck_1 --port COM10` returned a clean **12-satellite
+  lock indoors** (`43.6524992, -116.3364675  alt 806.1 m  HDOP 1.1`) — the u-blox is on UART1,
+  the auto-baud found it, the NMEA GGA parser decodes real signal, and `CMD_GET_GPS` → 24-B GPS
+  PERCEPT round-trips over USB-CDC. The roaming anchor instrument works. **Remaining for the
+  anchor:** collect ≥2 (ideally ≥3 non-collinear) ties — stand the T-Deck beside each static
+  node and `gps --at <node>`, then `anchor`. Caveat: GPS ~1–3 m accuracy vs a ~4 m bench means
+  the ties mainly resolve rotation + the **mirror** (the SP2 goal); sub-GPS pair *distances*
+  still come from the calibrated RSSI embedding, not GPS.
+- **SP2 GPS ANCHOR CLOSED ON HARDWARE + FIRST GPS-SCORED VERIFICATION ✅ (2026-07-10) —
+  proof leg 1 is operational, and it immediately earned its keep.** Ran the full SP1→SP2
+  loop at real outdoor scale: cleared bench percepts, spread the 4 nodes across a garden
+  (V4-A desk / K10 "nutrient station" / V4-B "greenhouse seating" / T-Deck "back 40",
+  ~6–17 m apart by GPS), accumulated ~10 link-percept windows, rebuilt `proximity`→
+  `positions` (a ~35 m relative quad), then took **4 DGPS ties (HDOP 0.6–0.7, 12 sats)** by
+  carrying the T-Deck to each node and `gps --at`, and ran `anchor`. **Result:
+  `flip_resolved: True`** — 4 non-collinear ties pinned rotation + mirror; absolute lat/lon
+  written to `master/anchored.md`. **The verifier then did its real job:** `anchor`
+  auto-flagged `scale 0.2768 (WARN)` / `tie_rmse 4.98 m` — the RSSI map is **2–7× too large**
+  vs GPS truth, and worse, **RSSI is decorrelated from distance here** (the *closest* pair,
+  V4-A↔T-Deck 6.0 m, had nearly the *weakest* signal, −84.8 dBm ≈ 30 dB excess loss; a fresh
+  GPS-truth path-loss fit gave a nonsense n=0.53, rmse 6.6 dB). **Root cause:** the SP1
+  calibration is *through-house* (n=4.84) and doesn't transfer outdoors, and 2.4 GHz among
+  ground-level nodes + vegetation is **shadowing-limited, not distance-limited** — per-link
+  excess loss swamps the range signal. **This is exactly what proof leg 1 exists to catch:**
+  GPS independently scored the emergent RSSI belief and quantified where it fails, honestly
+  and automatically (the scale-guard fired on its own). Takeaways: (1) the GPS anchoring
+  *mechanism* (flip resolution, coordinate transform, tie recording) is verified end-to-end
+  on hardware; (2) RSSI-only ranging needs per-environment recalibration (low payoff here —
+  the correlation is gone) or, better, the **SP0 multi-tier evidence** (BLE near-range,
+  entity co-occurrence, TDoA) to survive obstructed real sites; (3) `master/gps-fixes.md`
+  now holds DGPS ground truth for all 4 nodes — the map's true geometry, GPS-scored.
 - **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
   bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
-  (b) **SP2 remainder** — T-Deck GPS bring-up (Plus confirmed: UART GPS, hardware_specs) as
-  the roaming anchor/verifier; publish `@BELIEF:POSITION` back to nodes (ride TTN-RFC-0009
-  push or a compact POSITION toot — needs the RFC-before-code convention if a new type).
+  (b) **SP2 GPS anchor — flash + field it** (firmware/companion above are built + green):
+  flash the T-Deck, get a sky-view lock (`gps --node tdeck_1` shows the fix), walk it to each
+  static node (`gps --at <node>`), then `anchor` — ≥3 ties resolve the mirror. Then publish
+  `@BELIEF:POSITION` back to nodes (ride TTN-RFC-0009 push or a compact POSITION toot — needs
+  the RFC-before-code convention if a new type).
   (c) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE advertise+scan**
   (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI. Then SP3–SP6 per PLAN.md
   Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop + T-Deck).

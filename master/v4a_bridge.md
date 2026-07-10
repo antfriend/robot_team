@@ -53,79 +53,114 @@ Toward V4-B (relay). Forwarding state for the first LoRa hop.
 
 ---
 
+
+---
+
+
+---
+
 @LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:60714 synced:0 window_ms:60714
-**LINK** peer:0x00000011 proto:espnow n:32 rssi_min:-53 rssi_med:-44 rssi_max:-38
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-44 rssi_med:-39 rssi_max:-34
-**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-46 rssi_med:-40 rssi_max:-34
+**LINKWIN** t_ms:61000 synced:0 window_ms:61000
+**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-51 rssi_med:-45 rssi_max:-35
+**LINK** peer:0x00000011 proto:espnow n:30 rssi_min:-55 rssi_med:-48 rssi_max:-44
+**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-58 rssi_med:-42 rssi_max:-31
 
 ---
 
 @LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:120714 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:29 rssi_min:-45 rssi_med:-39 rssi_max:-25
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-48 rssi_med:-30 rssi_max:-28
-**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-41 rssi_med:-38 rssi_max:-31
+**LINKWIN** t_ms:122534 synced:0 window_ms:61534
+**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-84 rssi_med:-67 rssi_max:-55
+**LINK** peer:0x00000011 proto:espnow n:26 rssi_min:-94 rssi_med:-76 rssi_max:-61
+**LINK** peer:0x00000200 proto:espnow n:28 rssi_min:-94 rssi_med:-77 rssi_max:-65
 
 ---
 
 @LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:180714 synced:0 window_ms:60000
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-32 rssi_med:-28 rssi_max:-26
-**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-39 rssi_med:-33 rssi_max:-29
-**LINK** peer:0x00000011 proto:espnow n:21 rssi_min:-30 rssi_med:-25 rssi_max:-23
+**LINKWIN** t_ms:184000 synced:0 window_ms:61466
+**LINK** peer:0x00000200 proto:espnow n:25 rssi_min:-94 rssi_med:-88 rssi_max:-76
+**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-71 rssi_med:-67 rssi_max:-65
+**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-92 rssi_med:-84 rssi_max:-79
 
 ---
 
 @LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:240714 synced:0 window_ms:60000
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-50 rssi_med:-29 rssi_max:-27
-**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-37 rssi_med:-32 rssi_max:-30
-**LINK** peer:0x00000011 proto:espnow n:16 rssi_min:-30 rssi_med:-25 rssi_max:-23
+**LINKWIN** t_ms:245102 synced:0 window_ms:61102
+**LINK** peer:0x00000011 proto:espnow n:27 rssi_min:-85 rssi_med:-84 rssi_max:-78
+**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-67 rssi_med:-67 rssi_max:-66
+**LINK** peer:0x00000200 proto:espnow n:24 rssi_min:-94 rssi_med:-93 rssi_max:-85
 
 ---
 
 @LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:300714 synced:0 window_ms:60000
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-33 rssi_med:-29 rssi_max:-26
-**LINK** peer:0x00000100 proto:espnow n:59 rssi_min:-39 rssi_med:-32 rssi_max:-29
+**LINKWIN** t_ms:306534 synced:0 window_ms:61432
+**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-67 rssi_med:-67 rssi_max:-65
+**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-86 rssi_med:-84 rssi_max:-82
+**LINK** peer:0x00000200 proto:espnow n:25 rssi_min:-95 rssi_med:-92 rssi_max:-90
 
 ---
 
 @LAT97LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:360714 synced:0 window_ms:60000
-**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-39 rssi_med:-33 rssi_max:-30
-**LINK** peer:0x00000200 proto:espnow n:24 rssi_min:-38 rssi_med:-30 rssi_max:-25
+**LINKWIN** t_ms:368034 synced:0 window_ms:61500
+**LINK** peer:0x00000200 proto:espnow n:28 rssi_min:-95 rssi_med:-91 rssi_max:-88
+**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-67 rssi_med:-67 rssi_max:-66
+**LINK** peer:0x00000011 proto:espnow n:26 rssi_min:-86 rssi_med:-85 rssi_max:-82
 
 ---
 
 @LAT97LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:422681 synced:0 window_ms:61967
-**LINK** peer:0x00000100 proto:espnow n:62 rssi_min:-41 rssi_med:-35 rssi_max:-30
-**LINK** peer:0x00000200 proto:espnow n:31 rssi_min:-46 rssi_med:-30 rssi_max:-25
-**LINK** peer:0x00000011 proto:espnow n:8 rssi_min:-55 rssi_med:-43 rssi_max:-38
+**LINKWIN** t_ms:429534 synced:0 window_ms:61500
+**LINK** peer:0x00000011 proto:espnow n:26 rssi_min:-87 rssi_med:-85 rssi_max:-84
+**LINK** peer:0x00000100 proto:espnow n:62 rssi_min:-67 rssi_med:-67 rssi_max:-66
+**LINK** peer:0x00000200 proto:espnow n:16 rssi_min:-93 rssi_med:-91 rssi_max:-89
 
 ---
 
 @LAT97LON7 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:484198 synced:0 window_ms:61517
-**LINK** peer:0x00000011 proto:espnow n:31 rssi_min:-47 rssi_med:-40 rssi_max:-34
-**LINK** peer:0x00000200 proto:espnow n:31 rssi_min:-32 rssi_med:-30 rssi_max:-29
-**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-44 rssi_med:-40 rssi_max:-34
+**LINKWIN** t_ms:491034 synced:0 window_ms:61500
+**LINK** peer:0x00000011 proto:espnow n:24 rssi_min:-86 rssi_med:-85 rssi_max:-83
+**LINK** peer:0x00000100 proto:espnow n:61 rssi_min:-69 rssi_med:-67 rssi_max:-66
+**LINK** peer:0x00000200 proto:espnow n:23 rssi_min:-95 rssi_med:-92 rssi_max:-89
 
 ---
 
 @LAT97LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:545715 synced:0 window_ms:61517
-**LINK** peer:0x00000100 proto:espnow n:62 rssi_min:-44 rssi_med:-41 rssi_max:-34
-**LINK** peer:0x00000011 proto:espnow n:31 rssi_min:-62 rssi_med:-46 rssi_max:-40
-**LINK** peer:0x00000200 proto:espnow n:30 rssi_min:-31 rssi_med:-28 rssi_max:-27
+**LINKWIN** t_ms:552611 synced:0 window_ms:61577
+**LINK** peer:0x00000200 proto:espnow n:22 rssi_min:-95 rssi_med:-93 rssi_max:-86
+**LINK** peer:0x00000100 proto:espnow n:60 rssi_min:-69 rssi_med:-67 rssi_max:-66
+**LINK** peer:0x00000011 proto:espnow n:25 rssi_min:-89 rssi_med:-84 rssi_max:-83
+
+---
+
+@LAT97LON9 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:614109 synced:0 window_ms:61498
+**LINK** peer:0x00000200 proto:espnow n:26 rssi_min:-93 rssi_med:-88 rssi_max:-85
+**LINK** peer:0x00000100 proto:espnow n:59 rssi_min:-73 rssi_med:-67 rssi_max:-64
+**LINK** peer:0x00000011 proto:espnow n:24 rssi_min:-90 rssi_med:-88 rssi_max:-85
+
+---
+
+@LAT97LON10 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:675613 synced:0 window_ms:61504
+**LINK** peer:0x00000011 proto:espnow n:21 rssi_min:-90 rssi_med:-88 rssi_max:-86
+**LINK** peer:0x00000100 proto:espnow n:59 rssi_min:-76 rssi_med:-70 rssi_max:-64
+**LINK** peer:0x00000200 proto:espnow n:27 rssi_min:-93 rssi_med:-90 rssi_max:-87
+
+---
+
+@LAT97LON11 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60000 synced:0 window_ms:60000
+**LINK** peer:0x00000200 proto:espnow n:29 rssi_min:-92 rssi_med:-88 rssi_max:-85
+**LINK** peer:0x00000100 proto:espnow n:58 rssi_min:-71 rssi_med:-68 rssi_max:-65
+**LINK** peer:0x00000011 proto:espnow n:49 rssi_min:-90 rssi_med:-87 rssi_max:-83

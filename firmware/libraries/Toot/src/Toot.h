@@ -86,6 +86,11 @@ enum CmdOp : uint8_t {
   CMD_CLEAR_PERCEPTS = 8,  // no args — drop the @LAT97 link-percept lane from the
                            // live TTDB (SP1 prune after consolidation; flash
                            // rewrite, so radio callers MUST defer it to loop())
+  CMD_GET_GPS = 9,         // no args — GPS-bearing node (T-Deck Plus) replies a GPS
+                           // PERCEPT (semantic positioning SP2: the roaming
+                           // ground-truth anchor/verifier). Cheap (no flash): the
+                           // node reports its last parsed NMEA fix, so a leaf that
+                           // has no GPS just answers quality:0.
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
@@ -119,6 +124,21 @@ const size_t STATUS_PAYLOAD_LEN = 15;
 //   [41]     beat_in_bar   u8       current beat position (0 = downbeat)
 //   [42]     pstate        u8       bit0 playing · bit1 conductor
 const size_t STATUS_PULSE_PAYLOAD_LEN = 43;
+
+// GPS PERCEPT payload — a GPS-bearing node's last NMEA fix, returned as a PERCEPT
+// toot in answer to CMD_GET_GPS (semantic positioning SP2, ttn-semantic-positioning.md
+// §3: the T-Deck GPS is the roaming ground-truth anchor + verifier, never an inference
+// input). PERCEPT is an existing type (bridge already forwards it), so no new type/RFC.
+// Its 24-byte length distinguishes it from a STATUS PERCEPT (15 or 43). All fields LE:
+//   [0..3]   lat_1e7    i32   latitude  * 1e7 (degrees; == u-blox/NMEA scaling)
+//   [4..7]   lon_1e7    i32   longitude * 1e7
+//   [8..11]  alt_cm     i32   MSL altitude, centimetres
+//   [12]     quality    u8    GGA fix quality (0 no fix · 1 GPS · 2 DGPS)
+//   [13]     sats       u8    satellites used in the fix
+//   [14..15] hdop_x10   u16   horizontal dilution of precision * 10
+//   [16..23] epoch_ms   u64   node nowEpochMs() at reply (0 if unsynced) — when, not where
+const size_t GPS_PERCEPT_PAYLOAD_LEN = 24;
+
 enum PulseStateFlag : uint8_t {
   PSTATE_PLAYING = 1 << 0,
   PSTATE_CONDUCTOR = 1 << 1,

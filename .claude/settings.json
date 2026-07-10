@@ -50,7 +50,23 @@
       "PowerShell($sp = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; Expand-Archive \"$sp\\\\zig.zip\" -DestinationPath $sp -Force; & \"$sp\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\" version)",
       "PowerShell($sp = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\"; Set-Location $sp; & \"$sp\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\" c++ -std=c++11 -Wall -Wextra -O2 -I c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp c:\\\\git\\\\robot_team\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe; if \\($?\\) { & \"$sp\\\\test_rfc_ttdb.exe\" c:\\\\git\\\\robot_team\\\\RFCs\\\\rfc.ttdb.md })",
       "PowerShell($zig = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\"; Set-Location \"c:\\\\git\\\\robot_team\\\\tests\"; & $zig c++ -std=c++11 -Wall -Wextra -O2 -I ..\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp ..\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe 2>$null; if \\($?\\) { .\\\\test_rfc_ttdb.exe }; Write-Output \"--- make available?\"; \\(Get-Command make -ErrorAction SilentlyContinue\\).Source)",
-      "PowerShell($zig = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\"; Set-Location \"c:\\\\git\\\\robot_team\\\\tests\"; & $zig c++ -std=c++11 -O2 -I ..\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp ..\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe 2>&1 | Select-String -NotMatch \"libunwind|Unwind|dllexport|note:|warning:|\\\\^|extern|_LIBUNWIND|generated\\\\.\" | Select-Object -First 20; Write-Output \"--- exit: $LASTEXITCODE ---\"; if \\(Test-Path .\\\\test_rfc_ttdb.exe\\) { .\\\\test_rfc_ttdb.exe })"
+      "PowerShell($zig = \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\df7f7441-7c53-4aba-ab03-c2cf55723512\\\\scratchpad\\\\zig-windows-x86_64-0.13.0\\\\zig.exe\"; Set-Location \"c:\\\\git\\\\robot_team\\\\tests\"; & $zig c++ -std=c++11 -O2 -I ..\\\\firmware\\\\libraries\\\\TTDB\\\\src test_rfc_ttdb.cpp ..\\\\firmware\\\\libraries\\\\TTDB\\\\src\\\\TtdbParse.cpp -o test_rfc_ttdb.exe 2>&1 | Select-String -NotMatch \"libunwind|Unwind|dllexport|note:|warning:|\\\\^|extern|_LIBUNWIND|generated\\\\.\" | Select-Object -First 20; Write-Output \"--- exit: $LASTEXITCODE ---\"; if \\(Test-Path .\\\\test_rfc_ttdb.exe\\) { .\\\\test_rfc_ttdb.exe })",
+      "Bash(command -v g++ clang++ cl)",
+      "Bash(/c/Users/antfr/AppData/Local/Temp/claude/c--git-robot-team/df7f7441-7c53-4aba-ab03-c2cf55723512/scratchpad/zig-windows-x86_64-0.13.0/zig.exe c++ -std=c++11 -Wall -Wextra -O2 -I../firmware/libraries/Gps/src test_nmea.cpp ../firmware/libraries/Gps/src/Nmea.cpp -o test_nmea.exe)",
+      "Bash(./test_nmea.exe)",
+      "Bash(python tests/test_anchor_py.py)",
+      "Bash(python orchestrator/companion.py gps -h)",
+      "Bash(python orchestrator/companion.py anchor -h)",
+      "Bash(make 'CXX=/c/Users/antfr/AppData/Local/Temp/claude/c--git-robot-team/df7f7441-7c53-4aba-ab03-c2cf55723512/scratchpad/zig-windows-x86_64-0.13.0/zig.exe c++')",
+      "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM10)",
+      "Bash(python orchestrator/companion.py proximity --port COM6 --nodes v4a_bridge,v4b_relay,k10_1,tdeck_1 --out master/proximity.md)",
+      "Bash(python orchestrator/companion.py positions --proximity master/proximity.md --out master/positions.md)",
+      "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at tdeck_1)",
+      "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at v4b_relay)",
+      "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at k10_1)",
+      "Bash(python orchestrator/companion.py gps --node tdeck_1 --port COM6 --at v4a_bridge)",
+      "Bash(python orchestrator/companion.py anchor)",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\cmp.py\")"
     ]
   }
 }

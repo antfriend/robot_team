@@ -180,6 +180,13 @@ adds GPS, a bigger battery, and a vibration motor but keeps the same core pin ma
 | LCD backlight | 42 | | LoRa BUSY | 13 |
 | SD CS | 39 | | LoRa RST | 17 |
 | I²S BCLK / WS / DOUT | 7 / 5 / 6 | | LoRa DIO1 | 45 |
+| **GPS RX** (ESP←module TX) | **44** | | **GPS TX** (ESP→module RX) | **43** |
+
+> **GPS (T-Deck *Plus* only) is a u-blox on UART1.** GPIO43/44 are the S3's default
+> UART0 TXD0/RXD0, freed because the board runs native USB CDC — LilyGo wires the GPS
+> there. Default NMEA baud is **38400** (older modules 9600); the console auto-probes a
+> short list at boot. Read-only NMEA needs only GPS RX (44). Semantic positioning SP2
+> uses it as the roaming ground-truth anchor/verifier (`companion.py gps` / `anchor`).
 
 > **`GPIO10` must be driven HIGH first** — the keyboard, LCD, LoRa and SD are all
 > unpowered until then. This is the T-Deck's #1 bring-up gotcha.

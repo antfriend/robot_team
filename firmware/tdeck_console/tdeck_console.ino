@@ -31,6 +31,7 @@
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
+#include <Nmea.h>         // SP2: portable NMEA GGA decode for the roaming GPS anchor
 #include <RobotTeamConfig.h>
 #include <Preferences.h>   // NVS: remember the song on/off across a power-cycle
 
@@ -49,6 +50,9 @@ static linkpercept::Log gLinkLog;
 #define USE_TDECK_HW 1
 #define USE_LORA 0        // Phase 4: the T-Deck's SX1262 can join the LoRa spine.
 #define USE_PULSE 1       // follow the band clock so `band`/`monitor` see this node.
+#define USE_GPS 1         // SP2: T-Deck Plus GPS as the roaming ground-truth anchor.
+                          // Safe on a non-Plus unit (the UART just stays silent ->
+                          // CMD_GET_GPS answers quality:0). Independent of USE_TDECK_HW.
 
 // --- T-Deck board pin map (LilyGo T-Deck / T-Deck Plus) ---------------------
 // Documented here (and in hardware_specs.md) even when USE_TDECK_HW is 0 so the
@@ -68,6 +72,10 @@ static const int PIN_LORA_CS   = 9;   // SX1262 (shared SPI): BUSY13 RST17 DIO1 
 static const int PIN_I2S_BCLK  = 7;   // MAX98357A speaker amp (I2S)
 static const int PIN_I2S_WS    = 5;   // word select / LRCLK
 static const int PIN_I2S_DOUT  = 6;   // data to amp
+// T-Deck Plus GPS (u-blox MIA-M10Q) on UART1. GPIO43/44 are the S3's default UART0
+// TXD0/RXD0, freed because the board runs native USB CDC — LilyGo wires the GPS there.
+static const int PIN_GPS_RX    = 44;  // ESP32 RX  <- GPS module TX (NMEA in)
+static const int PIN_GPS_TX    = 43;  // ESP32 TX  -> GPS module RX (config; unused here)
 
 #if USE_TDECK_HW
 #include <Wire.h>
@@ -87,6 +95,49 @@ static Adafruit_ST7789 gTft(&gDispSpi, PIN_TFT_CS, PIN_TFT_DC, /*rst=*/-1);
 static I2SClass gI2S;
 static const uint32_t I2S_RATE = 16000;
 #endif
+
+// --- GPS: the roaming ground-truth anchor (semantic positioning SP2) ---------
+// The T-Deck Plus carries a u-blox GPS on UART1. It is the fleet's VERIFIER and
+// second anchor: a GPS fix taken beside a static node pins the emergent relative map
+// to absolute coordinates and resolves its mirror (ttn-semantic-positioning.md §3
+// Phase 2). GPS is never fed into the inference — it only scores + anchors it. The
+// fix is parsed continuously; the laptop reads it on demand with CMD_GET_GPS.
+#if USE_GPS
+static HardwareSerial gGpsSerial(1);
+static nmea::Parser gGps;
+static uint32_t gGpsFixMs = 0;          // millis() of the last GGA that carried a fix
+// u-blox default is 38400; older modules ship at 9600. Probe a short list at boot and
+// lock the first baud that speaks NMEA — bring-up shouldn't hinge on knowing the rate.
+static const uint32_t kGpsBauds[] = {38400, 9600, 115200, 57600};
+static uint32_t gGpsBaud = 0;
+
+static void gpsProbeBaud() {
+  for (unsigned bi = 0; bi < sizeof(kGpsBauds) / sizeof(kGpsBauds[0]); ++bi) {
+    gGpsSerial.begin(kGpsBauds[bi], SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+    delay(40);
+    while (gGpsSerial.available()) gGpsSerial.read();   // flush partial line
+    int dollars = 0;
+    uint32_t t0 = millis();
+    while (millis() - t0 < 900 && dollars < 3) {        // '$' framing = right baud
+      while (gGpsSerial.available())
+        if ((char)gGpsSerial.read() == '$') ++dollars;
+      delay(2);
+    }
+    if (dollars >= 3) { gGpsBaud = kGpsBauds[bi]; return; }
+    gGpsSerial.end();
+  }
+  gGpsBaud = kGpsBauds[0];   // nothing heard (cold module / no antenna): default + wait
+  gGpsSerial.begin(gGpsBaud, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);
+}
+
+// Drain the UART into the parser; timestamp each live fix. Cheap, called every loop().
+static void gpsPoll() {
+  int guard = 0;
+  while (gGpsSerial.available() && guard++ < 512)
+    if (gGps.feed((char)gGpsSerial.read()) && gGps.fix().hasFix())
+      gGpsFixMs = millis();
+}
+#endif  // USE_GPS
 
 static const uint32_t kNodeId = NODE_TDECK_1;
 static const char* kTtdbPath = "/ttdb.md";
@@ -302,6 +353,25 @@ static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
                 (unsigned long)gCmdSent);
 }
 
+// Build a GPS PERCEPT payload (Toot.h GPS_PERCEPT_PAYLOAD_LEN) from the last fix — the
+// answer to CMD_GET_GPS (SP2). No flash/blocking, so it is safe from the recv path.
+// Without a GPS (or before a lock) it honestly reports quality:0.
+static uint8_t buildGps(uint8_t* p) {
+#if USE_GPS
+  const nmea::Fix& f = gGps.fix();
+  toot::put_u32(p + 0, (uint32_t)f.lat_1e7);
+  toot::put_u32(p + 4, (uint32_t)f.lon_1e7);
+  toot::put_u32(p + 8, (uint32_t)f.alt_cm);
+  p[12] = f.quality;
+  p[13] = f.sats;
+  toot::put_u16(p + 14, f.hdop_x10);
+#else
+  memset(p, 0, 16);
+#endif
+  toot::put_u64(p + 16, gSynced ? (uint64_t)nowEpochMs() : 0);
+  return (uint8_t)toot::GPS_PERCEPT_PAYLOAD_LEN;
+}
+
 // STATUS telemetry for the `monitor` table. The console has no sensor cursor/temp, so
 // those fields are 0; report the synced state + epoch, plus the PULSE tail for `band`.
 static uint8_t buildStatus(uint8_t* p) {
@@ -366,6 +436,12 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
             uint8_t slen = buildStatus(body);
             emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
+            break;
+          }
+          case toot::CMD_GET_GPS: {
+            uint8_t body[toot::GPS_PERCEPT_PAYLOAD_LEN];
+            uint8_t glen = buildGps(body);
+            emit(toot::PERCEPT, body, glen, reply, ctx);  // GPS PERCEPT is the answer
             break;
           }
           case toot::CMD_PLAY: setLocalPlay(true);  break;  // start our harmony part
@@ -608,12 +684,25 @@ static void renderScreen() {
   // Song (part 2) state.
   snprintf(l, sizeof(l), "song: %s", gLocalPlay ? "PLAYING part 2" : "stopped");
   drawRow(104, gLocalPlay ? ST77XX_GREEN : ST77XX_WHITE, l);
+  // GPS fix (SP2 roaming anchor): show a live lock, else no-fix + GGA liveness count.
+#if USE_GPS
+  {
+    const nmea::Fix& gf = gGps.fix();
+    if (gf.hasFix())
+      snprintf(l, sizeof(l), "GPS %ds %.4f,%.4f", gf.sats, gf.lat_1e7 / 1e7,
+               gf.lon_1e7 / 1e7);
+    else
+      snprintf(l, sizeof(l), "GPS: no fix (q%u gga%lu)", gf.quality,
+               (unsigned long)gGps.ggaCount());
+    drawRow(118, gf.hasFix() ? ST77XX_GREEN : ST77XX_YELLOW, l);
+  }
+#endif
   // Key legend.
-  drawRow(126, ST77XX_WHITE, "keys: t=target s=status");
-  drawRow(140, ST77XX_WHITE, "p=ping b=beep g=play x=stop");
+  drawRow(134, ST77XX_WHITE, "keys: t=target s=status");
+  drawRow(148, ST77XX_WHITE, "p=ping b=beep g=play x=stop");
   snprintf(l, sizeof(l), "up %lus  last key '%c'", (unsigned long)(millis() / 1000),
            gLastKey ? gLastKey : ' ');
-  drawRow(160, ST77XX_CYAN, l);
+  drawRow(166, ST77XX_CYAN, l);
 }
 #endif
 
@@ -678,11 +767,23 @@ void setup() {
 #if USE_PULSE
   gPulse.begin(kNodeId, millis());   // silent follower (highest-ish id never conducts)
 #endif
-  Serial.printf("T-Deck console 0x%08X online (hw %s, LoRa %s)\n", kNodeId,
-                USE_TDECK_HW ? "on" : "off", USE_LORA ? "on" : "off");
+
+#if USE_GPS
+  gpsProbeBaud();   // ~1 s: lock the NMEA baud (SP2 roaming anchor). No fix needed here.
+  Serial.printf("GPS UART1 (rx %d tx %d) @ %lu baud\n", PIN_GPS_RX, PIN_GPS_TX,
+                (unsigned long)gGpsBaud);
+#endif
+
+  Serial.printf("T-Deck console 0x%08X online (hw %s, LoRa %s, GPS %s)\n", kNodeId,
+                USE_TDECK_HW ? "on" : "off", USE_LORA ? "on" : "off",
+                USE_GPS ? "on" : "off");
 }
 
 void loop() {
+#if USE_GPS
+  gpsPoll();   // drain NMEA into the parser; the fix is read on CMD_GET_GPS (SP2)
+#endif
+
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Un-deduped trusted link.
   uint8_t buf[toot::MAX_FRAME];
