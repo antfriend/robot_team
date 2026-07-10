@@ -75,7 +75,10 @@
       "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 30)",
       "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 60)",
       "Bash(tee /dev/stderr)",
-      "Bash(xargs -I{} echo \"crash indicators: {}\")"
+      "Bash(xargs -I{} echo \"crash indicators: {}\")",
+      "Bash(python \"C:\\\\Users\\\\antfr\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--git-robot-team\\\\12df52f6-fa1f-48d4-a549-5ba3a677576d\\\\scratchpad\\\\readlog.py\" COM10 90)",
+      "Bash(python orchestrator/companion.py cmd --node v4b_relay --op clear-percepts --port COM9)",
+      "Bash(python orchestrator/companion.py proximity --port COM9 --nodes v4b_relay --out master/proximity-ble.md)"
     ]
   }
 }
