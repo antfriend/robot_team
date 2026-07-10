@@ -21,6 +21,8 @@
 #include <Agent32.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <LinkPercept.h>  // SP0: link-percept histograms -> @LAT97 records
+#include <BleLink.h>      // SP0 near-range tier: BLE advert+scan (K10's FIRST direct percept)
 #include <RobotTeamConfig.h>
 
 // Real UNIHIKER K10 onboard hardware (DFRobot `unihiker_k10` library). Set to 0
@@ -54,6 +56,26 @@ toot::DedupSet gDedup(64);
 toot::Reassembler gReasm;   // chunked-toot reassembly (TTN-RFC-0007 §6)
 TootSerialLink gSerial(Serial);
 Agent32 gAgent(&gDb);
+
+// SP0 link percepts (semantic positioning). The K10's 2.x ESP-NOW recv callback carries
+// no RSSI (why its ESP-NOW percept capture was deferred), so this histogram is fed ONLY
+// by the BLE near-range tier below — giving the K10 its first DIRECT proximity percept
+// (until now it was only OBSERVED by the 3.x nodes). Flushed to @LAT97 from loop().
+static linkpercept::Log gLinkLog;
+// K10 BLE is DISABLED: the DFRobot UNIHIKER 2.x core cannot run BLE + WiFi (ESP-NOW)
+// concurrently — BLEDevice::init() aborts in coex_core_enable (WiFi/BT software
+// coexistence is not enabled in its prebuilt SDK). Verified on hardware 2026-07-10:
+// USE_BLE 1 crash-loops (abort on core 1 during setup). The K10 stays ESP-NOW-only and
+// is mapped one-directionally by the 3.x nodes hearing it. Needs a 3.x core to enable.
+#define USE_BLE 0
+#if USE_BLE
+// Called from the BLE scan task for each key-verified fleet advert (BleLink parses the
+// raw payload, so no per-advert heap allocation — the T-Deck OOM lesson). add() is
+// increment-only, safe off-task.
+static void onBleObserve(uint32_t peer, int rssi) {
+  gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
 uint32_t gSeq = 1;
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
@@ -724,6 +746,14 @@ void setup() {
   peer.encrypt = false;
   esp_now_add_peer(&peer);
 
+#if USE_BLE
+  // Near-range tier: advertise + passive-scan over BLE, feeding RSSI into @LAT97 (proto:ble).
+  // The K10's first direct percept source. shouldParse=false inside BleLink avoids the heap
+  // churn that OOM-crashed the T-Deck — important here (camera + LCD leave little free heap).
+  blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
+  Serial.println("BLE near-range tier up (advert + passive scan)");
+#endif
+
   gAgent.registerSensor(&kTempSensor);
   gAgent.registerActuator(&kIndicator);
   gAgent.setInterval(1000);
@@ -818,6 +848,29 @@ void loop() {
     gPutPending = false;
     handleToot(gPendingPut, sendEspNow, nullptr);
   }
+
+#if USE_BLE
+  // SP0: flush the BLE link-percept window into the @LAT97 lane. Flash write, so it runs
+  // from loop() (never the BLE scan task). Lane-capped; no remote clear on the K10 yet
+  // (reflash to reset the lane). The K10's first self-authored proximity evidence.
+  if (gLinkLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 97) ++lane;
+    if (lane >= LINKPERCEPT_MAX_LANE) {
+      gLinkLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                      gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
 
   // Write the TIME_SYNC log record deferred from the recv path (TTN-RFC-0008 §4):
   // a new @LAT99LON<n> record, where n is the count of existing lat-99 records so

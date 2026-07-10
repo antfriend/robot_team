@@ -630,6 +630,18 @@ If a fact lives in one of these, link to it from here — don't copy it.
   reflash V4-A/V4-B with the fixed lib, flash V4-B (3rd advertiser), then `proximity` emits
   proto:ble beliefs vs ESP-NOW + GPS truth — the point being BLE's short range should hold up
   where far ESP-NOW ranging decorrelated.
+- **BLE FLEET COMPLETE (3 nodes) + K10 BLE BLOCKED by its 2.x core (2026-07-10).** Reflashed
+  V4-A + V4-B with the crash-fixed lib and flashed all three; **all 3 BLE pairs confirmed
+  on-device** (V4-A↔T-Deck, V4-A↔V4-B, V4-B↔T-Deck — V4-B hears both peers at n:57/63) and
+  `proximity` produced the **first `proto:ble` @BELIEF:PROXIMITY records** (`master/
+  proximity-ble.md`), separate from espnow, same pipeline. **K10 BLE attempted + reverted:**
+  it compiles (30% of the K10's 5 MB partition) and flashes, but **crash-loops** — `abort()
+  on core 1` in `BLEDevice::init → btStart → esp_bt_controller_enable → coex_core_enable`:
+  the **DFRobot UNIHIKER 2.x core has no software WiFi/BT coexistence**, so BLE can't run
+  alongside ESP-NOW. Not a code bug — needs a **3.x core** on the K10. Reverted to `USE_BLE 0`
+  (K10 verified stable: agent + pulse running); the BLE scaffolding stays gated in the sketch,
+  one flag from a future core bump. The cross-core BleLink fix (std::string vs String) is kept.
+  K10 remains ESP-NOW-only, mapped one-directionally. See [[ble-near-range-tier]].
 - **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
   bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
   (b) **SP2 GPS anchor — flash + field it** (firmware/companion above are built + green):

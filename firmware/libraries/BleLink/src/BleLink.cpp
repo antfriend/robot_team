@@ -1,6 +1,8 @@
 // BleLink.cpp — see BleLink.h. ESP32 core BLE glue for the SP0 near-range tier.
 #include "BleLink.h"
 
+#include <string>
+
 #include <Toot.h>
 #include <BLEDevice.h>
 #include <BLEAdvertising.h>
@@ -54,7 +56,14 @@ void begin(uint32_t node_id, const uint8_t* key, size_t key_len, ObserveFn cb) {
   toot::buildBleAdvert(blob, sizeof(blob), node_id, key, key_len);
   BLEAdvertisementData advData;
   advData.setFlags(0x06);   // LE General Discoverable + BR/EDR not supported
-  advData.setManufacturerData(String(blob, sizeof(blob)));   // (uint8_t*, len) ctor
+  // setManufacturerData takes Arduino String on the 3.x core (V4/T-Deck) but std::string
+  // on the K10's 2.x DFRobot core — build the right type from the same binary blob.
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+  advData.setManufacturerData(String(blob, sizeof(blob)));
+#else
+  advData.setManufacturerData(
+      std::string(reinterpret_cast<const char*>(blob), sizeof(blob)));
+#endif
   BLEAdvertising* adv = BLEDevice::getAdvertising();
   adv->setAdvertisementData(advData);
   adv->setScanResponse(false);
