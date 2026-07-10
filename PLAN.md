@@ -376,7 +376,37 @@ returns end-to-end.
       retunes the K10's loop cadence (1000→300→700 ms), verified live (TTN-RFC-0009
       §5.2). The Dream Cycle's "Done when" condition.
 - [ ] Run the Dream Cycle (`TTDB-RFC-0007`) to consolidate gossiped beliefs into
-      the master TTDB; node-to-node BELIEF gossip once a 2nd percept node exists.
+      the master TTDB; node-to-node BELIEF gossip **now unblocked — the T-Deck is
+      the 2nd percept leaf** (K10 + T-Deck are the two percept authors; V4-A/V4-B
+      are bridge/relay). The T-Deck already self-authors `@LAT97` link percepts
+      (SP0) alongside its console role, so the two leaves can gossip beliefs
+      directly rather than only via the laptop. **Unblocked ≠ built** — to make
+      K10 ↔ T-Deck gossip actually run, these pieces are still missing:
+      1. **A node-originated belief send path.** Today only `companion.py push`
+         originates belief traffic (`TTDB_PUT` slices, laptop → node). A leaf needs
+         to *transmit* — either address `TTDB_PUT` slices to a peer node id, or
+         populate the so-far-unused `BELIEF` toot type (3) — rather than only
+         answering the laptop's pulls.
+      2. **On-device consolidation of its own percepts.** The `@LAT97` → `@BELIEF:
+         PROXIMITY` fuse (median-of-window-maxes + sigma) currently lives in
+         `companion.py proximity`, not on the node. Either the originating leaf
+         fuses its own percepts on-device before gossiping, or the leaves gossip
+         raw `@LAT97` percepts and the receiver fuses.
+      3. **A receiving-node belief consumer.** `case BELIEF` is a no-op
+         (k10_percept.ino:620-621, "nothing to do for the floor demo"; the
+         reassembler notes "no large-toot consumer yet (Phase 6 BELIEF)"). The peer
+         must actually *adopt* a gossiped belief — write it, attest it — instead of
+         dropping it. `handlePutSlice` (belief-via-`TTDB_PUT`) exists, but it writes
+         the laptop's `/belief.md`; a gossiped peer belief needs its own sink.
+      4. **Merge / convergence semantics on-device.** When both leaves hold a belief
+         about the same pair, the receiver must merge by TBEW (higher `conf`/`rev`
+         wins, or evidence-combine) — the logic that lives in `companion.py
+         reconcile` today has no on-device equivalent. Radio `(src,seq)` dedup guards
+         the mesh loop, but belief *merge* needs its own idempotency (`rev`/`touched`)
+         so re-gossiped beliefs converge instead of oscillating.
+      5. **A gossip trigger + peer addressing.** A cadence (periodic, or
+         post-consolidation) that sends to the peer leaf addressed node-to-node
+         rather than to the laptop.
 - [x] **3-node Dream Cycle ✅ on-device verified (2026-06-25)** — a 2nd Heltec V4 joined
       as **V4-B**, the third mesh node. `firmware/v4b_relay` is a full ESP-NOW participant
       (sync adopt + `@LAT99` append, deferred + paced TTDB serve, belief `TTDB_PUT` adopt +
@@ -385,13 +415,16 @@ returns end-to-end.
       ±50 ms; `reconcile` folded **4 sources** (incl. laptop master), id:3/4 `agree:yes`;
       `push --node v4b_relay` landed belief id=9 byte-exact. Companion unchanged (already
       takes node lists). The laptop now reconciles **3 self-authoring sources**, not 1.
-      (True node-to-node belief *gossip* still wants a 2nd percept leaf; V4-B is a relay.)
+      (True node-to-node belief *gossip* has its 2nd percept leaf in the **T-Deck**
+      — K10 + T-Deck are the two percept authors, V4-A/V4-B are bridge/relay — so
+      the gossip path is unblocked, no longer waiting on new hardware.)
 
 **Done when:** the orchestrator reconciles a multi-node belief and pushes an
 updated TTDB to a node that changes its behavior. ✅ **Achieved 2026-06-24** —
 `reconcile` consolidates, `push` distributes a belief whose directive retunes the
-K10's cadence (1000→300→700 ms). Remaining items are multi-node (gated on V4-B/V4-C
-+ a 2nd percept node) and channel convergence.
+K10's cadence (1000→300→700 ms). Remaining items are node-to-node BELIEF gossip
+(the **T-Deck is the 2nd percept leaf**, so this is unblocked — K10 ↔ T-Deck) and
+channel convergence.
 
 ---
 
