@@ -1097,8 +1097,10 @@ void loop() {
     int dy = (int)gTbDn - (int)gTbUp;
     gTbR = gTbL = gTbDn = gTbUp = 0;
     if (dx || dy) {
-      gRotLon += dx * 0.16f;
-      gRotLat += dy * 0.16f;
+      // Negated so the globe surface follows the roll (drag-to-move feel) — the roll
+      // pulses read the opposite sense on this trackball (confirmed on hardware).
+      gRotLon -= dx * 0.16f;
+      gRotLat -= dy * 0.16f;
       if (gRotLat > 1.52f) gRotLat = 1.52f;      // clamp near the poles (TTCP §5.1)
       if (gRotLat < -1.52f) gRotLat = -1.52f;
       gAnim = false;                             // manual roll cancels a selection ease

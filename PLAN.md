@@ -668,11 +668,17 @@ hardware flash):**
 - **Compile-verified:** clean build at **1,258,067 B = 39 % of huge_app** (the whole
   UI added only ~12 KB flash; the 74 KB canvas is PSRAM heap). No warnings.
 
-**On-device verification still owed (needs the cable + BOOT/RST):** (a) huge_app boots
-+ PSRAM inits (canvas non-null); (b) FS at 0x310000 mounts and a `companion.py pull`
-is still byte-exact; (c) the trackball GPIOs actually pulse (rotation responds; sign
-may need flipping); (d) globe/eyeball render correctly (color order, rotation
-direction). These are the ambiguous bits that only hardware settles.
+**On-device verified ✅ (2026-07-11, T-Deck COM10) — the globe render is live.**
+Flashed first try (auto-reset cooperated: firmware over USB, then the TTDB to the
+huge_app spiffs at 0x310000 via `Upload-Tdeck-FS.ps1`, both hashes verified; esptool
+confirmed "Embedded PSRAM 8MB"). Resolved: (a) **huge_app boots + PSRAM inits** — the
+board is live and answering toots; (b) **FS mounts at the new 0x310000 offset** —
+`companion.py pull --node tdeck_1` came back **byte-exact 1351 B, sha `fd95360b…`**
+(identical to source, the repartition didn't disturb the network floor); (c)+(d)
+**the PSRAM globe canvas allocated and renders** — the user confirmed the screen shows
+the **globe (top) + record text (bottom)**, i.e. the canvas is real (not the low-RAM
+text fallback). Still to exercise interactively: trackball roll→rotate (sign may need
+flipping), click→select-next-node, SPACE→console pane.
 
 **Done when:** laptop and T-Deck render the same fleet state from the same TTDB
 lineage, and physically rearranging the bench shows up on both screens within a
