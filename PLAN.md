@@ -606,6 +606,74 @@ delivery dies and returns when back in range — zero manual transport config.
       edges colored by transport + link health, trackball cursor
       (TTCP-RFC-0002), keyboard keeps the CMD-remote role.
 
+### SP6-T — T-Deck screen: the TTCP console render (scoped 2026-07-11)
+
+The end-state screen, modeled on [antfriend.github.io](https://antfriend.github.io):
+a **trackball-navigable globe** (top half), a **record view** (bottom half), and a
+**console log pane** revealed by a gesture — all in TTCP conventions
+(`TTCP-RFC-0001` record rendering, `TTCP-RFC-0002` globe + cursor).
+
+**Feasibility measured (arduino-cli, current `USE_TDECK_HW/GPS/BLE/PULSE` build):**
+
+- **Flash is the one real budget, and it's artificially small.** The build sits at
+  **1,245,825 / 1,310,720 B = 95 % of the app partition — only ~63 KB free** (BLE's
+  Bluedroid stack is what filled it, not the UI). A globe+record+console UI in our
+  own draw code is ~20–50 KB of `.text` plus a font/canvas, so it does **not** fit
+  in the current partition.
+- **…but the T-Deck has 16 MB flash + 8 MB PSRAM**, and the build targets the esp32
+  core's *default 4 MB* scheme (1.2 MB APP / 1.5 MB SPIFFS). Switching to
+  `PartitionScheme=huge_app` (3 MB APP) drops the same firmware to **~40 %**,
+  unlocking ~1.9 MB. **So repartitioning — not UI trimming — is the enabler; do it
+  first.** Cost: LittleFS moves off `0x290000`, so
+  [scripts/Upload-V4-FS.ps1](scripts/Upload-V4-FS.ps1#L22) needs the new offset/size
+  and the FS must be re-flashed once. RAM was never the limit (any framebuffer lives
+  in the 8 MB PSRAM; DRAM globals are at 17 %).
+- **The LCD is non-touch** (`hardware_specs.md` — ST7789, no touch panel). The
+  reference site's "swipe" cannot exist here; the only pointer is the **5-way
+  trackball** (up/down/left/right = GPIO 3/15/1/2, click = GPIO 0), which the
+  firmware does **not read yet**. Interaction re-maps: trackball drag → globe
+  rotation (`rotLat`/`rotLon`, TTCP-RFC-0002 §5.1); click → select nearest node
+  (§3.2 eyeball, §6.2); trackball-down hold or a keyboard key → slide the console
+  pane over the record half (the "swipe" analog). Keyboard keeps its CMD-remote role.
+
+**Layout (320×240 landscape):** top ~120 px globe — wireframe sphere + graticule,
+record dots at `@LAT/LON`, front-face culling, selected node as the eyeball,
+`relates:` edges as lines — rendered into a **PSRAM `GFXcanvas16`** (320×120×2 ≈
+77 KB) and block-pushed so rotation is flicker-free (the K10 canvas-blink lesson).
+Bottom ~120 px record view — title, `[ew]` bar, first body lines, related edges
+(TTCP-RFC-0001 §5/§11/§12, trimmed). Console pane slides over the record half on
+the gesture — the scrolling `[cmd]/[rx]/[sync]/[link]` log, TTCP link-styled.
+
+**Build order + status (firmware BUILT + compile-verified 2026-07-11, awaiting a
+hardware flash):**
+
+- [x] **Repartition** — build the T-Deck with FQBN
+      `esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,PSRAM=opi` (3 MB
+      APP + octal PSRAM for the globe canvas). FS moves to the huge_app spiffs at
+      **0x310000 / 0xE0000** — flash it with the new
+      [scripts/Upload-Tdeck-FS.ps1](scripts/Upload-Tdeck-FS.ps1) (V4 path untouched).
+- [x] **Trackball reads** — falling-edge ISRs on GPIO 3/15/1/2 (roll) + 0 (click);
+      loop() turns roll into globe rotation and a click into "select next node."
+- [x] **Globe canvas (top half)** — off-screen `GFXcanvas16(320,116)` in PSRAM,
+      null-safe (text fallback if alloc fails), block-pushed flicker-free. Sphere
+      outline + node dots at each record's `@LAT/LON` (skips the −90/97/98/99 lanes),
+      front-face culling, selected node as the eyeball, selected node's `relates:`
+      edges as bright-blue lines (TTCP-RFC-0002 §2–4, §3.2).
+- [x] **click→select→record view (bottom half)** — selection eases the globe to
+      front-center (§6.3); the bottom half streams the selected record's header +
+      body lines (TTCP-RFC-0001 §5).
+- [x] **Console pane** — SPACE/`n` toggles a log pane over the bottom half (the
+      non-touch "swipe" analog); shows live counters + a ring of the last cmd/reply
+      events. Keyboard keeps the full CMD-remote role (`t/s/p/b/g/x`).
+- **Compile-verified:** clean build at **1,258,067 B = 39 % of huge_app** (the whole
+  UI added only ~12 KB flash; the 74 KB canvas is PSRAM heap). No warnings.
+
+**On-device verification still owed (needs the cable + BOOT/RST):** (a) huge_app boots
++ PSRAM inits (canvas non-null); (b) FS at 0x310000 mounts and a `companion.py pull`
+is still byte-exact; (c) the trackball GPIOs actually pulse (rotation responds; sign
+may need flipping); (d) globe/eyeball render correctly (color order, rotation
+direction). These are the ambiguous bits that only hardware settles.
+
 **Done when:** laptop and T-Deck render the same fleet state from the same TTDB
 lineage, and physically rearranging the bench shows up on both screens within a
 stated number of Dream Cycles. **This is the project's end goal.**

@@ -77,7 +77,11 @@ static const int PIN_TFT_BL    = 42;  // backlight (active HIGH)
 static const int PIN_KBD_SDA   = 18;  // BlackBerry keyboard (own MCU) over I2C
 static const int PIN_KBD_SCL   = 8;
 static const uint8_t KBD_ADDR  = 0x55;  // reads one byte = ASCII of the pressed key
-static const int PIN_TB_CLICK  = 0;   // trackball click (also BOOT); UP3 DN15 L1 R2
+static const int PIN_TB_CLICK  = 0;   // trackball click (also BOOT)
+static const int PIN_TB_UP     = 3;   // trackball roll: pulses a GPIO per direction
+static const int PIN_TB_DN     = 15;
+static const int PIN_TB_L      = 1;
+static const int PIN_TB_R      = 2;
 static const int PIN_LORA_CS   = 9;   // SX1262 (shared SPI): BUSY13 RST17 DIO1 45
 static const int PIN_I2S_BCLK  = 7;   // MAX98357A speaker amp (I2S)
 static const int PIN_I2S_WS    = 5;   // word select / LRCLK
@@ -213,6 +217,33 @@ static uint32_t gLastReplySrc = 0;   // src of the last STATUS/PERCEPT reply
 static int16_t  gLastReplyTemp = 0;  // last reply temp*100 (fleet view)
 static char     gLastKey = 0;        // last key pressed on the console keyboard
 static volatile bool gScreenDirty = true;
+
+// --- SP6-T console UI: panes + event log ------------------------------------
+// The screen is a TTCP mini-render (PLAN.md SP6-T): a trackball-navigable globe
+// (top half) + the selected record (bottom half); a keyboard toggle slides a
+// console log over the bottom half (the non-touch analog of the reference site's
+// swipe-up console). Globe/trackball live behind USE_TDECK_HW; this state is cheap
+// and unguarded so handleToot() can log events regardless.
+enum Pane { PANE_MAIN, PANE_CONSOLE };
+static Pane gPane = PANE_MAIN;
+static bool gPaneChanged = true;     // force a full bottom-half repaint on switch
+
+#define LOG_LINES 11                 // console ring: last N events (fits the bottom half)
+static char gLog[LOG_LINES][40];
+static int  gLogHead = 0, gLogCount = 0;
+// Push one line into the console ring (and mirror to Serial). Safe from loop() only
+// (it touches gScreenDirty + the ring); the recv callback stashes, loop() logs.
+static void logLine(const char* s) {
+  strncpy(gLog[gLogHead], s, 39);
+  gLog[gLogHead][39] = 0;
+  gLogHead = (gLogHead + 1) % LOG_LINES;
+  if (gLogCount < LOG_LINES) gLogCount++;
+  gScreenDirty = true;
+}
+
+// Globe selection: index of the selected TTDB record (the one shown in the record
+// view). -1 until the first record is seated in setup(). Shared with the globe.
+static int gSel = -1;
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
 static int64_t gClockOffsetMs = 0;
@@ -359,6 +390,9 @@ static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
   emit(toot::CMD, body, (uint8_t)(5 + argn), sendEspNow, nullptr);
   gCmdSent++;
   gScreenDirty = true;
+  char lg[40];
+  snprintf(lg, sizeof(lg), "cmd op%u -> %s", op, nodeName(gCmdTarget));
+  logLine(lg);
   Serial.printf("[cmd] op=%u -> 0x%08X (#%lu)\n", op, (unsigned)gCmdTarget,
                 (unsigned long)gCmdSent);
 }
@@ -650,69 +684,238 @@ static char readKey() {
   return (c > 0) ? (char)c : 0;
 }
 
-// Draw one padded row (opaque background) so a re-print overwrites in place — no
-// full-screen clear per cycle (the K10 canvas-blink lesson). The fixed width erases
-// any old trailing characters.
-static void drawRow(int y, uint16_t color, const char* s) {
-  char pad[34];
-  snprintf(pad, sizeof(pad), "%-32s", s);
+// Draw one full-width padded row (opaque bg) at text size 1 — 52 chars ~= 312px, so
+// a re-print erases the whole line and never leaves trailing glyphs.
+static void drawWide(int y, uint16_t color, const char* s) {
+  char pad[54];
+  snprintf(pad, sizeof(pad), "%-52s", s);
+  pad[52] = 0;
   gTft.setTextColor(color, ST77XX_BLACK);
   gTft.setTextSize(1);
   gTft.setCursor(4, y);
   gTft.print(pad);
 }
 
-// Fleet view: identity, TTDB, who we drive, live counters, last reply. The static
-// title is painted once; the dynamic rows overwrite in place each update.
+// --- SP6-T screen geometry (320x240, rotation 3) ----------------------------
+static const int STATUS_Y  = 2;     // thin identity/target bar
+static const int GLOBE_X   = 0,  GLOBE_Y = 14;
+static const int GLOBE_W   = 320, GLOBE_H = 116;   // top half: the globe
+static const int BOTTOM_Y  = 132;                  // record view / console pane
+static const int BOTTOM_H  = 240 - BOTTOM_Y;
+
+// The globe is drawn into an off-screen 16-bit canvas and block-pushed, so rotation
+// is flicker-free (the K10 canvas-blink lesson). 320x116x2 = ~74KB — allocated once
+// at setup (PSRAM when PSRAM=opi is in the FQBN; see PLAN.md SP6-T). If the alloc
+// fails, gGlobe stays null and renderScreen falls back to a text top bar.
+static GFXcanvas16* gGlobe = nullptr;
+static float gRotLat = 0.0f, gRotLon = 0.0f;   // current globe rotation
+static float gTgtLat = 0.0f, gTgtLon = 0.0f;   // selection-animation target
+static bool  gAnim = false;                    // easing rotation toward a selection
+static float gZoom = 1.15f;
+static bool  gGlobeDirty = true;               // repaint the globe canvas
+static bool  gBottomDirty = true;              // repaint the bottom half
+
+// --- trackball: the only pointer (non-touch panel) --------------------------
+// The 5-way trackball pulses four GPIOs as it rolls and grounds one on click. We
+// count falling edges per direction in ISRs; loop() converts the accumulated counts
+// into globe rotation (roll) and a select action (click). GPIO0 is also BOOT — safe
+// to read/interrupt after boot.
+static volatile uint16_t gTbUp = 0, gTbDn = 0, gTbL = 0, gTbR = 0;
+static volatile bool gTbClick = false;
+static void IRAM_ATTR isrTbUp()   { gTbUp++; }
+static void IRAM_ATTR isrTbDn()   { gTbDn++; }
+static void IRAM_ATTR isrTbL()    { gTbL++; }
+static void IRAM_ATTR isrTbR()    { gTbR++; }
+static void IRAM_ATTR isrTbClick(){ gTbClick = true; }
+
+static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
+// Deterministic per-record color (TTCP-RFC-0002 §3.3, hash of the record id).
+static uint16_t nodeColor(int16_t lat, int16_t lon) {
+  uint32_t h = (uint32_t)(lat * 73856093) ^ (uint32_t)(lon * 19349663);
+  return rgb565(90 + (h & 0x7F), 90 + ((h >> 7) & 0x7F), 90 + ((h >> 14) & 0x7F));
+}
+
+// Project a record's @LAT/LON (degrees, TTCP-RFC-0002 §2.1) through the current globe
+// rotation to screen space. z>0 means the point faces the camera (front-face cull).
+static void projectLL(float latDeg, float lonDeg, float R, int cx, int cy,
+                      float sLat, float cLat, float sLon, float cLon,
+                      int& sx, int& sy, float& z) {
+  const float D2R = 0.01745329f;
+  float la = latDeg * D2R, lo = lonDeg * D2R;
+  float x = cosf(la) * sinf(lo), y = sinf(la), zz = cosf(la) * cosf(lo);
+  float x1 = x * cLon - zz * sLon, z1 = x * sLon + zz * cLon, y1 = y;   // yaw (lon)
+  float y2 = y1 * cLat - z1 * sLat, z2 = y1 * sLat + z1 * cLat;         // pitch (lat)
+  sx = cx + (int)(x1 * R);
+  sy = cy - (int)(y2 * R);
+  z  = z2;
+}
+
+// True for records that are real navigable nodes (skip the -90 special marker and the
+// runtime percept/belief/sync lanes at lat 97/98/99 — TTCP-RFC-0001 §8).
+static inline bool isNodeRecord(const TtdbRecord& r) {
+  return r.lat > -90 && r.lat < 90;
+}
+
+// Render the globe into the off-screen canvas: dim sphere outline, the selected node's
+// typed edges (bright blue), then every node (selected = eyeball, else a colored dot;
+// back-facing = a small muted dot). Pushed to the panel by renderScreen().
+static void renderGlobe() {
+  if (!gGlobe) return;
+  GFXcanvas16& c = *gGlobe;
+  c.fillScreen(ST77XX_BLACK);
+  const int cx = GLOBE_W / 2, cy = GLOBE_H / 2;
+  const float R = (GLOBE_H / 2.0f - 4) * gZoom;
+  c.drawCircle(cx, cy, (int)R, rgb565(24, 34, 52));   // sphere silhouette
+  const float sLat = sinf(gRotLat), cLat = cosf(gRotLat);
+  const float sLon = sinf(gRotLon), cLon = cosf(gRotLon);
+
+  // Edges of the selected node (TTCP-RFC-0002 §4): bright blue when both ends front.
+  if (gSel >= 0 && gSel < gDb.recordCount()) {
+    const TtdbRecord& sr = gDb.record(gSel);
+    int sx0, sy0; float sz0;
+    projectLL(sr.lat, sr.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx0, sy0, sz0);
+    TtdbEdge edges[8];
+    uint8_t ne = gDb.edgesAt(gSel, edges, 8);
+    for (uint8_t e = 0; e < ne; ++e) {
+      int tx, ty; float tz;
+      projectLL(edges[e].target_lat, edges[e].target_lon, R, cx, cy,
+                sLat, cLat, sLon, cLon, tx, ty, tz);
+      if (sz0 > 0 && tz > 0) c.drawLine(sx0, sy0, tx, ty, rgb565(124, 199, 255));
+    }
+  }
+
+  // Nodes.
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    const TtdbRecord& r = gDb.record(i);
+    if (!isNodeRecord(r)) continue;
+    int sx, sy; float z;
+    projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
+    uint16_t col = nodeColor(r.lat, r.lon);
+    if (i == gSel) {
+      int er = GLOBE_H / 14; if (er < 5) er = 5;         // eyeball (TTCP-RFC-0002 §3.2)
+      c.fillCircle(sx, sy, er, ST77XX_WHITE);            // sclera
+      c.fillCircle(sx, sy, er - 2, col);                 // iris
+      int px = sx + (int)((cx - sx) * 0.22f);            // pupil looks inward
+      int py = sy + (int)((cy - sy) * 0.22f);
+      c.fillCircle(px, py, er / 2 > 1 ? er / 2 : 2, ST77XX_BLACK);
+      c.drawPixel(sx - er / 3, sy - er / 3, ST77XX_WHITE);  // shine
+      char id[20];
+      snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
+      c.setTextSize(1);
+      c.setTextColor(col);
+      c.setCursor(sx + er + 2, sy - 3);
+      c.print(id);
+    } else if (z > 0) {
+      c.fillCircle(sx, sy, 3, col);                      // discovered/front node
+    } else {
+      c.drawPixel(sx, sy, rgb565(60, 66, 78));           // back-facing indicator
+    }
+  }
+}
+
+// Bottom half — the selected record (title + first body lines), TTCP-RFC-0001 §5.
+static void renderRecord() {
+  if (gBottomDirty) gTft.fillRect(0, BOTTOM_Y, 320, BOTTOM_H, ST77XX_BLACK);
+  char l[54];
+  if (gSel < 0 || gSel >= gDb.recordCount()) {
+    drawWide(BOTTOM_Y, ST77XX_YELLOW, "(no record selected)");
+    return;
+  }
+  const TtdbRecord& r = gDb.record(gSel);
+  snprintf(l, sizeof(l), "@LAT%dLON%d   record %d/%d", r.lat, r.lon, gSel + 1,
+           gDb.recordCount());
+  drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
+
+  // Stream the body: read the record span, skip the header line, print the next lines
+  // wrapped to the screen width. Only redrawn on selection/pane change (gBottomDirty),
+  // so this streaming read is not per-frame.
+  if (!gBottomDirty) return;
+  size_t off, len;
+  if (!gDb.recordSpan(gSel, off, len)) return;
+  static char body[520];
+  size_t n = len < sizeof(body) - 1 ? len : sizeof(body) - 1;
+  n = gDb.readBytes(off, (uint8_t*)body, n);
+  body[n] = 0;
+  const char* p = strchr(body, '\n');       // skip the header line
+  p = p ? p + 1 : body;
+  int y = BOTTOM_Y + 14, col = 0;
+  char line[54];
+  while (*p && y < 240 - 8) {
+    if (*p == '\n') {                        // blank line -> small gap, new row
+      if (col > 0) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
+      p++;
+      continue;
+    }
+    line[col++] = *p++;
+    if (col >= 52) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
+  }
+  if (col > 0 && y < 240 - 8) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); }
+}
+
+// Bottom half — the console log pane (the swipe-up analog; toggled by SPACE). Shows
+// live counters + the last LOG_LINES events, TTCP link-styled by color.
+static void renderConsole() {
+  if (gBottomDirty) gTft.fillRect(0, BOTTOM_Y, 320, BOTTOM_H, ST77XX_BLACK);
+  char l[54];
+  snprintf(l, sizeof(l), "CONSOLE  drive>%s  cmd%lu rx%lu rly%lu",
+           nodeName(gCmdTarget), (unsigned long)gCmdSent, (unsigned long)gEspRx,
+           (unsigned long)gReplies);
+  drawWide(BOTTOM_Y, ST77XX_CYAN, l);
+  int y = BOTTOM_Y + 12;
+  for (int k = 0; k < gLogCount; ++k) {
+    int idx = (gLogHead - gLogCount + k + LOG_LINES * 2) % LOG_LINES;
+    drawWide(y, ST77XX_GREEN, gLog[idx]);
+    y += 10;
+  }
+}
+
+// Frame dispatcher: thin status bar, globe (top), then the active bottom pane.
 static void renderScreen() {
-  static bool inited = false;
-  if (!inited) {
-    inited = true;
-    gTft.fillScreen(ST77XX_BLACK);
-    gTft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
-    gTft.setTextSize(2);
-    gTft.setCursor(4, 4);
-    gTft.print("T-DECK CONSOLE");
+  char l[54];
+  snprintf(l, sizeof(l), "T-DECK 0x%X ch%d sync%s  drive>%s  %c", (unsigned)kNodeId,
+           ROBOT_TEAM_ESPNOW_CHANNEL, gSynced ? "+" : "-", nodeName(gCmdTarget),
+           gPane == PANE_CONSOLE ? 'C' : 'M');
+  drawWide(STATUS_Y, ST77XX_WHITE, l);
+
+  if (gGlobe) {
+    if (gGlobeDirty) {
+      renderGlobe();
+      gTft.drawRGBBitmap(GLOBE_X, GLOBE_Y, gGlobe->getBuffer(), GLOBE_W, GLOBE_H);
+      gGlobeDirty = false;
+    }
+  } else if (gBottomDirty || gGlobeDirty) {   // no canvas: text fallback in the top half
+    gTft.fillRect(0, GLOBE_Y, 320, GLOBE_H, ST77XX_BLACK);
+    drawWide(GLOBE_Y + 40, ST77XX_YELLOW, "(globe canvas unavailable - low RAM)");
+    gGlobeDirty = false;
   }
-  char l[40];
-  snprintf(l, sizeof(l), "id 0x%08X ch%d sync%s", (unsigned)kNodeId,
-           ROBOT_TEAM_ESPNOW_CHANNEL, gSynced ? "+" : "-");
-  drawRow(34, ST77XX_WHITE, l);
-  snprintf(l, sizeof(l), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(), gDb.recordCount());
-  drawRow(48, ST77XX_GREEN, l);
-  snprintf(l, sizeof(l), "drive -> %s (0x%X)", nodeName(gCmdTarget), (unsigned)gCmdTarget);
-  drawRow(62, ST77XX_CYAN, l);
-  snprintf(l, sizeof(l), "cmd %lu  rx %lu  reply %lu", (unsigned long)gCmdSent,
-           (unsigned long)gEspRx, (unsigned long)gReplies);
-  drawRow(76, ST77XX_GREEN, l);
-  if (gLastReplySrc)
-    snprintf(l, sizeof(l), "reply %s  %.1fC", nodeName(gLastReplySrc),
-             gLastReplyTemp / 100.0f);
-  else
-    snprintf(l, sizeof(l), "(awaiting a reply...)");
-  drawRow(90, ST77XX_YELLOW, l);
-  // Song (part 2) state.
-  snprintf(l, sizeof(l), "song: %s", gLocalPlay ? "PLAYING part 2" : "stopped");
-  drawRow(104, gLocalPlay ? ST77XX_GREEN : ST77XX_WHITE, l);
-  // GPS fix (SP2 roaming anchor): show a live lock, else no-fix + GGA liveness count.
-#if USE_GPS
-  {
-    const nmea::Fix& gf = gGps.fix();
-    if (gf.hasFix())
-      snprintf(l, sizeof(l), "GPS %ds %.4f,%.4f", gf.sats, gf.lat_1e7 / 1e7,
-               gf.lon_1e7 / 1e7);
-    else
-      snprintf(l, sizeof(l), "GPS: no fix (q%u gga%lu)", gf.quality,
-               (unsigned long)gGps.ggaCount());
-    drawRow(118, gf.hasFix() ? ST77XX_GREEN : ST77XX_YELLOW, l);
+
+  if (gPane == PANE_CONSOLE) renderConsole();
+  else                       renderRecord();
+  gBottomDirty = false;
+}
+
+// Select a record: seat the cursor, mark the bottom half dirty, and animate the globe
+// to bring the node to front-center (TTCP-RFC-0002 §6.2/§6.3).
+static void selectRecord(int i) {
+  if (i < 0 || i >= gDb.recordCount()) return;
+  gSel = i;
+  const TtdbRecord& r = gDb.record(i);
+  gTgtLon = -(r.lon * 0.01745329f);   // bring @lon to the meridian facing us
+  gTgtLat = (r.lat * 0.01745329f);
+  gAnim = true;
+  gBottomDirty = true;
+  gGlobeDirty = true;
+}
+
+// Advance selection to the next navigable node record (wraps). Used by trackball click.
+static void selectNextNode() {
+  int n = gDb.recordCount();
+  for (int step = 1; step <= n; ++step) {
+    int i = (gSel + step) % n;
+    if (isNodeRecord(gDb.record(i))) { selectRecord(i); return; }
   }
-#endif
-  // Key legend.
-  drawRow(134, ST77XX_WHITE, "keys: t=target s=status");
-  drawRow(148, ST77XX_WHITE, "p=ping b=beep g=play x=stop");
-  snprintf(l, sizeof(l), "up %lus  last key '%c'", (unsigned long)(millis() / 1000),
-           gLastKey ? gLastKey : ' ');
-  drawRow(166, ST77XX_CYAN, l);
 }
 #endif
 
@@ -752,6 +955,27 @@ void setup() {
   gTft.setTextSize(2);
   gTft.setCursor(4, 4);
   gTft.print("T-DECK booting");
+
+  // Trackball (the only pointer on this non-touch panel): count falling edges per
+  // direction; loop() turns them into globe rotation + a select on click.
+  pinMode(PIN_TB_UP, INPUT_PULLUP);
+  pinMode(PIN_TB_DN, INPUT_PULLUP);
+  pinMode(PIN_TB_L, INPUT_PULLUP);
+  pinMode(PIN_TB_R, INPUT_PULLUP);
+  pinMode(PIN_TB_CLICK, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_TB_UP), isrTbUp, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_TB_DN), isrTbDn, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_TB_L), isrTbL, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_TB_R), isrTbR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PIN_TB_CLICK), isrTbClick, FALLING);
+
+  // Off-screen globe canvas — PSRAM when the FQBN carries PSRAM=opi (PLAN.md SP6-T).
+  // Null-safe: if the alloc fails, renderScreen() falls back to a text top bar.
+  gGlobe = new GFXcanvas16(GLOBE_W, GLOBE_H);
+  if (!gGlobe || !gGlobe->getBuffer()) {
+    if (gGlobe) { delete gGlobe; gGlobe = nullptr; }
+    Serial.println("globe canvas alloc failed - text fallback");
+  }
 #endif
 
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
@@ -761,6 +985,18 @@ void setup() {
                   (unsigned)gDb.fileSize(), gDb.recordCount());
   }
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
+
+#if USE_TDECK_HW
+  // Seat the initial cursor on the first navigable node record and center the globe
+  // on it with no boot animation (TTCP-RFC-0002 §6.1).
+  for (int i = 0; i < gDb.recordCount(); ++i)
+    if (isNodeRecord(gDb.record(i))) {
+      gSel = i;
+      gRotLat = gTgtLat = gDb.record(i).lat * 0.01745329f;
+      gRotLon = gTgtLon = -(gDb.record(i).lon * 0.01745329f);
+      break;
+    }
+#endif
 
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
@@ -854,10 +1090,37 @@ void loop() {
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
 
 #if USE_TDECK_HW
+  // Trackball — the globe's pointer (non-touch panel). Roll rotates the globe; a
+  // click advances the selection to the next node (roll it to front-center, click).
+  {
+    int dx = (int)gTbR - (int)gTbL;
+    int dy = (int)gTbDn - (int)gTbUp;
+    gTbR = gTbL = gTbDn = gTbUp = 0;
+    if (dx || dy) {
+      gRotLon += dx * 0.16f;
+      gRotLat += dy * 0.16f;
+      if (gRotLat > 1.52f) gRotLat = 1.52f;      // clamp near the poles (TTCP §5.1)
+      if (gRotLat < -1.52f) gRotLat = -1.52f;
+      gAnim = false;                             // manual roll cancels a selection ease
+      gGlobeDirty = true;
+    }
+    if (gTbClick) { gTbClick = false; selectNextNode(); }
+  }
+  // Ease the globe toward a selected node (TTCP-RFC-0002 §6.3).
+  if (gAnim) {
+    float dLat = gTgtLat - gRotLat, dLon = gTgtLon - gRotLon;
+    gRotLat += dLat * 0.15f;
+    gRotLon += dLon * 0.15f;
+    gGlobeDirty = true;
+    if (fabsf(dLat) < 0.01f && fabsf(dLon) < 0.01f) {
+      gRotLat = gTgtLat; gRotLon = gTgtLon; gAnim = false;
+    }
+  }
+
   // Console keyboard — the operator function. Each key injects a CMD at gCmdTarget
   // (no "enter"; every press sends immediately):
   //   t = cycle target   s = get-status   p = ping   b = beep
-  //   g = play (start the target's song)  x = stop
+  //   g = play (start the target's song)  x = stop   SPACE = toggle console pane
   // Any other key defaults to a status query. See the on-screen legend.
   char k = readKey();
   if (k) {
@@ -873,6 +1136,12 @@ void loop() {
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
       case 'g': setLocalPlay(true);  emitCmd(toot::CMD_PLAY, nullptr, 0); break;  // play both
       case 'x': setLocalPlay(false); emitCmd(toot::CMD_STOP, nullptr, 0); break;  // stop both
+      case ' ':                                  // swipe-up analog: toggle the console
+      case 'n':
+        gPane = (gPane == PANE_MAIN) ? PANE_CONSOLE : PANE_MAIN;
+        gBottomDirty = true;
+        gScreenDirty = true;
+        break;
       case 's':
       default:  emitCmd(toot::CMD_GET_STATUS, nullptr, 0); break;
     }
@@ -921,8 +1190,17 @@ void loop() {
     emit(toot::HELLO, nullptr, 0, sendEspNow, nullptr);
   }
 #if USE_TDECK_HW
+  // Log new replies into the console ring from loop context (never the recv callback).
+  static uint32_t lastLoggedReplies = 0;
+  if (gReplies != lastLoggedReplies) {
+    lastLoggedReplies = gReplies;
+    char lg[40];
+    snprintf(lg, sizeof(lg), "reply %s  %.1fC", nodeName(gLastReplySrc),
+             gLastReplyTemp / 100.0f);
+    logLine(lg);
+  }
   static uint32_t lastRender = 0;
-  if (gScreenDirty || millis() - lastRender >= 1000) {
+  if (gScreenDirty || gGlobeDirty || millis() - lastRender >= 1000) {
     lastRender = millis();
     gScreenDirty = false;
     renderScreen();
