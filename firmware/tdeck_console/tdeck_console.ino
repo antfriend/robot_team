@@ -711,7 +711,12 @@ static GFXcanvas16* gGlobe = nullptr;
 static float gRotLat = 0.0f, gRotLon = 0.0f;   // current globe rotation
 static float gTgtLat = 0.0f, gTgtLon = 0.0f;   // selection-animation target
 static bool  gAnim = false;                    // easing rotation toward a selection
-static float gZoom = 1.15f;
+// 3 zoom levels (TTCP-RFC-0002 §2.3): level 0 = the whole globe (furthest, the
+// original view), level 2 = front face filling the screen (closest; diameter
+// 54*2.85*2 = 308 px < 320, so never wider than the screen). Default = middle.
+static const float kZoomLevels[3] = {1.15f, 2.0f, 2.85f};
+static int   gZoomIdx = 1;
+static float gZoom = kZoomLevels[1];
 static bool  gGlobeDirty = true;               // repaint the globe canvas
 static bool  gBottomDirty = true;              // repaint the bottom half
 
@@ -758,9 +763,49 @@ static inline bool isNodeRecord(const TtdbRecord& r) {
   return r.lat > -90 && r.lat < 90;
 }
 
-// Render the globe into the off-screen canvas: dim sphere outline, the selected node's
-// typed edges (bright blue), then every node (selected = eyeball, else a colored dot;
-// back-facing = a small muted dot). Pushed to the panel by renderScreen().
+// Per-node belief attributes parsed once at load (fleet map, SP6): friendly name (the
+// globe label) + position sigma in metres (the uncertainty ring), indexed by record.
+// Filled from each record body's `name:` / `sigma_m:` lines by parseNodeAttrs().
+static char  gNodeName[TTDB_MAX_RECORDS][12];
+static float gNodeSigmaM[TTDB_MAX_RECORDS];
+static const float DEG_PER_M = 1.0f;      // companion.py fleetmap metres->degrees scale
+static const float SIGMA_VIS_SCALE = 0.35f;  // shrink the (honestly huge) sigma rings
+
+static void parseNodeAttrs() {
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    gNodeName[i][0] = 0;
+    gNodeSigmaM[i] = 0.0f;
+    if (!isNodeRecord(gDb.record(i))) continue;
+    size_t off, len;
+    if (!gDb.recordSpan(i, off, len)) continue;
+    char buf[400];
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    n = gDb.readBytes(off, (uint8_t*)buf, n);
+    buf[n] = 0;
+    const char* p = strstr(buf, "name:");
+    if (p) {
+      p += 5; while (*p == ' ') p++;
+      int k = 0;
+      while (*p && *p != '\n' && *p != '\r' && k < 11) gNodeName[i][k++] = *p++;
+      gNodeName[i][k] = 0;
+    }
+    const char* s = strstr(buf, "sigma_m:");
+    if (s) gNodeSigmaM[i] = atof(s + 8);
+  }
+}
+
+// Colour a typed edge by its transport: the edge type IS the transport (gen-fleetmap.py
+// emits `espnow@...` / `lora@...`). Green = ESP-NOW, amber = LoRa; `hot` brightens the
+// selected node's incident links.
+static uint16_t edgeColor(const char* type, bool hot) {
+  bool lora = strncmp(type, "lora", 4) == 0;
+  if (lora) return hot ? rgb565(255, 190, 60) : rgb565(150, 110, 30);
+  return hot ? rgb565(120, 230, 150) : rgb565(40, 110, 70);
+}
+
+// Render the globe into the off-screen canvas: sphere outline + graticule, every link
+// coloured by transport, each node's sigma uncertainty ring, then the nodes (selected =
+// eyeball, front = labeled dot, back = muted dot). Pushed to the panel by renderScreen().
 static void renderGlobe() {
   if (!gGlobe) return;
   GFXcanvas16& c = *gGlobe;
@@ -771,28 +816,72 @@ static void renderGlobe() {
   const float sLat = sinf(gRotLat), cLat = cosf(gRotLat);
   const float sLon = sinf(gRotLon), cLon = cosf(gRotLon);
 
-  // Edges of the selected node (TTCP-RFC-0002 §4): bright blue when both ends front.
-  if (gSel >= 0 && gSel < gDb.recordCount()) {
-    const TtdbRecord& sr = gDb.record(gSel);
+  // Graticule (TTCP-RFC-0002 §12): faint parallels every 30 deg + meridians every
+  // 30 deg as front-facing dots, drawn behind the edges and nodes for orientation.
+  const uint16_t grat = rgb565(20, 28, 42);
+  int gx, gy; float gz;
+  for (int glat = -60; glat <= 60; glat += 30)
+    for (int glon = 0; glon < 360; glon += 8) {
+      projectLL(glat, glon, R, cx, cy, sLat, cLat, sLon, cLon, gx, gy, gz);
+      if (gz > 0) c.drawPixel(gx, gy, grat);
+    }
+  for (int glon = 0; glon < 360; glon += 30)
+    for (int glat = -78; glat <= 78; glat += 8) {
+      projectLL(glat, glon, R, cx, cy, sLat, cLat, sLon, cLon, gx, gy, gz);
+      if (gz > 0) c.drawPixel(gx, gy, grat);
+    }
+
+  // Fleet links (TTCP-RFC-0002 §4), every node's typed edges coloured by transport
+  // (green ESP-NOW / amber LoRa); the selected node's links are brightened. Drawn when
+  // both ends face the camera. A-B/B-A double-draw is harmless (same line).
+  const int selLat = (gSel >= 0 && gSel < gDb.recordCount()) ? gDb.record(gSel).lat : 32767;
+  const int selLon = (gSel >= 0 && gSel < gDb.recordCount()) ? gDb.record(gSel).lon : 32767;
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    const TtdbRecord& r = gDb.record(i);
+    if (!isNodeRecord(r)) continue;
     int sx0, sy0; float sz0;
-    projectLL(sr.lat, sr.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx0, sy0, sz0);
+    projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx0, sy0, sz0);
     TtdbEdge edges[8];
-    uint8_t ne = gDb.edgesAt(gSel, edges, 8);
+    uint8_t ne = gDb.edgesAt(i, edges, 8);
     for (uint8_t e = 0; e < ne; ++e) {
       int tx, ty; float tz;
       projectLL(edges[e].target_lat, edges[e].target_lon, R, cx, cy,
                 sLat, cLat, sLon, cLon, tx, ty, tz);
-      if (sz0 > 0 && tz > 0) c.drawLine(sx0, sy0, tx, ty, rgb565(124, 199, 255));
+      if (sz0 > 0 && tz > 0) {
+        bool hot = (r.lat == selLat && r.lon == selLon) ||
+                   (edges[e].target_lat == selLat && edges[e].target_lon == selLon);
+        c.drawLine(sx0, sy0, tx, ty, edgeColor(edges[e].type, hot));
+      }
     }
   }
 
-  // Nodes.
+  // Sigma rings: each front node's position uncertainty, radius = sigma_m at the same
+  // metres->degrees scale as the positions (so a large RSSI sigma reads as a large ring).
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    const TtdbRecord& r = gDb.record(i);
+    if (!isNodeRecord(r) || gNodeSigmaM[i] <= 0.0f) continue;
+    int sx, sy; float z;
+    projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
+    if (z <= 0) continue;
+    int rr = (int)(gNodeSigmaM[i] * DEG_PER_M * R * 0.01745329f * SIGMA_VIS_SCALE);
+    int cap = (int)(R * 0.7f);
+    if (rr > cap) rr = cap;                 // clamp so a huge sigma doesn't swamp the map
+    if (rr > 1) c.drawCircle(sx, sy, rr, rgb565(34, 46, 34));
+  }
+
+  // Nodes. No discovery gating (removed by request): every node record is always drawn
+  // and labeled with its fleet name — front nodes get a colored dot + label, the
+  // selected one an eyeball, back-facing ones a muted dot (occluded, so unlabeled).
+  c.setTextSize(1);
   for (int i = 0; i < gDb.recordCount(); ++i) {
     const TtdbRecord& r = gDb.record(i);
     if (!isNodeRecord(r)) continue;
     int sx, sy; float z;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
     uint16_t col = nodeColor(r.lat, r.lon);
+    char id[20];
+    if (gNodeName[i][0]) snprintf(id, sizeof(id), "%s", gNodeName[i]);
+    else                 snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
     if (i == gSel) {
       int er = GLOBE_H / 14; if (er < 5) er = 5;         // eyeball (TTCP-RFC-0002 §3.2)
       c.fillCircle(sx, sy, er, ST77XX_WHITE);            // sclera
@@ -801,14 +890,14 @@ static void renderGlobe() {
       int py = sy + (int)((cy - sy) * 0.22f);
       c.fillCircle(px, py, er / 2 > 1 ? er / 2 : 2, ST77XX_BLACK);
       c.drawPixel(sx - er / 3, sy - er / 3, ST77XX_WHITE);  // shine
-      char id[20];
-      snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
-      c.setTextSize(1);
-      c.setTextColor(col);
+      c.setTextColor(ST77XX_WHITE);
       c.setCursor(sx + er + 2, sy - 3);
       c.print(id);
     } else if (z > 0) {
-      c.fillCircle(sx, sy, 3, col);                      // discovered/front node
+      c.fillCircle(sx, sy, 3, col);                      // front node
+      c.setTextColor(col);
+      c.setCursor(sx + 5, sy - 3);
+      c.print(id);
     } else {
       c.drawPixel(sx, sy, rgb565(60, 66, 78));           // back-facing indicator
     }
@@ -874,9 +963,9 @@ static void renderConsole() {
 // Frame dispatcher: thin status bar, globe (top), then the active bottom pane.
 static void renderScreen() {
   char l[54];
-  snprintf(l, sizeof(l), "T-DECK 0x%X ch%d sync%s  drive>%s  %c", (unsigned)kNodeId,
+  snprintf(l, sizeof(l), "T-DECK 0x%X ch%d sync%s drive>%s z%d %c", (unsigned)kNodeId,
            ROBOT_TEAM_ESPNOW_CHANNEL, gSynced ? "+" : "-", nodeName(gCmdTarget),
-           gPane == PANE_CONSOLE ? 'C' : 'M');
+           gZoomIdx + 1, gPane == PANE_CONSOLE ? 'C' : 'M');
   drawWide(STATUS_Y, ST77XX_WHITE, l);
 
   if (gGlobe) {
@@ -987,6 +1076,7 @@ void setup() {
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
 
 #if USE_TDECK_HW
+  parseNodeAttrs();   // fleet-map per-node name + sigma (SP6) for the globe
   // Seat the initial cursor on the first navigable node record and center the globe
   // on it with no boot animation (TTCP-RFC-0002 §6.1).
   for (int i = 0; i < gDb.recordCount(); ++i)
@@ -1123,6 +1213,7 @@ void loop() {
   // (no "enter"; every press sends immediately):
   //   t = cycle target   s = get-status   p = ping   b = beep
   //   g = play (start the target's song)  x = stop   SPACE = toggle console pane
+  //   +/= = zoom in (closer)   -/_ = zoom out (further)
   // Any other key defaults to a status query. See the on-screen legend.
   char k = readKey();
   if (k) {
@@ -1132,6 +1223,14 @@ void loop() {
         gTargetIdx = (gTargetIdx + 1) % kNumTargets;
         gCmdTarget = kTargets[gTargetIdx];
         gScreenDirty = true;
+        break;
+      case '+': case '=':                        // zoom in (closer)
+        if (gZoomIdx < 2) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
+        gGlobeDirty = true; gScreenDirty = true;
+        break;
+      case '-': case '_':                        // zoom out (further)
+        if (gZoomIdx > 0) { gZoomIdx--; gZoom = kZoomLevels[gZoomIdx]; }
+        gGlobeDirty = true; gScreenDirty = true;
         break;
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);

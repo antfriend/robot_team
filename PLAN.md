@@ -601,10 +601,15 @@ delivery dies and returns when back in range — zero manual transport config.
       [antfriend.github.io](https://github.com/antfriend/antfriend.github.io)
       (dependency-free JS viewer, loads `?ttdb=<file>.md`); this leg is
       authoring discipline, not new renderer code.
-- [ ] **T-Deck:** native TTCP mini-renderer on the 320×240, grown from the
-      console fleet view — nodes at believed `@LATxLONy` with `sigma` circles,
-      edges colored by transport + link health, trackball cursor
-      (TTCP-RFC-0002), keyboard keeps the CMD-remote role.
+- [x] **T-Deck:** native TTCP mini-renderer on the 320×240 ✅ **on-device
+      2026-07-11** — trackball-navigable globe (top) + record view (bottom) +
+      console pane, with the fleet rendered as **the map the mesh draws of
+      itself**: nodes at believed `@LATxLONy`, name labels, `sigma` uncertainty
+      rings, and links colored by transport (green ESP-NOW / amber LoRa). The
+      TTDB is generated from the real beliefs by **`companion.py fleetmap`**
+      (`master/positions.md` + `proximity.md` → the T-Deck's `data/ttdb.md`), so
+      the laptop viewer and the T-Deck render one TTDB lineage. Keyboard keeps the
+      CMD-remote role. See SP6-T.
 
 ### SP6-T — T-Deck screen: the TTCP console render (scoped 2026-07-11)
 

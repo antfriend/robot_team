@@ -2304,6 +2304,142 @@ def anchor(positions_path, fixes_path, out):
     print(f"\nwrote {out}")
 
 
+# --- SP6: fleet-map TTDB for the T-Deck globe --------------------------------
+# The T-Deck globe (PLAN.md SP6-T) renders whatever is in its on-flash TTDB. This
+# authors "the map the mesh draws of itself": one record per fleet node at its
+# believed position (from positions.md), body = the belief, and a relates: edge per
+# link TYPED BY TRANSPORT (from proximity.md) so the globe colours links with no
+# firmware guesswork. Same file the antfriend.github.io viewer loads -> one lineage.
+DEFAULT_FLEETMAP_OUT = os.path.join("firmware", "tdeck_console", "data", "ttdb.md")
+FLEETMAP_SCALE_DEG_PER_M = 1.0   # metres -> globe degrees (must match the firmware)
+FLEET_FRIENDLY = {
+    "v4a_bridge": "V4-A", "v4b_relay": "V4-B", "v4c_edge": "V4-C",
+    "k10_1": "K10", "k10_2": "K10-2", "k10_3": "K10-3", "tdeck_1": "T-Deck",
+}
+
+
+def _parse_positions_full(path):
+    """positions.md -> {node: {x_m, y_m, sigma_m, conf}}."""
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    nodes = {}
+    for chunk in text.split("@BELIEF:POSITION")[1:]:
+        m = re.match(r"\s*@node\((\w+)\)", chunk)
+        if not m:
+            continue
+
+        def g(key):
+            mm = re.search(rf"{key}:\s*(-?[\d.]+)", chunk)
+            return float(mm.group(1)) if mm else 0.0
+        nodes[m.group(1)] = {"x_m": g("x_m"), "y_m": g("y_m"),
+                             "sigma_m": g("sigma_m"), "conf": g("conf")}
+    return nodes
+
+
+def _parse_proximity(path):
+    """proximity.md -> {frozenset(a,b): {proto, dist_est_m, conf}} (undirected)."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    edges = {}
+    for chunk in text.split("@BELIEF:PROXIMITY")[1:]:
+        m = re.match(r"\s*@pair\(([^,]+),\s*([^)]+)\)", chunk)
+        if not m:
+            continue
+        proto = re.search(r"proto:\s*(\w+)", chunk)
+        dist = re.search(r"dist_est_m:\s*(-?[\d.]+)", chunk)
+        conf = re.search(r"\nconf:\s*(-?[\d.]+)", chunk)
+        edges[frozenset((m.group(1).strip(), m.group(2).strip()))] = {
+            "proto": proto.group(1) if proto else "espnow",
+            "dist_est_m": float(dist.group(1)) if dist else 0.0,
+            "conf": float(conf.group(1)) if conf else 0.0}
+    return edges
+
+
+def _fleet_coords(nodes):
+    """node -> (lat, lon) int degrees, nudged so none collide (index is int16)."""
+    used, coord = set(), {}
+    for name, p in nodes.items():
+        lat = int(round(p["y_m"] * FLEETMAP_SCALE_DEG_PER_M))
+        lon = int(round(p["x_m"] * FLEETMAP_SCALE_DEG_PER_M))
+        while (lat, lon) in used:
+            lon += 1
+        used.add((lat, lon))
+        coord[name] = (lat, lon)
+    return coord
+
+
+def fleetmap(positions_path, proximity_path, out):
+    nodes = _parse_positions_full(positions_path)
+    if not nodes:
+        sys.exit(f"no @BELIEF:POSITION in {positions_path} — run `positions` first")
+    edges = _parse_proximity(proximity_path)
+    coord = _fleet_coords(nodes)
+    ts = 1750000000
+    anchor_node = "v4a_bridge" if "v4a_bridge" in coord else next(iter(coord))
+    alat, alon = coord[anchor_node]
+
+    parts = ["# T-Deck Fleet Map TTDB (semantic positioning SP6)\n", """
+```mmpdb
+db_id: tdeck-console-001
+db_name: T-Deck Handheld Console - Fleet Map
+coord_increment:
+  lat: 1
+  lon: 1
+collision_policy: reject
+timestamp_kind: unix
+umwelt:
+  umwelt_id: tdeck-console
+  role: handheld-console
+  perspective: operator
+  scope: fleet-command
+  globe:
+    frame: mesh-topology
+    origin: "@LAT0LON0"
+    mapping: "each record is a fleet node at its believed position; the map the mesh draws of itself (companion.py fleetmap from positions.md + proximity.md)"
+typed_edges:
+  enabled: true
+  syntax: "type@LATxLONy"
+librarian:
+  enabled: false
+  primitive_queries: []
+```
+""", f"\n```cursor\nlat: {alat}\nlon: {alon}\n```\n"]
+
+    for name, p in nodes.items():
+        lat, lon = coord[name]
+        rel = []
+        for pair, e in edges.items():
+            if name in pair:
+                other = next(n for n in pair if n != name)
+                if other in coord:
+                    olat, olon = coord[other]
+                    rel.append(f"{e['proto']}@LAT{olat}LON{olon}")
+        relates = "relates:" + ",".join(rel)
+        parts.append("\n---\n")
+        parts.append(f"\n@LAT{lat}LON{lon} | created:{ts} | updated:{ts} | {relates}\n")
+        parts.append(f"\n**POSITION** node:{name}\n")
+        parts.append(f"name: {FLEET_FRIENDLY.get(name, name)}\n")
+        parts.append(f"x_m: {p['x_m']:.2f}  y_m: {p['y_m']:.2f}\n")
+        parts.append(f"sigma_m: {p['sigma_m']:.2f}   conf: {p['conf']:.2f}\n")
+        for pair, e in edges.items():
+            if name in pair:
+                other = next(n for n in pair if n != name)
+                parts.append(f"link {FLEET_FRIENDLY.get(other, other)}: {e['proto']} "
+                             f"{e['dist_est_m']:.1f}m conf {e['conf']:.2f}\n")
+    ttdb = "".join(parts)
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(ttdb)
+    print(f"fleetmap: {len(nodes)} node(s), {len(edges)} link(s) -> {out} "
+          f"({len(ttdb.encode('utf-8'))} B)")
+    for name in nodes:
+        lat, lon = coord[name]
+        print(f"  {FLEET_FRIENDLY.get(name, name):<7} @LAT{lat}LON{lon}  "
+              f"sigma {nodes[name]['sigma_m']:.1f} m")
+    print("flash it: python scripts/... then Upload-Tdeck-FS.ps1 -Port COM10")
+
+
 def main():
     ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2464,6 +2600,16 @@ def main():
                     help="GPS tie points (companion.py gps --at)")
     an.add_argument("--out", default=DEFAULT_ANCHORED_OUT)
 
+    fm = sub.add_parser(
+        "fleetmap",
+        help="SP6: author the T-Deck fleet-map TTDB from position+proximity beliefs")
+    fm.add_argument("--positions", default=DEFAULT_POSITIONS_OUT,
+                    help="relative @BELIEF:POSITION map (companion.py positions)")
+    fm.add_argument("--proximity", default=DEFAULT_PROXIMITY_OUT,
+                    help="@BELIEF:PROXIMITY links (companion.py proximity)")
+    fm.add_argument("--out", default=DEFAULT_FLEETMAP_OUT,
+                    help="TTDB to write (flash with Upload-Tdeck-FS.ps1)")
+
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
@@ -2545,6 +2691,8 @@ def main():
             args.fixes)
     elif args.cmd == "anchor":
         anchor(args.positions, args.fixes, args.out)
+    elif args.cmd == "fleetmap":
+        fleetmap(args.positions, args.proximity, args.out)
     elif args.cmd == "monitor":
         monitor(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                 args.interval, args.rounds, args.settle)

@@ -1,8 +1,8 @@
-# T-Deck Console Node TTDB
+# T-Deck Fleet Map TTDB (semantic positioning SP6)
 
 ```mmpdb
 db_id: tdeck-console-001
-db_name: T-Deck Handheld Console
+db_name: T-Deck Handheld Console - Fleet Map
 coord_increment:
   lat: 1
   lon: 1
@@ -13,17 +13,10 @@ umwelt:
   role: handheld-console
   perspective: operator
   scope: fleet-command
-  constraints:
-    - battery-powered
-    - roaming
-    - keyboard-input
   globe:
     frame: mesh-topology
     origin: "@LAT0LON0"
-    mapping: "operator endpoint: a mobile mini-orchestrator carried in-hand; keyboard -> CMD, screen -> fleet view"
-cursor_policy:
-  max_preview_chars: 256
-  max_nodes: 64
+    mapping: "each record is a fleet node at its believed position; the map the mesh draws of itself (companion.py fleetmap from positions.md + proximity.md)"
 typed_edges:
   enabled: true
   syntax: "type@LATxLONy"
@@ -39,16 +32,48 @@ lon: 0
 
 ---
 
-@LAT0LON0 | created:1750000000 | updated:1750000000 | relates:commands@LAT10LON0,connected_over@LAT10LON0
+@LAT0LON16 | created:1750000000 | updated:1750000000 | relates:espnow@LAT0LON0,espnow@LAT35LON7,espnow@LAT32LON34
 
-Console home. The operator's handheld: a BlackBerry keyboard injects CMD toots and
-a 320x240 color screen shows the fleet. Reaches the mesh over ESP-NOW (in range)
-and, once enabled, SX1262 LoRa (long-haul) — so it can drive the fleet without the
-laptop.
+**POSITION** node:k10_1
+name: K10
+x_m: 16.25  y_m: -0.00
+sigma_m: 51.28   conf: 0.58
+link V4-A: espnow 16.3m conf 0.80
+link V4-B: espnow 34.1m conf 0.80
+link T-Deck: espnow 38.4m conf 0.80
 
 ---
 
-@LAT10LON0 | created:1750000000 | updated:1750000000 | relates:reports_sensor@LAT0LON0
+@LAT32LON34 | created:1750000000 | updated:1750000000 | relates:espnow@LAT0LON0,espnow@LAT35LON7,espnow@LAT0LON16
 
-Fleet view. Where collected STATUS / PERCEPT replies land for on-screen display:
-which node answered, its cursor, temperature, warm/synced flags, and band phase.
+**POSITION** node:tdeck_1
+name: T-Deck
+x_m: 33.61  y_m: 31.87
+sigma_m: 61.96   conf: 0.55
+link V4-A: espnow 41.8m conf 0.75
+link V4-B: espnow 27.2m conf 0.78
+link K10: espnow 38.4m conf 0.80
+
+---
+
+@LAT0LON0 | created:1750000000 | updated:1750000000 | relates:espnow@LAT35LON7,espnow@LAT0LON16,espnow@LAT32LON34
+
+**POSITION** node:v4a_bridge
+name: V4-A
+x_m: 0.00  y_m: -0.00
+sigma_m: 57.72   conf: 0.55
+link V4-B: espnow 37.1m conf 0.78
+link K10: espnow 16.3m conf 0.80
+link T-Deck: espnow 41.8m conf 0.75
+
+---
+
+@LAT35LON7 | created:1750000000 | updated:1750000000 | relates:espnow@LAT0LON0,espnow@LAT0LON16,espnow@LAT32LON34
+
+**POSITION** node:v4b_relay
+name: V4-B
+x_m: 6.83  y_m: 34.78
+sigma_m: 53.15   conf: 0.56
+link V4-A: espnow 37.1m conf 0.78
+link K10: espnow 34.1m conf 0.80
+link T-Deck: espnow 27.2m conf 0.78
