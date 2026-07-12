@@ -478,8 +478,25 @@ with something measured.
       V4-A/V4-B/T-Deck behind `USE_BLE`; **all fit the default partition** (V4-A 90 %,
       T-Deck 95 % — Bluedroid, no NimBLE/partition change). K10 deferred (2.x core).
       **Not yet flashed.**
-- [ ] Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`
-      (the entity-co-occurrence tier — still to build).
+- [~] **Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`
+      — BUILT + offline-verified 2026-07-12, not yet flashed.** The entity-
+      co-occurrence tier, the sibling of LinkPercept. New portable lib
+      `firmware/libraries/EntityPercept` accumulates per-window BSSID sightings
+      (dedup by MAC, sighting count + strongest RSSI) and flushes one `@LAT96`
+      record per window (`**ENTWIN**` context + one `**ENTITY**` line per AP) —
+      same fixed-buffer / no-per-sighting-flash / lane-cap discipline as `@LAT97`.
+      Wired into **V4-A + V4-B behind `USE_WIFI_SCAN`** (default off): a
+      **non-blocking async `WiFi.scanNetworks`** every 10 min that folds results
+      into the log and **re-asserts the ESP-NOW channel** after (the scan hops
+      channels). Native-gated by `tests/test_entitypercept.cpp` (20 checks, zig
+      c++) and `tests/test_entity_py.py` (16 checks: parse + pairwise Jaccard).
+      Companion: **`companion.py entities --node <n>`** dumps the lane;
+      `consolidate_entity_jaccard()` computes each pair's BSSID Jaccard → a coarse
+      distance bound (down-payment on the SP1 entity cap). **Compile-verified**:
+      v4a_bridge builds clean with the scan on (90% flash). **Pending:** flash a V4
+      with `USE_WIFI_SCAN 1` and confirm `entities` shows real APs over a serial
+      dump (the SP0 entity 'Done when'). K10/T-Deck deferred (K10 2.x core;
+      T-Deck battery — the spec names the V4s).
 - [ ] K10 RSSI capture via the 2.x promiscuous-RX workaround (or a core bump).
 
 **Done when:** `pull` returns a percept lane with link + entity observations

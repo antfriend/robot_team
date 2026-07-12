@@ -700,6 +700,21 @@ If a fact lives in one of these, link to it from here — don't copy it.
   round-trip (`push --anchored --node <n> --port COM6`) to confirm on-device adoption — no
   reflash needed. (Aside: `tests/test_prox_py.py` has a **pre-existing** failure — "unknown
   proto → no distance", present on clean HEAD, unrelated to this change; worth a look.)
+- **SP0 entity co-occurrence tier BUILT + offline-verified (2026-07-12) — WiFi-scan percepts.**
+  The second SP0 evidence tier (the sibling of LinkPercept/BLE): new portable lib
+  `firmware/libraries/EntityPercept` accumulates per-window WiFi BSSID sightings (dedup by MAC,
+  sighting count + strongest RSSI) and flushes one `@LAT96` record per window (`**ENTWIN**`
+  context + one `**ENTITY**` line per AP) — same fixed-buffer, no-per-sighting-flash, lane-cap
+  discipline as the `@LAT97` link lane. Two nodes seeing the same APs are probably near each
+  other; `companion.py` folds the **Jaccard overlap of their BSSID sets** into a coarse distance
+  **bound** (`consolidate_entity_jaccard`, down-payment on SP1's entity cap). Wired into **V4-A +
+  V4-B behind `USE_WIFI_SCAN`** (default off): a **non-blocking async `WiFi.scanNetworks`** every
+  10 min that folds results into the log and **re-asserts the ESP-NOW channel** afterward (the
+  scan hops channels). New `companion.py entities --node <n>` dumps the lane. Gated by
+  `tests/test_entitypercept.cpp` (20 checks, zig c++) + `tests/test_entity_py.py` (16 checks);
+  **v4a_bridge compile-verified with the scan on (90% flash)**, flag reverted. **Pending:** flash
+  a V4 with `USE_WIFI_SCAN 1` and confirm `entities` shows real APs (the SP0 entity 'Done when').
+  K10 deferred (2.x core), T-Deck deferred (battery — the spec names the V4s for this tier).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
   2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught

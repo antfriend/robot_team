@@ -26,6 +26,7 @@
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
+#include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <RobotTeamConfig.h>
 
 // --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
@@ -35,6 +36,45 @@ static linkpercept::Log gLinkLog;
 
 #define USE_LORA 0  // Phase 4: set 1 and wire RadioLib SX1262 (GPIO 8/9/10/11).
 #define USE_BLE  1  // SP0 near-range tier: also advertise+scan over BLE (proto:ble).
+// SP0 entity tier: duty-cycled WiFi scan logging visible BSSIDs as co-occurrence
+// evidence (@LAT96 lane). V4s only (mains/solar); the scan hops channels ~2 s so
+// it's kept rare and the ESP-NOW channel is re-asserted after each. Default off
+// until flashed + serial-verified.
+#define USE_WIFI_SCAN 0
+#define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
+
+#if USE_WIFI_SCAN
+// The entity log accumulates in RAM; flushed to @LAT96 from loop() like gLinkLog.
+static entitypercept::Log gEntityLog;
+static uint32_t gLastScanKick = 0;
+static bool gScanRunning = false;
+
+// Duty-cycled, non-blocking WiFi scan. Kick an async scan on the period; when it
+// completes, fold each AP's BSSID+RSSI into gEntityLog, delete the results, and
+// re-assert the ESP-NOW channel (scanning left the radio hopping). Never blocks.
+static void serviceWifiScan() {
+  uint32_t now = millis();
+  if (!gScanRunning && (now - gLastScanKick >= WIFI_SCAN_PERIOD_MS || gLastScanKick == 0)) {
+    if (WiFi.scanNetworks(true /*async*/, false /*show_hidden*/) == WIFI_SCAN_RUNNING) {
+      gScanRunning = true;
+      gLastScanKick = now;
+    }
+  }
+  if (gScanRunning) {
+    int found = WiFi.scanComplete();
+    if (found >= 0) {                       // WIFI_SCAN_RUNNING(-1)/FAILED(-2) not yet
+      for (int i = 0; i < found; ++i) {
+        uint8_t* b = WiFi.BSSID(i);          // 6-byte AP MAC
+        if (b) gEntityLog.add(b, (int)WiFi.RSSI(i), entitypercept::KIND_WIFI_AP);
+      }
+      WiFi.scanDelete();
+      esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      gScanRunning = false;
+      Serial.printf("[wifi] scan: %d AP(s) folded into @LAT96 window\n", found);
+    }
+  }
+}
+#endif
 
 // Feed a decoded, key-verified BLE fleet advert into the same link-percept histogram as
 // ESP-NOW, tagged PROTO_BLE (runs in the BLE scan task — add() is increment-only/safe).
@@ -472,6 +512,29 @@ void loop() {
                       (unsigned)gDb.fileSize());
     }
   }
+
+#if USE_WIFI_SCAN
+  // SP0 entity tier: run the duty-cycled scan, then flush its window into the
+  // @LAT96 lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane).
+  serviceWifiScan();
+  if (gEntityLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 96) ++lane;
+    if (lane >= ENTITYPERCEPT_MAX_LANE) {
+      gEntityLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                        gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
 
   // Refresh the OLED on change, plus a ~1s heartbeat to tick the uptime.
   static uint32_t lastRender = 0;

@@ -1588,6 +1588,139 @@ def percepts(port, baud, node, save):
                   f"{l['min']:>4}  {l['med']:>4}  {l['max']:>4}")
 
 
+# --- entity co-occurrence percepts (semantic positioning SP0, entity tier) ---
+# A node's @LAT96 lane holds one record per WiFi-scan window, each with a
+# **ENTWIN** context line and one **ENTITY** line per visible BSSID. Two nodes
+# seeing the same APs are probably near each other (ttn-semantic-positioning.md
+# §2.2): the Jaccard overlap of their BSSID sets is a coarse proximity BOUND.
+ENTWIN_RE = re.compile(
+    r"\*\*ENTWIN\*\*\s+t_ms:(\d+)\s+synced:([01])\s+window_ms:(\d+)"
+    r"(?:\s+entities:(\d+))?")
+ENTITY_RE = re.compile(
+    r"\*\*ENTITY\*\*\s+kind:(\w+)\s+id:([0-9a-fA-F]{12})\s+n:(\d+)\s+rssi:(-?\d+)")
+
+# WiFi co-visibility bound (spec §2.2): sharing APs caps distance to ~30–100 m.
+# Higher Jaccard -> tighter bound. Coarse heuristic, recalibratable per site.
+ENTITY_BOUND_TIGHT_M = 30.0    # near-total AP overlap
+ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
+
+
+def parse_entity_percepts(text):
+    """Parse a TTDB's @LAT96 lane into a list of windows:
+    {lane, t_ms, synced, window_ms, entities: [{kind, id, n, rssi}]}.
+    `id` is the 12-hex BSSID string (lowercased)."""
+    windows = []
+    cur = None
+    for line in text.splitlines():
+        if line.startswith("@LAT96LON"):
+            lane = int(re.match(r"@LAT96LON(\d+)", line).group(1))
+            cur = {"lane": lane, "t_ms": None, "synced": None,
+                   "window_ms": None, "entities": []}
+            windows.append(cur)
+            continue
+        if line.startswith("@"):     # any other record header ends the window
+            cur = None
+            continue
+        if cur is None:
+            continue
+        m = ENTWIN_RE.search(line)
+        if m:
+            cur["t_ms"] = int(m.group(1))
+            cur["synced"] = int(m.group(2))
+            cur["window_ms"] = int(m.group(3))
+            continue
+        m = ENTITY_RE.search(line)
+        if m:
+            cur["entities"].append({
+                "kind": m.group(1), "id": m.group(2).lower(),
+                "n": int(m.group(3)), "rssi": int(m.group(4))})
+    return windows
+
+
+def _entity_set(windows, last=None):
+    """Union of BSSIDs a node saw across its (recent) windows -> set of ids."""
+    if last:
+        windows = windows[-last:]
+    ids = set()
+    for w in windows:
+        for e in w["entities"]:
+            ids.add(e["id"])
+    return ids
+
+
+def entity_jaccard_bound(jaccard):
+    """Map a Jaccard overlap in [0,1] to a coarse distance BOUND in metres, or
+    None when the sets are disjoint (no bound — they may be anywhere). This is an
+    UPPER bound: it caps the RSSI estimate ("they share APs, they can't be far"),
+    it does not refine below it (spec §2.2)."""
+    if jaccard <= 0.0:
+        return None
+    return ENTITY_BOUND_LOOSE_M - jaccard * (ENTITY_BOUND_LOOSE_M - ENTITY_BOUND_TIGHT_M)
+
+
+def consolidate_entity_jaccard(windows_by_node, last=None):
+    """windows_by_node: {node_name: [parse_entity_percepts window, ...]}.
+    For every node pair that both logged entities, compute the Jaccard overlap of
+    their BSSID sets and the coarse distance bound it implies. Returns a list of
+    {pair, jaccard, shared, union, bound_m} dicts, disjoint/empty pairs dropped."""
+    sets = {name: _entity_set(wins, last) for name, wins in windows_by_node.items()}
+    sets = {n: s for n, s in sets.items() if s}   # nodes that saw at least one AP
+    names = sorted(sets)
+    out = []
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            a, b = names[i], names[j]
+            inter = sets[a] & sets[b]
+            union = sets[a] | sets[b]
+            jac = len(inter) / len(union) if union else 0.0
+            if not inter:
+                continue          # disjoint: no co-occurrence evidence
+            out.append({"pair": (a, b), "jaccard": jac, "shared": len(inter),
+                        "union": len(union), "bound_m": entity_jaccard_bound(jac)})
+    out.sort(key=lambda r: -r["jaccard"])
+    return out
+
+
+def entities(port, baud, node, save):
+    """Pull a node's TTDB and print its entity-percept windows (@LAT96 lane) —
+    the SP0 entity-tier 'Done when' check: the node logs visible WiFi APs."""
+    try:
+        import serial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    target = NODE_IDS[node]
+    reader = SerialFrameReader()
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(2.5)              # port-open resets the S3; wait out boot
+        ser.reset_input_buffer()
+        data = request_ttdb(ser, reader, target, 20.0, TTDB_REQ_WHOLE)
+    if data is None:
+        sys.exit("no data received (check port, node id, and the key)")
+    if save:
+        os.makedirs(os.path.dirname(os.path.abspath(save)), exist_ok=True)
+        with open(save, "wb") as f:
+            f.write(data)
+        print(f"wrote {len(data)} bytes to {save}")
+    windows = parse_entity_percepts(data.decode("utf-8", errors="replace"))
+    nobs = sum(e["n"] for w in windows for e in w["entities"])
+    seen = _entity_set(windows)
+    print(f"{node}: {len(windows)} entity-percept window(s), {nobs} sighting(s), "
+          f"{len(seen)} distinct AP(s) (@LAT96 lane)")
+    if not windows:
+        print("no @LAT96 records yet — needs a node built with USE_WIFI_SCAN and a "
+              "scan window (default 60 s); re-run after one elapses")
+        return
+    print(f"{'lane':>4}  {'t_ms':>14}  {'sync':>4}  {'win_ms':>7}  "
+          f"{'kind':7}  {'bssid':12}  {'n':>4}  {'rssi':>5}")
+    for w in windows:
+        first = True
+        for e in w["entities"]:
+            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {w['synced']:>4}  "
+                    f"{w['window_ms']:>7}") if first else " " * 35
+            first = False
+            print(f"{lead}  {e['kind']:7}  {e['id']:12}  {e['n']:>4}  {e['rssi']:>5}")
+
+
 # --- proximity consolidation (semantic positioning SP1) ----------------------
 # Fold the fleet's @LAT97 link-percept windows into one @BELIEF:PROXIMITY record
 # per node pair (ttn-semantic-positioning.md §2.1) — the first Dream-Cycle job of
@@ -2615,6 +2748,15 @@ def main():
     pc.add_argument("--save", default=None,
                     help="also write the pulled TTDB to this path")
 
+    ec = sub.add_parser(
+        "entities",
+        help="pull + print a node's entity-percept windows (@LAT96 WiFi APs, SP0)")
+    ec.add_argument("--port", required=True, help="serial port (COM6, direct or bridge)")
+    ec.add_argument("--baud", type=int, default=115200)
+    ec.add_argument("--node", required=True, choices=list(NODE_IDS))
+    ec.add_argument("--save", default=None,
+                    help="also write the pulled TTDB to this path")
+
     px = sub.add_parser(
         "proximity",
         help="SP1: fuse fleet @LAT97 percepts into @BELIEF:PROXIMITY per pair")
@@ -2760,6 +2902,8 @@ def main():
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
+    elif args.cmd == "entities":
+        entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":
         do_pull = bool(args.port) and not args.no_pull
         proximity(args.port, args.baud, [s for s in args.nodes.split(",") if s],

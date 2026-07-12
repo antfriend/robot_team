@@ -34,6 +34,7 @@
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
+#include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <RobotTeamConfig.h>
 
 #define USE_LORA 0           // Phase 4: SX1262 long hops to V4-A and V4-C.
@@ -109,6 +110,43 @@ static linkpercept::Log gLinkLog;
 // ESP-NOW, tagged PROTO_BLE (BLE scan task — add() is increment-only/safe).
 static void onBleObserve(uint32_t peer, int rssi) {
   gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
+
+// SP0 entity tier: duty-cycled WiFi scan logging visible BSSIDs as co-occurrence
+// evidence (@LAT96 lane). V4-B is the solar node the spec names for this — the scan
+// hops channels ~2 s so it's kept rare and the ESP-NOW channel is re-asserted after.
+// Default off until flashed + serial-verified.
+#define USE_WIFI_SCAN 0
+#define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
+
+#if USE_WIFI_SCAN
+static entitypercept::Log gEntityLog;
+static uint32_t gLastScanKick = 0;
+static bool gScanRunning = false;
+
+// Duty-cycled, non-blocking WiFi scan (see v4a_bridge.ino for the rationale).
+static void serviceWifiScan() {
+  uint32_t now = millis();
+  if (!gScanRunning && (now - gLastScanKick >= WIFI_SCAN_PERIOD_MS || gLastScanKick == 0)) {
+    if (WiFi.scanNetworks(true /*async*/, false /*show_hidden*/) == WIFI_SCAN_RUNNING) {
+      gScanRunning = true;
+      gLastScanKick = now;
+    }
+  }
+  if (gScanRunning) {
+    int found = WiFi.scanComplete();
+    if (found >= 0) {
+      for (int i = 0; i < found; ++i) {
+        uint8_t* b = WiFi.BSSID(i);
+        if (b) gEntityLog.add(b, (int)WiFi.RSSI(i), entitypercept::KIND_WIFI_AP);
+      }
+      WiFi.scanDelete();
+      esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      gScanRunning = false;
+      Serial.printf("[wifi] scan: %d AP(s) folded into @LAT96 window\n", found);
+    }
+  }
 }
 #endif
 
@@ -612,6 +650,29 @@ void loop() {
                       (unsigned)gDb.fileSize());
     }
   }
+
+#if USE_WIFI_SCAN
+  // SP0 entity tier: duty-cycled scan + flush the window into the @LAT96 lane
+  // (same defer-to-loop + lane-cap discipline as the @LAT97 link lane).
+  serviceWifiScan();
+  if (gEntityLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 96) ++lane;
+    if (lane >= ENTITYPERCEPT_MAX_LANE) {
+      gEntityLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                        gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
 
 #if USE_PULSE
   // --- fleet pulse (TTN-RFC-0010): backbeat part — LED + OLED dot on beats 2 & 4 ---

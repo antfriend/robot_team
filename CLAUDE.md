@@ -28,6 +28,8 @@ firmware/
                         sequencer + Score.h note tables (TTN-RFC-0010)
     LinkPercept/        SP0 positioning evidence: per-peer RSSI histograms ->
                         @LAT97 TTDB records (ttn-semantic-positioning.md)
+    EntityPercept/      SP0 entity tier: duty-cycled WiFi BSSID sightings ->
+                        @LAT96 records; Jaccard overlap = coarse proximity bound
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
   v4a_bridge/  v4b_relay/  v4c_edge/   LoRa spine sketches (LoRa gated off)
