@@ -478,25 +478,39 @@ with something measured.
       V4-A/V4-B/T-Deck behind `USE_BLE`; **all fit the default partition** (V4-A 90 %,
       T-Deck 95 % — Bluedroid, no NimBLE/partition change). K10 deferred (2.x core).
       **Not yet flashed.**
-- [~] **Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`
-      — BUILT + offline-verified 2026-07-12, not yet flashed.** The entity-
-      co-occurrence tier, the sibling of LinkPercept. New portable lib
+- [x] **Duty-cycled WiFi scans (V4s) logging visible BSSIDs as `@PERCEPT:ENTITY`
+      ✅ ON-DEVICE VERIFIED 2026-07-12 (V4-A COM6).** The entity-co-occurrence
+      tier, the sibling of LinkPercept. New portable lib
       `firmware/libraries/EntityPercept` accumulates per-window BSSID sightings
       (dedup by MAC, sighting count + strongest RSSI) and flushes one `@LAT96`
       record per window (`**ENTWIN**` context + one `**ENTITY**` line per AP) —
       same fixed-buffer / no-per-sighting-flash / lane-cap discipline as `@LAT97`.
-      Wired into **V4-A + V4-B behind `USE_WIFI_SCAN`** (default off): a
-      **non-blocking async `WiFi.scanNetworks`** every 10 min that folds results
-      into the log and **re-asserts the ESP-NOW channel** after (the scan hops
-      channels). Native-gated by `tests/test_entitypercept.cpp` (20 checks, zig
-      c++) and `tests/test_entity_py.py` (16 checks: parse + pairwise Jaccard).
-      Companion: **`companion.py entities --node <n>`** dumps the lane;
+      Wired into **V4-A + V4-B behind `USE_WIFI_SCAN`**: a **non-blocking async
+      `WiFi.scanNetworks`** every 10 min that folds results into the log and
+      **re-asserts the ESP-NOW channel** after (the scan hops channels).
+      Native-gated by `tests/test_entitypercept.cpp` (20 checks, zig c++) and
+      `tests/test_entity_py.py` (16 checks: parse + pairwise Jaccard). Companion:
+      **`companion.py entities --node <n>`** dumps the lane;
       `consolidate_entity_jaccard()` computes each pair's BSSID Jaccard → a coarse
-      distance bound (down-payment on the SP1 entity cap). **Compile-verified**:
-      v4a_bridge builds clean with the scan on (90% flash). **Pending:** flash a V4
-      with `USE_WIFI_SCAN 1` and confirm `entities` shows real APs over a serial
-      dump (the SP0 entity 'Done when'). K10/T-Deck deferred (K10 2.x core;
-      T-Deck battery — the spec names the V4s).
+      distance bound (down-payment on the SP1 entity cap). **On-device result:**
+      V4-A flashed (`USE_WIFI_SCAN 1`, firmware-only — TTDB persisted, no FS
+      reflash), and `entities --node v4a_bridge` returned a **`@LAT96` window with
+      8 real WiFi APs** (RSSI −31 to −97 dBm) — the SP0 entity 'Done when', live.
+      **ALL FOUR NODES flashed + verified** (V4-A COM6 / V4-B COM9 / K10 COM3 /
+      T-Deck COM10 — 8 / 8 / 5 / 6 real APs logged). **K10 is a first-class
+      positioning contributor for the first time:** a WiFi scan is pure WiFi (NOT
+      the BT coexistence its 2.x core lacks — the thing that crash-looped BLE), so
+      unlike BLE and per-frame RSSI the entity tier runs fine on the K10; it had
+      only ever been observed one-directionally before ([[k10-wifi-scan-entity-tier]]).
+      **First live COMPLETE fleet co-occurrence graph — all 6 pairs:** K10↔T-Deck
+      0.83, T-Deck↔V4-A 0.75, T-Deck↔V4-B 0.75, K10↔V4-A 0.62, K10↔V4-B 0.62,
+      V4-A↔V4-B 0.60 (Jaccard) → every pair bound ≤ ~58 m (honest upper bounds at
+      ~0.3 m bench spacing — the entity term *caps* distance, doesn't refine it).
+      T-Deck kept on despite the battery note (it's the roaming node — its shifting
+      AP set is the richest co-occurrence source). **Small tradeoff:** the ~2 s scan
+      hop every 10 min briefly pauses V4-A's bridge relay — masked by the pull
+      self-heal, but note it if a scan lands mid-band. (Separate from the still-open
+      per-frame RSSI item below — that one *is* blocked on the K10 2.x core.)
 - [ ] K10 RSSI capture via the 2.x promiscuous-RX workaround (or a core bump).
 
 **Done when:** `pull` returns a percept lane with link + entity observations

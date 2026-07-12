@@ -711,10 +711,21 @@ If a fact lives in one of these, link to it from here — don't copy it.
   V4-B behind `USE_WIFI_SCAN`** (default off): a **non-blocking async `WiFi.scanNetworks`** every
   10 min that folds results into the log and **re-asserts the ESP-NOW channel** afterward (the
   scan hops channels). New `companion.py entities --node <n>` dumps the lane. Gated by
-  `tests/test_entitypercept.cpp` (20 checks, zig c++) + `tests/test_entity_py.py` (16 checks);
-  **v4a_bridge compile-verified with the scan on (90% flash)**, flag reverted. **Pending:** flash
-  a V4 with `USE_WIFI_SCAN 1` and confirm `entities` shows real APs (the SP0 entity 'Done when').
-  K10 deferred (2.x core), T-Deck deferred (battery — the spec names the V4s for this tier).
+  `tests/test_entitypercept.cpp` (20 checks, zig c++) + `tests/test_entity_py.py` (16 checks).
+  **✅ ON-DEVICE VERIFIED 2026-07-12 (V4-A COM6):** flashed with `USE_WIFI_SCAN 1` (firmware-only,
+  TTDB persisted — no FS reflash), and `companion.py entities --node v4a_bridge` returned a
+  **`@LAT96` window with 8 real WiFi APs** (RSSI −31 to −97 dBm) — the SP0 entity 'Done when',
+  live. **ALL FOUR NODES flashed + verified** (V4-A COM6 / V4-B COM9 / K10 COM3 / T-Deck COM10 —
+  8/8/5/6 real APs). **The K10 is a first-class positioning contributor for the first time** — a
+  WiFi scan is pure WiFi, NOT the BT coexistence its 2.x core lacks (the thing that crash-looped
+  BLE), so the entity tier runs on the K10 where BLE and per-frame RSSI can't; it was only ever
+  observed one-directionally before ([[k10-wifi-scan-entity-tier]]). **First live COMPLETE fleet
+  co-occurrence graph — all 6 pairs** (Jaccard): K10↔T-Deck 0.83, T-Deck↔V4-A/V4-B 0.75, K10↔V4-A/
+  V4-B 0.62, V4-A↔V4-B 0.60 → every pair bound ≤ ~58 m (honest upper bounds at ~0.3 m bench spacing —
+  the entity term *caps* distance, doesn't refine it). The whole fleet's physical proximity now
+  falls out of shared WiFi APs, independent of RSSI. T-Deck kept on (roaming node — richest
+  co-occurrence source). **Tradeoff:** the ~2 s scan hop every 10 min briefly pauses V4-A's bridge
+  relay (masked by the pull self-heal, but note it if a scan lands mid-band).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
   2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught

@@ -117,7 +117,7 @@ static void onBleObserve(uint32_t peer, int rssi) {
 // evidence (@LAT96 lane). V4-B is the solar node the spec names for this — the scan
 // hops channels ~2 s so it's kept rare and the ESP-NOW channel is re-asserted after.
 // Default off until flashed + serial-verified.
-#define USE_WIFI_SCAN 0
+#define USE_WIFI_SCAN 1
 #define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
 
 #if USE_WIFI_SCAN

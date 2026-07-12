@@ -23,6 +23,7 @@
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: link-percept histograms -> @LAT97 records
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan (K10's FIRST direct percept)
+#include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <RobotTeamConfig.h>
 
 // Real UNIHIKER K10 onboard hardware (DFRobot `unihiker_k10` library). Set to 0
@@ -74,6 +75,44 @@ static linkpercept::Log gLinkLog;
 // increment-only, safe off-task.
 static void onBleObserve(uint32_t peer, int rssi) {
   gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
+
+// SP0 entity tier: duty-cycled WiFi scan logging visible BSSIDs (@LAT96 lane). Unlike
+// BLE, a WiFi scan is pure WiFi — it does NOT need the BT coexistence the 2.x core
+// lacks — so this is the K10's FIRST direct positioning percept (it already runs
+// WIFI_STA for ESP-NOW). The ~2 s async scan hops channels, so it's kept rare and the
+// ESP-NOW channel is re-asserted after. Default off until flashed + serial-verified.
+#define USE_WIFI_SCAN 1
+#define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
+
+#if USE_WIFI_SCAN
+static entitypercept::Log gEntityLog;
+static uint32_t gLastScanKick = 0;
+static bool gScanRunning = false;
+
+// Non-blocking duty-cycled WiFi scan (see v4a_bridge.ino for the rationale).
+static void serviceWifiScan() {
+  uint32_t now = millis();
+  if (!gScanRunning && (now - gLastScanKick >= WIFI_SCAN_PERIOD_MS || gLastScanKick == 0)) {
+    if (WiFi.scanNetworks(true /*async*/, false /*show_hidden*/) == WIFI_SCAN_RUNNING) {
+      gScanRunning = true;
+      gLastScanKick = now;
+    }
+  }
+  if (gScanRunning) {
+    int found = WiFi.scanComplete();
+    if (found >= 0) {
+      for (int i = 0; i < found; ++i) {
+        uint8_t* b = WiFi.BSSID(i);
+        if (b) gEntityLog.add(b, (int)WiFi.RSSI(i), entitypercept::KIND_WIFI_AP);
+      }
+      WiFi.scanDelete();
+      esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      gScanRunning = false;
+      Serial.printf("[wifi] scan: %d AP(s) folded into @LAT96 window\n", found);
+    }
+  }
 }
 #endif
 uint32_t gSeq = 1;
@@ -867,6 +906,30 @@ void loop() {
                                       gSynced, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
+
+#if USE_WIFI_SCAN
+  // SP0 entity tier: run the duty-cycled scan, then flush its window into the @LAT96
+  // lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane). The K10's
+  // first self-authored proximity evidence — no remote clear yet (reflash to reset).
+  serviceWifiScan();
+  if (gEntityLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 96) ++lane;
+    if (lane >= ENTITYPERCEPT_MAX_LANE) {
+      gEntityLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                        gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
     }
   }

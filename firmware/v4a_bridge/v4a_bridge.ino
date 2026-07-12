@@ -40,7 +40,7 @@ static linkpercept::Log gLinkLog;
 // evidence (@LAT96 lane). V4s only (mains/solar); the scan hops channels ~2 s so
 // it's kept rare and the ESP-NOW channel is re-asserted after each. Default off
 // until flashed + serial-verified.
-#define USE_WIFI_SCAN 0
+#define USE_WIFI_SCAN 1
 #define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
 
 #if USE_WIFI_SCAN

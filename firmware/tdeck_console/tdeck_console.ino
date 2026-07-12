@@ -32,6 +32,7 @@
 #include <Score.h>
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
+#include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <Nmea.h>         // SP2: portable NMEA GGA decode for the roaming GPS anchor
 #include <RobotTeamConfig.h>
 #include <Preferences.h>   // NVS: remember the song on/off across a power-cycle
@@ -61,6 +62,45 @@ static linkpercept::Log gLinkLog;
 #if USE_BLE
 static void onBleObserve(uint32_t peer, int rssi) {
   gLinkLog.add(peer, rssi, linkpercept::PROTO_BLE);
+}
+#endif
+
+// SP0 entity tier: duty-cycled WiFi scan logging visible BSSIDs (@LAT96 lane). The
+// roaming console is the fleet's MOVING observer, so its shifting AP set is an
+// especially rich co-occurrence signal (it logs whichever room it is in). The ~2 s
+// async scan hops channels, so it's kept rare and the ESP-NOW channel is re-asserted
+// after; battery cost is one short scan / 10 min. Default off until serial-verified.
+#define USE_WIFI_SCAN 1
+#define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
+
+#if USE_WIFI_SCAN
+static entitypercept::Log gEntityLog;
+static uint32_t gLastScanKick = 0;
+static bool gScanRunning = false;
+
+// Non-blocking duty-cycled WiFi scan (see v4a_bridge.ino for the rationale). Coexists
+// with BLE on the 3.x core the same way V4-A does (radio arbiter time-slices them).
+static void serviceWifiScan() {
+  uint32_t now = millis();
+  if (!gScanRunning && (now - gLastScanKick >= WIFI_SCAN_PERIOD_MS || gLastScanKick == 0)) {
+    if (WiFi.scanNetworks(true /*async*/, false /*show_hidden*/) == WIFI_SCAN_RUNNING) {
+      gScanRunning = true;
+      gLastScanKick = now;
+    }
+  }
+  if (gScanRunning) {
+    int found = WiFi.scanComplete();
+    if (found >= 0) {
+      for (int i = 0; i < found; ++i) {
+        uint8_t* b = WiFi.BSSID(i);
+        if (b) gEntityLog.add(b, (int)WiFi.RSSI(i), entitypercept::KIND_WIFI_AP);
+      }
+      WiFi.scanDelete();
+      esp_wifi_set_channel(ROBOT_TEAM_ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      gScanRunning = false;
+      Serial.printf("[wifi] scan: %d AP(s) folded into @LAT96 window\n", found);
+    }
+  }
 }
 #endif
 
@@ -770,7 +810,8 @@ static void projectLL(float latDeg, float lonDeg, float R, int cx, int cy,
 }
 
 // True for records that are real navigable nodes (skip the -90 special marker and the
-// runtime percept/belief/sync lanes at lat 97/98/99 — TTCP-RFC-0001 §8).
+// runtime percept/belief/sync lanes at lat 96/97/98/99 — the lat<90 bound covers all
+// of them, incl. the new @LAT96 entity lane — TTCP-RFC-0001 §8).
 static inline bool isNodeRecord(const TtdbRecord& r) {
   return r.lat > -90 && r.lat < 90;
 }
@@ -1236,6 +1277,31 @@ void loop() {
                       (unsigned)gDb.fileSize());
     }
   }
+
+#if USE_WIFI_SCAN
+  // SP0 entity tier: run the duty-cycled scan, then flush its window into the @LAT96
+  // lane (same defer-to-loop + lane-cap discipline as @LAT97). @LAT96 is skipped by the
+  // globe's isNodeRecord (lat<90), so it never renders as a spurious node dot.
+  serviceWifiScan();
+  if (gEntityLog.due(millis())) {
+    int lane = 0;
+    for (int i = 0; i < gDb.recordCount(); ++i)
+      if (gDb.record(i).lat == 96) ++lane;
+    if (lane >= ENTITYPERCEPT_MAX_LANE) {
+      gEntityLog.reset(millis());  // lane full: drop the window, keep observing
+    } else {
+      char rec[1024];
+      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
+                                        gSynced, millis());
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
+
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
 
 #if USE_TDECK_HW
