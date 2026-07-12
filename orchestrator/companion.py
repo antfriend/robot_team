@@ -1274,6 +1274,69 @@ def author_belief(master_path, sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS):
     return "".join(parts).encode("utf-8")
 
 
+POSITION_BELIEF_HEADER = """# Fleet Position Belief (authored by companion push --positions)
+
+The fleet's @BELIEF:POSITION map (semantic positioning SP2), re-authored by
+`companion.py push --positions` and pushed back to a node over the mesh
+(TTN-RFC-0009) — publishing where the fleet believes each node is. The node
+stores it byte-exact as `/belief.md`, CRC-verifies, and attests adoption in its
+own TTDB. Each record carries `node_id:` so a node can find its OWN position by
+matching its numeric id (SP4 address loop). GPS remains verifier-only; these
+coordinates come from the RSSI/BLE embedding, not from GPS being fed back in.
+
+```mmpdb
+db_id: fleet-position-belief-001
+db_name: Fleet Position Belief
+coord_increment:
+  lat: 1
+  lon: 1
+collision_policy: reject
+timestamp_kind: unix
+umwelt:
+  umwelt_id: orchestrator
+  role: companion-orchestrator
+  scope: belief
+```
+
+```cursor
+lat: 0
+lon: 0
+```
+"""
+
+
+def author_position_belief(src_path):
+    """Re-author a position belief from master/positions.md (relative frame) or
+    master/anchored.md (geo frame). Emits one @BELIEF:POSITION record per node in
+    the same format as the source, with a `node_id:` line injected so firmware can
+    match its own position by id. Returns valid TTDB bytes the node stores byte-exact
+    as /belief.md. Zero new toot type — rides the existing TTN-RFC-0009 push path."""
+    if not os.path.exists(src_path):
+        sys.exit(f"no position belief source at {src_path} — run `positions` "
+                 f"(relative) or `anchor` (geo) first")
+    with open(src_path, encoding="utf-8") as f:
+        text = f.read()
+    parts = [POSITION_BELIEF_HEADER]
+    n = 0
+    for chunk in text.split("@BELIEF:POSITION")[1:]:
+        m = re.match(r"\s*@node\((\w+)\)", chunk)
+        if not m:
+            continue
+        node = m.group(1)
+        # Body = every line up to the next record separator, verbatim (preserves
+        # relative x_m/y_m or geo lat_deg/lon_deg exactly for a byte-diff readback).
+        body = chunk.split("\n---")[0]
+        header_line, _, rest = body.partition("\n")   # header_line == " @node(name)..."
+        nid = NODE_IDS.get(node)
+        id_line = f"node_id: 0x{nid:08X}\n" if nid is not None else ""
+        parts.append(f"\n---\n\n@BELIEF:POSITION{header_line.rstrip()}\n"
+                     f"{id_line}{rest.strip(chr(10))}\n")
+        n += 1
+    if n == 0:
+        sys.exit(f"no @BELIEF:POSITION records in {src_path}")
+    return "".join(parts).encode("utf-8"), n
+
+
 def next_belief_id(log_path):
     """Monotonic belief_id = max id in the push log + 1 (1 if none)."""
     if not os.path.exists(log_path):
@@ -1342,9 +1405,11 @@ def push_belief(ser, reader, target, content, belief_id, rto0, attempts):
 
 
 def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attempts,
-         sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS):
+         sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS, positions_src=None):
     """Re-author a belief and push it to a node, then verify adoption by pulling the
-    node's live TTDB and matching its BELIEF-ADOPTED record (TTN-RFC-0009 §5)."""
+    node's live TTDB and matching its BELIEF-ADOPTED record (TTN-RFC-0009 §5). With
+    `positions_src` set, publishes the fleet @BELIEF:POSITION map instead of the sync
+    belief (SP2 "publish positions back") — same push rails, no DIRECTIVE cadence."""
     try:
         import serial  # pyserial
     except ImportError:
@@ -1353,13 +1418,18 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
         sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
     target = NODE_IDS[node]
 
-    content = author_belief(src_master, sense_interval_ms)
+    if positions_src:
+        content, n_pos = author_position_belief(positions_src)
+        print(f"authored position belief from {positions_src}: {n_pos} node(s)")
+    else:
+        content = author_belief(src_master, sense_interval_ms)
     crc = crc32(content)
     belief_id = next_belief_id(belief_log)
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
     with open(out_path, "wb") as f:
         f.write(content)
-    print(f"authored belief from {src_master}: {len(content)}B -> {out_path}")
+    src_label = positions_src if positions_src else src_master
+    print(f"authored belief from {src_label}: {len(content)}B -> {out_path}")
 
     reader = SerialFrameReader()
     with serial.Serial(port, baud, timeout=0.1) as ser:
@@ -1407,8 +1477,13 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
         sys.exit("DISCREPANCY: adopted bytes/crc disagree with what was pushed")
     # Closing the Dream Cycle: confirm the node didn't just store the belief but
     # acted on its DIRECTIVE (retuned its sense->reason->act cadence, PLAN.md Phase 6).
+    # A position belief carries no DIRECTIVE (it publishes coordinates, not policy),
+    # so the cadence assertion is skipped — byte-exact storage + CRC is the contract.
     applied = rec.get("applied_interval_ms")
-    if applied == sense_interval_ms:
+    if positions_src:
+        print("position belief stored (no DIRECTIVE — publishing coordinates, "
+              "not policy; SP4 will make a node act on its own position)")
+    elif applied == sense_interval_ms:
         print(f"behavior changed: node retuned sense cadence -> {applied} ms "
               f"(matches DIRECTIVE)")
     elif applied is not None:
@@ -2651,6 +2726,14 @@ def main():
     pb.add_argument("--sense-interval-ms", type=int, default=DEFAULT_SENSE_INTERVAL_MS,
                     dest="sense_interval_ms",
                     help="cadence the belief DIRECTIVE tells the node to adopt")
+    pb.add_argument("--positions", nargs="?", const=DEFAULT_POSITIONS_OUT,
+                    default=None, dest="positions_src",
+                    help="publish the fleet @BELIEF:POSITION map (SP2) instead of the "
+                         "sync belief; optional path (default master/positions.md)")
+    pb.add_argument("--anchored", action="store_const", const=DEFAULT_ANCHORED_OUT,
+                    dest="positions_src",
+                    help="publish the GPS-anchored (geo) position map "
+                         "(master/anchored.md) — shorthand for --positions with that file")
 
     args = ap.parse_args()
 
@@ -2702,7 +2785,8 @@ def main():
                   args.master, args.out, do_pull, args.settle)
     elif args.cmd == "push":
         push(args.port, args.baud, args.node, args.src_master, args.belief_log,
-             args.out, args.settle, args.rto0, args.attempts, args.sense_interval_ms)
+             args.out, args.settle, args.rto0, args.attempts, args.sense_interval_ms,
+             positions_src=args.positions_src)
 
 
 if __name__ == "__main__":

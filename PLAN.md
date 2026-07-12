@@ -24,43 +24,35 @@ and is verified. We never wire the long-range mesh before the in-range default
 
 ## What's Next for antfriend
 
-The software side is running ahead of the bench: SP2 just produced the fleet's
-first self-map. The remaining moves all need **you and the hardware** — a human
-in the room, a cable, or a walk outside. In priority order:
+**All the mechanisms are built and on hardware** — the floor, SP0 instrumentation
+(ESP-NOW + BLE), SP1 calibration, the SP2 embedding + GPS anchor (flip resolved
+outdoors, DGPS ties recorded), and the SP6-T T-Deck render (the fleet drawn as a
+globe, plus an on-device RFC browser). What's left is proving the **hypothesis
+itself** (now `TTN-RFC-0011`, Experimental) — and the 2026-07-10 garden run said
+RSSI-only ranging is shadowing-limited outdoors. So the moves that matter now:
 
-1. **Reality-check the first fleet map (2 min, no cable).** Open
-   [master/positions.md](master/positions.md). It claims: V4-A at the origin,
-   **K10 ~3.1 m** out, **V4-B ~3.9 m** and **T-Deck ~2.9 m** off to one side
-   (~4.3 × 3.9 m room). Eyeball it, or stride-count one or two pairs. If it
-   matches up to rotation/mirror, that's SP1's accuracy bar **and** SP2's sanity
-   gate met in one glance — tell me "map checks out" or where it's wrong.
-2. **T-Deck GPS bring-up — ▶ the software is built + green; it needs your cable +
-   sky (2026-07-10).** The NMEA read and the `@BELIEF:POSITION` GPS-anchoring are
-   done and offline-verified (`test_nmea` 27/27, `test_anchor_py` 20/20; T-Deck
-   compiles at 78% flash). Your part now: (i) **flash the T-Deck** — plug into
-   COM10, manual BOOT/RST (native-USB auto-reset is flaky), upload firmware **+
-   the FS image** (`Upload-V4-FS.ps1 -Node tdeck_console`); (ii) **get a lock** —
-   carry it to sky view; `companion.py gps --node tdeck_1 --port COM10` should
-   print a fix (its screen shows one too), and until then honestly says "no fix";
-   (iii) **walk the ties** — stand beside each static node and
-   `companion.py gps --at <that-node>`, then `companion.py anchor`. **≥3
-   non-collinear ties resolve the mirror** (`flip_resolved: false → true`) and
-   start proof leg 1 (positioning scored against GPS, never fed into it). Tell me
-   the baud it locked (screen shows it) if the fix never comes — the auto-probe
-   tries 38400/9600/115200/57600.
-3. **Be the flash-cycle partner when I have firmware ready.** The next few
-   software steps each end in a per-node flash: the **BLE near-range tier**
-   (SP0 leftover — tightens same-room sigmas), and **publishing positions back**
-   to the nodes. Each needs you to plug in one node at a time (one cable on the
-   bench) and, on the T-Deck, do the BOOT/RST dance.
-4. **Later, gated on the above:** attach the LoRa antennas **before** powering
-   the V4s (SX1262 PA safety, `hardware_specs.md`) when we un-gate `USE_LORA`
-   for SP5; build the **V4-C edge** node (the 4th static anchor that breaks flip
-   ambiguity without GPS); and, for Phase 7 / SP5, **walk a node out of ESP-NOW
-   range** so the transport auto-switch has real distance to react to.
+1. **The multi-tier field re-run (▶ the real experiment — needs you + a walk).**
+   BLE `proto:ble` beliefs now exist (`master/proximity-ble.md`), an independent
+   near-range radio. Spread the fleet outdoors again (like the garden run),
+   accumulate link-percept windows, rebuild `proximity`→`positions`, and `anchor`
+   against the DGPS ties already in `master/gps-fixes.md`. **The question:** does
+   the near-range BLE tier (and, once built, entity co-occurrence) recover the
+   geometry where far ESP-NOW RSSI decorrelated? That result confirms or falsifies
+   the SPH — the whole point. Tell me the `scale`/`tie_rmse` the anchor prints.
+2. **Be the flash-cycle partner for the software I queue.** The next solo-built
+   steps each end in a per-node flash: **publishing `@BELIEF:POSITION` back to the
+   nodes** (last SP2 item), and the remaining SP0 tiers (WiFi-scan
+   `@PERCEPT:ENTITY` co-occurrence, beacon RSSI piggyback). One cable at a time;
+   the T-Deck still wants the BOOT/RST dance.
+3. **Later, gated on the above:** attach the LoRa antennas **before** powering the
+   V4s (SX1262 PA safety, `hardware_specs.md`) when we un-gate `USE_LORA` for
+   **SP5 transport auto-switch** (proof leg 2 — needs a node **walked out of
+   ESP-NOW range** so the switch has real distance to react to); build the
+   **V4-C edge** (a 4th static anchor that breaks flip ambiguity without GPS); a
+   **K10 core bump to 3.x** to un-block its BLE + promiscuous-RSSI capture.
 
-Everything else on the list I can build and offline-test solo (native `zig c++`
-tests + arduino-cli compiles); I'll queue firmware so your cable time is batched.
+Everything else I can build and offline-test solo (native `zig c++` tests +
+arduino-cli compiles); I'll queue firmware so your cable time is batched.
 
 ---
 
@@ -566,7 +558,19 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       -116.33647, HDOP 1.1) — auto-baud + NMEA decode + `CMD_GET_GPS` round-trip
       all verified on real signal. **Pending:** walk the ties (`gps --at`) +
       `anchor` to resolve the mirror.
-- [ ] Publish `@BELIEF:POSITION` back to each node over the mesh.
+- [~] **Publish `@BELIEF:POSITION` back to each node over the mesh — BUILT +
+      offline-verified 2026-07-12, no reflash needed.** `companion.py push
+      --positions` (relative `positions.md`) / `--anchored` (geo `anchored.md`)
+      re-authors the fleet position map as a belief and ships it over the **existing
+      TTN-RFC-0009 `TTDB_PUT` → `/belief.md` rails** — zero new toot type, so it works
+      against the already-flashed nodes (they store byte-exact + CRC-attest, proven by
+      the sync belief). Each record is tagged `node_id: 0x…` so a node can later find
+      its OWN coordinate by matching its id (the SP4 hook). Gated by
+      `tests/test_position_belief_py.py` (19 checks: record count, id tags, geo/relative
+      field preservation, determinism, byte round-trip). **Pending:** one live
+      bridge round-trip (`push --anchored --node <n> --port COM6`) to confirm on-device
+      adoption — no firmware change required. The node *acting on* its own position
+      (self-coordinate revision) is SP4, not this item.
 
 **Done when:** the embedded map recovers the bench/yard geometry within stated
 `sigma`, scored against T-Deck GPS fixes (GPS is the verifier, never an input).

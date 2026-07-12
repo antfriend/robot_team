@@ -142,7 +142,7 @@ orchestrates them live:
 | TBEW parser extension ([ew] blocks) | `RFCs/A32-RFC-0002-Amendment-A-TBEW.md` |
 | TTDB file format / edges / weights | `RFCs/TTDB-RFC-000{1..8}` |
 | Mesh transport, toot frame, bring-up order | `toot_network_architecture.md` |
-| **Semantic positioning — the primary hypothesis** | `ttn-semantic-positioning.md` |
+| **Semantic positioning — the primary hypothesis** | `ttn-semantic-positioning.md` (build plan) + `RFCs/TTN-RFC-0011-Semantic-Positioning.md` (normative half, Experimental) |
 | TTCP rendering (records, globe, URIs) | `RFCs/TTCP-RFC-000{1..3}`; live reference viewer: [antfriend.github.io](https://github.com/antfriend/antfriend.github.io) |
 | Board specs, GPIO maps, gotchas | `hardware_specs.md` |
 | Build plan & milestones | `PLAN.md` |
@@ -642,20 +642,82 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (K10 verified stable: agent + pulse running); the BLE scaffolding stays gated in the sketch,
   one flag from a future core bump. The cross-core BleLink fix (std::string vs String) is kept.
   K10 remains ESP-NOW-only, mapped one-directionally. See [[ble-near-range-tier]].
-- **Next action — Act II, in order:** (a) *(quick reality check)* does the map match the
-  bench? Eyeball or stride-count a pair or two (SP1's 30–50% bar + the mirror sense).
-  (b) **SP2 GPS anchor — flash + field it** (firmware/companion above are built + green):
-  flash the T-Deck, get a sky-view lock (`gps --node tdeck_1` shows the fix), walk it to each
-  static node (`gps --at <node>`), then `anchor` — ≥3 ties resolve the mirror. Then publish
-  `@BELIEF:POSITION` back to nodes (ride TTN-RFC-0009 push or a compact POSITION toot — needs
-  the RFC-before-code convention if a new type).
-  (c) Remaining SP0 sub-steps: WiFi-scan `@PERCEPT:ENTITY`, **BLE advertise+scan**
-  (near-range tier), beacon RSSI piggyback, K10 promiscuous RSSI. Then SP3–SP6 per PLAN.md
-  Act II (env TDoA → address loop → transport auto-switch → TTCP render on laptop + T-Deck).
-  **Band/maintenance backlog (secondary):** confirm the T-Deck power-cycle rejoin (V4-A/V4-B
-  are now on the 120 BPM + fast-lock build via the SP0 reflash); more tunes/parts; faster
-  pulse reconvergence; confirm the V4 GPIO35 LED; V4-B relay forwarding; more `**DIRECTIVE**`
-  types.
+- **SP6-T — THE T-DECK DRAWS THE FLEET AS A GLOBE ✅ on-device verified (2026-07-11), the
+  end-goal render leg is live.** The console screen is now a native **TTCP mini-renderer**
+  (PLAN.md SP6-T): a trackball-navigable **globe** (top half, off-screen `GFXcanvas16` in the
+  8 MB PSRAM, block-pushed flicker-free) + **record view** (bottom half) + a **console log pane**
+  (SPACE/`n` toggles it — the non-touch "swipe" analog). Nodes are drawn at their believed
+  `@LATxLONy` with name labels, **sigma uncertainty rings**, `relates:` edges **coloured by
+  transport** (green ESP-NOW / amber LoRa), a faint **graticule**, and 3 **zoom** levels
+  (TTCP-RFC-0002). The enabler was the **huge_app repartition** (3 MB APP, build ~40% full);
+  the FS moved to the huge_app spiffs at **0x310000 / 0xE0000**, flashed with the new
+  **`scripts/Upload-Tdeck-FS.ps1`** — **not** `Upload-V4-FS.ps1` (which writes 0x290000; wrong
+  offset silently drops the LittleFS superblock → the node boots to an empty globe /
+  "(no record selected)"). Trackball reads via falling-edge ISRs (roll→rotate, click→select-
+  next-node). Verified first try: huge_app boots + PSRAM inits, FS mounts at 0x310000 (pull
+  byte-exact 1351 B, sha `fd95360b…` — repartition didn't disturb the floor), and the PSRAM
+  globe canvas allocates + renders (user confirmed the globe + record text, not the low-RAM text
+  fallback). See CLAUDE.md T-Deck FS note, [[tdeck-flash-partition-ceiling]].
+- **`companion.py fleetmap` ✅ (2026-07-11) — the map the mesh draws of itself.** Generates the
+  T-Deck's on-flash `data/ttdb.md` from the fleet's real beliefs: `master/positions.md` (node
+  `@LATxLONy` + `sigma_m`) + `master/proximity.md` (per-pair links + transport) → one TTDB
+  record per node with `relates:` edges. So the laptop viewer
+  ([antfriend.github.io](https://github.com/antfriend/antfriend.github.io)) and the T-Deck
+  render **one TTDB lineage** — rearrange the bench, re-run SP1→SP2→`fleetmap`→re-flash-FS and
+  both screens show the new geometry (the SP6 "Done when").
+- **On-device RFC browser ✅ (2026-07-11) — the T-Deck carries its own governing specs.** A
+  **second globe view** (`VIEW_RFC`, `n`/toggle cycles VIEW_FLEET "SemPos" ↔ VIEW_RFC "RFC")
+  renders `RFCs/rfc.ttdb.md` — the 8.4:1-compressed RFC corpus (one node per RFC, `depends_on`
+  edge graph) — as a browsable globe + record view on the handheld. View-only: the RFC globe
+  **never touches the mesh** (`gRfcDb` is a separate reader from the shared/synced `gDb`). A
+  robot now literally holds and displays its own rulebook.
+- **SEMANTIC POSITIONING promoted to a normative RFC ✅ (2026-07-12) — `TTN-RFC-0011`
+  (Experimental).** The adopted primary hypothesis (`ttn-semantic-positioning.md`) now has its
+  formal/normative half: `RFCs/TTN-RFC-0011-Semantic-Positioning.md` states the Semantic
+  Positioning Hypothesis formally, the umwelt-overlap measure + embedding procedure, and —
+  critically — the two conditions under which it fails. **Status: Experimental** — the evidence
+  + verification layers are live (SP0 RSSI histograms → `@LAT97`, the T-Deck GPS verifier with
+  DGPS lock, flip-resolution + scale-guard firing = proof leg 1 mechanics), but the central
+  claim (Ω ↓ distance, semantic overlap beats RSSI-only) is **not yet confirmed**: the
+  2026-07-10 garden run returned a partial negative on the RSSI leg (§9 field note), and §8.1
+  spacetime entanglement is the blocking open problem. Numbered 0011 (0009/0010 were taken by
+  Push-Back/Pulse); it is in `RFCs/INDEX.md` and its on-flash `rfc.ttdb.md` record is synced so
+  the T-Deck browser carries it. `ttn-semantic-positioning.md` stays the operative build plan;
+  this RFC is its normative half.
+- **SP2 publish-positions-back BUILT + offline-verified (2026-07-12) — `push --positions`.**
+  The last open SP2 item: `companion.py push --positions` (relative `master/positions.md`) /
+  `push --anchored` (geo `master/anchored.md`) re-authors the fleet's `@BELIEF:POSITION` map as
+  a belief and ships it over the **existing TTN-RFC-0009 `TTDB_PUT` → `/belief.md` rails** — so
+  **zero new toot type** (RFC-before-code convention respected) and it works against the
+  **already-flashed nodes** (they store byte-exact + CRC-attest, the same path the sync belief
+  proved). Each record is tagged `node_id: 0x…` so a node can later find its OWN coordinate by
+  matching its numeric id (the SP4 hook; the publish itself doesn't yet make a node *act* on its
+  position — that's SP4). New `author_position_belief()` reuses the `push_belief` slice
+  delivery, belief-log, and byte-exact readback verification unchanged; the DIRECTIVE cadence
+  assertion is skipped for a position belief (it carries coordinates, not policy). Gated by
+  `tests/test_position_belief_py.py` (19 checks, all pass); smoke-authored from the real
+  `master/anchored.md` → a 2097 B / 4-node belief, crc `6C9FF6BB`. **Pending:** one live bridge
+  round-trip (`push --anchored --node <n> --port COM6`) to confirm on-device adoption — no
+  reflash needed. (Aside: `tests/test_prox_py.py` has a **pre-existing** failure — "unknown
+  proto → no distance", present on clean HEAD, unrelated to this change; worth a look.)
+- **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
+  three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
+  2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught
+  it honestly). So the load-bearing next move is a **multi-tier field re-run**: BLE `proto:ble`
+  beliefs now exist (`master/proximity-ble.md`) — spread the fleet outdoors again, accumulate
+  windows, and see whether the **near-range BLE tier + entity co-occurrence recover geometry
+  where far ESP-NOW RSSI decorrelated** (`anchor` scores it against the DGPS ties already in
+  `master/gps-fixes.md`). That is the crux of the SPH. **Needs you + hardware + a walk.**
+  Software-only moves I can do solo, in order: (a) **publish `@BELIEF:POSITION` back to nodes**
+  (last SP2 item — ride the TTN-RFC-0009 `push` path, or a compact POSITION toot with the
+  RFC-before-code convention); (b) the **SP6 laptop render leg** (author the master TTDB so the
+  antfriend.github.io viewer renders it — discipline, not new code); (c) remaining SP0 tiers:
+  **WiFi-scan `@PERCEPT:ENTITY`** co-occurrence, beacon RSSI piggyback, K10 RSSI via a 3.x core
+  bump (BLE + promiscuous-RSSI both blocked on the K10's 2.x core). Then SP3 (env TDoA) → SP4
+  (address loop) → **SP5 transport auto-switch** (proof leg 2, un-gates `USE_LORA`, needs a node
+  walked out of ESP-NOW range). **Band/maintenance backlog (secondary):** confirm the T-Deck
+  power-cycle rejoin; exercise the trackball roll/click/console-pane interactively; more
+  tunes/parts; faster pulse reconvergence; V4 GPIO35 LED; V4-B relay forwarding.
 
 Keep this section current. It is the first thing the next session reads.
 
@@ -767,6 +829,13 @@ duet** with the K10, song state persisted in NVS so it rejoins after a power-cyc
 Carries an SX1262, so it can join the LoRa spine directly (`USE_LORA`) — the only
 screen+keyboard node that reaches long-haul. `GPIO10` gates the peripheral rail (drive
 HIGH first); native-USB flashing needs manual BOOT/RST (see §6).
+**SP6-T (2026-07-11):** repartitioned to **huge_app** (3 MB APP; FS at 0x310000, flashed
+with `scripts/Upload-Tdeck-FS.ps1`) and grown into a native **TTCP mini-renderer** — a
+trackball-navigable globe (nodes at believed `@LATxLONy`, sigma rings, transport-coloured
+edges, graticule, 3 zooms) + record view + console pane, fed by `companion.py fleetmap`
+(`positions.md`+`proximity.md` → its `data/ttdb.md`, one TTDB lineage with the laptop
+viewer). A **second globe view** (`n` toggles) browses the RFC corpus (`rfc.ttdb.md`,
+view-only, off the mesh). See `@LAT90LON60`.
 
 ---
 
@@ -891,3 +960,22 @@ over the master TTDB, T-Deck via a native mini-renderer grown from the console
 fleet view). Build order: PLAN.md Act II (SP0 instrumentation → SP1 calibration
 → SP2 embedding/anchoring → SP3 env TDoA → SP4 address loop → SP5 transport
 auto-switch → SP6 TTCP render).
+
+---
+
+@LAT90LON60 | created:1784073600 | updated:1784073600 | relates:derived_from@LAT10LON0,refines@LAT90LON50,supports@LAT0LON0
+
+**Milestone — SP6-T render leg live + Semantic Positioning made normative
+(2026-07-11 → 07-12).** The proof's **rendered** leg reached hardware: the T-Deck
+became a native **TTCP mini-renderer** (repartitioned to huge_app, 3 MB APP; FS at
+0x310000 via `scripts/Upload-Tdeck-FS.ps1`) — a trackball-navigable globe (believed
+`@LATxLONy`, sigma rings, transport-coloured edges, graticule, 3 zooms) + record view
++ console pane, fed by **`companion.py fleetmap`** so laptop and handheld draw one TTDB
+lineage (the SP6 "Done when"). A **second globe view** browses the RFC corpus on-device
+(`rfc.ttdb.md`, view-only). Verified first try: huge_app boots, PSRAM canvas renders,
+byte-exact pull (1351 B) confirms the repartition left the floor intact. The hypothesis
+itself was promoted to a normative spec, **`TTN-RFC-0011`** (Experimental) — the
+mechanisms are proven, the central claim (Ω ↓ distance, semantic overlap beats
+RSSI-only) is **not yet confirmed** (2026-07-10 garden run = partial negative on the
+RSSI leg; §8.1 spacetime entanglement is the open blocker). `ttn-semantic-positioning.md`
+stays the build plan; the RFC is its formal half.
