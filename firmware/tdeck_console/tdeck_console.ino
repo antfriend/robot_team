@@ -201,8 +201,20 @@ static const char* nodeName(uint32_t id) {
   }
 }
 
-Ttdb gDb;
+Ttdb gDb;                 // fleet globe — the network-facing TTDB (shared/synced/attested)
+Ttdb gRfcDb;              // RFC corpus globe — view-only (never shared over the mesh)
+static const char* kRfcTtdbPath = "/rfc.ttdb.md";
+static bool gRfcLoaded = false;
 TtdbShare* gShare = nullptr;
+
+// Globe views the trackball click cycles through. VIEW_FLEET (Semantic Position) is the
+// fleet TTDB; VIEW_RFC is the read-only RFC corpus. Only the fleet TTDB touches the mesh
+// — TTDB_REQ / @LAT99 sync / @LAT98 belief always operate on gDb, never gViewDb.
+enum GlobeView { VIEW_FLEET = 0, VIEW_RFC, VIEW_COUNT };
+static int   gView = VIEW_FLEET;
+static Ttdb* gViewDb = &gDb;                  // active globe for render + navigation
+static int   gViewSel[VIEW_COUNT] = {-1, -1}; // remembered selection per view
+static inline const char* viewName(int v) { return v == VIEW_RFC ? "RFC" : "SemPos"; }
 toot::DedupSet gDedup(128);
 TootSerialLink gSerial(Serial);
 static uint32_t gSeq = 1;
@@ -772,15 +784,15 @@ static const float DEG_PER_M = 1.0f;      // companion.py fleetmap metres->degre
 static const float SIGMA_VIS_SCALE = 0.35f;  // shrink the (honestly huge) sigma rings
 
 static void parseNodeAttrs() {
-  for (int i = 0; i < gDb.recordCount(); ++i) {
+  for (int i = 0; i < gViewDb->recordCount(); ++i) {
     gNodeName[i][0] = 0;
     gNodeSigmaM[i] = 0.0f;
-    if (!isNodeRecord(gDb.record(i))) continue;
+    if (!isNodeRecord(gViewDb->record(i))) continue;
     size_t off, len;
-    if (!gDb.recordSpan(i, off, len)) continue;
+    if (!gViewDb->recordSpan(i, off, len)) continue;
     char buf[400];
     size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
-    n = gDb.readBytes(off, (uint8_t*)buf, n);
+    n = gViewDb->readBytes(off, (uint8_t*)buf, n);
     buf[n] = 0;
     const char* p = strstr(buf, "name:");
     if (p) {
@@ -834,15 +846,15 @@ static void renderGlobe() {
   // Fleet links (TTCP-RFC-0002 §4), every node's typed edges coloured by transport
   // (green ESP-NOW / amber LoRa); the selected node's links are brightened. Drawn when
   // both ends face the camera. A-B/B-A double-draw is harmless (same line).
-  const int selLat = (gSel >= 0 && gSel < gDb.recordCount()) ? gDb.record(gSel).lat : 32767;
-  const int selLon = (gSel >= 0 && gSel < gDb.recordCount()) ? gDb.record(gSel).lon : 32767;
-  for (int i = 0; i < gDb.recordCount(); ++i) {
-    const TtdbRecord& r = gDb.record(i);
+  const int selLat = (gSel >= 0 && gSel < gViewDb->recordCount()) ? gViewDb->record(gSel).lat : 32767;
+  const int selLon = (gSel >= 0 && gSel < gViewDb->recordCount()) ? gViewDb->record(gSel).lon : 32767;
+  for (int i = 0; i < gViewDb->recordCount(); ++i) {
+    const TtdbRecord& r = gViewDb->record(i);
     if (!isNodeRecord(r)) continue;
     int sx0, sy0; float sz0;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx0, sy0, sz0);
     TtdbEdge edges[8];
-    uint8_t ne = gDb.edgesAt(i, edges, 8);
+    uint8_t ne = gViewDb->edgesAt(i, edges, 8);
     for (uint8_t e = 0; e < ne; ++e) {
       int tx, ty; float tz;
       projectLL(edges[e].target_lat, edges[e].target_lon, R, cx, cy,
@@ -857,8 +869,8 @@ static void renderGlobe() {
 
   // Sigma rings: each front node's position uncertainty, radius = sigma_m at the same
   // metres->degrees scale as the positions (so a large RSSI sigma reads as a large ring).
-  for (int i = 0; i < gDb.recordCount(); ++i) {
-    const TtdbRecord& r = gDb.record(i);
+  for (int i = 0; i < gViewDb->recordCount(); ++i) {
+    const TtdbRecord& r = gViewDb->record(i);
     if (!isNodeRecord(r) || gNodeSigmaM[i] <= 0.0f) continue;
     int sx, sy; float z;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
@@ -873,8 +885,8 @@ static void renderGlobe() {
   // and labeled with its fleet name — front nodes get a colored dot + label, the
   // selected one an eyeball, back-facing ones a muted dot (occluded, so unlabeled).
   c.setTextSize(1);
-  for (int i = 0; i < gDb.recordCount(); ++i) {
-    const TtdbRecord& r = gDb.record(i);
+  for (int i = 0; i < gViewDb->recordCount(); ++i) {
+    const TtdbRecord& r = gViewDb->record(i);
     if (!isNodeRecord(r)) continue;
     int sx, sy; float z;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
@@ -884,11 +896,23 @@ static void renderGlobe() {
     else                 snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
     if (i == gSel) {
       int er = GLOBE_H / 14; if (er < 5) er = 5;         // eyeball (TTCP-RFC-0002 §3.2)
+      int irisR  = er - 2;                               // iris radius
+      int pupilR = er / 2 > 1 ? er / 2 : 2;              // pupil radius
       c.fillCircle(sx, sy, er, ST77XX_WHITE);            // sclera
-      c.fillCircle(sx, sy, er - 2, col);                 // iris
-      int px = sx + (int)((cx - sx) * 0.22f);            // pupil looks inward
-      int py = sy + (int)((cy - sy) * 0.22f);
-      c.fillCircle(px, py, er / 2 > 1 ? er / 2 : 2, ST77XX_BLACK);
+      // Gaze toward the globe center: iris and pupil both slide along the look
+      // direction, each clamped so its own outer edge never crosses the white
+      // sclera (looks inward, but never spills past the eye).
+      float gvx = cx - sx, gvy = cy - sy;
+      float gl = sqrtf(gvx * gvx + gvy * gvy);
+      float ux = 0.0f, uy = 0.0f;
+      if (gl > 0.001f) { ux = gvx / gl; uy = gvy / gl; }
+      float look     = gl * 0.22f;                       // desired look distance (px)
+      float irisOff  = look < (float)(er - irisR)  ? look : (float)(er - irisR);
+      float pupilOff = look < (float)(er - pupilR) ? look : (float)(er - pupilR);
+      c.fillCircle(sx + (int)(ux * irisOff),  sy + (int)(uy * irisOff),  irisR,  col);
+      int px = sx + (int)(ux * pupilOff);
+      int py = sy + (int)(uy * pupilOff);
+      c.fillCircle(px, py, pupilR, ST77XX_BLACK);
       c.drawPixel(sx - er / 3, sy - er / 3, ST77XX_WHITE);  // shine
       c.setTextColor(ST77XX_WHITE);
       c.setCursor(sx + er + 2, sy - 3);
@@ -908,13 +932,13 @@ static void renderGlobe() {
 static void renderRecord() {
   if (gBottomDirty) gTft.fillRect(0, BOTTOM_Y, 320, BOTTOM_H, ST77XX_BLACK);
   char l[54];
-  if (gSel < 0 || gSel >= gDb.recordCount()) {
+  if (gSel < 0 || gSel >= gViewDb->recordCount()) {
     drawWide(BOTTOM_Y, ST77XX_YELLOW, "(no record selected)");
     return;
   }
-  const TtdbRecord& r = gDb.record(gSel);
+  const TtdbRecord& r = gViewDb->record(gSel);
   snprintf(l, sizeof(l), "@LAT%dLON%d   record %d/%d", r.lat, r.lon, gSel + 1,
-           gDb.recordCount());
+           gViewDb->recordCount());
   drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
 
   // Stream the body: read the record span, skip the header line, print the next lines
@@ -922,10 +946,10 @@ static void renderRecord() {
   // so this streaming read is not per-frame.
   if (!gBottomDirty) return;
   size_t off, len;
-  if (!gDb.recordSpan(gSel, off, len)) return;
+  if (!gViewDb->recordSpan(gSel, off, len)) return;
   static char body[520];
   size_t n = len < sizeof(body) - 1 ? len : sizeof(body) - 1;
-  n = gDb.readBytes(off, (uint8_t*)body, n);
+  n = gViewDb->readBytes(off, (uint8_t*)body, n);
   body[n] = 0;
   const char* p = strchr(body, '\n');       // skip the header line
   p = p ? p + 1 : body;
@@ -963,8 +987,8 @@ static void renderConsole() {
 // Frame dispatcher: thin status bar, globe (top), then the active bottom pane.
 static void renderScreen() {
   char l[54];
-  snprintf(l, sizeof(l), "T-DECK 0x%X ch%d sync%s drive>%s z%d %c", (unsigned)kNodeId,
-           ROBOT_TEAM_ESPNOW_CHANNEL, gSynced ? "+" : "-", nodeName(gCmdTarget),
+  snprintf(l, sizeof(l), "T-DECK 0x%X %s sync%s drive>%s z%d %c", (unsigned)kNodeId,
+           viewName(gView), gSynced ? "+" : "-", nodeName(gCmdTarget),
            gZoomIdx + 1, gPane == PANE_CONSOLE ? 'C' : 'M');
   drawWide(STATUS_Y, ST77XX_WHITE, l);
 
@@ -988,9 +1012,9 @@ static void renderScreen() {
 // Select a record: seat the cursor, mark the bottom half dirty, and animate the globe
 // to bring the node to front-center (TTCP-RFC-0002 §6.2/§6.3).
 static void selectRecord(int i) {
-  if (i < 0 || i >= gDb.recordCount()) return;
+  if (i < 0 || i >= gViewDb->recordCount()) return;
   gSel = i;
-  const TtdbRecord& r = gDb.record(i);
+  const TtdbRecord& r = gViewDb->record(i);
   gTgtLon = -(r.lon * 0.01745329f);   // bring @lon to the meridian facing us
   gTgtLat = (r.lat * 0.01745329f);
   gAnim = true;
@@ -1000,11 +1024,43 @@ static void selectRecord(int i) {
 
 // Advance selection to the next navigable node record (wraps). Used by trackball click.
 static void selectNextNode() {
-  int n = gDb.recordCount();
+  int n = gViewDb->recordCount();
   for (int step = 1; step <= n; ++step) {
     int i = (gSel + step) % n;
-    if (isNodeRecord(gDb.record(i))) { selectRecord(i); return; }
+    if (isNodeRecord(gViewDb->record(i))) { selectRecord(i); return; }
   }
+}
+
+// Point render + navigation at a globe (VIEW_FLEET / VIEW_RFC): swap the active TTDB,
+// re-derive its node labels, and restore that view's remembered selection (seating the
+// first navigable node the first time the view is shown). The mesh is untouched — only
+// what the screen draws and the trackball/'t' key drive changes.
+static void activateView(int v) {
+  gView   = v;
+  gViewDb = (v == VIEW_RFC) ? &gRfcDb : &gDb;
+  parseNodeAttrs();                        // refill gNodeName/gNodeSigmaM for this db
+  int sel = gViewSel[v];
+  if (sel < 0 || sel >= gViewDb->recordCount() || !isNodeRecord(gViewDb->record(sel))) {
+    sel = -1;
+    for (int i = 0; i < gViewDb->recordCount(); ++i)
+      if (isNodeRecord(gViewDb->record(i))) { sel = i; break; }
+  }
+  gSel = gViewSel[v] = sel;
+  if (sel >= 0) {                           // center the globe on the selection, no ease
+    gRotLat = gTgtLat = gViewDb->record(sel).lat * 0.01745329f;
+    gRotLon = gTgtLon = -(gViewDb->record(sel).lon * 0.01745329f);
+  }
+  gAnim = false;
+  gGlobeDirty = gBottomDirty = gScreenDirty = true;
+}
+
+// Trackball click: cycle to the next globe view (skipping the RFC globe if it never
+// loaded). Remembers where the cursor was in the view we are leaving.
+static void toggleGlobeView() {
+  gViewSel[gView] = gSel;
+  int nv = (gView + 1) % VIEW_COUNT;
+  if (nv == VIEW_RFC && !gRfcLoaded) nv = VIEW_FLEET;   // no RFC globe -> stay on fleet
+  activateView(nv);
 }
 #endif
 
@@ -1075,17 +1131,20 @@ void setup() {
   }
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
 
+  // Second globe: the read-only RFC corpus (RFCs/rfc.ttdb.md), toggled in with the
+  // trackball click. View-only — it never joins the mesh or gets shared/attested.
+  if (gRfcDb.begin(LittleFS, kRfcTtdbPath)) {
+    gRfcLoaded = true;
+    Serial.printf("RFC globe loaded: %u bytes, %d records\n",
+                  (unsigned)gRfcDb.fileSize(), gRfcDb.recordCount());
+  } else {
+    Serial.println("RFC globe (/rfc.ttdb.md) not found - fleet view only");
+  }
+
 #if USE_TDECK_HW
-  parseNodeAttrs();   // fleet-map per-node name + sigma (SP6) for the globe
-  // Seat the initial cursor on the first navigable node record and center the globe
-  // on it with no boot animation (TTCP-RFC-0002 §6.1).
-  for (int i = 0; i < gDb.recordCount(); ++i)
-    if (isNodeRecord(gDb.record(i))) {
-      gSel = i;
-      gRotLat = gTgtLat = gDb.record(i).lat * 0.01745329f;
-      gRotLon = gTgtLon = -(gDb.record(i).lon * 0.01745329f);
-      break;
-    }
+  // Seat the fleet globe: derive node labels, seat the cursor on the first navigable
+  // record and center on it with no boot animation (TTCP-RFC-0002 §6.1).
+  activateView(VIEW_FLEET);
 #endif
 
   WiFi.mode(WIFI_STA);
@@ -1181,10 +1240,11 @@ void loop() {
 
 #if USE_TDECK_HW
   // Trackball — the globe's pointer (non-touch panel). Roll rotates the globe; a
-  // click advances the selection to the next node (roll it to front-center, click).
+  // click toggles the globe view (Semantic Position <-> RFC corpus). Node stepping
+  // moved to the 't' key.
   {
     int dx = (int)gTbR - (int)gTbL;
-    int dy = (int)gTbDn - (int)gTbUp;
+    int dy = (int)gTbUp - (int)gTbDn;   // up/down inverted (operator preference)
     gTbR = gTbL = gTbDn = gTbUp = 0;
     if (dx || dy) {
       // Negated so the globe surface follows the roll (drag-to-move feel) — the roll
@@ -1196,7 +1256,7 @@ void loop() {
       gAnim = false;                             // manual roll cancels a selection ease
       gGlobeDirty = true;
     }
-    if (gTbClick) { gTbClick = false; selectNextNode(); }
+    if (gTbClick) { gTbClick = false; toggleGlobeView(); }
   }
   // Ease the globe toward a selected node (TTCP-RFC-0002 §6.3).
   if (gAnim) {
@@ -1211,7 +1271,8 @@ void loop() {
 
   // Console keyboard — the operator function. Each key injects a CMD at gCmdTarget
   // (no "enter"; every press sends immediately):
-  //   t = cycle target   s = get-status   p = ping   b = beep
+  //   t = next node (both globes; also cycles the comm target in Semantic Position view)
+  //   s = get-status   p = ping   b = beep
   //   g = play (start the target's song)  x = stop   SPACE = toggle console pane
   //   +/= = zoom in (closer)   -/_ = zoom out (further)
   // Any other key defaults to a status query. See the on-screen legend.
@@ -1220,8 +1281,11 @@ void loop() {
     gLastKey = k;
     switch (k) {
       case 't':
-        gTargetIdx = (gTargetIdx + 1) % kNumTargets;
-        gCmdTarget = kTargets[gTargetIdx];
+        selectNextNode();                        // step the selection in the active globe
+        if (gView == VIEW_FLEET) {               // Semantic Position view also cycles the
+          gTargetIdx = (gTargetIdx + 1) % kNumTargets;   // keyboard's comm target
+          gCmdTarget = kTargets[gTargetIdx];
+        }
         gScreenDirty = true;
         break;
       case '+': case '=':                        // zoom in (closer)
