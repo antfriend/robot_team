@@ -1852,12 +1852,16 @@ def _median(xs):
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2.0
 
 
-def consolidate_proximity(windows_by_node, calib=None, last=None):
+def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=None):
     """windows_by_node: {node_name: [parse_link_percepts window, ...]}.
     calib: load_calibration() output (fitted path-loss per proto), or None.
     last: use only each node's newest N windows — the recency filter. A node
     that moved (the calibration walk!) leaves stale-distance windows behind;
     position is a *current* belief, so recent evidence must be able to win.
+    entity_bounds: {frozenset((a,b)): {jaccard, bound_m, shared, union}} from
+    consolidate_entity_jaccard — the SP1 entity cap. Shared WiFi APs bound a pair's
+    distance from ABOVE ("they share N APs, they can't be far", spec §2.2); this
+    caps the RSSI estimate (never refines below it) and adds a `sources:` mix.
     Returns a list of pair-belief dicts, one per (unordered pair, proto)."""
     id_to_name = {v: k for k, v in NODE_IDS.items()}
     directed = {}  # (obs_id, peer_id, proto) -> {"maxes": [...], "n": int, "windows": int}
@@ -1906,11 +1910,36 @@ def consolidate_proximity(windows_by_node, calib=None, last=None):
         # Confidence: grows with sample count, shrinks with direction asymmetry;
         # capped lower while uncalibrated (TBEW-style honesty, heuristic for now).
         conf = 0.3 + 0.3 * min(1.0, n_obs / 200.0) + 0.2 * max(0.0, 1.0 - asym / 6.0)
+
+        a_name = id_to_name.get(lo, f"0x{lo:08X}")
+        b_name = id_to_name.get(hi, f"0x{hi:08X}")
+
+        # SP1 entity cap (ttn-semantic-positioning.md §2.2). The entity term bounds
+        # distance from ABOVE and never refines below the RSSI estimate: at short
+        # range (bench) it just contributes to the `sources:` mix; in the field it
+        # clamps an RSSI estimate that over-ranged a pair that clearly shares APs —
+        # the exact failure GPS caught in the garden (RSSI 2–7x too large).
+        eb = (entity_bounds or {}).get(frozenset((a_name, b_name)))
+        sources = {"rssi": 1.0}
+        entity_capped = False
+        entity_jaccard = entity_shared = None
+        if eb and eb.get("bound_m") is not None:
+            entity_jaccard = round(eb["jaccard"], 2)
+            entity_shared = eb["shared"]
+            # Entity weight grows with overlap, capped at 0.4 so RSSI still leads
+            # when both agree; the cap firing is what makes entity load-bearing.
+            w_entity = round(min(0.4, 0.4 * eb["jaccard"]), 2)
+            sources = {"rssi": round(1.0 - w_entity, 2), "entity_jaccard": w_entity}
+            if dist is not None and dist > eb["bound_m"]:
+                dist = eb["bound_m"]
+                entity_capped = True
+                if sigma is not None:            # a clamped estimate is more certain
+                    sigma = min(sigma, eb["bound_m"] / 2.0)
+
         conf = round(max(0.1, min(0.85 if calibrated else 0.7, conf)), 2)
 
         beliefs.append({
-            "a": id_to_name.get(lo, f"0x{lo:08X}"),
-            "b": id_to_name.get(hi, f"0x{hi:08X}"),
+            "a": a_name, "b": b_name,
             "proto": proto, "rssi_est": round(rssi_est, 1),
             "rssi_ab": (round(ests[0], 1) if ab else None),
             "rssi_ba": (round(ests[-1], 1) if ba else None),
@@ -1920,6 +1949,9 @@ def consolidate_proximity(windows_by_node, calib=None, last=None):
             "dist_est_m": (round(dist, 2) if dist else None),
             "dist_sigma_m": (round(sigma, 2) if sigma else None),
             "n_obs": n_obs, "conf": conf, "calibrated": calibrated,
+            "sources": sources, "entity_jaccard": entity_jaccard,
+            "entity_bound_m": (round(eb["bound_m"], 2) if eb and eb.get("bound_m") else None),
+            "entity_shared": entity_shared, "entity_capped": entity_capped,
         })
     return beliefs
 
@@ -1960,13 +1992,22 @@ def proximity(port, baud, nodes, out, do_pull, settle,
                 print(f"pulled {n}: {len(data)} B -> {node_paths[n]}")
 
     windows_by_node = {}
+    entity_windows_by_node = {}
     for n in nodes:
         try:
             with open(node_paths[n], encoding="utf-8", errors="replace") as f:
-                windows_by_node[n] = parse_link_percepts(f.read())
+                text = f.read()
+            windows_by_node[n] = parse_link_percepts(text)
+            entity_windows_by_node[n] = parse_entity_percepts(text)
         except FileNotFoundError:
             print(f"warning: {node_paths[n]} missing; {n} contributes nothing")
-    beliefs = consolidate_proximity(windows_by_node, calib, last)
+    # SP1 entity cap: fuse the @LAT96 WiFi co-occurrence into per-pair distance bounds.
+    entity_bounds = {frozenset(e["pair"]): e
+                     for e in consolidate_entity_jaccard(entity_windows_by_node)}
+    if entity_bounds:
+        print(f"entity co-occurrence: {len(entity_bounds)} pair(s) with shared APs "
+              f"(WiFi cap active)")
+    beliefs = consolidate_proximity(windows_by_node, calib, last, entity_bounds)
 
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1985,7 +2026,11 @@ def proximity(port, baud, nodes, out, do_pull, settle,
                     f"dist_sigma_m: {b['dist_sigma_m']}\n"
                     f"n_obs: {b['n_obs']}\n"
                     f"windows: {b['windows']}\n"
-                    f"sources: {{ rssi: 1.0 }}\n"
+                    f"sources: {{ {', '.join(f'{k}: {v}' for k, v in b['sources'].items())} }}\n"
+                    + (f"entity_jaccard: {b['entity_jaccard']}   # shared "
+                       f"{b['entity_shared']} AP(s), bound <= {b['entity_bound_m']} m"
+                       f"{' — CAPPED the RSSI estimate' if b['entity_capped'] else ''}\n"
+                       if b["entity_jaccard"] is not None else "")
                     + (f"calibrated: yes   # {calib_path} "
                        f"{calib.get(b['proto'])}\n" if b["calibrated"] else
                        f"calibrated: no   # default path-loss "
@@ -1997,11 +2042,13 @@ def proximity(port, baud, nodes, out, do_pull, settle,
     print(f"\nproximity: {len(beliefs)} pair belief(s) from "
           f"{{{', '.join(sorted(windows_by_node))}}}")
     print(f"{'pair':<28} {'proto':6} {'rssi':>6} {'asym':>5} {'dist_m':>7} "
-          f"{'sigma_m':>8} {'n':>5} {'conf':>5}")
+          f"{'sigma_m':>8} {'n':>5} {'conf':>5} {'entJ':>5} {'cap':>4}")
     for b in beliefs:
+        j = f"{b['entity_jaccard']:.2f}" if b["entity_jaccard"] is not None else "-"
         print(f"{b['a'] + ' <-> ' + b['b']:<28} {b['proto']:6} "
               f"{b['rssi_est']:>6} {b['asym_db']:>5} {b['dist_est_m']:>7} "
-              f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5}")
+              f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5} {j:>5} "
+              f"{'CAP' if b['entity_capped'] else '':>4}")
     if all(b["calibrated"] for b in beliefs) and beliefs:
         print(f"\nwrote {out}  (calibrated model — mind the fit's valid range)")
     else:

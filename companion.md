@@ -726,6 +726,18 @@ If a fact lives in one of these, link to it from here — don't copy it.
   falls out of shared WiFi APs, independent of RSSI. T-Deck kept on (roaming node — richest
   co-occurrence source). **Tradeoff:** the ~2 s scan hop every 10 min briefly pauses V4-A's bridge
   relay (masked by the pull self-heal, but note it if a scan lands mid-band).
+- **SP1 entity cap BUILT + offline-verified (2026-07-12) — shared APs clamp the RSSI estimate.**
+  `companion.py proximity` now pulls each node's `@LAT96` lane alongside `@LAT97`, fuses the
+  pairwise **WiFi-AP Jaccard** into a distance **bound** (`consolidate_entity_jaccard`), and folds
+  it into `consolidate_proximity`: shared APs **cap the RSSI estimate from above** (never refine
+  below — spec §2.2). Each `@BELIEF:PROXIMITY` now carries a **`sources:` evidence mix**
+  (`{ rssi, entity_jaccard }`) + `entity_jaccard`/`entity_bound_m`/`entity_capped` fields, and the
+  `proximity` table gained `entJ`/`cap` columns. At bench range the RSSI estimate sits under the
+  bound so it's uncapped (mix only, no clamp); **the cap fires in the field** when RSSI over-ranges
+  a pair that clearly shares APs — the exact garden failure (RSSI 2–7× too large). Gated by
+  `tests/test_prox_py.py` (now 41 checks: over-range clamps to bound, no-refine-below, sources mix),
+  smoke-verified end to end (`proximity --no-pull` on a crafted 2-lane node file). *BLE bound term*
+  still deferred (BLE keeps its own `proto:ble` estimate lane, not folded as a bound).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
   2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught

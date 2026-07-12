@@ -553,8 +553,20 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       calibrated bench map (2.2–4.0 m, sigma 0.3–0.7 m) that includes the
       K10** — mapped one-directionally by the other nodes' observations, no
       K10 firmware change.
-- [ ] Entity-Jaccard cap + BLE bound terms (gated on the SP0 entity/BLE
-      sub-steps).
+- [x] **Entity-Jaccard cap ✅ BUILT + offline-verified 2026-07-12.**
+      `companion.py proximity` now pulls each node's `@LAT96` lane alongside
+      `@LAT97`, fuses the pairwise **WiFi-AP Jaccard** (`consolidate_entity_jaccard`)
+      into a distance **bound**, and folds it into `consolidate_proximity`: shared
+      APs **cap the RSSI estimate from above** (never refine below it — spec §2.2),
+      and each `@BELIEF:PROXIMITY` now carries a **`sources:` evidence mix**
+      (`{ rssi, entity_jaccard }`) plus `entity_jaccard`/`entity_bound_m`/
+      `entity_capped` fields. At bench range the RSSI estimate sits under the bound
+      so it's uncapped (mix only); the cap fires in the field when RSSI over-ranges a
+      pair that clearly shares APs — the garden failure. Gated by `tests/test_prox_py.py`
+      (+16 checks: over-range clamps to bound, no-refine-below, sources mix). *BLE
+      bound term* still deferred — BLE already produces its own `proto:ble`
+      `@BELIEF:PROXIMITY` estimates (`master/proximity-ble.md`), a separate lane, not
+      yet folded in as a bound.
 
 **Done when:** `dist_est_m` within ~30–50 % of tape-measure truth for every
 powered pair, `sigma` honest. (Needs the calibration walk.)

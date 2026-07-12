@@ -138,6 +138,42 @@ check(b_last["n_ab"] == 30 and b_last["windows"] == 1,
       "last=1 keeps only the newest window (n from lane 1 only)")
 check(b_last["rssi_ab"] == -37.0, "estimate from the newest window's max")
 
+# ---------------------------------------------------------------------------
+# 8) SP1 entity cap: shared WiFi APs bound a pair's distance from above.
+def lw(peer, rssi, n=30):
+    return {"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+            "links": [{"peer": peer, "proto": "espnow", "n": n,
+                       "min": rssi, "med": rssi, "max": rssi}]}
+
+# A weak-signal pair: uncalibrated RSSI over-ranges v4a<->v4b to tens of metres.
+far = {"v4a_bridge": [lw(0x11, -85)], "v4b_relay": [lw(0x10, -85)]}
+pair = frozenset(("v4a_bridge", "v4b_relay"))
+
+b_nocap = c.consolidate_proximity(far)[0]
+check(b_nocap["dist_est_m"] > 20, "weak RSSI over-ranges the pair (>20 m, uncapped)")
+check(b_nocap["sources"] == {"rssi": 1.0}, "no entity evidence -> sources rssi only")
+check(b_nocap["entity_capped"] is False, "no entity bound -> not capped")
+
+# Now the same pair shares WiFi APs -> a 20 m bound clamps the over-range.
+ebounds = {pair: {"pair": ("v4a_bridge", "v4b_relay"), "jaccard": 0.8,
+                  "bound_m": 20.0, "shared": 4, "union": 5}}
+b_cap = c.consolidate_proximity(far, entity_bounds=ebounds)[0]
+check(b_cap["entity_capped"] is True, "over-range beyond the AP bound -> CAPPED")
+check(abs(b_cap["dist_est_m"] - 20.0) < 1e-9, "dist clamped to the entity bound")
+check(b_cap["entity_jaccard"] == 0.8 and b_cap["entity_shared"] == 4,
+      "entity metadata recorded on the belief")
+check("entity_jaccard" in b_cap["sources"] and b_cap["sources"]["rssi"] < 1.0,
+      "sources mix includes entity_jaccard weight")
+
+# A near pair (strong RSSI, dist << bound): entity contributes weight but does NOT
+# refine below the RSSI estimate (the cap only bounds from above).
+near = {"v4a_bridge": c.parse_link_percepts(TEXT_A)}  # strong -35 dBm -> small dist
+b_near = c.consolidate_proximity(near, entity_bounds=ebounds)[0]
+check(b_near["entity_capped"] is False, "short-range pair is not capped (RSSI already < bound)")
+check(b_near["dist_est_m"] == c.consolidate_proximity(near)[0]["dist_est_m"],
+      "uncapped distance is unchanged by the entity term (no refine below)")
+check("entity_jaccard" in b_near["sources"], "entity still contributes to sources mix when present")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")
