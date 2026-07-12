@@ -111,9 +111,16 @@ The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
 so no PA-variant flag is needed until Phase 4.
 
-The **LilyGo T-Deck** (`firmware/tdeck_console`) builds exactly like the V4
-(`esp32:esp32:esp32s3:CDCOnBoot=cdc`; FS via `Upload-V4-FS.ps1 -Node tdeck_console`
-— same default spiffs partition) plus three T-Deck-specific rules: (1) **flashing
+The **LilyGo T-Deck** (`firmware/tdeck_console`) builds like the V4
+(`esp32:esp32:esp32s3:CDCOnBoot=cdc`) **but on the `huge_app` partition scheme**, so
+its SP6-T screen UI + BLE fit (the default 4 MB scheme left the app at 95%). **Flash
+its FS with `scripts/Upload-Tdeck-FS.ps1 -Node tdeck_console -Port <COMx>`, NOT
+`Upload-V4-FS.ps1`** — huge_app puts the LittleFS partition at **0x310000** (size
+0xE0000), whereas the V4 script writes to the default **0x290000**. Flashing the FS
+at the wrong offset drops the LittleFS superblock in the app region and garbage on the
+real spiffs partition, so the mount fails silently and the node boots to an **empty
+globe / "(no record selected)"** with the app otherwise fine — recover by re-flashing
+with the correct Tdeck script. Plus three T-Deck-specific rules: (1) **flashing
 needs manual bootloader entry** (native-USB auto-reset is flaky) — hold the
 trackball-click (GPIO0/BOOT) + tap RST to enter download mode (the port
 re-enumerates), then tap RST alone to boot the app; (2) its **ST7789 display uses
