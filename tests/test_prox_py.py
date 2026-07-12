@@ -99,7 +99,11 @@ d_weak = c.rssi_to_dist_m(-75, "espnow")
 check(d_strong < d_weak, "weaker RSSI maps to larger distance")
 check(abs(c.rssi_to_dist_m(-45, "espnow") - 1.0) < 1e-9,
       "model anchored at rssi_d0/d0_m")
-check(c.rssi_to_dist_m(-50, "ble") is None, "unknown proto -> no distance")
+# BLE is a known proto since the SP0 near-range tier (2026-07-10) added its
+# path-loss default, so it estimates a distance (anchored at its own rssi_d0).
+check(abs(c.rssi_to_dist_m(-59, "ble") - 1.0) < 1e-9,
+      "ble known proto -> distance at its rssi_d0 (BLE near-range tier)")
+check(c.rssi_to_dist_m(-50, "lora") is None, "unknown proto -> no distance")
 
 # ---------------------------------------------------------------------------
 # 5) fit_pathloss recovers a known model exactly (points generated from
