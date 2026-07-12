@@ -53,8 +53,10 @@ Lanes: lat 10 TTDB, lat 20 TTN, lat 30 TTCP, lat 40 A32, lat 50 ARC. Lane lat 98
 holds beliefs — consolidated invariants and places where implemented reality diverges
 from spec text (the Dream Cycle run over the documents, echoing the fleet's lat-98
 BELIEF-ADOPTED lane). `[ew]` conf encodes status (implemented-on-device 240, stable
-210, informational 190, draft 140, proposed 120); sal encodes how load-bearing the
-RFC is to current fleet work.
+210, informational 190, experimental 160, draft 140, proposed 120; *experimental* =
+mechanism live on-device but the claim it exists to test is unconfirmed — high sal +
+this conf yields the high EPS that flags it for active sensing); sal encodes how
+load-bearing the RFC is to current fleet work.
 
 ---
 
@@ -458,6 +460,41 @@ period, successor increments era and keeps the same grid so the beat never lurch
 ±50 ms is swing (feel), not error. Parts/instruments split re-voices the band per
 node; adoption may run in the recv callback (no flash write) but tones/LEDs are
 played from `loop()`.
+
+---
+
+@LAT20LON11 | created:1783814400 | updated:1783814400 | relates:depends_on@LAT10LON1,depends_on@LAT10LON5,depends_on@LAT10LON6,depends_on@LAT10LON7,depends_on@LAT20LON8,propagated_by@LAT20LON9
+[ew]
+conf:160
+rev:0
+sal:190
+touched:1783814400
+[/ew]
+
+**TTN-RFC-0011 — Semantic Positioning** (Experimental — under on-device validation; the formal half of the primary hypothesis — SP0 evidence live, hypothesis unconfirmed)
+src: TTN-RFC-0011-Semantic-Positioning.md
+
+Position is *recoverable from* the graph, not merely *assigned* to it: the
+Semantic Positioning Hypothesis (SPH) says umwelt overlap `Ω(i,j)` is a monotone
+decreasing function of physical distance for nodes with commensurable
+Funktionskreise. `Ω` is a confidence-weighted Jaccard coefficient over shared
+`@PERCEPT` records, weighted by TBEW `conf`/`sal` (so positional precision is
+bounded by percept confidence — the method is honest about `sigma`). Positioning
+is manifold recovery: convert `Ω` to a dissimilarity matrix and embed in 2-D by
+MDS or fixed-point spring relaxation — the embedding **is** the map; it yields
+*shape* for free (gauge-free up to rotation/translation/reflection), and one
+anchor pins it to `@LATxLONy`, two (or one + a bearing) resolve the flip.
+Embedding runs in the Dream Cycle Projection phase (TTDB-RFC-0007); outputs are
+`@BELIEF:PROXIMITY`/`@BELIEF:POSITION` records propagated by Push-Back
+(TTN-RFC-0009). Two normative failure modes: **spacetime entanglement** (§8.1 —
+`before`/`after` pairs are temporal, so `Ω` measures 4-D proximity; MUST temporally
+gate on `Δt` ≥ fleet skew or declare spacetime coords — the blocking open problem)
+and **modal incommensurability** (§8.2 — nodes MUST declare their Funktionskreis;
+disjoint-modality pairs are *unconstrained*, never *distant*). Falsifiable at zero
+cost: rank-correlate `Ω` against LoRa RSSI over the V4-A/B/C spine — the
+divergences are the finding. Engineering companion: `ttn-semantic-positioning.md`;
+SP0 reference impl: `firmware/libraries/LinkPercept` (@LAT97 RSSI-histogram
+records). Reconciled from a provisional `0009` draft (0009/0010 taken).
 
 ---
 
