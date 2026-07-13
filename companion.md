@@ -841,6 +841,18 @@ fleet, encoded the way the A32 nodes encode theirs (`TTDB-RFC-0001` file format,
 mid · **30** tail), `lat 10` = leaf/cluster depth, `lat 90` = engineering
 decisions & lessons. Keep both this map and §6 in sync.
 
+**Epistemic weights (`TTDB-RFC-0005`).** Each record carries an `[ew]` block —
+`conf` (settledness: 240 proven-on-hardware · 210 stable/exercised · 195 first
+instance live · 120 proposed/unbuilt), `sal` (how load-bearing), `rev`, `touched`
+— and a derived attention signal **`EPS = sal × (255 − conf) / 255`**. High EPS =
+load-bearing *and* unproven → the next thing to verify/build; proven work
+(high `conf`) goes quiet. **When reading this file to choose the next move,
+compute EPS across these records and let the maximum guide you.** As of
+2026-07-13 the ranking points, correctly, at the open crux: **@LAT90LON50 —
+Semantic Positioning (EPS 125)**, then **@LAT0LON30 — the unbuilt V4-C edge
+(EPS 74)**; everything proven sits below EPS 20. Update the weights when a
+record's status changes (a weight-only write does not bump `rev`).
+
 ```mmpdb
 db_id: orchestrator-master-001
 db_name: Orchestrator Master Knowledge Map
@@ -882,6 +894,12 @@ lon: 0
 ---
 
 @LAT0LON0 | created:1750000000 | updated:1781913600 | relates:connected_over@LAT0LON10,routes_via@LAT10LON10,commands@LAT0LON10,knows@LAT0LON20,knows@LAT0LON30,refines@LAT90LON0
+[ew]
+conf:240
+rev:0
+sal:180
+touched:1783983861
+[/ew]
 
 **Orchestrator** — the laptop companion, the only LLM in the system. Holds the
 master TTDB and drives the fleet. `orchestrator/companion.py pull` reassembles any
@@ -896,6 +914,12 @@ seed), `push` (re-author + distribute a belief → `master/belief.md`, see
 ---
 
 @LAT0LON10 | created:1750000000 | updated:1781913600 | relates:connected_over@LAT0LON0,routes_via@LAT10LON10,navigates_to@LAT0LON20,acknowledges@LAT0LON0
+[ew]
+conf:240
+rev:0
+sal:150
+touched:1783983861
+[/ew]
 
 **V4-A bridge** (Heltec WiFi LoRa 32 V4, spine head) — ✅ on-device verified
 2026-06-20. FQBN `esp32:esp32:esp32s3:CDCOnBoot=cdc`, on COM6. Boots, ESP-NOW up
@@ -909,6 +933,12 @@ gated (`USE_LORA 0`).
 ---
 
 @LAT10LON10 | created:1750000000 | updated:1781913600 | relates:connected_over@LAT0LON10,refines@LAT90LON0,derived_from@LAT90LON10
+[ew]
+conf:240
+rev:0
+sal:120
+touched:1783983861
+[/ew]
 
 **K10-1 percept** (UNIHIKER K10, leaf in the head's ESP-NOW cluster) — ✅ on-device
 verified. FQBN `UNIHIKER:esp32:k10:CDCOnBoot=cdc`, on COM3. Agent32 sense→reason→act
@@ -922,6 +952,12 @@ appends a `BELIEF-ADOPTED` record in its `@LAT98` lane (`push`, `@LAT90LON30`).
 ---
 
 @LAT10LON0 | created:1782259200 | updated:1783382400 | relates:commands@LAT0LON10,connected_over@LAT0LON10,knows@LAT0LON0
+[ew]
+conf:240
+rev:0
+sal:170
+touched:1783983861
+[/ew]
 
 **T-DECK-1 console** (LilyGo T-Deck, roaming handheld operator) — ✅ on-device verified
 end-to-end 2026-07-06. FQBN `esp32:esp32:esp32s3:CDCOnBoot=cdc`, node id `0x200`,
@@ -949,6 +985,12 @@ view-only, off the mesh). See `@LAT90LON60`.
 ---
 
 @LAT0LON20 | created:1750000000 | updated:1750000000 | relates:routes_via@LAT0LON10,navigates_to@LAT0LON30
+[ew]
+conf:240
+rev:0
+sal:120
+touched:1783983861
+[/ew]
 
 **V4-B relay** (Heltec V4, spine mid) — ✅ on-device verified 2026-06-25 (COM9 flash).
 A 2nd Heltec V4 fills this row as the fleet's **3rd mesh node**. Firmware
@@ -964,6 +1006,12 @@ store-and-forward (decrement `ttl`, dedup, re-sign, forward) stays gated behind
 ---
 
 @LAT0LON30 | created:1750000000 | updated:1750000000 | relates:connected_over@LAT0LON20
+[ew]
+conf:120
+rev:0
+sal:140
+touched:1783983861
+[/ew]
 
 **V4-C edge** (Heltec V4, spine tail) — ⬜ unbuilt scaffold. Off-grid remote-cluster
 gateway; GNSS `@LATxLONy` stamping; summarizes PERCEPT before the LoRa hop. Phases
@@ -972,6 +1020,12 @@ gateway; GNSS `@LATxLONy` stamping; summarizes PERCEPT before the LoRa hop. Phas
 ---
 
 @LAT90LON0 | created:1781913600 | updated:1781913600 | relates:supports@LAT0LON10,supports@LAT10LON10
+[ew]
+conf:240
+rev:0
+sal:70
+touched:1783983861
+[/ew]
 
 **Decision — dedup is radio-only** (2026-06-20). `(src,seq)` dedup applies on the
 ESP-NOW/LoRa receive path only (replay + mesh forwarding-loop guard); the trusted
@@ -982,6 +1036,12 @@ dispatch. The K10 was reflashed to match the V4-A (2026-06-20) and re-verified.
 ---
 
 @LAT90LON10 | created:1781913600 | updated:1781913600 | relates:supports@LAT0LON10,supports@LAT10LON10
+[ew]
+conf:240
+rev:0
+sal:70
+touched:1783983861
+[/ew]
 
 **Lesson — native-USB `CDCOnBoot`**. Both S3 boards expose the ESP32-S3 built-in
 USB (no UART bridge chip), so `Serial` — and the `TootSerialLink` the companion
@@ -992,6 +1052,12 @@ the port resets the board, so `companion.py` waits ~2.5 s before sending the req
 ---
 
 @LAT90LON20 | created:1781913600 | updated:1781913600 | relates:derived_from@LAT0LON10,derived_from@LAT10LON10
+[ew]
+conf:240
+rev:0
+sal:85
+touched:1783983861
+[/ew]
 
 **Milestone — bridged ESP-NOW pull (Phase 1b) ✅ achieved 2026-06-20.**
 `companion.py pull --node k10_1 --port COM6` reassembles the K10's TTDB byte-exact
@@ -1009,6 +1075,12 @@ the missing byte ranges (`TTDB_REQ_RANGE`) until byte-complete, no firmware chan
 ---
 
 @LAT90LON30 | created:1782170835 | updated:1782170835 | relates:derived_from@LAT0LON0,derived_from@LAT10LON10,refines@LAT90LON20
+[ew]
+conf:240
+rev:0
+sal:100
+touched:1783983861
+[/ew]
 
 **Milestone — Dream Cycle, both halves (Phase 6 seed) ✅ achieved 2026-06-24.** The
 consolidation half: `companion.py reconcile` folds each node's self-authored `@LAT99`
@@ -1035,6 +1107,12 @@ across pushes (TTN-RFC-0009 §5.2, PLAN.md Phase 6 "Done when"). **Next:** serve
 ---
 
 @LAT90LON40 | created:1783382400 | updated:1783382400 | relates:derived_from@LAT0LON10,derived_from@LAT10LON10,derived_from@LAT10LON0,refines@LAT90LON30
+[ew]
+conf:240
+rev:0
+sal:95
+touched:1783983861
+[/ew]
 
 **Milestone — Fleet Pulse & the band (TTN-RFC-0010) ✅ end-to-end on hardware
 (2026-06-26 → 2026-07-06).** The band time-base: a shared pulse clock (`millis()` +
@@ -1053,6 +1131,12 @@ never reaches `Pulse.cpp`), the era latch keeps an old tempo across a reflash
 ---
 
 @LAT90LON50 | created:1783382400 | updated:1783382400 | relates:refines@LAT0LON0,supports@LAT10LON0,derived_from@LAT90LON40
+[ew]
+conf:130
+rev:0
+sal:255
+touched:1783983861
+[/ew]
 
 **Decision — SEMANTIC POSITIONING is the primary hypothesis (2026-07-07).** The
 project's governing claim (`ttn-semantic-positioning.md`): nodes infer their
@@ -1073,6 +1157,12 @@ auto-switch → SP6 TTCP render).
 ---
 
 @LAT90LON60 | created:1784073600 | updated:1784073600 | relates:derived_from@LAT10LON0,refines@LAT90LON50,supports@LAT0LON0
+[ew]
+conf:225
+rev:0
+sal:165
+touched:1783983861
+[/ew]
 
 **Milestone — SP6-T render leg live + Semantic Positioning made normative
 (2026-07-11 → 07-12).** The proof's **rendered** leg reached hardware: the T-Deck
