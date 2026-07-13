@@ -11,54 +11,54 @@ each node's incident edge residuals + pair sigmas; stress is the fit's honesty.
 
 @BELIEF:POSITION @node(k10_1)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 16.25
-y_m: -0.00
-sigma_m: 51.28
+x_m: 21.23
+y_m: 0.00
+sigma_m: 3.37
 anchor_chain: [v4a_bridge]
-embedding_rev: 2
+embedding_rev: 4
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.90
-conf: 0.58
-touched: 2026-07-10T17:49:16Z
+stress_m: 0.48
+conf: 0.68
+touched: 2026-07-13T22:32:17Z
 
 ---
 
 @BELIEF:POSITION @node(tdeck_1)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 33.61
-y_m: 31.87
-sigma_m: 61.96
+x_m: 16.05
+y_m: 0.67
+sigma_m: 18.42
 anchor_chain: [v4a_bridge]
-embedding_rev: 2
+embedding_rev: 4
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.90
-conf: 0.55
-touched: 2026-07-10T17:49:16Z
+stress_m: 0.48
+conf: 0.52
+touched: 2026-07-13T22:32:17Z
 
 ---
 
 @BELIEF:POSITION @node(v4a_bridge)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
 x_m: 0.00
-y_m: -0.00
-sigma_m: 57.72
+y_m: 0.00
+sigma_m: 253.45
 anchor_chain: [v4a_bridge]
-embedding_rev: 2
+embedding_rev: 4
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.90
-conf: 0.55
-touched: 2026-07-10T17:49:16Z
+stress_m: 0.48
+conf: 0.58
+touched: 2026-07-13T22:32:17Z
 
 ---
 
 @BELIEF:POSITION @node(v4b_relay)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 6.83
-y_m: 34.78
-sigma_m: 53.15
+x_m: 17.30
+y_m: 8.43
+sigma_m: 283.04
 anchor_chain: [v4a_bridge]
-embedding_rev: 2
+embedding_rev: 4
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.90
-conf: 0.56
-touched: 2026-07-10T17:49:16Z
+stress_m: 0.48
+conf: 0.55
+touched: 2026-07-13T22:32:17Z

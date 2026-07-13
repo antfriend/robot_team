@@ -5,6 +5,15 @@ everything about the fleet and orchestrates a swarm of simpler **A32 agents**.
 Read it first, every session. When something here is wrong or stale, fix *this
 file* — it is the brain, not a logbook.
 
+> **Source-of-truth rule (2026-07-13):** project knowledge — state, decisions,
+> milestones, field findings — lives **here** (§6, the fleet table, the §7
+> knowledge map). The cross-session memory store
+> (`~/.claude/projects/c--git-robot-team/memory/`) holds only **thin one-line
+> pointers back to this file**, never divergent full-text copies, so the two can
+> never disagree. Build/hardware gotchas belong in `CLAUDE.md` (also
+> repo-canonical). Record a project fact here first; leave at most a pointer in
+> memory.
+
 > Modeled on the `companion-arc` pattern from the ARC Prize project: one
 > orchestrator that holds the whole picture and dispatches simpler, focused
 > agents. There, the simpler agents were per-instance solvers. Here they are
@@ -746,14 +755,64 @@ If a fact lives in one of these, link to it from here — don't copy it.
   → BLE caps tighter to ~5 m → `sources: { rssi: 0.59, entity_jaccard: 0.24, ble: 0.18 }`. Gated by
   `tests/test_prox_py.py` (now 51 checks). The SP0/SP1 evidence stack is now complete: RSSI (ranging)
   → entity Jaccard (loose cap) → BLE (tight cap), each honest about what it does.
+- **MULTI-TIER FIELD RE-RUN ✅ RAN (2026-07-13) — the hypothesis-crux test; the stack did NOT
+  yet beat RSSI-only, but the BLE tier scored its first clean-path bullseye.** Same garden
+  stations as 07-10 (V4-A desk / K10 nutrient / V4-B greenhouse / T-Deck back-40; GPS truth
+  reused from `master/gps-fixes.md`, 6–17 m spread). Cleared V4-A's link lane, accumulated ~10
+  fresh outdoor windows, built the full multi-tier `proximity` (espnow + proto:ble + entity
+  Jaccard) → `positions` → `anchor`. **Headline: scale 0.2166 (WARN), tie_rmse 7.31 m,
+  flip_resolved True** — same failure class as 07-10 (was 0.2768 / 4.98 m), NOT better; the
+  embedding collapsed near-1D (26×2 m) vs the true ~17 m quad. **Why it didn't improve:** (a)
+  the BLE near-range tier is genuinely right where the path is clean — **v4a↔tdeck BLE 5.96 m
+  vs 5.9 m GPS truth**, the exact near pair ESP-NOW botched (15.56 m, 2.6× over); but (b) it is
+  *destructively wrong* on a strong-reflection far path — **v4b↔tdeck read −50 dBm BLE / −39
+  espnow → 0.35–0.6 m despite 14.6 m truth** (greenhouse↔back-40 has a reflective/LOS path V4-A
+  is shadowed from), and SP1 treats BLE as a *tight* bound so it **clamps the estimate to the
+  wrong small value with high confidence** — worse than no BLE. Net: BLE helped one pair, hurt
+  another more. (c) **Data-collection floor failed for the far nodes:** V4-B's full TTDB pull is
+  impossible over the shadowed air (ACKs a single ping, "no data" on any multi-frame stream) —
+  it contributed observed-only (2 constraints, no k10↔v4b pair); the T-Deck couldn't be cleared
+  over air (lane never pruned) and its pull partially corrupted. So this run tested mesh
+  self-collection (which broke for the weak nodes) as much as the SPH. **Mechanisms all fired
+  honestly** (4-tie flip resolution, scale-guard WARN, anchor Procrustes) — proof leg 1 caught
+  the failure again and quantified it. Two concrete fixes fall out: a **BLE saturation/
+  consistency guard** (don't let a saturated BLE read clamp a pair below what a *co-measured*
+  espnow/entity says; treat BLE-strong-but-espnow-weak as a reflection flag, not a tight bound)
+  and a **non-mesh far-node collection path** (dump each field node's flash over USB — carry to
+  cable — for a clean test, since the mesh can't pull the very nodes it's measuring).
+- **USB-COLLECTION CLEAN RE-RUN ✅ done same day (2026-07-13) — the definitive version, and it
+  turns the morning's soft negative into a sharp one.** Carried V4-B + T-Deck to the cable and
+  pulled both **byte-exact over USB** (V4-B 31.6 KB, T-Deck 34.5 KB, **zero corruption** — the
+  mesh delivered neither; both were **capped at 48**, mostly bench, so `--last 12` filtered to
+  each node's 12–14 garden windows and their lanes were cleared/un-capped over USB — reliable
+  ACK where the over-air clear never landed), and refreshed V4-A (40 garden windows). Rebuilt on
+  clean *bidirectional* data: **scale 0.4122, tie_rmse 6.71 m, flip_resolved True** — strictly
+  better-formed than the morning dirty run (proper 2D **22×9 m** vs collapsed 26×2 m; scale
+  0.22→0.41 toward 1.0; the catastrophic **v4b↔tdeck fixed 0.6 m→10.4 m** vs 14.6 m truth once
+  V4-B's real weak side (−80) fused with the T-Deck's strong side (−35), asym 31 dB), and the
+  espnow distance *ordering* is now **monotonic with truth** (v4a↔tdeck 12 < v4a↔k10 22 < v4a↔v4b
+  39; true order 5.9<8.0<12.3). **Yet it still does NOT beat July RSSI-only (4.98 m) and stays
+  ~2.4× mis-scaled.** With corruption, staleness, and BLE saturation all removed, the residual is
+  **genuine per-link multipath**: 30–40 dB *directional* asymmetries on fixed paths (T-Deck↔V4-A
+  −44 one way vs −87 the other on the same 5.9 m; K10↔T-Deck reads strong −41 at 13.4 m).
+  **Conclusion: amplitude-based ranging (RSSI *and* BLE) is decorrelated from distance in this
+  obstructed garden regardless of data quality or fusion logic** — the honest verifier (proof leg
+  1: 4-tie flip resolution + scale-guard WARN) quantified it a third time. The productive direction
+  is the **non-amplitude tiers** — entity co-occurrence (topological, already working), SP3
+  environmental TDoA (timing), or ToF hardware (SP1280-class) — **not** further tuning the
+  RSSI/BLE amplitude fusion. (Field note: the T-Deck was **hot / in direct sun** — shade it next
+  time; heat shifts the S3 RF front-end + crystal and stresses the LiPo/GPS.)
+  See [[rssi-ranging-shadowing-limited]], [[ble-near-range-tier]], [[multitier-field-rerun-jul13]].
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
-  three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
-  2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught
-  it honestly). So the load-bearing next move is a **multi-tier field re-run**: BLE `proto:ble`
-  beliefs now exist (`master/proximity-ble.md`) — spread the fleet outdoors again, accumulate
-  windows, and see whether the **near-range BLE tier + entity co-occurrence recover geometry
-  where far ESP-NOW RSSI decorrelated** (`anchor` scores it against the DGPS ties already in
-  `master/gps-fixes.md`). That is the crux of the SPH. **Needs you + hardware + a walk.**
+  three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
+  load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
+  (tie_rmse 7.31 m, no better than RSSI-only — BLE saturated on a reflective far pair even as it
+  nailed the clean near pair). The refined crux moves are the two fixes that run exposed: a
+  **BLE saturation/consistency guard** in `consolidate_proximity` (software-only — I can do this
+  solo) and a **clean re-run with USB far-node collection** (needs you + hardware — carry each
+  field node to the cable so its garden percepts pull byte-exact + its lane clears reliably,
+  since the mesh can't collect its own weak nodes). `anchor` still scores against the DGPS ties
+  in `master/gps-fixes.md`.
   Software-only moves I can do solo, in order: (a) **publish `@BELIEF:POSITION` back to nodes**
   (last SP2 item — ride the TTN-RFC-0009 `push` path, or a compact POSITION toot with the
   RFC-before-code convention); (b) the **SP6 laptop render leg** (author the master TTDB so the
@@ -763,7 +822,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (address loop) → **SP5 transport auto-switch** (proof leg 2, un-gates `USE_LORA`, needs a node
   walked out of ESP-NOW range). **Band/maintenance backlog (secondary):** confirm the T-Deck
   power-cycle rejoin; exercise the trackball roll/click/console-pane interactively; more
-  tunes/parts; faster pulse reconvergence; V4 GPIO35 LED; V4-B relay forwarding.
+  tunes/parts; faster pulse reconvergence; V4 GPIO35 LED; V4-B relay forwarding; run the
+  prepared **RFC-corpus round-trip demo** — flash `RFCs/rfc.ttdb.md` (33 recs, 31726 B) as a
+  node's `/ttdb.md` and pull it back byte-diff (key gotcha: `TTDB_REQ` only pulls the
+  *configured* file, so host it AS `/ttdb.md` — don't invent a request type; restore with
+  `git checkout firmware/<node>/data/ttdb.md`; prepared 2026-07-08, not yet on hardware).
 
 Keep this section current. It is the first thing the next session reads.
 
