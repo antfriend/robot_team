@@ -1852,6 +1852,52 @@ def _median(xs):
     return s[m] if len(s) % 2 else (s[m - 1] + s[m]) / 2.0
 
 
+def _sources_mix(entity_jaccard=None, has_ble=False):
+    """Normalized evidence-mix weights for a @BELIEF:PROXIMITY `sources:` line
+    (ttn-semantic-positioning.md §2). RSSI is always the base; a present entity
+    (WiFi Jaccard) or BLE term adds weight, then all are normalized to sum ~1."""
+    parts = {"rssi": 1.0}
+    if entity_jaccard is not None:
+        parts["entity_jaccard"] = 0.4 * entity_jaccard
+    if has_ble:
+        parts["ble"] = 0.3
+    total = sum(parts.values())
+    return {k: round(v / total, 2) for k, v in parts.items()}
+
+
+# BLE bound: how many sigmas above the BLE point estimate to place the upper bound.
+BLE_BOUND_K_SIGMA = 1.0
+
+
+def apply_ble_bound(beliefs, k_sigma=BLE_BOUND_K_SIGMA):
+    """SP1 second bound: a pair's BLE proto:ble estimate caps its espnow distance.
+    BLE is a near-range radio (~10-30 m), so a pair heard over BLE is bounded TIGHTER
+    than by WiFi entity overlap. The bound is the BLE estimate's upper confidence edge
+    (dist + k*sigma); it caps the pair's other-proto distance from above, never refines
+    below (like the entity cap), and adds a `ble` term to that belief's sources mix.
+    Mutates and returns `beliefs`."""
+    by_pair = {}
+    for b in beliefs:
+        by_pair.setdefault(frozenset((b["a"], b["b"])), {})[b["proto"]] = b
+    for protos in by_pair.values():
+        ble = protos.get("ble")
+        if not ble or ble.get("dist_est_m") is None:
+            continue
+        bound = ble["dist_est_m"] + k_sigma * (ble.get("dist_sigma_m") or 0.0)
+        for proto, b in protos.items():
+            if proto == "ble" or b.get("dist_est_m") is None:
+                continue
+            b["ble_bound_m"] = round(bound, 2)
+            b["sources"] = _sources_mix(entity_jaccard=b.get("entity_jaccard"),
+                                        has_ble=True)
+            if b["dist_est_m"] > bound:
+                b["dist_est_m"] = round(bound, 2)
+                b["ble_capped"] = True
+                if b.get("dist_sigma_m"):
+                    b["dist_sigma_m"] = round(min(b["dist_sigma_m"], bound / 2.0), 2)
+    return beliefs
+
+
 def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=None):
     """windows_by_node: {node_name: [parse_link_percepts window, ...]}.
     calib: load_calibration() output (fitted path-loss per proto), or None.
@@ -1920,21 +1966,19 @@ def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=
         # clamps an RSSI estimate that over-ranged a pair that clearly shares APs —
         # the exact failure GPS caught in the garden (RSSI 2–7x too large).
         eb = (entity_bounds or {}).get(frozenset((a_name, b_name)))
-        sources = {"rssi": 1.0}
         entity_capped = False
         entity_jaccard = entity_shared = None
         if eb and eb.get("bound_m") is not None:
             entity_jaccard = round(eb["jaccard"], 2)
             entity_shared = eb["shared"]
-            # Entity weight grows with overlap, capped at 0.4 so RSSI still leads
-            # when both agree; the cap firing is what makes entity load-bearing.
-            w_entity = round(min(0.4, 0.4 * eb["jaccard"]), 2)
-            sources = {"rssi": round(1.0 - w_entity, 2), "entity_jaccard": w_entity}
             if dist is not None and dist > eb["bound_m"]:
                 dist = eb["bound_m"]
                 entity_capped = True
                 if sigma is not None:            # a clamped estimate is more certain
                     sigma = min(sigma, eb["bound_m"] / 2.0)
+        # Sources mix — rssi + entity now; the BLE term is added later by
+        # apply_ble_bound (it needs the whole beliefs list to find the ble estimate).
+        sources = _sources_mix(entity_jaccard=entity_jaccard)
 
         conf = round(max(0.1, min(0.85 if calibrated else 0.7, conf)), 2)
 
@@ -1952,6 +1996,7 @@ def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=
             "sources": sources, "entity_jaccard": entity_jaccard,
             "entity_bound_m": (round(eb["bound_m"], 2) if eb and eb.get("bound_m") else None),
             "entity_shared": entity_shared, "entity_capped": entity_capped,
+            "ble_bound_m": None, "ble_capped": False,
         })
     return beliefs
 
@@ -2008,6 +2053,12 @@ def proximity(port, baud, nodes, out, do_pull, settle,
         print(f"entity co-occurrence: {len(entity_bounds)} pair(s) with shared APs "
               f"(WiFi cap active)")
     beliefs = consolidate_proximity(windows_by_node, calib, last, entity_bounds)
+    # SP1 second bound: fold each pair's BLE proto:ble estimate in as a tighter
+    # near-range cap on the espnow distance (ttn-semantic-positioning.md §2.2).
+    apply_ble_bound(beliefs)
+    ble_pairs = {frozenset((b["a"], b["b"])) for b in beliefs if b["proto"] == "ble"}
+    if ble_pairs:
+        print(f"BLE near-range: {len(ble_pairs)} pair(s) with proto:ble (BLE bound active)")
 
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -2031,6 +2082,9 @@ def proximity(port, baud, nodes, out, do_pull, settle,
                        f"{b['entity_shared']} AP(s), bound <= {b['entity_bound_m']} m"
                        f"{' — CAPPED the RSSI estimate' if b['entity_capped'] else ''}\n"
                        if b["entity_jaccard"] is not None else "")
+                    + (f"ble_bound_m: {b['ble_bound_m']}   # near-range BLE estimate"
+                       f"{' — CAPPED the RSSI estimate' if b['ble_capped'] else ''}\n"
+                       if b["ble_bound_m"] is not None else "")
                     + (f"calibrated: yes   # {calib_path} "
                        f"{calib.get(b['proto'])}\n" if b["calibrated"] else
                        f"calibrated: no   # default path-loss "
@@ -2045,10 +2099,11 @@ def proximity(port, baud, nodes, out, do_pull, settle,
           f"{'sigma_m':>8} {'n':>5} {'conf':>5} {'entJ':>5} {'cap':>4}")
     for b in beliefs:
         j = f"{b['entity_jaccard']:.2f}" if b["entity_jaccard"] is not None else "-"
+        cap = ("ble" if b["ble_capped"] else "ent" if b["entity_capped"] else "")
         print(f"{b['a'] + ' <-> ' + b['b']:<28} {b['proto']:6} "
               f"{b['rssi_est']:>6} {b['asym_db']:>5} {b['dist_est_m']:>7} "
               f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5} {j:>5} "
-              f"{'CAP' if b['entity_capped'] else '':>4}")
+              f"{cap:>4}")
     if all(b["calibrated"] for b in beliefs) and beliefs:
         print(f"\nwrote {out}  (calibrated model — mind the fit's valid range)")
     else:

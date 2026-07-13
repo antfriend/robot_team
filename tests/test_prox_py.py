@@ -174,6 +174,54 @@ check(b_near["dist_est_m"] == c.consolidate_proximity(near)[0]["dist_est_m"],
       "uncapped distance is unchanged by the entity term (no refine below)")
 check("entity_jaccard" in b_near["sources"], "entity still contributes to sources mix when present")
 
+# ---------------------------------------------------------------------------
+# 9) SP1 BLE second bound: a pair's proto:ble estimate caps its espnow distance.
+def link(peer, rssi, proto):
+    return {"peer": peer, "proto": proto, "n": 30, "min": rssi, "med": rssi, "max": rssi}
+
+# Same pair heard over BOTH espnow (weak -88 -> far) and ble (-70 -> near ~3.5 m).
+far_ble = {
+    "v4a_bridge": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                    "links": [link(0x11, -88, "espnow"), link(0x11, -70, "ble")]}],
+    "v4b_relay": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                   "links": [link(0x10, -88, "espnow"), link(0x10, -70, "ble")]}],
+}
+bel = c.consolidate_proximity(far_ble)
+byproto = {b["proto"]: b for b in bel}
+check("espnow" in byproto and "ble" in byproto, "both proto beliefs produced for the pair")
+esp_far = byproto["espnow"]["dist_est_m"]
+ble_est = byproto["ble"]["dist_est_m"]
+check(esp_far > ble_est, "espnow over-ranges far while BLE ranges near (pre-bound)")
+
+c.apply_ble_bound(bel)
+esp = {b["proto"]: b for b in bel}["espnow"]
+ble = {b["proto"]: b for b in bel}["ble"]
+check(esp["ble_capped"] is True, "espnow over-range beyond the BLE bound -> CAPPED")
+check(esp["ble_bound_m"] is not None and esp["dist_est_m"] <= esp["ble_bound_m"] + 1e-9,
+      "espnow distance clamped to the BLE bound (dist + k*sigma)")
+check("ble" in esp["sources"], "sources mix gains a ble term")
+check(ble["ble_capped"] is False and ble["ble_bound_m"] is None,
+      "the BLE belief itself is not bounded by its own estimate")
+
+# BLE present but espnow already within the BLE bound -> not capped, ble still in mix.
+near_ble = {
+    "v4a_bridge": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                    "links": [link(0x11, -40, "espnow"), link(0x11, -55, "ble")]}],
+    "v4b_relay": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                   "links": [link(0x10, -40, "espnow"), link(0x10, -55, "ble")]}],
+}
+beln = c.apply_ble_bound(c.consolidate_proximity(near_ble))
+espn = {b["proto"]: b for b in beln}["espnow"]
+check(espn["ble_capped"] is False, "short-range espnow within BLE bound -> not capped")
+check("ble" in espn["sources"], "ble still contributes to sources when present but not capping")
+
+# No BLE evidence -> untouched.
+belx = c.apply_ble_bound(c.consolidate_proximity({"v4a_bridge": [lw(0x11, -88)],
+                                                  "v4b_relay": [lw(0x10, -88)]}))
+check(belx[0]["ble_capped"] is False and belx[0]["ble_bound_m"] is None,
+      "no proto:ble for the pair -> no BLE bound applied")
+check("ble" not in belx[0]["sources"], "no ble term in sources without BLE evidence")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

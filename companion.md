@@ -736,8 +736,16 @@ If a fact lives in one of these, link to it from here — don't copy it.
   bound so it's uncapped (mix only, no clamp); **the cap fires in the field** when RSSI over-ranges
   a pair that clearly shares APs — the exact garden failure (RSSI 2–7× too large). Gated by
   `tests/test_prox_py.py` (now 41 checks: over-range clamps to bound, no-refine-below, sources mix),
-  smoke-verified end to end (`proximity --no-pull` on a crafted 2-lane node file). *BLE bound term*
-  still deferred (BLE keeps its own `proto:ble` estimate lane, not folded as a bound).
+  smoke-verified end to end (`proximity --no-pull` on a crafted 2-lane node file).
+- **SP1 BLE second bound BUILT + offline-verified (2026-07-12) — the tighter near-range cap.**
+  `apply_ble_bound` folds each pair's `proto:ble` estimate in as a second, tighter cap: BLE is a
+  ~10–30 m radio, so a pair heard over BLE is bounded tighter than by WiFi entity overlap. Bound =
+  the BLE estimate's upper confidence edge (`dist + k·sigma`); caps the espnow distance from above,
+  never refines below, and adds a `ble` term to the now-**three-way `sources:` mix**. **Layered,
+  verified end to end:** a −90 dBm espnow pair over-ranges → entity caps to ~30 m (WiFi covisibility)
+  → BLE caps tighter to ~5 m → `sources: { rssi: 0.59, entity_jaccard: 0.24, ble: 0.18 }`. Gated by
+  `tests/test_prox_py.py` (now 51 checks). The SP0/SP1 evidence stack is now complete: RSSI (ranging)
+  → entity Jaccard (loose cap) → BLE (tight cap), each honest about what it does.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*, and the
   2026-07-10 garden run said RSSI-only ranging is shadowing-limited outdoors (proof leg 1 caught

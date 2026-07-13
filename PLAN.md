@@ -563,10 +563,17 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       `entity_capped` fields. At bench range the RSSI estimate sits under the bound
       so it's uncapped (mix only); the cap fires in the field when RSSI over-ranges a
       pair that clearly shares APs — the garden failure. Gated by `tests/test_prox_py.py`
-      (+16 checks: over-range clamps to bound, no-refine-below, sources mix). *BLE
-      bound term* still deferred — BLE already produces its own `proto:ble`
-      `@BELIEF:PROXIMITY` estimates (`master/proximity-ble.md`), a separate lane, not
-      yet folded in as a bound.
+      (+16 checks: over-range clamps to bound, no-refine-below, sources mix).
+- [x] **BLE bound term ✅ BUILT + offline-verified 2026-07-12 — the second, tighter
+      bound.** `apply_ble_bound` folds each pair's `proto:ble` estimate in as a
+      near-range cap: BLE is a ~10–30 m radio, so a pair heard over BLE is bounded
+      TIGHTER than by WiFi entity overlap. Bound = the BLE estimate's upper confidence
+      edge (`dist + k·sigma`); caps the pair's espnow distance from above, never
+      refines below, and adds a `ble` term to the now-three-way `sources:` mix. Layered
+      correctly (verified end-to-end): a −90 dBm espnow pair over-ranges → entity caps
+      to ~30 m (WiFi covisibility) → BLE caps tighter to ~5 m → `sources: { rssi,
+      entity_jaccard, ble }`. Gated by `tests/test_prox_py.py` (now 51 checks: BLE
+      clamp, BLE belief not self-bounded, mix gains a ble term, no-ble untouched).
 
 **Done when:** `dist_est_m` within ~30–50 % of tape-measure truth for every
 powered pair, `sigma` honest. (Needs the calibration walk.)
