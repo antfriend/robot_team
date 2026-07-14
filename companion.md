@@ -58,7 +58,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 |-------|-------|------|-----------|-------|-------|--------|--------|
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
-| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 scaffold (cluster gateway; LoRa/GNSS gated off) |
+| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — **hardware unbuilt, not flashed**; LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -853,7 +853,26 @@ If a fact lives in one of these, link to it from here — don't copy it.
   flash**. **Known pre-existing caveat (unchanged):** V4-C still serves a TTDB burst *inline in the
   recv callback* (the scaffold's shortcut, not the deferred-to-loop() discipline V4-B uses) — fine
   for pulse/band, but a bridged `pull --node v4c_edge` could drop frames until that's refactored.
-  **Not yet flashed** (V4-C hardware is unbuilt — see §2).
+  **Not yet flashed** (V4-C hardware is unbuilt — see §2). **[Superseded below — full parity done.]**
+- **V4-C brought to FULL fleet parity ✅ compile-verified (2026-07-14) — the edge is now a
+  first-class Dream-Cycle participant, uniform with V4-B for a clean bench test.** Rebuilt
+  `firmware/v4c_edge` from the *verified* V4-B relay so every node answers a bench test
+  identically. It now carries the whole participant contract it was missing: **deferred + paced
+  TTDB serve** (burst from loop() behind the TX-complete callback — this **resolves the "inline
+  serve" caveat above**, so a bridged `pull --node v4c_edge` self-heals like the others),
+  `want_ack` ACK + **dedup re-ACK** (TTN-RFC-0007 §5), **TIME_SYNC adopt + `@LAT99`** self-write
+  (TTN-RFC-0008), belief **`TTDB_PUT` adopt + `@LAT98`** attestation (TTN-RFC-0009, store-and-attest
+  like V4-B — no DIRECTIVE), **SP0 percepts** (LinkPercept `@LAT97` via the INFO recv callback +
+  RSSI, BLE `proto:ble`, WiFi-scan entity `@LAT96`), **remote `CMD_CLEAR_PERCEPTS`**, `CMD_GET_STATUS`
+  with the PULSE tail, and the **OLED status page** — plus the MAX98357A amp and its band **offbeat
+  hi-hat** (C5 on steps 2/6/10/14). So `sync`/`reconcile`/`push`/`monitor`/`band`/`proximity`/
+  `positions`/`anchor` will all treat V4-C exactly like V4-B once it's on the mesh. The edge role is
+  preserved (LoRa long-haul + a PERCEPT-aggregation stub gated for Phase 3; it does NOT promiscuously
+  re-broadcast — no `USE_RELAY_FORWARD`, unlike the mid-relay). Compiles clean at **93% flash**
+  (same as V4-B — near-identical code). **Companion needs zero changes** (v4c_edge already mapped
+  0x12 / "V4-C"). **Still hardware-unbuilt / not flashed** — this is firmware parity so a future
+  third V4 drops straight in; worked-first-try is the expectation given it's a line-for-line adaptation
+  of the on-device-verified V4-B.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
