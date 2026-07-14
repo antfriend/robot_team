@@ -1,0 +1,318 @@
+<title>MAX98357A → Heltec V4 wiring</title>
+<style>
+  :root{
+    --bg:#e7ecef; --panel:#f6f8fa; --grid:#d5dde2; --ink:#1c2732;
+    --muted:#5c6a76; --line:#c3ccd3; --card:#ffffff; --accent:#c8781a;
+    --pcb-heltec:#123f38; --pcb-max:#2c2a5a; --silk:#dfe7ea; --pad:#d9a441;
+    /* physical wires — constant across themes */
+    --w-pwr:#e5484d; --w-gnd:#7c8b99; --w-lrc:#f0a935; --w-bclk:#4c8dff; --w-din:#2fbf5f;
+    --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --font-mono:ui-monospace,"SF Mono","Cascadia Code","Roboto Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0e1519; --panel:#131d23; --grid:#212f39; --ink:#e6edf2;
+      --muted:#93a4b0; --line:#2a3944; --card:#17222a; --accent:#e6a338;
+      --pcb-heltec:#0f3b34; --pcb-max:#29274f; --silk:#dbe6ea; --pad:#e0ad4a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1519; --panel:#131d23; --grid:#212f39; --ink:#e6edf2;
+    --muted:#93a4b0; --line:#2a3944; --card:#17222a; --accent:#e6a338;
+    --pcb-heltec:#0f3b34; --pcb-max:#29274f; --silk:#dbe6ea; --pad:#e0ad4a;
+  }
+  :root[data-theme="light"]{
+    --bg:#e7ecef; --panel:#f6f8fa; --grid:#d5dde2; --ink:#1c2732;
+    --muted:#5c6a76; --line:#c3ccd3; --card:#ffffff; --accent:#c8781a;
+    --pcb-heltec:#123f38; --pcb-max:#2c2a5a; --silk:#dfe7ea; --pad:#d9a441;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-sans); line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    padding:clamp(20px,4vw,56px);
+  }
+  .wrap{max-width:920px; margin:0 auto;}
+  .eyebrow{
+    font-family:var(--font-mono); font-size:.72rem; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 .5rem;
+  }
+  h1{
+    font-size:clamp(1.5rem,4vw,2.15rem); line-height:1.1; margin:0 0 .4rem;
+    letter-spacing:-.02em; text-wrap:balance; font-weight:650;
+  }
+  .lede{color:var(--muted); font-size:1.02rem; margin:0 0 1.75rem; max-width:60ch;}
+
+  .card{
+    background:var(--card); border:1px solid var(--line);
+    border-radius:14px; padding:8px; margin-bottom:1.5rem;
+    box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  .diagram{overflow-x:auto;}
+  svg{display:block; width:100%; height:auto; min-width:640px;}
+
+  h2{
+    font-size:.78rem; font-family:var(--font-mono); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--muted); margin:2rem 0 .8rem;
+    font-weight:600;
+  }
+  table{width:100%; border-collapse:collapse; font-size:.92rem;}
+  th,td{text-align:left; padding:.6rem .7rem; border-bottom:1px solid var(--line);}
+  th{
+    font-family:var(--font-mono); font-size:.7rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--muted); font-weight:600;
+  }
+  td.pin{font-family:var(--font-mono); font-weight:600;}
+  td.note{color:var(--muted);}
+  tr:last-child td{border-bottom:none;}
+  .chip{
+    display:inline-flex; align-items:center; gap:.55rem;
+    font-family:var(--font-mono); font-weight:600; white-space:nowrap;
+  }
+  .swatch{width:22px; height:8px; border-radius:4px; flex:none;
+          box-shadow:inset 0 0 0 1px rgba(0,0,0,.15);}
+  .swatch.dash{background:transparent!important;
+    box-shadow:inset 0 0 0 1.5px var(--muted);}
+
+  ul.notes{list-style:none; padding:0; margin:0; display:grid; gap:.7rem;}
+  ul.notes li{
+    display:grid; grid-template-columns:auto 1fr; gap:.7rem;
+    font-size:.93rem; color:var(--ink);
+  }
+  ul.notes .mk{
+    font-family:var(--font-mono); color:var(--accent); font-weight:700;
+    font-size:.85rem; padding-top:.06rem;
+  }
+  ul.notes b{font-weight:650;}
+  code{font-family:var(--font-mono); font-size:.86em; background:var(--panel);
+    border:1px solid var(--line); border-radius:5px; padding:.05em .35em;}
+  footer{margin-top:2.2rem; padding-top:1rem; border-top:1px solid var(--line);
+    color:var(--muted); font-size:.82rem; font-family:var(--font-mono);}
+  a{color:var(--accent);}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Bench wiring · robot_team fleet</p>
+  <h1>MAX98357A&nbsp;→&nbsp;Heltec&nbsp;WiFi&nbsp;LoRa&nbsp;32&nbsp;V4</h1>
+  <p class="lede">An I²S 3&nbsp;W Class-D amp gives the LoRa spine a voice — so the
+  V4-A bridge, the band's timekeeper, can play its downbeats instead of flashing a
+  silent LED. Five signal wires plus a speaker.</p>
+
+  <div class="card diagram">
+    <svg viewBox="0 0 920 640" role="img" aria-labelledby="ttl desc">
+      <title id="ttl">Wiring diagram: MAX98357A I2S amplifier to Heltec V4</title>
+      <desc id="desc">Heltec V4 3V3 to amp VIN, GND to GND, GPIO5 to LRC, GPIO7 to
+        BCLK, GPIO6 to DIN, amp speaker terminals to a speaker.</desc>
+
+      <defs>
+        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+          <path d="M20 0H0V20" fill="none" stroke="var(--grid)" stroke-width="1"/>
+        </pattern>
+      </defs>
+
+      <!-- drafting panel -->
+      <rect x="0" y="0" width="920" height="640" fill="var(--panel)"/>
+      <rect x="0" y="0" width="920" height="640" fill="url(#grid)"/>
+
+      <!-- ============ HELTEC V4 BOARD ============ -->
+      <rect x="70" y="90" width="210" height="380" rx="11" fill="var(--pcb-heltec)"/>
+      <rect x="70" y="90" width="210" height="380" rx="11" fill="none"
+            stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>
+      <!-- USB-C -->
+      <rect x="158" y="82" width="34" height="12" rx="3" fill="#9aa6ac"/>
+      <!-- OLED -->
+      <rect x="95" y="112" width="160" height="66" rx="3" fill="#04121a"/>
+      <text x="104" y="133" font-family="var(--font-mono)" font-size="11"
+            fill="var(--silk)">V4-A BRIDGE</text>
+      <circle cx="243" cy="122" r="4" fill="none" stroke="var(--silk)" stroke-width="1.4"/>
+      <text x="104" y="152" font-family="var(--font-mono)" font-size="9"
+            fill="#5f7f86">id 00000010  LoRa-</text>
+      <text x="104" y="167" font-family="var(--font-mono)" font-size="9"
+            fill="#5f7f86">ESPNOW ch1</text>
+      <text x="175" y="452" text-anchor="middle" font-family="var(--font-mono)"
+            font-size="11" fill="var(--silk)" opacity=".8">HELTEC WiFi LoRa 32 V4</text>
+
+      <!-- header rail (muted inactive pads) -->
+      <g fill="var(--grid)">
+        <circle cx="280" cy="125" r="4"/><circle cx="280" cy="175" r="4"/>
+        <circle cx="280" cy="225" r="4"/><circle cx="280" cy="250" r="4"/>
+        <circle cx="280" cy="275" r="4"/><circle cx="280" cy="325" r="4"/>
+        <circle cx="280" cy="375" r="4"/><circle cx="280" cy="425" r="4"/>
+      </g>
+      <!-- active pads + labels -->
+      <g font-family="var(--font-mono)" font-size="12.5" fill="var(--silk)"
+         text-anchor="end" font-weight="600">
+        <circle cx="280" cy="150" r="5.5" fill="var(--pad)"/><text x="270" y="154">3V3</text>
+        <circle cx="280" cy="200" r="5.5" fill="var(--pad)"/><text x="270" y="204">GND</text>
+        <circle cx="280" cy="300" r="5.5" fill="var(--pad)"/><text x="270" y="304">GPIO5</text>
+        <circle cx="280" cy="350" r="5.5" fill="var(--pad)"/><text x="270" y="354">GPIO6</text>
+        <circle cx="280" cy="400" r="5.5" fill="var(--pad)"/><text x="270" y="404">GPIO7</text>
+      </g>
+
+      <!-- ============ WIRES (casing under color) ============ -->
+      <g fill="none" stroke-linecap="round">
+        <!-- casings -->
+        <g stroke="var(--panel)" stroke-width="8.5">
+          <path d="M280,150 C430,150 460,355 590,355"/>
+          <path d="M280,200 C430,200 460,325 590,325"/>
+          <path d="M280,300 C440,300 450,175 590,175"/>
+          <path d="M280,400 C450,400 450,205 590,205"/>
+          <path d="M280,350 C445,350 450,235 590,235"/>
+        </g>
+        <!-- colored conductors -->
+        <path d="M280,150 C430,150 460,355 590,355" stroke="var(--w-pwr)"  stroke-width="4"/>
+        <path d="M280,200 C430,200 460,325 590,325" stroke="var(--w-gnd)"  stroke-width="4"/>
+        <path d="M280,300 C440,300 450,175 590,175" stroke="var(--w-lrc)"  stroke-width="4"/>
+        <path d="M280,400 C450,400 450,205 590,205" stroke="var(--w-bclk)" stroke-width="4"/>
+        <path d="M280,350 C445,350 450,235 590,235" stroke="var(--w-din)"  stroke-width="4"/>
+      </g>
+
+      <!-- ============ MAX98357A BOARD ============ -->
+      <rect x="590" y="150" width="170" height="250" rx="11" fill="var(--pcb-max)"/>
+      <rect x="590" y="150" width="170" height="250" rx="11" fill="none"
+            stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>
+      <!-- amp IC -->
+      <rect x="655" y="270" width="40" height="40" rx="4" fill="#0d0b1f"/>
+      <text x="675" y="360" text-anchor="middle" font-family="var(--font-mono)"
+            font-size="12" fill="var(--silk)" font-weight="600">MAX98357A</text>
+      <text x="675" y="376" text-anchor="middle" font-family="var(--font-mono)"
+            font-size="9" fill="#9a95c4">I²S 3W CLASS-D</text>
+
+      <!-- amp left pins -->
+      <g font-family="var(--font-mono)" font-size="12.5" fill="var(--silk)"
+         text-anchor="start" font-weight="600">
+        <circle cx="590" cy="175" r="5.5" fill="var(--pad)"/><text x="600" y="179">LRC</text>
+        <circle cx="590" cy="205" r="5.5" fill="var(--pad)"/><text x="600" y="209">BCLK</text>
+        <circle cx="590" cy="235" r="5.5" fill="var(--pad)"/><text x="600" y="239">DIN</text>
+        <circle cx="590" cy="265" r="5.5" fill="var(--grid)"/><text x="600" y="269" fill="var(--silk)">GAIN <tspan fill="var(--accent)">✦</tspan></text>
+        <circle cx="590" cy="295" r="5.5" fill="var(--grid)"/><text x="600" y="299" fill="var(--silk)">SD <tspan fill="var(--accent)">✦</tspan></text>
+        <circle cx="590" cy="325" r="5.5" fill="var(--pad)"/><text x="600" y="329">GND</text>
+        <circle cx="590" cy="355" r="5.5" fill="var(--pad)"/><text x="600" y="359">VIN</text>
+      </g>
+
+      <!-- colored endpoint dots on amp -->
+      <circle cx="590" cy="355" r="4" fill="var(--w-pwr)"/>
+      <circle cx="590" cy="325" r="4" fill="var(--w-gnd)"/>
+      <circle cx="590" cy="175" r="4" fill="var(--w-lrc)"/>
+      <circle cx="590" cy="205" r="4" fill="var(--w-bclk)"/>
+      <circle cx="590" cy="235" r="4" fill="var(--w-din)"/>
+
+      <!-- amp speaker terminals -->
+      <g font-family="var(--font-mono)" font-size="13" fill="var(--silk)"
+         text-anchor="end" font-weight="700">
+        <circle cx="760" cy="235" r="5.5" fill="var(--pad)"/><text x="750" y="240">+</text>
+        <circle cx="760" cy="290" r="5.5" fill="var(--pad)"/><text x="750" y="295">–</text>
+      </g>
+
+      <!-- speaker wires -->
+      <g fill="none" stroke-linecap="round">
+        <path d="M760,235 L800,244" stroke="var(--panel)" stroke-width="8"/>
+        <path d="M760,290 L800,282" stroke="var(--panel)" stroke-width="8"/>
+        <path d="M760,235 L800,244" stroke="var(--w-pwr)" stroke-width="3.5"/>
+        <path d="M760,290 L800,282" stroke="var(--w-gnd)" stroke-width="3.5"/>
+      </g>
+
+      <!-- ============ SPEAKER ============ -->
+      <rect x="798" y="248" width="16" height="30" rx="2" fill="#39454e"/>
+      <path d="M814,242 L856,218 L856,308 L814,284 Z" fill="#4a5761"
+            stroke="rgba(0,0,0,.25)" stroke-width="1"/>
+      <ellipse cx="856" cy="263" rx="6" ry="45" fill="#5b6a75"/>
+      <g fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" opacity=".85">
+        <path d="M872,243 Q882,263 872,283"/>
+        <path d="M884,233 Q900,263 884,293"/>
+      </g>
+      <text x="856" y="330" text-anchor="middle" font-family="var(--font-mono)"
+            font-size="10" fill="var(--muted)">4–8 Ω</text>
+
+      <!-- ============ WIRE-MAP LEGEND ============ -->
+      <g transform="translate(70,498)">
+        <rect x="0" y="0" width="366" height="128" rx="8" fill="var(--card)"
+              stroke="var(--line)"/>
+        <text x="16" y="24" font-family="var(--font-mono)" font-size="10.5"
+              letter-spacing="1.5" fill="var(--muted)">WIRE MAP</text>
+        <g font-family="var(--font-mono)" font-size="12" fill="var(--ink)">
+          <rect x="16" y="36" width="22" height="7" rx="3.5" fill="var(--w-pwr)"/>
+          <text x="48" y="43">3V3&#8195;→&#8195;VIN&#8195;&#8195;power</text>
+          <rect x="16" y="54" width="22" height="7" rx="3.5" fill="var(--w-gnd)"/>
+          <text x="48" y="61">GND&#8195;→&#8195;GND&#8195;&#8195;ground</text>
+          <rect x="16" y="72" width="22" height="7" rx="3.5" fill="var(--w-lrc)"/>
+          <text x="48" y="79">GPIO5&#8194;→&#8194;LRC&#8195;&#8194;word select</text>
+          <rect x="16" y="90" width="22" height="7" rx="3.5" fill="var(--w-bclk)"/>
+          <text x="48" y="97">GPIO7&#8194;→&#8194;BCLK&#8194;bit clock</text>
+          <rect x="16" y="108" width="22" height="7" rx="3.5" fill="var(--w-din)"/>
+          <text x="48" y="115">GPIO6&#8194;→&#8194;DIN&#8195;&#8194;serial data</text>
+        </g>
+      </g>
+
+      <!-- ============ TITLEBLOCK ============ -->
+      <g transform="translate(590,498)" font-family="var(--font-mono)">
+        <rect x="0" y="0" width="260" height="128" rx="8" fill="var(--card)"
+              stroke="var(--line)"/>
+        <g font-size="11">
+          <text x="16" y="26" fill="var(--muted)">PROJECT</text>
+          <text x="244" y="26" text-anchor="end" fill="var(--ink)" font-weight="600">robot_team</text>
+          <line x1="16" y1="38" x2="244" y2="38" stroke="var(--line)"/>
+          <text x="16" y="58" fill="var(--muted)">DRAWING</text>
+          <text x="244" y="58" text-anchor="end" fill="var(--ink)" font-weight="600">MAX98357A → V4</text>
+          <line x1="16" y1="70" x2="244" y2="70" stroke="var(--line)"/>
+          <text x="16" y="90" fill="var(--muted)">BUS</text>
+          <text x="244" y="90" text-anchor="end" fill="var(--ink)" font-weight="600">I²S digital audio</text>
+          <line x1="16" y1="102" x2="244" y2="102" stroke="var(--line)"/>
+          <text x="16" y="120" fill="var(--muted)">REV A</text>
+          <text x="244" y="120" text-anchor="end" fill="var(--accent)" font-weight="600">2026-07-14</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <h2>Connection table</h2>
+  <div class="card" style="padding:0 .3rem;">
+  <table>
+    <thead>
+      <tr><th>Wire</th><th>Amp pin</th><th>V4 pin</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-pwr)"></span>power</span></td>
+          <td class="pin">VIN</td><td class="pin">3V3</td><td class="note">Supply, 2.7–5.5 V — works on USB or battery</td></tr>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-gnd)"></span>ground</span></td>
+          <td class="pin">GND</td><td class="pin">GND</td><td class="note">Common ground</td></tr>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-lrc)"></span>LRC</span></td>
+          <td class="pin">LRC</td><td class="pin">GPIO5</td><td class="note">Word select / LR clock (WS)</td></tr>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-bclk)"></span>BCLK</span></td>
+          <td class="pin">BCLK</td><td class="pin">GPIO7</td><td class="note">Bit clock</td></tr>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-din)"></span>DIN</span></td>
+          <td class="pin">DIN</td><td class="pin">GPIO6</td><td class="note">I²S serial data out</td></tr>
+      <tr><td><span class="chip"><span class="swatch dash"></span>GAIN ✦</span></td>
+          <td class="pin">GAIN</td><td class="pin">— float</td><td class="note">Floating = 9 dB (default)</td></tr>
+      <tr><td><span class="chip"><span class="swatch dash"></span>SD ✦</span></td>
+          <td class="pin">SD</td><td class="pin">— float / 3V3</td><td class="note">Floating = amp ON, mono (L+R)/2</td></tr>
+      <tr><td><span class="chip"><span class="swatch" style="background:var(--w-pwr)"></span>/<span class="swatch" style="background:var(--w-gnd)"></span></span></td>
+          <td class="pin">+ / –</td><td class="pin">speaker</td><td class="note">4–8 Ω, ≥3 W speaker</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>Before you solder</h2>
+  <ul class="notes">
+    <li><span class="mk">✦</span><span><b>GAIN &amp; SD have no wire.</b> Leave both
+      floating: GAIN floating sets 9 dB, SD floating keeps the amp on and sums to mono.
+      Tie SD to <code>3V3</code> if you want a guaranteed-on rail; pull it low to mute.</span></li>
+    <li><span class="mk">①</span><span><b>Verify GPIO 5/6/7 on your V4 header</b> against the
+      official pinmap before soldering — they're free (LoRa SPI is 8–14, OLED is 17/18/21)
+      and match the T-Deck's I²S pins, but confirm they're broken out and avoid the
+      strapping pins 0/3/45/46.</span></li>
+    <li><span class="mk">②</span><span><b>3V3 works everywhere.</b> The amp runs
+      2.7–5.5 V, and the V4's <code>3V3</code> rail is live on both USB and battery — so
+      every V4 wires identically and a field node still has a voice off-grid. It gives
+      ~1.3 W into 4 Ω, plenty for a toot. If a tone ever "sags" on loud hits, add a
+      100–470 µF cap across the amp's VIN/GND.</span></li>
+    <li><span class="mk">③</span><span><b>Firmware is nearly free.</b> Lift
+      <code>toneI2S()</code> from the T-Deck console, gate it behind <code>USE_SPEAKER</code>,
+      set the pins with <code>gI2S.setPins(7, 5, 6)</code> (BCLK, WS, DIN), and swap the
+      bridge's <code>REST</code> part for real downbeat notes.</span></li>
+  </ul>
+
+  <footer>robot_team fleet · bench reference · pins per hardware_specs.md §2 — verify against the Heltec V4 pinmap</footer>
+</div>
