@@ -37,6 +37,49 @@
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <RobotTeamConfig.h>
 
+// --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
+// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per max98357a-v4-wiring.html /
+// hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
+// SD float. Same driver as the T-Deck console: no analog/PWM path, so a tone is
+// synthesized as 16-bit I2S samples. toneI2S blocks ~ms, so it runs from setup()/loop()
+// only — never a callback (the deferred-tone discipline every other node uses).
+#define USE_SPEAKER 1
+#if USE_SPEAKER
+#include <ESP_I2S.h>
+static I2SClass gI2S;
+static const uint32_t I2S_RATE = 16000;
+static const int PIN_I2S_BCLK = 7;   // MAX98357A BCLK
+static const int PIN_I2S_WS   = 5;   // word select / LRC
+static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
+
+// Synthesize a `ms`-long sine at `freq` as 16-bit stereo samples (L=R; the amp is mono
+// but takes stereo frames). Blocks ~ms — call from setup()/loop() only.
+static void toneI2S(float freq, uint32_t ms) {
+  const int N = 256;
+  int16_t buf[N * 2];
+  uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
+  float phase = 0.0f, inc = 2.0f * (float)M_PI * freq / (float)I2S_RATE;
+  uint32_t done = 0;
+  while (done < total) {
+    uint32_t n = total - done; if (n > (uint32_t)N) n = N;
+    for (uint32_t i = 0; i < n; ++i) {
+      int16_t s = (int16_t)(9000.0f * sinf(phase));
+      phase += inc; if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
+      buf[2 * i] = s; buf[2 * i + 1] = s;
+    }
+    gI2S.write((uint8_t*)buf, n * 2 * sizeof(int16_t));
+    done += n;
+  }
+}
+
+// The Toot-Toot signature on boot — two rising toots (G3 then C4), mirroring the K10.
+static void playStartupToot() {
+  toneI2S(196.0f, 220);   // G3
+  delay(40);
+  toneI2S(262.0f, 380);   // C4
+}
+#endif
+
 #define USE_LORA 0           // Phase 4: SX1262 long hops to V4-A and V4-C.
 #define USE_RELAY_FORWARD 0  // multi-hop store-and-forward (needs range sep / LoRa).
 
@@ -51,13 +94,15 @@ static pulse::Engine gPulse;
 // OLED dot is the guaranteed-visible fallback per TTN-RFC-0010 §7.2).
 static const int      kLedPin = 35;
 static const uint32_t PULSE_LED_MS = 110;
+static const uint32_t PULSE_PART_TONE_MS = 120;  // backbeat length on the amp (blocks; short)
 static uint32_t gLedClearMs = 0;
 static bool     gBeatFlash = false;
-// V4-B's PART (TTN-RFC-0010 §7): the backbeat — a flash on beats 2 & 4 (steps 4 & 12 of
-// the 16-step bar), the "snare" against V4-A's steady timekeeper and the K10's melody. A
-// Score::Phrase on the shared sequencer grid; REST = no tone (LED + OLED-dot hit only).
+// V4-B's PART (TTN-RFC-0010 §7): the backbeat — a note on beats 2 & 4 (steps 4 & 12 of
+// the 16-step bar), the "snare" against V4-A's steady timekeeper and the K10's melody.
+// With the MAX98357A speaker it now sounds a G4 accent on those beats (was REST/LED-only);
+// the LED + OLED-dot still hit with it. Re-voicing is a table edit (Score.h).
 static const score::Note kPartNotes[] = {
-  {4, score::REST, 1}, {12, score::REST, 1},
+  {4, score::G4, 1}, {12, score::G4, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 2, 16};
 // New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
@@ -547,6 +592,16 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
+#if USE_SPEAKER
+  // Audio first: bring up I2S and sound the boot "toot toot" before the OLED (like the
+  // K10/T-Deck). VIN on 3V3 so the amp works on USB or battery; GAIN & SD float.
+  gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT);
+  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO))
+    playStartupToot();
+  else
+    Serial.println("I2S begin failed");
+#endif
+
 #if USE_PULSE
   pinMode(kLedPin, OUTPUT);
   digitalWrite(kLedPin, LOW);
@@ -690,14 +745,21 @@ void loop() {
                     (unsigned long)oc.era, (unsigned)oc.conductor_id,
                     oc.beat_period_ms, gPulse.conductor() ? " (conductor)" : "");
     }
-    // Backbeat part: flash the LED + OLED dot on each struck step of the phrase (2 & 4).
+    // Backbeat part: strike the note (snare) + flash the LED + OLED dot on each struck
+    // step of the phrase (2 & 4).
     uint16_t sip;
     uint32_t sc;
-    if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && score::noteAt(kPart, sip)) {
+    const score::Note* nt = nullptr;
+    if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && (nt = score::noteAt(kPart, sip))) {
       digitalWrite(kLedPin, HIGH);
       gLedClearMs = pnow + PULSE_LED_MS;
       gBeatFlash = true;
       gOledDirty = true;
+#if USE_SPEAKER
+      // Sound the backbeat on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart
+      // (deferred-tone discipline, safe in loop()).
+      if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
+#endif
       Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip, (sip / 4) % 4 + 1,
                     (unsigned long)gPulse.chart().era);
     }

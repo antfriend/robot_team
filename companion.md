@@ -822,6 +822,24 @@ If a fact lives in one of these, link to it from here — don't copy it.
   signature suppressed, the BLE win preserved, the agreeing-bench near pair not flagged).
   **Not yet exercised on fresh field data** — the payoff needs the clean re-run below (this mixed
   bench+garden `master/*.md` has no tight-clamp-vs-far conflict, so 0 suppressed today, correctly).
+- **V4 speaker (MAX98357A) added to firmware ✅ compile-verified, not yet flashed (2026-07-14) —
+  the LoRa spine gets a voice.** New hardware on hand: the **Adafruit MAX98357A I²S 3W amp**
+  (adafru.it/3006 — same chip the T-Deck already uses), to be wired to each Heltec V4. Wiring is
+  captured in the repo-local **`max98357a-v4-wiring.html`** (Fritzing-style diagram, committed) +
+  `hardware_specs.md` §2: **VIN→3V3** (not 5V — the 3V3 rail is live on USB *or* battery, so every
+  V4 wires identically and a field node keeps its voice off-grid; ~1.3 W into 4 Ω, enough for a
+  toot), GND→GND, **LRC→GPIO5, BCLK→GPIO7, DIN→GPIO6** (mirrors the T-Deck's I²S pins; free on the
+  V4 — LoRa SPI is 8–14, OLED 17/18/21), **GAIN + SD float** (9 dB, amp-on mono). All three V4
+  sketches got the same `USE_SPEAKER` block — the `ESP_I2S` `toneI2S()`/`playStartupToot()` lifted
+  from `tdeck_console`, tone synthesized from loop()/setup() only (never a callback, the deferred-
+  tone discipline). **This finally un-silences the fleet's timekeeper:** V4-A's Pulse part was all
+  `REST` ("the V4 has no speaker") — now **V4-A sounds a low C3 kick on every beat** and **V4-B a G4
+  accent on beats 2 & 4** (notes live in the `Score.h` phrase tables → re-voicing is a one-line
+  edit). **V4-C gets the amp + boot toot only** (it has no Pulse membership yet — no engine/LED/OLED;
+  joining the band is a separate change). All three compile clean under `esp32:esp32:esp32s3:
+  CDCOnBoot=cdc` (**V4-A 92% / V4-B 93% / V4-C 72%** flash). **Not yet flashed or heard** — the
+  audio path (I²S pins, amp wiring) can only be proven on the bench once an amp is soldered to a
+  board; flash + confirm the boot toot and that the kick/backbeat lock to the band.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
