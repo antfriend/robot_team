@@ -873,6 +873,26 @@ If a fact lives in one of these, link to it from here — don't copy it.
   0x12 / "V4-C"). **Still hardware-unbuilt / not flashed** — this is firmware parity so a future
   third V4 drops straight in; worked-first-try is the expectation given it's a line-for-line adaptation
   of the on-device-verified V4-B.
+- **V4-A speaker audio fixed on-device (2026-07-14, COM6) — square wave @ 8 kHz is the solution.**
+  The hand-wired **MAX98357A on V4-A would not reproduce a sine** — startup toot + beat kick came
+  out as clicks / plops / one blip / "finger-drumming," inconsistent boot-to-boot. Ruled out, in
+  order: amplitude (max 32000 sine still blipped), the toot pitch (raised G3/C4→C5/G5), a
+  **BCLK↔LRC swap** (firmware-swapped the pins as a no-rewire test — got silence, so wiring matches
+  the doc), a **piezo** (it's a real 4 Ω 3 W dynamic speaker), and **firmware** (byte-identical to
+  the on-device-verified T-Deck; GPIO5/6/7 are free on the V4). Resoldering every amp-header joint
+  moved it plop→clean-blip (connection quality mattered) but didn't sustain. **Sample-rate sweep
+  was diagnostic:** 44.1 kHz = silence, 16 kHz = one blip, **8 kHz = works** — higher BCLK degrades
+  over the jumper wiring (a 12 s test tone delayed the OLED boot by 12 s, **proving the ESP32
+  streams valid I2S the whole time** — the amp just wasn't reproducing it). The decider: a **440 Hz
+  square** sustained loud and clean where every sine failed. **Shipped:** `toneI2S` now emits a
+  **50 % square wave** (snaps ±22000) at **`I2S_RATE = 8000`**; startup toot, the C5 beat kick, and
+  the T-Deck beep are all loud + clean. **Also added the missing `CMD_BEEP` handler on V4-A** (the
+  K10 had one, V4-A didn't) — parsed in both the ESP-NOW recv path and the serial-CMD path, played
+  **deferred from `loop()`** (toneI2S blocks, never call it from the recv callback). Root cause is
+  still **marginal BCLK/LRC signal integrity**; shortening/soldering those two clock wires (off the
+  breadboard) would allow smooth sine at 16 kHz again — but square-wave chiptune fits the fleet, so
+  it's left as-is. **v4b_relay + v4c_edge carry the identical sine-based audio → same fix needed**
+  (convert to square + 8 kHz, add `CMD_BEEP`) before their speakers work. Not yet committed.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

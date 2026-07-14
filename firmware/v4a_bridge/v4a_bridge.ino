@@ -39,14 +39,19 @@
 #if USE_SPEAKER
 #include <ESP_I2S.h>
 static I2SClass gI2S;
-static const uint32_t I2S_RATE = 16000;
+// 8 kHz (not 16k): the MAX98357A on this hand-wired build only locks reliably at a low BCLK
+// (8000*32 = 256 kHz). 16 kHz stuttered and 44.1 kHz gave silence — higher BCLK degrades over
+// the jumper wiring. 8 kHz is plenty for toots/beeps/kicks. Shorten the clock wires to raise it.
+static const uint32_t I2S_RATE = 8000;
 static const int PIN_I2S_BCLK = 7;   // MAX98357A BCLK
 static const int PIN_I2S_WS   = 5;   // word select / LRC
 static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
 
-// Synthesize a `ms`-long sine at `freq` as 16-bit stereo samples (L=R; the amp is mono
-// but takes stereo frames). Blocks ~ms — call from setup()/loop() only.
-static void toneI2S(float freq, uint32_t ms) {
+// Synthesize a `ms`-long SQUARE wave at `freq` as 16-bit stereo samples (L=R; the amp is mono
+// but takes stereo frames). Square, not sine: on this hand-wired MAX98357A a sine only
+// stuttered/blipped, but a square (max-energy, snaps +/-amp) reproduces cleanly and sustains.
+// Blocks ~ms — call from setup()/loop() only.
+static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -55,7 +60,7 @@ static void toneI2S(float freq, uint32_t ms) {
   while (done < total) {
     uint32_t n = total - done; if (n > (uint32_t)N) n = N;
     for (uint32_t i = 0; i < n; ++i) {
-      int16_t s = (int16_t)(9000.0f * sinf(phase));
+      int16_t s = (phase < (float)M_PI) ? (int16_t)amp : (int16_t)-amp;  // 50% square
       phase += inc; if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
       buf[2 * i] = s; buf[2 * i + 1] = s;
     }
@@ -64,11 +69,13 @@ static void toneI2S(float freq, uint32_t ms) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots (G3 then C4), mirroring the K10.
+// The Toot-Toot signature on boot — two rising toots. Pitched high (C5 -> G5) because the
+// small MAX98357A speaker can't reproduce the K10's low G3/C4 audibly (~200 Hz is inaudible
+// on it; the 500-1000 Hz bring-up tone was clear). A rising fifth keeps the "toot-toot" feel.
 static void playStartupToot() {
-  toneI2S(196.0f, 220);   // G3
+  toneI2S(523.0f, 220);   // C5
   delay(40);
-  toneI2S(262.0f, 380);   // C4
+  toneI2S(784.0f, 380);   // G5
 }
 #endif
 
@@ -145,10 +152,11 @@ static bool     gBeatFlash = false;    // OLED beat-dot state
 static uint32_t gHelloAt = 0;          // periodic HELLO so the conductor fast-locks us
 // V4-A's PART (TTN-RFC-0010 §7): the timekeeper — "four on the floor", a note on every
 // beat (steps 0/4/8/12 of the 16-step bar), the steady pulse the band rides. Now that the
-// V4 has a MAX98357A speaker it sounds a low C3 kick on each beat (was REST/LED-only); the
-// LED + OLED-dot still hit with it. Re-voicing is a table edit (Score.h).
+// V4 has a MAX98357A speaker it sounds a C5 kick on each beat (was REST/LED-only); the
+// LED + OLED-dot still hit with it. C5 (523 Hz), not the low C3 (~131 Hz) — the small
+// speaker can't reproduce ~130 Hz audibly. Re-voicing is a table edit (Score.h).
 static const score::Note kPartNotes[] = {
-  {0, score::C3, 1}, {4, score::C3, 1}, {8, score::C3, 1}, {12, score::C3, 1},
+  {0, score::C5, 1}, {4, score::C5, 1}, {8, score::C5, 1}, {12, score::C5, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 4, 16};
 // New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
@@ -179,6 +187,13 @@ static uint32_t gEspRx = 0;       // frames decoded off ESP-NOW
 static uint32_t gBridged = 0;     // mesh frames bridged up to the laptop
 static uint32_t gLastSrc = 0;     // src_node_id of the last toot seen
 static volatile bool gOledDirty = true;
+
+// Deferred CMD_BEEP (T-Deck 'b' key / companion): toneI2S() blocks ~dur_ms, so a beep
+// requested from the ESP-NOW recv callback must NOT play there — the callback sets these
+// and loop() sounds it. Same deferred-tone discipline as the pulse kick and the K10 beep.
+static volatile bool     gBeepPending = false;
+static volatile uint16_t gBeepFreq = 0;   // Hz
+static volatile uint16_t gBeepMs   = 0;   // duration
 
 static const uint32_t kNodeId = NODE_V4A_BRIDGE;
 static const char* kTtdbPath = "/ttdb.md";
@@ -327,6 +342,22 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
              TtdbShare::requestTarget(t) == kNodeId) {
     if (gShare) gShare->handleRequest(t, sendEspNow, nullptr);
   }
+#if USE_SPEAKER
+  else if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId &&
+           toot::cmdOp(t) == toot::CMD_BEEP) {
+    // T-Deck 'b' (or companion) beep, over the mesh. Parse freq/dur; the tone is played
+    // deferred from loop() — toneI2S blocks, so it must never run in this callback.
+    uint16_t freq = 880, ms = 200;             // defaults (match the T-Deck)
+    if (t.payload_len >= 9) {                   // op + target(4) + freq(2) + dur(2)
+      freq = toot::get_u16(t.payload + 5);
+      ms   = toot::get_u16(t.payload + 7);
+    }
+    if (ms > 5000) ms = 5000;                   // cap so loop() isn't stalled long
+    gBeepFreq = freq;
+    gBeepMs = ms;
+    gBeepPending = true;
+  }
+#endif
 #if USE_PULSE
   else if (t.type == toot::PULSE) {
     // Band time-base beacon (TTN-RFC-0010). Adoption is cheap (no flash), so it
@@ -494,6 +525,20 @@ void loop() {
             Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
                           (unsigned)gDb.fileSize(), gDb.recordCount());
         }
+#if USE_SPEAKER
+        else if (toot::cmdOp(t) == toot::CMD_BEEP) {
+          // Beep from the laptop (same deferred play as the mesh path below).
+          uint16_t freq = 880, ms = 200;
+          if (t.payload_len >= 9) {
+            freq = toot::get_u16(t.payload + 5);
+            ms   = toot::get_u16(t.payload + 7);
+          }
+          if (ms > 5000) ms = 5000;
+          gBeepFreq = freq;
+          gBeepMs = ms;
+          gBeepPending = true;
+        }
+#endif
         if (ok && (t.flags & toot::FLAG_WANT_ACK))
           emitAckSerial(t, toot::ACK_ACCEPTED);
       } else {
@@ -502,6 +547,17 @@ void loop() {
       }
     }
   }
+
+#if USE_SPEAKER
+  // Play a deferred CMD_BEEP requested from the recv callback / serial CMD (toneI2S blocks
+  // ~dur_ms, so it plays here in loop(), never from the callback).
+  if (gBeepPending) {
+    gBeepPending = false;
+    uint16_t freq = gBeepFreq, ms = gBeepMs;
+    toneI2S((float)freq, ms);
+    Serial.printf("[beep] %u Hz, %u ms\n", freq, ms);
+  }
+#endif
 
 #if USE_PULSE
   // --- fleet pulse (TTN-RFC-0010): timekeeper part — LED + OLED dot every beat ----

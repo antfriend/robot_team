@@ -47,14 +47,18 @@
 #if USE_SPEAKER
 #include <ESP_I2S.h>
 static I2SClass gI2S;
-static const uint32_t I2S_RATE = 16000;
+// 8 kHz (not 16k): the hand-wired MAX98357A only locks reliably at a low BCLK (see companion.md
+// §6 / v4a_bridge). Higher fs degrades over the jumper wiring. Fine for toots/beeps/kicks.
+static const uint32_t I2S_RATE = 8000;
 static const int PIN_I2S_BCLK = 7;   // MAX98357A BCLK
 static const int PIN_I2S_WS   = 5;   // word select / LRC
 static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
 
-// Synthesize a `ms`-long sine at `freq` as 16-bit stereo samples (L=R; the amp is mono
-// but takes stereo frames). Blocks ~ms — call from setup()/loop() only.
-static void toneI2S(float freq, uint32_t ms) {
+// Synthesize a `ms`-long SQUARE wave at `freq` as 16-bit stereo samples (L=R; the amp is mono
+// but takes stereo frames). Square, not sine: on this hand-wired MAX98357A a sine only
+// stuttered/blipped, but a square (max-energy, snaps +/-amp) reproduces cleanly and sustains.
+// Blocks ~ms — call from setup()/loop() only.
+static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -63,7 +67,7 @@ static void toneI2S(float freq, uint32_t ms) {
   while (done < total) {
     uint32_t n = total - done; if (n > (uint32_t)N) n = N;
     for (uint32_t i = 0; i < n; ++i) {
-      int16_t s = (int16_t)(9000.0f * sinf(phase));
+      int16_t s = (phase < (float)M_PI) ? (int16_t)amp : (int16_t)-amp;  // 50% square
       phase += inc; if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
       buf[2 * i] = s; buf[2 * i + 1] = s;
     }
@@ -72,11 +76,12 @@ static void toneI2S(float freq, uint32_t ms) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots (G3 then C4), mirroring the K10.
+// The Toot-Toot signature on boot — two rising toots. Pitched high (C5 -> G5): the small
+// MAX98357A speaker can't reproduce the K10's low G3/C4 audibly. A rising fifth keeps the feel.
 static void playStartupToot() {
-  toneI2S(196.0f, 220);   // G3
+  toneI2S(523.0f, 220);   // C5
   delay(40);
-  toneI2S(262.0f, 380);   // C4
+  toneI2S(784.0f, 380);   // G5
 }
 #endif
 
@@ -143,6 +148,14 @@ TtdbShare* gShare = nullptr;
 toot::DedupSet gDedup(128);
 TootSerialLink gSerial(Serial);
 static uint32_t gSeq = 1;
+
+#if USE_SPEAKER
+// Deferred CMD_BEEP (T-Deck 'b' / companion): toneI2S() blocks, and CMD is handled inline in the
+// recv callback — so the handler only sets these; loop() plays the tone (same discipline as the kick).
+static volatile bool     gBeepPending = false;
+static volatile uint16_t gBeepFreq = 0;   // Hz
+static volatile uint16_t gBeepMs   = 0;   // duration
+#endif
 
 // --- link percepts (semantic positioning SP0, ttn-semantic-positioning.md) ---
 // Per-peer RSSI histograms fed from the ESP-NOW recv callback; flushed from
@@ -387,6 +400,17 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           uint8_t slen = buildStatus(body);
           emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
         }
+#if USE_SPEAKER
+        if (toot::cmdOp(t) == toot::CMD_BEEP) {
+          uint16_t freq = 880, ms = 200;      // defaults (match the T-Deck)
+          if (t.payload_len >= 9) {           // op + target(4) + freq(2) + dur(2)
+            freq = toot::get_u16(t.payload + 5);
+            ms   = toot::get_u16(t.payload + 7);
+          }
+          if (ms > 5000) ms = 5000;           // cap so loop() isn't stalled long
+          gBeepFreq = freq; gBeepMs = ms; gBeepPending = true;  // played deferred from loop()
+        }
+#endif
         if (toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
           // Flash rewrite: reaches here only from loop() (radio path defers).
           // ACK only on success, so a failed prune is loud (laptop retries).
@@ -726,6 +750,16 @@ void loop() {
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
     }
+  }
+#endif
+
+#if USE_SPEAKER
+  // Play a deferred CMD_BEEP requested from the recv callback / serial CMD (toneI2S blocks).
+  if (gBeepPending) {
+    gBeepPending = false;
+    uint16_t freq = gBeepFreq, ms = gBeepMs;
+    toneI2S((float)freq, ms);
+    Serial.printf("[beep] %u Hz, %u ms\n", freq, ms);
   }
 #endif
 
