@@ -1867,6 +1867,19 @@ def _sources_mix(entity_jaccard=None, has_ble=False):
 
 # BLE bound: how many sigmas above the BLE point estimate to place the upper bound.
 BLE_BOUND_K_SIGMA = 1.0
+# BLE saturation/consistency guard (ttn-semantic-positioning.md §2.2). The
+# 2026-07-13 garden re-run showed a saturated BLE read on a reflective far path
+# clamp a 14.6 m pair to ~0.6 m with high confidence — worse than no BLE (its
+# strong side is a reflection/near-field spike, not proximity). The discriminator
+# is NOT asymmetry: the clean run measured 30-40 dB directional asymmetry on EVERY
+# path, good and bad alike, so asym doesn't separate the one BLE win (v4a<->tdeck
+# 5.96 m, plausible) from the failure (v4b<->tdeck 0.6 m, implausible). It is the
+# field's own signature — "BLE-strong-but-espnow-weak": a BLE estimate is used as a
+# TIGHT bound only when it is not a near-field-SATURATED reading (< a floor) that a
+# co-measured espnow tier says is actually FAR. Otherwise it is FLAGGED
+# reflection-suspect and NOT allowed to cap the other tiers (their measurement wins).
+BLE_SATURATION_DIST_M = 1.5     # a BLE estimate below this is near-field-saturated
+BLE_CONSISTENCY_RATIO = 3.0     # co-measured espnow this many x the BLE bound = conflict
 
 
 def apply_ble_bound(beliefs, k_sigma=BLE_BOUND_K_SIGMA):
@@ -1875,7 +1888,15 @@ def apply_ble_bound(beliefs, k_sigma=BLE_BOUND_K_SIGMA):
     than by WiFi entity overlap. The bound is the BLE estimate's upper confidence edge
     (dist + k*sigma); it caps the pair's other-proto distance from above, never refines
     below (like the entity cap), and adds a `ble` term to that belief's sources mix.
-    Mutates and returns `beliefs`."""
+
+    Saturation/consistency guard: a BLE reading is used as a tight bound only when it
+    is not a near-field-SATURATED spike (dist < BLE_SATURATION_DIST_M) on a path a
+    co-measured espnow reading says is >BLE_CONSISTENCY_RATIO x farther. A
+    reflection-suspect reading is FLAGGED (`ble_reflection_suspect`) and its bound is
+    NOT applied — the strong side driving it isn't genuine proximity (the 2026-07-13
+    field failure). This never lets BLE clamp a pair below what a co-measured tier
+    says, while preserving a plausible mid-range BLE estimate that legitimately caps an
+    over-ranging espnow. Mutates and returns `beliefs`."""
     by_pair = {}
     for b in beliefs:
         by_pair.setdefault(frozenset((b["a"], b["b"])), {})[b["proto"]] = b
@@ -1884,6 +1905,24 @@ def apply_ble_bound(beliefs, k_sigma=BLE_BOUND_K_SIGMA):
         if not ble or ble.get("dist_est_m") is None:
             continue
         bound = ble["dist_est_m"] + k_sigma * (ble.get("dist_sigma_m") or 0.0)
+
+        # --- BLE saturation/consistency guard ("BLE-strong-but-espnow-weak") ---
+        saturated = ble["dist_est_m"] < BLE_SATURATION_DIST_M
+        espnow = protos.get("espnow")
+        far_conflict = bool(espnow and espnow.get("dist_est_m") is not None
+                            and espnow["dist_est_m"] > bound * BLE_CONSISTENCY_RATIO)
+        suspect = saturated and far_conflict
+        ble["ble_saturated"] = bool(saturated)
+        ble["ble_reflection_suspect"] = bool(suspect)
+        if suspect:
+            # Untrustworthy BLE spike: flag it across the pair's tiers, but do NOT
+            # let it clamp the amplitude/topology estimates (keep what they measured).
+            for proto, b in protos.items():
+                if proto != "ble":
+                    b["ble_saturated"] = bool(saturated)
+                    b["ble_reflection_suspect"] = True
+            continue
+
         for proto, b in protos.items():
             if proto == "ble" or b.get("dist_est_m") is None:
                 continue
@@ -1997,6 +2036,7 @@ def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=
             "entity_bound_m": (round(eb["bound_m"], 2) if eb and eb.get("bound_m") else None),
             "entity_shared": entity_shared, "entity_capped": entity_capped,
             "ble_bound_m": None, "ble_capped": False,
+            "ble_saturated": False, "ble_reflection_suspect": False,
         })
     return beliefs
 
@@ -2058,7 +2098,12 @@ def proximity(port, baud, nodes, out, do_pull, settle,
     apply_ble_bound(beliefs)
     ble_pairs = {frozenset((b["a"], b["b"])) for b in beliefs if b["proto"] == "ble"}
     if ble_pairs:
-        print(f"BLE near-range: {len(ble_pairs)} pair(s) with proto:ble (BLE bound active)")
+        suspect = {frozenset((b["a"], b["b"])) for b in beliefs
+                   if b["proto"] == "ble" and b.get("ble_reflection_suspect")}
+        note = (f"; {len(suspect)} reflection-suspect (bound suppressed)"
+                if suspect else "")
+        print(f"BLE near-range: {len(ble_pairs)} pair(s) with proto:ble "
+              f"(BLE bound active{note})")
 
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -2085,6 +2130,10 @@ def proximity(port, baud, nodes, out, do_pull, settle,
                     + (f"ble_bound_m: {b['ble_bound_m']}   # near-range BLE estimate"
                        f"{' — CAPPED the RSSI estimate' if b['ble_capped'] else ''}\n"
                        if b["ble_bound_m"] is not None else "")
+                    + (f"ble_reflection_suspect: yes   # saturated/asymmetric BLE"
+                       f" — NOT used as a tight bound (reflection guard, "
+                       f"ttn-semantic-positioning.md §2.2)\n"
+                       if b.get("ble_reflection_suspect") else "")
                     + (f"calibrated: yes   # {calib_path} "
                        f"{calib.get(b['proto'])}\n" if b["calibrated"] else
                        f"calibrated: no   # default path-loss "
@@ -2099,7 +2148,8 @@ def proximity(port, baud, nodes, out, do_pull, settle,
           f"{'sigma_m':>8} {'n':>5} {'conf':>5} {'entJ':>5} {'cap':>4}")
     for b in beliefs:
         j = f"{b['entity_jaccard']:.2f}" if b["entity_jaccard"] is not None else "-"
-        cap = ("ble" if b["ble_capped"] else "ent" if b["entity_capped"] else "")
+        cap = ("ble" if b["ble_capped"] else "ent" if b["entity_capped"]
+               else "ble?" if b.get("ble_reflection_suspect") else "")
         print(f"{b['a'] + ' <-> ' + b['b']:<28} {b['proto']:6} "
               f"{b['rssi_est']:>6} {b['asym_db']:>5} {b['dist_est_m']:>7} "
               f"{b['dist_sigma_m']:>8} {b['n_obs']:>5} {b['conf']:>5} {j:>5} "

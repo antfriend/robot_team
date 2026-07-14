@@ -222,6 +222,66 @@ check(belx[0]["ble_capped"] is False and belx[0]["ble_bound_m"] is None,
       "no proto:ble for the pair -> no BLE bound applied")
 check("ble" not in belx[0]["sources"], "no ble term in sources without BLE evidence")
 
+# ---------------------------------------------------------------------------
+# 10) SP1 BLE saturation/consistency guard (2026-07-13 garden failure). A
+# near-field-SATURATED BLE read ("BLE-strong") on a path a co-measured espnow tier
+# says is FAR ("espnow-weak") must NOT clamp the pair below what espnow measures.
+#
+# Failure case: espnow bidirectional & weak (-90 -> far ~big); BLE saturated
+# strong (-40 -> ~0.6 m, sub-1.5 m floor). The reflection spike would clamp a far
+# pair to sub-meter; the guard must suppress it and keep the espnow measurement.
+refl_ble = {
+    "v4a_bridge": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                    "links": [link(0x11, -90, "espnow"), link(0x11, -40, "ble")]}],
+    "v4b_relay": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                   "links": [link(0x10, -90, "espnow"), link(0x10, -40, "ble")]}],
+}
+belr = c.consolidate_proximity(refl_ble)
+bpr = {b["proto"]: b for b in belr}
+esp_far_r = bpr["espnow"]["dist_est_m"]
+check(bpr["ble"]["dist_est_m"] < c.BLE_SATURATION_DIST_M,
+      "strong BLE read ranges inside the near-field saturation floor")
+check(esp_far_r > bpr["ble"]["dist_est_m"] * c.BLE_CONSISTENCY_RATIO,
+      "co-measured espnow says the pair is far (BLE-strong-but-espnow-weak)")
+c.apply_ble_bound(belr)
+espr = {b["proto"]: b for b in belr}["espnow"]
+bler = {b["proto"]: b for b in belr}["ble"]
+check(bler["ble_saturated"] is True and bler["ble_reflection_suspect"] is True,
+      "saturated BLE conflicting with a far espnow -> reflection_suspect")
+check(espr["ble_capped"] is False and espr["ble_bound_m"] is None,
+      "reflection-suspect BLE does NOT cap the co-measured espnow distance")
+check(abs(espr["dist_est_m"] - esp_far_r) < 1e-9,
+      "espnow keeps its own (far) measurement — not clamped below the tier")
+check(espr["ble_reflection_suspect"] is True,
+      "the suspect flag propagates onto the espnow belief for transparency")
+check("ble" not in espr["sources"],
+      "a suppressed BLE bound does not add a ble term to the sources mix")
+
+# Plausible mid-range BLE (NOT saturated) still legitimately caps an over-ranging
+# espnow — the one BLE win must survive the guard (v4a<->tdeck: BLE ~5 m, espnow far).
+good_ble = {
+    "v4a_bridge": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                    "links": [link(0x11, -95, "espnow"), link(0x11, -72, "ble")]}],
+    "v4b_relay": [{"lane": 0, "t_ms": 1, "synced": 1, "window_ms": 60000,
+                   "links": [link(0x10, -95, "espnow"), link(0x10, -72, "ble")]}],
+}
+belg = c.apply_ble_bound(c.consolidate_proximity(good_ble))
+bg = {b["proto"]: b for b in belg}
+check(bg["ble"]["dist_est_m"] >= c.BLE_SATURATION_DIST_M,
+      "a plausible mid-range BLE estimate is above the saturation floor")
+check(bg["ble"]["ble_reflection_suspect"] is False,
+      "plausible-range BLE is NOT flagged suspect despite a far espnow")
+check(bg["espnow"]["ble_capped"] is True,
+      "plausible BLE still caps the over-ranging espnow (the BLE win survives)")
+
+# Genuine near pair: BLE saturated (0.6 m) but espnow AGREES it's close (the bench
+# case) -> NO far-conflict, NOT suspect, the bound still applies (regression on near_ble).
+belok = c.apply_ble_bound(c.consolidate_proximity(near_ble))
+bok = {b["proto"]: b for b in belok}["ble"]
+check(bok["ble_saturated"] is True, "sub-1.5 m BLE estimate flagged saturated")
+check(bok["ble_reflection_suspect"] is False,
+      "saturated BLE with an AGREEING close espnow is NOT flagged (no conflict)")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

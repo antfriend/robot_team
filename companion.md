@@ -803,16 +803,35 @@ If a fact lives in one of these, link to it from here — don't copy it.
   RSSI/BLE amplitude fusion. (Field note: the T-Deck was **hot / in direct sun** — shade it next
   time; heat shifts the S3 RF front-end + crystal and stresses the LiPo/GPS.)
   See [[rssi-ranging-shadowing-limited]], [[ble-near-range-tier]], [[multitier-field-rerun-jul13]].
+- **SP1 BLE saturation/consistency guard ✅ BUILT + offline-verified (2026-07-14) — the first of
+  the two 07-13 crux fixes, software-only.** `apply_ble_bound` no longer lets a saturated BLE
+  spike clamp a pair below what a co-measured espnow tier measured — the exact 07-13 failure
+  (v4b↔tdeck BLE 0.6 m clamping a 14.6 m pair with high confidence). The discriminator is
+  **explicitly NOT asymmetry**: the clean USB run measured **30–40 dB directional asym on every
+  path, good and bad alike** (v4a↔tdeck −44/−87 on the same 5.9 m), so asym can't separate the
+  one BLE win (v4a↔tdeck 5.96 m, plausible) from the failure — an asym trigger would have thrown
+  away the good reading too. The guard is the field's own signature, **"BLE-strong-but-espnow-
+  weak"**: a BLE bound is suppressed only when it is **near-field-SATURATED** (point estimate
+  `< BLE_SATURATION_DIST_M = 1.5 m`) **AND** a co-measured espnow says the pair is **far**
+  (`espnow_dist > bound × BLE_CONSISTENCY_RATIO = 3`). Suppressed pairs are FLAGGED
+  (`ble_reflection_suspect` + `ble_saturated` in the record, `ble?` in the table's cap column)
+  and keep their espnow measurement; a *plausible* mid-range BLE (not saturated)
+  still legitimately caps an over-ranging espnow, so the one BLE win survives. Wide-sigma
+  saturated reads self-regulate (a loose bound can't clamp catastrophically, so `far_conflict`
+  correctly declines to fire). Gated by `tests/test_prox_py.py` (now **63 checks**: failure
+  signature suppressed, the BLE win preserved, the agreeing-bench near pair not flagged).
+  **Not yet exercised on fresh field data** — the payoff needs the clean re-run below (this mixed
+  bench+garden `master/*.md` has no tight-clamp-vs-far conflict, so 0 suppressed today, correctly).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
   (tie_rmse 7.31 m, no better than RSSI-only — BLE saturated on a reflective far pair even as it
-  nailed the clean near pair). The refined crux moves are the two fixes that run exposed: a
-  **BLE saturation/consistency guard** in `consolidate_proximity` (software-only — I can do this
-  solo) and a **clean re-run with USB far-node collection** (needs you + hardware — carry each
-  field node to the cable so its garden percepts pull byte-exact + its lane clears reliably,
-  since the mesh can't collect its own weak nodes). `anchor` still scores against the DGPS ties
-  in `master/gps-fixes.md`.
+  nailed the clean near pair). Of the two refined crux fixes, the **BLE saturation/consistency
+  guard is now done ✅ (software, bullet above)**; the remaining one needs hardware: a **clean
+  re-run with USB far-node collection** — carry each field node to the cable so its garden
+  percepts pull byte-exact + its lane clears reliably (the mesh can't collect its own weak
+  nodes), then `proximity`→`positions`→`anchor` and see whether the guard + clean data finally
+  beat RSSI-only. `anchor` still scores against the DGPS ties in `master/gps-fixes.md`.
   Software-only moves I can do solo, in order: (a) **publish `@BELIEF:POSITION` back to nodes**
   (last SP2 item — ride the TTN-RFC-0009 `push` path, or a compact POSITION toot with the
   RFC-before-code convention); (b) the **SP6 laptop render leg** (author the master TTDB so the
