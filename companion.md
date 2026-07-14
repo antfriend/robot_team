@@ -840,6 +840,20 @@ If a fact lives in one of these, link to it from here — don't copy it.
   CDCOnBoot=cdc` (**V4-A 92% / V4-B 93% / V4-C 72%** flash). **Not yet flashed or heard** — the
   audio path (I²S pins, amp wiring) can only be proven on the bench once an amp is soldered to a
   board; flash + confirm the boot toot and that the kick/backbeat lock to the band.
+- **V4-C promoted to a full band member ✅ compile-verified (2026-07-14) — the rhythm section is
+  complete.** The edge sketch had no Pulse membership (boot toot only); it now carries the shared
+  `Pulse` engine + `Score` part like V4-A/V4-B, playing the **offbeat hi-hat — a C5 tick on the
+  "&" of each beat** (steps 2/6/10/14), completing the kit under V4-A's kick (every beat) and
+  V4-B's snare (2 & 4). Added: PULSE-beacon adopt + HELLO neighbor fast-lock in the recv callback,
+  `gPulse.update`/`stepTick` servicing + HELLO beacon in loop(), GPIO35 LED flash, and a
+  `buildStatus` **PULSE telemetry tail** answered on `CMD_GET_STATUS` (single-frame PERCEPT over the
+  mesh, like V4-B) so **`companion.py band --nodes …,v4c_edge` can measure its phase** — the node is
+  already mapped there (0x12 / "V4-C"). Band phase reads from the pulse clock, so it's measurable
+  even though V4-C has no wall-clock time-sync (fields reported 0, honestly). Compiles at **72%
+  flash**. **Known pre-existing caveat (unchanged):** V4-C still serves a TTDB burst *inline in the
+  recv callback* (the scaffold's shortcut, not the deferred-to-loop() discipline V4-B uses) — fine
+  for pulse/band, but a bridged `pull --node v4c_edge` could drop frames until that's refactored.
+  **Not yet flashed** (V4-C hardware is unbuilt — see §2).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
