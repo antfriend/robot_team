@@ -711,7 +711,9 @@ static void appendBeliefRecord() {
 // is mono but takes stereo frames). Square, not sine, to match the V4 band voice (their hand-
 // wired amps only reproduce squares; the T-Deck's clean amp does either, so we match on purpose
 // for one unified timbre). Blocks ~ms, so it runs from setup()/loop() only — never a callback.
-static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
+// amp 22000 (not the V4s' 11000): the T-Deck's integrated amp/speaker is ~half as loud as the
+// V4 hand-wired rigs at the same level, so it runs 2x hotter to match the band's perceived volume.
+static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   const int N = 256;                          // samples per write chunk
   int16_t buf[N * 2];                         // interleaved L,R
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
