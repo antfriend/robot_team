@@ -938,9 +938,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
   amp, so only the startup signature is softened. All five compile clean (K10 20%, T-Deck 39%
   huge_app, V4-A/B/C 92%). **K10 flashed COM3** (user confirmed it "sounds great") and **T-Deck
   flashed COM10** (auto-reset cooperated, only the huge_app APP region rewritten — FS/globe at
-  0x310000 untouched); both confirmed good by ear. **V4-A flashed COM6** (hash-verified; boot
-  toot C4→G4 @ 2750, beat kick keeps 11000). **V4-B still to flash** (COM9, firmware-only); **V4-C
-  is hardware-unbuilt** so its quieter toot is compile-only until a third V4 exists.
+  0x310000 untouched); both confirmed good by ear. **V4-A flashed COM6** (boot toot C4→G4 @ 2750,
+  beat kick keeps 11000) and **V4-B flashed COM9** — both hash-verified, K10/T-Deck/V4-A all
+  confirmed good by ear. **Every built node now carries the quieter boot toot.** Only **V4-C**
+  remains compile-only (hardware-unbuilt — drops in when a third V4 exists).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
