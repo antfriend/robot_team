@@ -930,6 +930,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
   toot audible as the new square voice). Firmware-only — no FS reflash. **Not yet committed.** Pending:
   user confirms the K10 melody/toot loudness now matches the T-Deck by ear, and a live 2-node duet
   (K10 lead + T-Deck harmony) to confirm the shared square timbre locks.
+- **Startup toots softened fleet-wide ✅ (2026-07-15) — boot signature 75% quieter, running
+  audio unchanged.** The user judged the fleet's general loudness good but wanted the boot "toot
+  toot" quieter. Each node's `playStartupToot` now passes an explicit amp at **25% of that node's
+  fleet baseline** (K10 & T-Deck 22000→5500, the three V4s 11000→2750) via a per-sketch
+  `STARTUP_TOOT_AMP` constant; the melody / kick / backbeat / hi-hat / beep keep the full baseline
+  amp, so only the startup signature is softened. All five compile clean (K10 20%, T-Deck 39%
+  huge_app, V4-A/B/C 92%); **K10 flashed COM3 + verified booting** (conducts era 1 / 500 ms, FS
+  untouched). T-Deck + V4-A/B/C are compile-verified, **flash when each holds the cable**
+  (firmware-only, FS persists).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

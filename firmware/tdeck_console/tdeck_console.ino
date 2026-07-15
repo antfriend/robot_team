@@ -733,10 +733,12 @@ static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
 
 // The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth), matching the
 // V4 fleet's toot so the whole band shares one boot voice.
+// Boot toot plays at 25% of fleet loudness (75% quieter); the harmony melody keeps full amp.
+static const float STARTUP_TOOT_AMP = 5500.0f;   // 22000 / 4
 static void playStartupToot() {
-  toneI2S(262.0f, 220);   // toot  (C4)
+  toneI2S(262.0f, 220, STARTUP_TOOT_AMP);   // toot  (C4)
   delay(40);
-  toneI2S(392.0f, 380);   // toot  (G4)
+  toneI2S(392.0f, 380, STARTUP_TOOT_AMP);   // toot  (G4)
 }
 
 // Read one keycode from the BlackBerry keyboard (its own MCU answers on I2C 0x55; a

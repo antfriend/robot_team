@@ -371,10 +371,13 @@ static void k10Tone(int freq, uint32_t ms, int16_t amp = K10_TONE_AMP) {
 }
 
 // Two toots — the Toot-Toot signature — on startup (uses the K10 speaker via k10Tone).
+// The boot toot plays at 25% of the fleet loudness (75% quieter) — the running melody /
+// beeps keep the full K10_TONE_AMP; only the startup signature is softened.
+static const int16_t K10_STARTUP_AMP = K10_TONE_AMP / 4;   // 22000 -> 5500
 static void playStartupToot() {
-  delay(50);              // let the speaker settle after k10.begin()
-  k10Tone(196, 250);     // toot  (G3, 0.25 s)
-  k10Tone(262, 500);     // toot  (C4, 0.5 s)
+  delay(50);                              // let the speaker settle after k10.begin()
+  k10Tone(196, 250, K10_STARTUP_AMP);    // toot  (G3, 0.25 s)
+  k10Tone(262, 500, K10_STARTUP_AMP);    // toot  (C4, 0.5 s)
 }
 
 // Show TTDB identity + indexed records + live reasoning state on the LCD.

@@ -78,10 +78,12 @@ static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
 
 // The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth). Dropped an
 // octave from C5/G5 now that it's a square wave — the harmonics carry these lower notes fine.
+// Boot toot plays at 25% of fleet loudness (75% quieter); the hi-hat keeps full amp.
+static const float STARTUP_TOOT_AMP = 2750.0f;   // 11000 / 4
 static void playStartupToot() {
-  toneI2S(262.0f, 220);   // C4
+  toneI2S(262.0f, 220, STARTUP_TOOT_AMP);   // C4
   delay(40);
-  toneI2S(392.0f, 380);   // G4
+  toneI2S(392.0f, 380, STARTUP_TOOT_AMP);   // G4
 }
 #endif
 
