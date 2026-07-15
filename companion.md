@@ -906,6 +906,14 @@ If a fact lives in one of these, link to it from here — don't copy it.
   backbeat G4→G3) — square-wave harmonics carry the lower notes fine. **All six sketches compile
   clean** (K10 20%, T-Deck 39% huge_app, V4s 92%); only V4-A flashed — **flash T-Deck + K10 + V4-B/C
   to get the one-press-fleet behavior end-to-end.**
+- **T-Deck audio matched to the V4 band voice (2026-07-14, flashed COM10).** The T-Deck kept its
+  sine `toneI2S` after the V4 square-wave fix (its integrated MAX98357A on the LilyGo PCB reproduces
+  sine fine — no marginal-wiring issue). Converted it to the same **square wave @ 8 kHz, amp 11000**,
+  and its boot toot to **C4→G4**, so the whole band shares one timbre. Its Ode-to-Joy harmony
+  (`kHarmNotes`, C4/D4/E4/A3/B3) was already in the register of the octave-dropped V4 parts, so the
+  melody was left unchanged. Flashed + verified booting (globe + GPS intact; firmware-only). Note:
+  T-Deck flashing still needs the manual bootloader dance when its native-USB port drops (hold
+  trackball-click + tap RST → re-enumerates → flash → tap RST to boot).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

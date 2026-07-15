@@ -147,7 +147,9 @@ static Adafruit_ST7789 gTft(&gDispSpi, PIN_TFT_CS, PIN_TFT_DC, /*rst=*/-1);
 // Speaker is a MAX98357A I2S amp (no analog/PWM path like the K10's Music lib), so a
 // tone is synthesized as 16-bit I2S samples (see toneI2S).
 static I2SClass gI2S;
-static const uint32_t I2S_RATE = 16000;
+// 8 kHz to match the V4 band voice (they run 8k; see companion.md §6). The T-Deck's
+// integrated MAX98357A is happy at any rate, but matching keeps the square timbre identical.
+static const uint32_t I2S_RATE = 8000;
 #endif
 
 // --- GPS: the roaming ground-truth anchor (semantic positioning SP2) ---------
@@ -705,10 +707,11 @@ static void appendBeliefRecord() {
 
 // --- console UI + audio (gated) ---------------------------------------------
 #if USE_TDECK_HW
-// Synthesize a tone on the I2S speaker: a `ms`-long sine at `freq`, written as 16-bit
-// stereo samples (L=R; the MAX98357A is mono but takes stereo frames). Blocks ~ms, so
-// it runs from setup()/loop() only — never a callback.
-static void toneI2S(float freq, uint32_t ms) {
+// Synthesize a `ms`-long SQUARE wave at `freq` as 16-bit stereo samples (L=R; the MAX98357A
+// is mono but takes stereo frames). Square, not sine, to match the V4 band voice (their hand-
+// wired amps only reproduce squares; the T-Deck's clean amp does either, so we match on purpose
+// for one unified timbre). Blocks ~ms, so it runs from setup()/loop() only — never a callback.
+static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
   const int N = 256;                          // samples per write chunk
   int16_t buf[N * 2];                         // interleaved L,R
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -717,7 +720,7 @@ static void toneI2S(float freq, uint32_t ms) {
   while (done < total) {
     uint32_t n = total - done; if (n > (uint32_t)N) n = N;
     for (uint32_t i = 0; i < n; ++i) {
-      int16_t s = (int16_t)(9000.0f * sinf(phase));
+      int16_t s = (phase < (float)M_PI) ? (int16_t)amp : (int16_t)-amp;  // 50% square
       phase += inc; if (phase > 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
       buf[2 * i] = s; buf[2 * i + 1] = s;
     }
@@ -726,11 +729,12 @@ static void toneI2S(float freq, uint32_t ms) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots (G3 then C4), mirroring the K10.
+// The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth), matching the
+// V4 fleet's toot so the whole band shares one boot voice.
 static void playStartupToot() {
-  toneI2S(196.0f, 220);   // toot  (G3)
+  toneI2S(262.0f, 220);   // toot  (C4)
   delay(40);
-  toneI2S(262.0f, 380);   // toot  (C4)
+  toneI2S(392.0f, 380);   // toot  (G4)
 }
 
 // Read one keycode from the BlackBerry keyboard (its own MCU answers on I2C 0x55; a
