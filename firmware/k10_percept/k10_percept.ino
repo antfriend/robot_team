@@ -551,6 +551,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
     case toot::CMD:
       // Orchestrator directive. Only the addressed node acts + ACKs, so a broadcast
       // CMD doesn't draw an ACK from every hearer. CMD is want_ack -> ACK on accept.
+      // Band-wide exception: PLAY/STOP addressed to NODE_BROADCAST act on every node, so one
+      // T-Deck press starts/stops the whole fleet. (Targeted PLAY/STOP still work below.)
+      if (toot::cmdTarget(t) == NODE_BROADCAST &&
+          (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP)) {
+        gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+        if (!gPlayEnabled) gHitPending = false;   // drop any already-scheduled note
+        break;
+      }
       if (toot::cmdTarget(t) == kNodeId) {
         switch (toot::cmdOp(t)) {
           case toot::CMD_SET_LED:

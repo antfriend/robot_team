@@ -893,6 +893,19 @@ If a fact lives in one of these, link to it from here — don't copy it.
   breadboard) would allow smooth sine at 16 kHz again — but square-wave chiptune fits the fleet, so
   it's left as-is. **v4b_relay + v4c_edge carry the identical sine-based audio → same fix needed**
   (convert to square + 8 kHz, add `CMD_BEEP`) before their speakers work. Not yet committed.
+- **Fleet boots SILENT — one T-Deck press plays/stops the whole band (2026-07-14).** The V4s
+  used to auto-play their part on boot; now all three mirror the K10's `gPlayEnabled` gate (boots
+  false, the step-clock keeps running for phase lock, only the audible/LED hit is muted). Play/stop
+  is now **band-wide via a broadcast**: added `NODE_BROADCAST = 0xFFFFFFFF` (RobotTeamConfig.h); the
+  T-Deck's `g`/`x` send `CMD_PLAY`/`CMD_STOP` to it (`emitCmdTo`), and every node honors a
+  PLAY/STOP addressed to **its own id OR broadcast** (targeted ops — get-status/set-led/beep — still
+  require an exact id, so a broadcast never storms replies/ACKs). Backward-compatible: an old T-Deck
+  targeting a single node still starts just that node. V4-A flashed + verified (boots silent: 0
+  `[part]` logs, `[pulse]` beacon still runs). Also this session: V4 audio **volume 22000→11000**
+  (was super loud) and **all V4 tones dropped one octave** (toot C5/G5→C4/G4; kicks C5→C4, V4-B
+  backbeat G4→G3) — square-wave harmonics carry the lower notes fine. **All six sketches compile
+  clean** (K10 20%, T-Deck 39% huge_app, V4s 92%); only V4-A flashed — **flash T-Deck + K10 + V4-B/C
+  to get the one-press-fleet behavior end-to-end.**
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

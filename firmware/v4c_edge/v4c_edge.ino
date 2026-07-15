@@ -58,7 +58,7 @@ static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
 // but takes stereo frames). Square, not sine: on this hand-wired MAX98357A a sine only
 // stuttered/blipped, but a square (max-energy, snaps +/-amp) reproduces cleanly and sustains.
 // Blocks ~ms — call from setup()/loop() only.
-static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
+static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -76,12 +76,12 @@ static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots. Pitched high (C5 -> G5): the small
-// MAX98357A speaker can't reproduce the K10's low G3/C4 audibly. A rising fifth keeps the feel.
+// The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth). Dropped an
+// octave from C5/G5 now that it's a square wave — the harmonics carry these lower notes fine.
 static void playStartupToot() {
-  toneI2S(523.0f, 220);   // C5
+  toneI2S(262.0f, 220);   // C4
   delay(40);
-  toneI2S(784.0f, 380);   // G5
+  toneI2S(392.0f, 380);   // G4
 }
 #endif
 
@@ -103,11 +103,15 @@ static const uint32_t PULSE_LED_MS = 110;
 static const uint32_t PULSE_PART_TONE_MS = 60;   // hi-hat tick on the amp (blocks; very short)
 static uint32_t gLedClearMs = 0;
 static bool     gBeatFlash = false;
-// V4-C's PART (TTN-RFC-0010 §7): the offbeat hi-hat — a C5 tick on the "&" of each beat
-// (steps 2/6/10/14), the upbeats that lift V4-A's kick and V4-B's snare into a groove. A
-// Score::Phrase on the shared sequencer grid; re-voicing is a table edit (Score.h).
+// The part boots SILENT and only plays between CMD_PLAY and CMD_STOP (the T-Deck's g/x, band-
+// wide via NODE_BROADCAST). The step clock keeps running while stopped so phase stays locked;
+// only the audible/LED hit is muted. Mirrors the K10.
+static bool     gPlayEnabled = false;
+// V4-C's PART (TTN-RFC-0010 §7): the offbeat hi-hat — a C4 tick on the "&" of each beat
+// (steps 2/6/10/14), the upbeats that lift V4-A's kick and V4-B's snare into a groove. C4
+// square, one octave below the old C5. A Score::Phrase on the shared grid; re-voicing = table edit.
 static const score::Note kPartNotes[] = {
-  {2, score::C5, 1}, {6, score::C5, 1}, {10, score::C5, 1}, {14, score::C5, 1},
+  {2, score::C4, 1}, {6, score::C4, 1}, {10, score::C4, 1}, {14, score::C4, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 4, 16};
 // New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
@@ -397,6 +401,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       // airtime (airtime is scarcest at the tail). Summarization is a Phase 3 task.
       break;
     case toot::CMD:
+      // Band-wide play/stop: honor a broadcast (or targeted) PLAY/STOP so one T-Deck press
+      // starts/stops the whole fleet. Boots silent. Other ops stay targeted (below).
+      if ((toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) &&
+          (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+        gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+        accepted = true;
+        break;
+      }
       if (toot::cmdTarget(t) == kNodeId) {
         if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
           uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
@@ -774,17 +786,19 @@ void loop() {
     uint32_t sc;
     const score::Note* nt = nullptr;
     if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && (nt = score::noteAt(kPart, sip))) {
-      digitalWrite(kLedPin, HIGH);
-      gLedClearMs = pnow + PULSE_LED_MS;
-      gBeatFlash = true;
-      gOledDirty = true;
+      if (gPlayEnabled) {             // boots silent; only between CMD_PLAY and CMD_STOP
+        digitalWrite(kLedPin, HIGH);
+        gLedClearMs = pnow + PULSE_LED_MS;
+        gBeatFlash = true;
+        gOledDirty = true;
 #if USE_SPEAKER
-      // Sound the hi-hat on the amp. Blocks ~PULSE_PART_TONE_MS; offbeats are >=250ms apart
-      // (deferred-tone discipline, safe in loop()).
-      if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
+        // Sound the hi-hat on the amp. Blocks ~PULSE_PART_TONE_MS; offbeats are >=250ms apart
+        // (deferred-tone discipline, safe in loop()).
+        if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
 #endif
-      Serial.printf("[part] step %u offbeat era=%lu\n", sip,
-                    (unsigned long)gPulse.chart().era);
+        Serial.printf("[part] step %u offbeat era=%lu\n", sip,
+                      (unsigned long)gPulse.chart().era);
+      }
     }
     if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
       gLedClearMs = 0;

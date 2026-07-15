@@ -237,6 +237,7 @@ static const char* nodeName(uint32_t id) {
     case NODE_V4C_EDGE:   return "V4-C";
     case NODE_K10_1:      return "K10";
     case NODE_TDECK_1:    return "T-Deck";
+    case NODE_BROADCAST:  return "ALL";
     default:              return "?";
   }
 }
@@ -434,19 +435,23 @@ static void emitAck(const toot::Toot& orig, uint8_t status,
 // is a CmdOp (Toot.h); the CMD payload is op | target(4) | args. Fire-and-forget
 // (not want_ack): CMD_GET_STATUS is answered by the target's STATUS PERCEPT, which we
 // collect for the fleet view; CMD_PING/CMD_BEEP just act.
-static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
+static void emitCmdTo(uint8_t op, uint32_t target, const uint8_t* args, uint8_t argn) {
   uint8_t body[toot::MAX_BODY];
   body[0] = op;
-  toot::put_u32(body + 1, gCmdTarget);
+  toot::put_u32(body + 1, target);
   if (argn && args) memcpy(body + 5, args, argn);
   emit(toot::CMD, body, (uint8_t)(5 + argn), sendEspNow, nullptr);
   gCmdSent++;
   gScreenDirty = true;
   char lg[40];
-  snprintf(lg, sizeof(lg), "cmd op%u -> %s", op, nodeName(gCmdTarget));
+  snprintf(lg, sizeof(lg), "cmd op%u -> %s", op, nodeName(target));
   logLine(lg);
-  Serial.printf("[cmd] op=%u -> 0x%08X (#%lu)\n", op, (unsigned)gCmdTarget,
+  Serial.printf("[cmd] op=%u -> 0x%08X (#%lu)\n", op, (unsigned)target,
                 (unsigned long)gCmdSent);
+}
+// Targeted CMD at the selected node (get-status / beep / set-led / ping).
+static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
+  emitCmdTo(op, gCmdTarget, args, argn);
 }
 
 // Build a GPS PERCEPT payload (Toot.h GPS_PERCEPT_PAYLOAD_LEN) from the last fix — the
@@ -1365,8 +1370,9 @@ void loop() {
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
-      case 'g': setLocalPlay(true);  emitCmd(toot::CMD_PLAY, nullptr, 0); break;  // play both
-      case 'x': setLocalPlay(false); emitCmd(toot::CMD_STOP, nullptr, 0); break;  // stop both
+      // Play/stop are band-wide: broadcast so ONE press starts/stops the whole fleet (+ our part).
+      case 'g': setLocalPlay(true);  emitCmdTo(toot::CMD_PLAY, NODE_BROADCAST, nullptr, 0); break;
+      case 'x': setLocalPlay(false); emitCmdTo(toot::CMD_STOP, NODE_BROADCAST, nullptr, 0); break;
       case ' ':                                  // swipe-up analog: toggle the console
       case 'n':
         gPane = (gPane == PANE_MAIN) ? PANE_CONSOLE : PANE_MAIN;

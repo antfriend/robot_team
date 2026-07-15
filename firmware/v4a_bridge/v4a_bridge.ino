@@ -51,7 +51,7 @@ static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
 // but takes stereo frames). Square, not sine: on this hand-wired MAX98357A a sine only
 // stuttered/blipped, but a square (max-energy, snaps +/-amp) reproduces cleanly and sustains.
 // Blocks ~ms — call from setup()/loop() only.
-static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
+static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -69,13 +69,12 @@ static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots. Pitched high (C5 -> G5) because the
-// small MAX98357A speaker can't reproduce the K10's low G3/C4 audibly (~200 Hz is inaudible
-// on it; the 500-1000 Hz bring-up tone was clear). A rising fifth keeps the "toot-toot" feel.
+// The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth). Dropped an
+// octave from C5/G5 now that it's a square wave — the harmonics carry these lower notes fine.
 static void playStartupToot() {
-  toneI2S(523.0f, 220);   // C5
+  toneI2S(262.0f, 220);   // C4
   delay(40);
-  toneI2S(784.0f, 380);   // G5
+  toneI2S(392.0f, 380);   // G4
 }
 #endif
 
@@ -149,14 +148,18 @@ static const uint32_t PULSE_LED_MS = 110;
 static const uint32_t PULSE_PART_TONE_MS = 130;  // kick length on the amp (blocks; short)
 static uint32_t gLedClearMs = 0;       // 0 = LED not currently flashing
 static bool     gBeatFlash = false;    // OLED beat-dot state
+// The part boots SILENT and only plays between CMD_PLAY and CMD_STOP (the T-Deck's g/x, band-
+// wide via NODE_BROADCAST). The step clock keeps running while stopped so phase stays locked;
+// only the audible/LED hit is muted. Mirrors the K10.
+static bool     gPlayEnabled = false;
 static uint32_t gHelloAt = 0;          // periodic HELLO so the conductor fast-locks us
 // V4-A's PART (TTN-RFC-0010 §7): the timekeeper — "four on the floor", a note on every
 // beat (steps 0/4/8/12 of the 16-step bar), the steady pulse the band rides. Now that the
-// V4 has a MAX98357A speaker it sounds a C5 kick on each beat (was REST/LED-only); the
-// LED + OLED-dot still hit with it. C5 (523 Hz), not the low C3 (~131 Hz) — the small
-// speaker can't reproduce ~130 Hz audibly. Re-voicing is a table edit (Score.h).
+// V4 has a MAX98357A speaker it sounds a C4 kick on each beat (was REST/LED-only); the
+// LED + OLED-dot still hit with it. C4 (262 Hz) square — one octave below the old C5.
+// Re-voicing is a table edit (Score.h).
 static const score::Note kPartNotes[] = {
-  {0, score::C5, 1}, {4, score::C5, 1}, {8, score::C5, 1}, {12, score::C5, 1},
+  {0, score::C4, 1}, {4, score::C4, 1}, {8, score::C4, 1}, {12, score::C4, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 4, 16};
 // New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
@@ -358,6 +361,12 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
     gBeepPending = true;
   }
 #endif
+  else if (t.type == toot::CMD &&
+           (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) &&
+           (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+    // Band-wide play/stop (T-Deck g/x, broadcast). Just a flag — safe from the callback.
+    gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+  }
 #if USE_PULSE
   else if (t.type == toot::PULSE) {
     // Band time-base beacon (TTN-RFC-0010). Adoption is cheap (no flash), so it
@@ -539,6 +548,9 @@ void loop() {
           gBeepPending = true;
         }
 #endif
+        else if (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) {
+          gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);   // band play/stop over USB
+        }
         if (ok && (t.flags & toot::FLAG_WANT_ACK))
           emitAckSerial(t, toot::ACK_ACCEPTED);
       } else {
@@ -589,17 +601,19 @@ void loop() {
     uint32_t sc;
     const score::Note* nt = nullptr;
     if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && (nt = score::noteAt(kPart, sip))) {
-      digitalWrite(kLedPin, HIGH);
-      gLedClearMs = pnow + PULSE_LED_MS;
-      gBeatFlash = true;
-      gOledDirty = true;
+      if (gPlayEnabled) {              // boots silent; only between CMD_PLAY and CMD_STOP
+        digitalWrite(kLedPin, HIGH);
+        gLedClearMs = pnow + PULSE_LED_MS;
+        gBeatFlash = true;
+        gOledDirty = true;
 #if USE_SPEAKER
-      // Sound the kick on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart, so
-      // this is the same deferred-tone discipline the K10/T-Deck use in loop().
-      if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
+        // Sound the kick on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart, so
+        // this is the same deferred-tone discipline the K10/T-Deck use in loop().
+        if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
 #endif
-      Serial.printf("[part] step %u beat %u%s era=%lu\n", sip, (sip / 4) % 4 + 1,
-                    sip == 0 ? " DOWNBEAT" : "", (unsigned long)gPulse.chart().era);
+        Serial.printf("[part] step %u beat %u%s era=%lu\n", sip, (sip / 4) % 4 + 1,
+                      sip == 0 ? " DOWNBEAT" : "", (unsigned long)gPulse.chart().era);
+      }
     }
     if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
       gLedClearMs = 0;

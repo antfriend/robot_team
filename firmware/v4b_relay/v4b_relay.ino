@@ -58,7 +58,7 @@ static const int PIN_I2S_DOUT = 6;   // data to amp (DIN)
 // but takes stereo frames). Square, not sine: on this hand-wired MAX98357A a sine only
 // stuttered/blipped, but a square (max-energy, snaps +/-amp) reproduces cleanly and sustains.
 // Blocks ~ms — call from setup()/loop() only.
-static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
+static void toneI2S(float freq, uint32_t ms, float amp = 11000.0f) {
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -76,12 +76,12 @@ static void toneI2S(float freq, uint32_t ms, float amp = 22000.0f) {
   }
 }
 
-// The Toot-Toot signature on boot — two rising toots. Pitched high (C5 -> G5): the small
-// MAX98357A speaker can't reproduce the K10's low G3/C4 audibly. A rising fifth keeps the feel.
+// The Toot-Toot signature on boot — two rising toots, C4 -> G4 (a rising fifth). Dropped an
+// octave from C5/G5 now that it's a square wave — the harmonics carry these lower notes fine.
 static void playStartupToot() {
-  toneI2S(523.0f, 220);   // C5
+  toneI2S(262.0f, 220);   // C4
   delay(40);
-  toneI2S(784.0f, 380);   // G5
+  toneI2S(392.0f, 380);   // G4
 }
 #endif
 
@@ -102,12 +102,16 @@ static const uint32_t PULSE_LED_MS = 110;
 static const uint32_t PULSE_PART_TONE_MS = 120;  // backbeat length on the amp (blocks; short)
 static uint32_t gLedClearMs = 0;
 static bool     gBeatFlash = false;
+// The part boots SILENT and only plays between CMD_PLAY and CMD_STOP (the T-Deck's g/x, band-
+// wide via NODE_BROADCAST). The step clock keeps running while stopped so phase stays locked;
+// only the audible/LED hit is muted. Mirrors the K10.
+static bool     gPlayEnabled = false;
 // V4-B's PART (TTN-RFC-0010 §7): the backbeat — a note on beats 2 & 4 (steps 4 & 12 of
 // the 16-step bar), the "snare" against V4-A's steady timekeeper and the K10's melody.
-// With the MAX98357A speaker it now sounds a G4 accent on those beats (was REST/LED-only);
-// the LED + OLED-dot still hit with it. Re-voicing is a table edit (Score.h).
+// With the MAX98357A speaker it now sounds a G3 accent on those beats (was REST/LED-only);
+// the LED + OLED-dot still hit with it. G3 square — one octave below the old G4. Table edit.
 static const score::Note kPartNotes[] = {
-  {4, score::G4, 1}, {12, score::G4, 1},
+  {4, score::G3, 1}, {12, score::G3, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 2, 16};
 // New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
@@ -394,6 +398,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       accepted = handlePutSlice(t);
       break;
     case toot::CMD:
+      // Band-wide play/stop: honor a broadcast (or targeted) PLAY/STOP so one T-Deck press
+      // starts/stops the whole fleet. Boots silent. Other ops stay targeted (below).
+      if ((toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) &&
+          (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+        gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+        accepted = true;
+        break;
+      }
       if (toot::cmdTarget(t) == kNodeId) {
         if (toot::cmdOp(t) == toot::CMD_GET_STATUS) {
           uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
@@ -785,17 +797,19 @@ void loop() {
     uint32_t sc;
     const score::Note* nt = nullptr;
     if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && (nt = score::noteAt(kPart, sip))) {
-      digitalWrite(kLedPin, HIGH);
-      gLedClearMs = pnow + PULSE_LED_MS;
-      gBeatFlash = true;
-      gOledDirty = true;
+      if (gPlayEnabled) {             // boots silent; only between CMD_PLAY and CMD_STOP
+        digitalWrite(kLedPin, HIGH);
+        gLedClearMs = pnow + PULSE_LED_MS;
+        gBeatFlash = true;
+        gOledDirty = true;
 #if USE_SPEAKER
-      // Sound the backbeat on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart
-      // (deferred-tone discipline, safe in loop()).
-      if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
+        // Sound the backbeat on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart
+        // (deferred-tone discipline, safe in loop()).
+        if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
 #endif
-      Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip, (sip / 4) % 4 + 1,
-                    (unsigned long)gPulse.chart().era);
+        Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip, (sip / 4) % 4 + 1,
+                      (unsigned long)gPulse.chart().era);
+      }
     }
     if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
       gLedClearMs = 0;
