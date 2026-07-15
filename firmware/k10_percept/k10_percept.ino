@@ -34,9 +34,12 @@
 #define USE_K10_HW 1
 #if USE_K10_HW
 #include "unihiker_k10.h"
+#include <driver/i2s.h>   // direct I2S_NUM_0 access for the fleet square-wave voice (k10Tone)
 static UNIHIKER_K10 k10;
 static AHT20 aht20;
-static Music music;
+// Speaker: driven directly via k10Tone() (I2S_NUM_0, installed by k10.begin()->initI2S).
+// We deliberately do NOT use DFRobot's Music::playTone — it is a fixed full-scale sine
+// with no volume control; the fleet's voice is a square wave at a chosen amplitude.
 #endif
 
 static const uint32_t kNodeId = NODE_K10_1;
@@ -141,11 +144,11 @@ static struct {
   uint32_t color = 0;
 } gLedOverride;
 
-// Deferred beep (CMD_BEEP): playTone() blocks ~dur_ms, so it must NOT run in the
+// Deferred beep (CMD_BEEP): k10Tone() blocks ~dur_ms, so it must NOT run in the
 // recv callback (WiFi task). handleToot stashes it (after ACK) and loop() plays it.
 static volatile bool gBeepPending = false;
 static int gBeepFreq = 0;
-static int gBeepBeat = 0;   // I2S samples @ 8 kHz: beat = dur_ms * 8 (beat/8000 = s)
+static uint32_t gBeepMs = 0;   // tone duration in ms (k10Tone streams SAMPLE_RATE*ms/1000 samples)
 
 // --- fleet pulse + lead melody (TTN-RFC-0010) -------------------------------
 // The band time-base + conductor election lives in the portable Pulse engine; the
@@ -340,15 +343,38 @@ static inline void indicatorClear() {
 }
 
 #if USE_K10_HW
-// Two toots — the Toot-Toot signature — on startup (uses the K10 speaker).
-// playTone(freq, beat): `beat` is the count of I2S samples at 8 kHz, so the
-// duration is beat/8000 seconds — NOT milliseconds. (My earlier 400/600 were
-// ~50-75 ms, inaudible.) These match the known-good k10_ttdb_navigator values:
-// 2000 -> 0.25 s, 4000 -> 0.5 s.
+// The fleet voice. Every other node (T-Deck + the V4s) synthesizes tones as a 50%
+// SQUARE wave at 8 kHz over ESP_I2S — a shared chiptune timbre, and the volume knob
+// the fleet standardized on (the DFRobot Music::playTone is a fixed full-scale sine
+// with no amplitude parameter, so we bypass it). `amp` matches the T-Deck's toneI2S
+// default (22000) so the K10 lead is as loud as the T-Deck. Writes I2S_NUM_0 directly,
+// exactly as Music::playTone does (same already-installed driver) — synchronous, so
+// call from setup()/loop() ONLY (it blocks ~ms), never a callback.
+static const int   K10_I2S_RATE = 8000;    // matches the fleet's 8 kHz square timbre
+static const int16_t K10_TONE_AMP = 22000; // == tdeck_console toneI2S default (same loudness)
+static void k10Tone(int freq, uint32_t ms, int16_t amp = K10_TONE_AMP) {
+  uint32_t clk = i2s_get_clk(I2S_NUM_0);
+  i2s_set_sample_rates(I2S_NUM_0, K10_I2S_RATE);
+  uint32_t total = (uint32_t)((uint64_t)K10_I2S_RATE * ms / 1000);
+  float phase = 0.0f, inc = TWO_PI * (float)freq / (float)K10_I2S_RATE;
+  int16_t buf[2];
+  size_t wrote;
+  for (uint32_t i = 0; i < total; ++i) {
+    int16_t s = (phase < (float)PI) ? amp : (int16_t)-amp;   // 50% square, like the T-Deck
+    buf[0] = buf[1] = s;                                     // L = R
+    i2s_write(I2S_NUM_0, (char*)buf, sizeof(buf), &wrote, portMAX_DELAY);
+    phase += inc;
+    if (phase >= TWO_PI) phase -= TWO_PI;
+  }
+  i2s_zero_dma_buffer(I2S_NUM_0);
+  i2s_set_sample_rates(I2S_NUM_0, clk);
+}
+
+// Two toots — the Toot-Toot signature — on startup (uses the K10 speaker via k10Tone).
 static void playStartupToot() {
-  delay(50);                  // let the speaker settle after k10.begin()
-  music.playTone(196, 2000);  // toot  (G3, 0.25 s)
-  music.playTone(262, 4000);  // toot  (C4, 0.5 s)
+  delay(50);              // let the speaker settle after k10.begin()
+  k10Tone(196, 250);     // toot  (G3, 0.25 s)
+  k10Tone(262, 500);     // toot  (C4, 0.5 s)
 }
 
 // Show TTDB identity + indexed records + live reasoning state on the LCD.
@@ -585,8 +611,8 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             }
             if (dur > 5000) dur = 5000;           // cap so the loop isn't stalled long
             gBeepFreq = freq;
-            gBeepBeat = dur * 8;
-            gBeepPending = true;                  // played from loop() (playTone blocks)
+            gBeepMs = (uint32_t)dur;
+            gBeepPending = true;                  // played from loop() (k10Tone blocks)
             break;
           }
           case toot::CMD_SET_INTERVAL:
@@ -861,7 +887,7 @@ void loop() {
     if (gHitPending && (int32_t)(pnow - gHitDueMs) >= 0) {
       gHitPending = false;
       gBeepFreq = gHitFreq;
-      gBeepBeat = PULSE_TONE_MS * 8;  // beat = ms*8 (Music::playTone unit)
+      gBeepMs = PULSE_TONE_MS;        // k10Tone takes ms directly
       gBeepPending = true;            // played from the deferred-beep block below
 #if USE_K10_HW
       if (!gLedOverride.enabled) {    // a laptop set-led still wins (RFC §7.2)
@@ -1007,13 +1033,13 @@ void loop() {
       Serial.println("[belief] appendRecord FAILED");
   }
 
-  // Play a deferred CMD_BEEP from the main task (playTone blocks ~dur_ms).
+  // Play a deferred CMD_BEEP / melody hit from the main task (k10Tone blocks ~ms).
   if (gBeepPending) {
     gBeepPending = false;
 #if USE_K10_HW
-    music.playTone(gBeepFreq, gBeepBeat);
+    k10Tone(gBeepFreq, gBeepMs);   // fleet square voice @ T-Deck loudness
 #endif
-    Serial.printf("[beep] %d Hz, beat %d\n", gBeepFreq, gBeepBeat);
+    Serial.printf("[beep] %d Hz, %lu ms\n", gBeepFreq, (unsigned long)gBeepMs);
   }
 
   // Periodic HELLO beacon + percept tick.

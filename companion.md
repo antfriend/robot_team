@@ -914,6 +914,22 @@ If a fact lives in one of these, link to it from here — don't copy it.
   melody was left unchanged. Flashed + verified booting (globe + GPS intact; firmware-only). Note:
   T-Deck flashing still needs the manual bootloader dance when its native-USB port drops (hold
   trackball-click + tap RST → re-enumerates → flash → tap RST to boot).
+- **K10 brought to fleet audio parity + flashed ✅ (2026-07-15, COM3) — the lead now shares the
+  band's voice and the T-Deck's loudness.** The K10 was the last node still on DFRobot's
+  `Music::playTone` — a **fixed full-scale sine (amp 32767)** with **no volume control** (amplitude
+  lives in the library, not the sketch), so it couldn't be matched to the fleet. Replaced it with a
+  local **`k10Tone()`** helper that writes I2S_NUM_0 directly (the same driver `k10.begin()`→`initI2S`
+  installs, data_out = IIS_DOUT/GPIO45) as a **50 % square wave @ 8 kHz, amp 22000** — byte-for-byte
+  the T-Deck's `toneI2S` timbre + amplitude (the T-Deck deliberately runs 22000, not the V4s' 11000,
+  because its integrated speaker is ~half as loud; the K10's onboard speaker is closer to the T-Deck's
+  class, so 22000 is the right match). Startup toot, the Ode-to-Joy melody hits, and `CMD_BEEP` all
+  route through it; the dead `Music` object was removed. **This flash also lands the K10's
+  one-press-fleet behavior** (broadcast `CMD_PLAY`/`CMD_STOP` on `NODE_BROADCAST` — was in the sketch,
+  never flashed). Compiles 20% flash; flashed COM3 (auto-reset cooperated, FS/TTDB untouched — 40
+  records intact) and **verified booting** (TTDB 13976 B, agent loop, WiFi scan, pulse all up; startup
+  toot audible as the new square voice). Firmware-only — no FS reflash. **Not yet committed.** Pending:
+  user confirms the K10 melody/toot loudness now matches the T-Deck by ear, and a live 2-node duet
+  (K10 lead + T-Deck harmony) to confirm the shared square timbre locks.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
