@@ -936,9 +936,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
   fleet baseline** (K10 & T-Deck 22000→5500, the three V4s 11000→2750) via a per-sketch
   `STARTUP_TOOT_AMP` constant; the melody / kick / backbeat / hi-hat / beep keep the full baseline
   amp, so only the startup signature is softened. All five compile clean (K10 20%, T-Deck 39%
-  huge_app, V4-A/B/C 92%); **K10 flashed COM3 + verified booting** (conducts era 1 / 500 ms, FS
-  untouched). T-Deck + V4-A/B/C are compile-verified, **flash when each holds the cable**
-  (firmware-only, FS persists).
+  huge_app, V4-A/B/C 92%). **K10 flashed COM3** (user confirmed it "sounds great") and **T-Deck
+  flashed COM10** (auto-reset cooperated, only the huge_app APP region rewritten — FS/globe at
+  0x310000 untouched); both verified booting. **V4-A/B/C compile-verified, flash when each holds
+  the cable** (firmware-only, FS persists).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
