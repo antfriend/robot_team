@@ -58,7 +58,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 |-------|-------|------|-----------|-------|-------|--------|--------|
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
-| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — 🟩 **built + flashed COM13 (2026-07-16)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot; LoRa/GNSS gated off |
+| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -981,6 +981,32 @@ If a fact lives in one of these, link to it from here — don't copy it.
   firmware untouched** — it keeps the Ode-to-Joy lead and rejoins if powered + probed explicitly.
   Consequence to remember: **the band is now percussion + harmony with no pitched lead** (kick /
   backbeat / offbeat hi-hat / T-Deck harmony) whenever the K10 is off.
+- **V4-C's amp is AUDIBLE — the four-piece band sounds good, user-confirmed by ear (2026-07-16).**
+  The last unverified thing about V4-C was whether its **hand-wired MAX98357A** actually moves air
+  (an ACK only proves `toneI2S` ran). It does: the **offbeat hi-hat is audible** and the band
+  "sounded pretty good" playing as kick + backbeat + hi-hat + T-Deck harmony (no pitched lead — K10
+  was off, see the roster bullet). **V4-C is now fully verified end-to-end: flash → mesh → pulse →
+  sound.**
+- **⚠️ `cmd --op play` reports FALSE NEGATIVES on nodes with blocking audio (2026-07-16).** Sending
+  `companion.py cmd --op play` per-node to `v4c_edge` / `tdeck_1` printed **"no ACK after 4
+  attempts → NOT applied"** — **and yet both nodes had applied it and were playing.** `toneI2S`
+  **blocks**, so once a node starts its part its ACK misses the retry window (RTO maxes at ~4 s)
+  even though the CMD arrived. **Do not trust "NOT applied" from play/beep** — and do not re-send
+  or start debugging the node's reachability on the strength of it (I did: chased a nonexistent
+  V4-C fault while it was audibly playing). Confirm by **ear**, or with `ping` (which ACKs fine —
+  V4-C ACKed a ping mid-episode).
+- **Use the T-Deck's `g`/`x` to start/stop the band — it's the designed path (2026-07-16).** One
+  keypress **broadcasts** CMD_PLAY/STOP to `NODE_BROADCAST`, so every member starts on the same
+  toot and **no per-node ACK is needed** — it sidesteps the false-negative trap entirely. The
+  companion's per-node `cmd --op play` is the awkward path: **the bridge does NOT rebroadcast**
+  (`v4a_bridge` sets only its own `gPlayEnabled`), so starting the band from the laptop means one
+  CMD per member, in a sequence whose ACKs are unreliable. **User confirmed `g`/`x` works.**
+- **Stopping the conductor triggers a re-election + era bump (2026-07-16, observed).** `cmd --op
+  stop` to **V4-A** (then conductor, era 1) handed the pulse clock to **V4-B (0x11) at era 2**;
+  afterwards `band` showed `v4c_edge`/`tdeck_1` as `(no reply)` to status probes **while `ping`
+  still ACKed**. Not diagnosed further (the band was playing fine by ear, so it was cosmetic here) —
+  but **don't read a post-stop `(no reply)` as a dead node**, and remember the era latch survives
+  reflash, so **cold-start the fleet** if the era/conductor looks stuck ([[pulse-tempo-lives-in-pulse-cpp]]).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
