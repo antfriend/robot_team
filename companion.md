@@ -1052,10 +1052,14 @@ instance live · 120 proposed/unbuilt), `sal` (how load-bearing), `rev`, `touche
 load-bearing *and* unproven → the next thing to verify/build; proven work
 (high `conf`) goes quiet. **When reading this file to choose the next move,
 compute EPS across these records and let the maximum guide you.** As of
-2026-07-13 the ranking points, correctly, at the open crux: **@LAT90LON50 —
-Semantic Positioning (EPS 125)**, then **@LAT0LON30 — the unbuilt V4-C edge
-(EPS 74)**; everything proven sits below EPS 20. Update the weights when a
-record's status changes (a weight-only write does not bump `rev`).
+2026-07-16 the ranking points, correctly, at the open crux: **@LAT90LON50 —
+Semantic Positioning (EPS 125)**, then **@LAT90LON60 — the SP6-T render leg /
+TTN-RFC-0011 (EPS 19)**; everything else sits below EPS 20. **@LAT0LON30 (V4-C
+edge) fell from EPS 74 → 8** when it was built + verified on hardware
+(2026-07-16), retiring the #2 item and leaving **Semantic Positioning alone at
+the top by a factor of ~6** — the hypothesis is now the *only* load-bearing
+unproven thing left, and no hardware gap hides behind it. Update the weights when
+a record's status changes (a weight-only write does not bump `rev`).
 
 ```mmpdb
 db_id: orchestrator-master-001
@@ -1209,17 +1213,32 @@ store-and-forward (decrement `ttl`, dedup, re-sign, forward) stays gated behind
 
 ---
 
-@LAT0LON30 | created:1750000000 | updated:1750000000 | relates:connected_over@LAT0LON20
+@LAT0LON30 | created:1750000000 | updated:1784160000 | relates:connected_over@LAT0LON20,supports@LAT90LON50,derived_from@LAT90LON70
 [ew]
-conf:120
-rev:0
+conf:240
+rev:1
 sal:140
-touched:1783983861
+touched:1784160000
 [/ew]
 
-**V4-C edge** (Heltec V4, spine tail) — ⬜ unbuilt scaffold. Off-grid remote-cluster
-gateway; GNSS `@LATxLONy` stamping; summarizes PERCEPT before the LoRa hop. Phases
-3–4.
+**V4-C edge** (Heltec V4, spine tail) — ✅ **built + on-device verified end-to-end
+2026-07-16** (was an unbuilt scaffold; `conf` 120→240, EPS 74→8). FQBN
+`esp32:esp32:esp32s3:CDCOnBoot=cdc`, node id `0x12`, sketch `firmware/v4c_edge`,
+flashed on **COM13** (identify by USB `VID_303A&PID_1001` — COM numbers drift; the
+historical fleet ports were all absent that session). TTDB image via
+`scripts/Upload-V4-FS.ps1` (default 4 MB spiffs @0x290000 — *not* the T-Deck script).
+**Needed zero source changes**: the fleet-wide square-wave/8 kHz audio and quarter-amp
+`STARTUP_TOOT_AMP` 2750 had already landed. Verified: `ping` ACK attempt 1; `pull`
+byte-exact (842 B flashed → **1840 B returned**, the surplus being **two `@LAT96`
+ENTWIN windows the node appended itself on first boot** — 8 + 6 WiFi BSSIDs, so the
+LittleFS mount, TTDB serve *and* the SP0 entity tier all came up unprompted →
+`supports@LAT90LON50`); **adopted conductor `0x10` over ESP-NOW rather than
+self-appointing** (era 1, 120 BPM); band-tight **±6.5 ms** against the ±50 ms bound;
+**offbeat hi-hat AUDIBLE by ear** — the hand-wired MAX98357A moves air (an ACK only
+proves `toneI2S` ran). Off-grid remote-cluster gateway; GNSS `@LATxLONy` stamping;
+summarizes PERCEPT before the LoRa hop. **Still gated:** `USE_LORA 0` / `USE_GNSS 0`
+(Phases 3–4). **Still unexercised:** bridged `pull --node v4c_edge` over the mesh
+(the known inline-serve caveat; direct USB pull works).
 
 ---
 
@@ -1382,3 +1401,46 @@ mechanisms are proven, the central claim (Ω ↓ distance, semantic overlap beat
 RSSI-only) is **not yet confirmed** (2026-07-10 garden run = partial negative on the
 RSSI leg; §8.1 spacetime entanglement is the open blocker). `ttn-semantic-positioning.md`
 stays the build plan; the RFC is its formal half.
+
+---
+
+@LAT90LON70 | created:1784160000 | updated:1784160000 | relates:derived_from@LAT0LON30,derived_from@LAT10LON0,supports@LAT0LON0,refines@LAT90LON20
+[ew]
+conf:240
+rev:0
+sal:90
+touched:1784160000
+[/ew]
+
+**Lesson — the fleet's own telemetry produces FALSE NEGATIVES; confirm with ears or
+`ping`, never one sample (2026-07-16, V4-C bring-up).** Two independent traps, both
+observed on hardware, both of which drew a confident-but-wrong diagnosis out of the
+companion before the physical system corrected it. Cost: a chase after a nonexistent
+V4-C fault while it was audibly playing.
+
+**(1) `cmd --op play` reports "NOT applied" on nodes that ARE playing.** Per-node
+`companion.py cmd --op play --node v4c_edge|tdeck_1` printed **"no ACK after 4
+attempts → NOT applied"** — yet both had applied it and were sounding. **`toneI2S`
+blocks**, so a node that starts its part misses the ACK retry window (RTO ~4 s max)
+though the CMD landed fine. The ACK path fails, not the command path: **`ping` still
+ACKs from the same node mid-episode**, so "NOT applied" says *nothing* about
+reachability. **Never chase a node's health on a play/beep no-ACK.** An ACK only
+proves `toneI2S` ran — **only ears prove the speaker moved air**.
+
+**(2) Band phase needs a settle window; early samples lie.** The first three `band`
+runs after nodes were engaged FAILed (±72.0 / ±50.2 / ±48.6) and framed V4-B as
+defective (−72.0, then −50.2, then `(no reply)`). **Wrong.** Three runs later V4-B
+read **−7.7 / −3.7 / −7.6** and the whole band passed at **±8.5 / ±6.5 / ±7.6 ms**.
+The tell: one bad run had V4-C *and* the T-Deck both swinging to ≈−45 **together** —
+**a single-node fault cannot move two other nodes in lockstep**, so skews that track
+each other are the shared reference settling, not per-node drift. **Take ≥3 runs with
+`--probes 5`; trust only a bias that persists and that neighbours don't share.**
+
+**Corollaries.** Start/stop the band with the **T-Deck's `g`/`x`** — it broadcasts to
+`NODE_BROADCAST`, every member starts on the same toot, **no per-node ACK needed**
+(user-confirmed working). The **bridge does not rebroadcast** (`v4a_bridge` sets only
+its own `gPlayEnabled`), so driving play from the laptop is one unreliable CMD per
+member — the awkward path. And **`stop` to the conductor re-elects**: V4-A (era 1) →
+**V4-B `0x11` (era 2)**, after which `band` showed nodes `(no reply)` to status probes
+while `ping` still ACKed — cosmetic here, undiagnosed; cold-start if the era latch
+looks stuck (`@LAT90LON20`).
