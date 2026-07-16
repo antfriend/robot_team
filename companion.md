@@ -58,7 +58,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 |-------|-------|------|-----------|-------|-------|--------|--------|
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
-| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — **hardware unbuilt, not flashed**; LoRa/GNSS gated off |
+| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — 🟩 **built + flashed COM13 (2026-07-16)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot; LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -77,7 +77,8 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > 120 BPM duet (§6).
 > **T-Deck flashing needs manual bootloader entry** (native-USB auto-reset is flaky): hold
 > the trackball-click (GPIO0/BOOT) + tap RST to enter download mode (port re-enumerates,
-> e.g. COM11→COM10), then tap RST *without* the trackball to boot the app. V4-C unbuilt.
+> e.g. COM11→COM10), then tap RST *without* the trackball to boot the app. V4-C is built and flashed
+> (COM13 as of 2026-07-16) — the whole fleet is now real hardware.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -940,8 +941,22 @@ If a fact lives in one of these, link to it from here — don't copy it.
   flashed COM10** (auto-reset cooperated, only the huge_app APP region rewritten — FS/globe at
   0x310000 untouched); both confirmed good by ear. **V4-A flashed COM6** (boot toot C4→G4 @ 2750,
   beat kick keeps 11000) and **V4-B flashed COM9** — both hash-verified, K10/T-Deck/V4-A all
-  confirmed good by ear. **Every built node now carries the quieter boot toot.** Only **V4-C**
-  remains compile-only (hardware-unbuilt — drops in when a third V4 exists).
+  confirmed good by ear. **Every built node now carries the quieter boot toot.** **V4-C flashed
+  COM13 (2026-07-16)** — the fleet is now complete; no node remains compile-only.
+- **V4-C hardware is REAL and flashed ✅ (2026-07-16) — the A-B-C spine is physically whole.** The
+  third Heltec V4 arrived built; flashed on **COM13** (Espressif native USB, VID 303A/PID 1001 —
+  note the fleet's other ports were absent this session, so identify by VID/PID, not by a
+  remembered COM number). Firmware `esp32:esp32:esp32s3:CDCOnBoot=cdc` + TTDB image via
+  `scripts/Upload-V4-FS.ps1 -Node v4c_edge -Port COM13` (default 4 MB spiffs @0x290000 — the V4
+  script, *not* the T-Deck one); both hash-verified. Source needed **zero changes** — the
+  fleet-wide square-wave/8 kHz audio and quarter-amp `STARTUP_TOOT_AMP` 2750 had already landed in
+  `v4c_edge.ino`; LoRa + GNSS still gated (`USE_LORA 0` / `USE_GNSS 0`). Verified on hardware:
+  `ping --node v4c_edge` **ACKed on attempt 1**, and `pull --node v4c_edge` returned **1840 B** vs
+  the flashed 842 B — the base bytes byte-exact plus **two live `@LAT96` ENTWIN windows the node
+  appended itself** (8 and 6 WiFi BSSIDs, strongest `f83eb025d3d2` at −33/−38 dBm). So the
+  LittleFS mount, the TTDB serve, *and* the SP0 entity tier are all confirmed working on first
+  boot — V4-C is producing positioning evidence unprompted. **Not yet exercised:** the inline-serve
+  path over the *bridged* mesh, band phase (`band --nodes …,v4c_edge`), and audio by ear.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
