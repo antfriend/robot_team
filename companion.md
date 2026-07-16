@@ -957,6 +957,30 @@ If a fact lives in one of these, link to it from here — don't copy it.
   LittleFS mount, the TTDB serve, *and* the SP0 entity tier are all confirmed working on first
   boot — V4-C is producing positioning evidence unprompted. **Not yet exercised:** the inline-serve
   path over the *bridged* mesh, band phase (`band --nodes …,v4c_edge`), and audio by ear.
+- **The four-piece band plays in time with V4-C in it ✅ measured on hardware (2026-07-16).** With
+  V4-A back on the USB lead (**COM6** — it re-enumerated to its historical port, but V4-C had come
+  up on COM13, so keep identifying by VID/PID) and V4-B / V4-C / T-Deck live on ESP-NOW,
+  `companion.py band --probes 5` measured **three consecutive PASSes at ±8.5 / ±6.5 / ±7.6 ms**
+  against the ±50 ms bound. All four report **conductor 0x10 (V4-A), era 1, 120 bpm** — V4-C
+  adopted the fleet's pulse clock rather than self-appointing, on first boot. **V4-C's offbeat
+  hi-hat is in the pocket** (+4.5 / −6.5 / −6.5 ms across the three runs).
+- **Band phase needs a settle window — early samples lie (2026-07-16).** The *first three* runs
+  after the nodes were engaged FAILed (±72.0, ±50.2, ±48.6) and looked like a **V4-B defect**: it
+  read −72.0 then −50.2 while V4-C/T-Deck sat near zero. **That reading was wrong.** Three runs
+  later V4-B was **−7.7 / −3.7 / −7.6** and every node passed; one run even showed V4-B dropping to
+  `(no reply)` while V4-C *and* the T-Deck both swung to ≈−45 **together**. Nodes moving together
+  is the tell — that's the shared reference/settle shifting, not per-node drift, since a genuine
+  single-node fault can't move two other nodes in lockstep. **Practice: don't diagnose a node from
+  one band sample taken right after power-up/join; take ≥3 with `--probes 5` and only trust a skew
+  that persists.** A node whose skew tracks its neighbours' is not the problem.
+- **K10 removed from the band roster (2026-07-16, user request).** `band --nodes` default was the
+  stale `v4a_bridge,v4b_relay,k10_1` (predating V4-C + T-Deck joining); now
+  **`v4a_bridge,v4b_relay,v4c_edge,tdeck_1`**. **Scope was deliberately limited to `band`** —
+  `sync --expect`, `verify --nodes`, `monitor --nodes`, `reconcile --nodes` still list `k10_1`
+  because K10 is still a **fleet** node (percept leaf); it left the *band*, not the fleet. **K10
+  firmware untouched** — it keeps the Ode-to-Joy lead and rejoins if powered + probed explicitly.
+  Consequence to remember: **the band is now percussion + harmony with no pitched lead** (kick /
+  backbeat / offbeat hi-hat / T-Deck harmony) whenever the K10 is off.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

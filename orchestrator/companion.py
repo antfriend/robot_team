@@ -2866,7 +2866,7 @@ def main():
                         help="measure fleet pulse phase tightness (TTN-RFC-0010)")
     bd.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
     bd.add_argument("--baud", type=int, default=115200)
-    bd.add_argument("--nodes", default="v4a_bridge,v4b_relay,k10_1",
+    bd.add_argument("--nodes", default="v4a_bridge,v4b_relay,v4c_edge,tdeck_1",
                     help="comma-separated nodes to probe")
     bd.add_argument("--bound-ms", type=float, default=50.0, dest="bound_ms")
     bd.add_argument("--probes", type=int, default=5)
