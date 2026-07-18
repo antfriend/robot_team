@@ -1145,9 +1145,33 @@ If a fact lives in one of these, link to it from here — don't copy it.
   all five sketches inherit it with no per-sketch edit** — all five compile clean (V4s 92%,
   T-Deck 39%, K10 20%). `tests/test_pulse.cpp` now **45 checks**, incl. the correction
   beacon firing, the echo not firing it, and the follower staying quiet. **V4-B flashed
-  (COM9); still UNPROVEN on hardware** — the proof needs the fix on the node that holds the
-  baton, currently V4-A, so it wants a cable move: flash V4-A, then reset V4-B and expect a
-  rejoin in ~5–6 s instead of the measured 15–17.5 s.
+  (COM9).**
+- **⚠️ The correction beacon ALSO did not work — n=9, and BOTH pulse fixes are now
+  unproven (2026-07-18).** Rig: two USB ports available at last (V4-A COM6, V4-C COM13, both
+  flashed with the correction build); **V4-B held the baton at era 12 and also carries it**
+  (flashed earlier the same session), T-Deck absent/no-reply. Reset V4-C on its own cable and
+  timed the rejoin nine times: **>40, 6.5, 14.5, 23.4, 17.5, 5.7, 21.9, 15.3, 27.0 s** —
+  mean ~16.5 s, spread 5.7–27+. A working correction beacon predicts a tight cluster at
+  ~5 s; this is **indistinguishable from a uniform 0–30 s wait for the periodic beacon**
+  (expected mean 15 s), and the two fast samples are just the periodic beacon happening to
+  be near-due. **Do not read 6.5 s as a success — n=9 is what killed the earlier n=1 and n=3
+  readings that looked encouraging.**
+- **Methodological warning that also undermines the earlier dedup "ruling out" (2026-07-18).**
+  Both pulse fixes depend on a frame *from the rebooting node* reaching the conductor (its
+  HELLO, or its self-appointed era-1 beacon). **The trial loop reboots the same node every
+  ~60 s, so it re-induces the very dedup-across-reboot condition it was meant to test** — the
+  rebooted node replays `toot_seq` 1,2,3… into a conductor ring that may still hold them.
+  The earlier COLD/WARM test assumed a ~60–85 s ring-eviction time that was **estimated from
+  traffic rates, never measured**, so it is not a sound refutation. Treat the dedup
+  hypothesis as **open again, not eliminated.**
+- **Next step is INSTRUMENTATION, not another guess.** Every result so far is indirect
+  timing; nothing has ever observed the conductor deciding whether to beacon. The decisive
+  test needs **the conductor on a cable**, watching its serial log while another node
+  reboots. With both V4-A and V4-C cabled, that means **powering off V4-B** so the baton
+  falls to V4-A (lowest id) — then reset V4-C on COM13 and watch COM6 for the extra
+  `[pulse] beacon`. Add a temporary print of the `neighborNeedsLock` gap and the `fastlock_`
+  decision before flashing. **Until then both fixes stay in as unproven** (native-tested,
+  +52 B and a few lines, harmless) and **[[band-phase-settle-window]] stands unchanged**.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
