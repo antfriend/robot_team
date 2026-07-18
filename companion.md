@@ -1082,12 +1082,22 @@ If a fact lives in one of these, link to it from here — don't copy it.
   fast-locks only a *brand-new* neighbor, whereas the K10 got `neighborNeedsLock()`
   (per-neighbor last-seen, re-beacons when one reappears after a >3 s gap — the power-cycle
   case) in the 2026-07-06 rejoin fix. Observed three times today (V4-C, the T-Deck, and V4-A
-  after each `cmd` reset), each time resolving itself within a beacon period. **This is the
-  "faster pulse reconvergence" backlog item, now diagnosed with a fix that already exists —
-  port `neighborNeedsLock()` from `k10_percept.ino` into the three V4 sketches.** Practical
-  consequence meanwhile: **a `band` sample taken within ~30 s of any reflash or power-cycle
-  will show a split conductor/era and mean nothing** — the [[band-phase-settle-window]] rule,
-  with a mechanism behind it.
+  after each `cmd` reset), each time resolving itself within a beacon period. Practical
+  consequence: **a `band` sample taken within ~30 s of any reflash or power-cycle will show a
+  split conductor/era and mean nothing** — the [[band-phase-settle-window]] rule, with a
+  mechanism behind it.
+- **Fast-lock ported to the V4s + T-Deck ✅ compile-verified (2026-07-18) — the
+  "faster pulse reconvergence" backlog item is closed in code.** `neighborNeedsLock()` (the
+  K10's per-neighbor last-seen + `NEIGHBOR_REJOIN_GAP_MS` 3000 re-lock) replaces
+  `neighborIsNew()` in **v4a_bridge, v4b_relay, v4c_edge** *and* **tdeck_console**. The
+  console was included deliberately even though it is normally a follower: it **held the baton
+  at era 7 during this session's cable shuffling**, so leaving it on the old logic would
+  recreate the bug whenever it conducts. Steady-state traffic is unchanged (a neighbor
+  HELLOing every ~2 s never retriggers the lock); only a peer returning after a >3 s gap does.
+  Costs **+52 B flash** per sketch (V4s 92%, T-Deck 39% huge_app). **Not yet flashed —
+  and note the fix only pays off when the CONDUCTOR carries it**, since it is the conductor
+  that emits the extra beacon; so the real test is: flash all four, power-cycle one, and see
+  it rejoin in a round trip instead of ~30 s.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

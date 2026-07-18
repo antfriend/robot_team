@@ -374,13 +374,29 @@ static bool handlePutSlice(const toot::Toot& t) {
 #if USE_PULSE
 static pulse::Engine gPulse;
 static uint32_t gNeighbors[8] = {0};
+static uint32_t gNeighborSeen[8] = {0};
 static int      gNeighborCount = 0;
-static bool neighborIsNew(uint32_t src) {
-  for (int i = 0; i < gNeighborCount; ++i)
-    if (gNeighbors[i] == src) return false;
-  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0])))
-    gNeighbors[gNeighborCount++] = src;
-  return true;
+// Fast-lock a neighbor that is brand-new OR returning after a gap (a power-cycle): as the
+// conductor we then beacon immediately so the (re)joiner locks within a round trip instead
+// of waiting up to PULSE_RESYNC_PERIOD for the next scheduled beacon. A steadily-present
+// neighbor (HELLO ~every 2 s) does NOT retrigger it, so steady-state traffic stays minimal.
+// The console is normally a follower (highest id), but it DOES take the baton when the
+// lower-id nodes drop — observed conducting at era 7 on 2026-07-18 — so it needs this too.
+static const uint32_t NEIGHBOR_REJOIN_GAP_MS = 3000;
+static bool neighborNeedsLock(uint32_t src, uint32_t now) {
+  for (int i = 0; i < gNeighborCount; ++i) {
+    if (gNeighbors[i] == src) {
+      bool rejoined = (uint32_t)(now - gNeighborSeen[i]) >= NEIGHBOR_REJOIN_GAP_MS;
+      gNeighborSeen[i] = now;
+      return rejoined;
+    }
+  }
+  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0]))) {
+    gNeighbors[gNeighborCount] = src;
+    gNeighborSeen[gNeighborCount] = now;
+    gNeighborCount++;
+  }
+  return true;   // brand new
 }
 #endif
 
@@ -623,7 +639,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       break;
     }
     case toot::HELLO:
-      if (neighborIsNew(t.src_node_id)) gPulse.noteNeighbor(millis());
+      if (neighborNeedsLock(t.src_node_id, millis())) gPulse.noteNeighbor(millis());
       break;
 #endif
     default:

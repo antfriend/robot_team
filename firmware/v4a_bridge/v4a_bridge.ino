@@ -164,15 +164,33 @@ static const score::Note kPartNotes[] = {
   {0, score::C4, 1}, {4, score::C4, 1}, {8, score::C4, 1}, {12, score::C4, 1},
 };
 static const score::Phrase kPart = {kPartNotes, 4, 16};
-// New-neighbor detection so the conductor only fast-locks a genuine newcomer (§4.2).
+// Conductor fast-lock (§4.2): only beacon when a neighbor actually needs locking, not on
+// every HELLO.
 static uint32_t gNeighbors[8] = {0};
+static uint32_t gNeighborSeen[8] = {0};
 static int      gNeighborCount = 0;
-static bool neighborIsNew(uint32_t src) {
-  for (int i = 0; i < gNeighborCount; ++i)
-    if (gNeighbors[i] == src) return false;
-  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0])))
-    gNeighbors[gNeighborCount++] = src;
-  return true;
+// Fast-lock a neighbor that is brand-new OR returning after a gap (a power-cycle): as the
+// conductor we then beacon immediately so the (re)joiner locks within a round trip instead
+// of waiting up to PULSE_RESYNC_PERIOD for the next scheduled beacon. A steadily-present
+// neighbor (HELLO ~every 2 s) does NOT retrigger it, so steady-state traffic stays minimal.
+// Without the returning-neighbor case, a reflashed or power-cycled peer self-appoints at
+// era 1 and free-runs as its own conductor for up to a full resync period (30 s) before it
+// hears us and yields — which reads as a split conductor/era in `band`.
+static const uint32_t NEIGHBOR_REJOIN_GAP_MS = 3000;
+static bool neighborNeedsLock(uint32_t src, uint32_t now) {
+  for (int i = 0; i < gNeighborCount; ++i) {
+    if (gNeighbors[i] == src) {
+      bool rejoined = (uint32_t)(now - gNeighborSeen[i]) >= NEIGHBOR_REJOIN_GAP_MS;
+      gNeighborSeen[i] = now;
+      return rejoined;
+    }
+  }
+  if (gNeighborCount < (int)(sizeof(gNeighbors) / sizeof(gNeighbors[0]))) {
+    gNeighbors[gNeighborCount] = src;
+    gNeighborSeen[gNeighborCount] = now;
+    gNeighborCount++;
+  }
+  return true;   // brand new
 }
 
 // --- onboard SSD1306 OLED (status display) ----------------------------------
@@ -390,7 +408,7 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
                          c.beat_period_ms, c.meter_beats, c.flags, &c.scene_id))
       gPulse.onBeacon(c, cond_epoch, millis());
   } else if (t.type == toot::HELLO) {
-    if (neighborIsNew(t.src_node_id)) gPulse.noteNeighbor(millis());
+    if (neighborNeedsLock(t.src_node_id, millis())) gPulse.noteNeighbor(millis());
   }
 #endif
 }
