@@ -1094,10 +1094,32 @@ If a fact lives in one of these, link to it from here — don't copy it.
   at era 7 during this session's cable shuffling**, so leaving it on the old logic would
   recreate the bug whenever it conducts. Steady-state traffic is unchanged (a neighbor
   HELLOing every ~2 s never retriggers the lock); only a peer returning after a >3 s gap does.
-  Costs **+52 B flash** per sketch (V4s 92%, T-Deck 39% huge_app). **Not yet flashed —
-  and note the fix only pays off when the CONDUCTOR carries it**, since it is the conductor
-  that emits the extra beacon; so the real test is: flash all four, power-cycle one, and see
-  it rejoin in a round trip instead of ~30 s.
+  Costs **+52 B flash** per sketch (V4s 92%, T-Deck 39% huge_app). **V4-A + V4-B flashed
+  (COM6 / COM9); V4-C + T-Deck still on the old build.**
+- **⚠️ The fast-lock port did NOT measurably help — negative result, cause not yet
+  confirmed (2026-07-18).** With V4-A conducting (era 11) *and carrying the fix*, V4-B was
+  reset on the cable and its rejoin timed by polling `band` over its own USB (which uses
+  `open_serial_no_reset`, so the polling itself does not disturb it): **app up by 2.8 s,
+  self-appointed `0x11` era 1 at 8.0 s, adopted V4-A's era 11 at 17.5 s.** A working
+  fast-lock should land ~4–6 s (right after V4-B's first HELLO at ~2.5 s); **17.5 s is
+  instead exactly what catching V4-A's next *periodic* 30 s beacon looks like** (uniform
+  0–30 s, mean 15 s), and an earlier run had it still unlocked at 10 s. So the extra beacon
+  is probably not firing at all. **Two candidate causes, both untested:** (a)
+  **`NEIGHBOR_REJOIN_GAP_MS` 3000 is marginal** — the V4 HELLO period is 2 s and a V4 boots
+  in well under a second, so the observed HELLO gap across a reboot is only ~2.5–4 s and
+  straddles the threshold, firing at best half the time (the K10, where this logic was
+  proven, boots much slower — LittleFS + LCD — so its gap was reliably >3 s); (b) **radio
+  dedup across a reboot** — a rebooted node restarts `toot_seq` at 1, so the conductor's
+  `(src,seq)` dedup cache, still holding the previous boot's low seqs, **silently drops the
+  returning node's HELLOs** — precisely the frames the fast-lock depends on. Note V4-B was
+  reset twice in quick succession during this test, which makes (b) more likely, and
+  `companion.py` already dodges this exact class of bug by using ms-resolution `toot_seq`.
+  **Suggested robust fix, avoiding both:** have the conductor **beacon immediately when it
+  hears a PULSE advertising an inferior chart** (a self-appointed era-1 node broadcasts one
+  every few seconds; V4-A currently just ignores it via `better()`). That is a direct
+  "someone out there needs correcting" signal rather than an inference from HELLO timing.
+  Until this is resolved, **the [[band-phase-settle-window]] rule still stands unchanged** —
+  the port is committed but must be treated as unproven, not as a fix.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
