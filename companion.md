@@ -1172,6 +1172,48 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `[pulse] beacon`. Add a temporary print of the `neighborNeedsLock` gap and the `fastlock_`
   decision before flashing. **Until then both fixes stay in as unproven** (native-tested,
   +52 B and a few lines, harmless) and **[[band-phase-settle-window]] stands unchanged**.
+- **▶ START HERE (handoff written 2026-07-18).** *One-line state:* the pulse chart now
+  carries a **scene**, verified on hardware; **V4-A / V4-B / V4-C / T-Deck are all flashed**
+  with that build and playing as one band (K10 is on the old build, off the band roster,
+  usually unpowered). Everything below is committed on `main`. **Three tracks, in the order
+  I'd take them:**
+  - **① Author the hero's-arc song — no blockers, all the machinery exists.** This is the
+    live creative thread the scene work was built for. The originating idea: a multi-part
+    song shaped as a **hero's arc**, where the fleet's own history is the story (V4-A alone
+    keeping time → V4-B's backbeat → V4-C's hi-hat completes the groove but there is still
+    **no pitched voice** → the *ordeal* is the conductor dying and the song surviving the
+    handoff → the roaming T-Deck returns with harmony *and* the map → **Ode to Joy** with
+    everyone playing). Write it as `score::Part` tables (one `ScenePhrase` row per scene per
+    node); **`nullptr` = silent in that scene** is the mechanism for members entering
+    progressively. Three design choices worth keeping from the session that produced this:
+    (a) **make the finale's score DISTRIBUTED** — split its phrase tables across the nodes as
+    offset-addressed fragments assembled over the proven `TtdbShare` path, so "all must be
+    present" is a mechanical truth and a missing member is *heard* as a hole rather than
+    reported as an error; (b) **gate scene advance on presence/proximity**, so you walk the
+    story forward by carrying nodes into the room — and with semantic positioning that gate
+    is a measured belief, not a boolean; (c) **derive each node's part from its believed
+    `@BELIEF:POSITION`** rather than its identity (Levin's positional-information idea), which
+    makes the song an **audible renderer for the position belief** — a wrong map is something
+    you can hear from across the room. That last one is the move that makes this serve the
+    primary hypothesis instead of competing with it (see ③).
+  - **② The pulse rejoin lag — OPEN, and it needs hands + instrumentation, not another
+    guess.** See the 2026-07-18 entries above and [[pulse-rejoin-unsolved]]. **Power off
+    V4-B** so the baton falls to V4-A (lowest id), flash V4-A with temporary prints of the
+    `neighborNeedsLock` gap and the `fastlock_` decision, then reset V4-C on its cable and
+    watch whether the extra beacon is emitted **at all**. Two fixes are already committed and
+    **both are unproven** — do not add a third from timing inference. Two USB ports were
+    available at the end of this session (V4-A COM6, V4-C COM13), which makes this practical.
+  - **③ The standing primary hypothesis — still the highest-EPS thing in the project**
+    (§7: @LAT90LON50, EPS 125). Unchanged by this session: the load-bearing move is a **clean
+    multi-tier field re-run with USB far-node collection** (carry each garden node to the
+    cable so its percepts pull byte-exact and its lane clears reliably), then
+    `proximity`→`positions`→`anchor` against the DGPS ties, to see whether the BLE
+    saturation guard + clean data finally beat RSSI-only (4.98 m).
+  - **Operational reminders that cost time this session:** identify ports by
+    **VID_303A&PID_1001**, never by a remembered COM number; **`cmd` resets whichever node
+    holds the USB lead** (`band`/`sync` do not), so drive the band with **`--node broadcast`**
+    through the V4-A bridge; and **wait 30–60 s after any reflash/power-cycle before trusting
+    a `band` sample** ([[band-phase-settle-window]]).
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
