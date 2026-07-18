@@ -12,6 +12,7 @@ void Engine::begin(uint32_t node_id, uint32_t now_ms) {
   offset_ms_ = 0;
   last_beat_count_ = 0xFFFFFFFFu;
   last_step_count_ = 0xFFFFFFFFu;
+  last_scene_reported_ = 0xFFFFFFFFu;
   fastlock_ = false;
 }
 
@@ -53,14 +54,17 @@ void Engine::selfAppoint(uint32_t now_ms, bool takeover) {
     chart_.beat_period_ms = PULSE_DEFAULT_BEAT_MS;
     chart_.meter_beats = PULSE_DEFAULT_METER;
     chart_.flags = 0;
+    chart_.scene_id = 0;           // a cold band starts the song from the top
     int64_t pn = (int64_t)now_ms;  // == pulseNow (offset 0)
     chart_.downbeat_epoch =
         (uint64_t)(pn - (pn % chart_.beat_period_ms) + chart_.beat_period_ms);
     chart_.era = 1;
     last_beat_count_ = 0xFFFFFFFFu;
   } else {
-    // Handoff: keep the offset + downbeat + tempo so the beat does NOT lurch; only
-    // the timekeeper changes. Bump era so every follower prefers us over the old one.
+    // Handoff: keep the offset + downbeat + tempo + SCENE so neither the beat nor the
+    // band's place in the song lurches; only the timekeeper changes. Bump era so every
+    // follower prefers us over the old one. Inheriting the scene here is what lets the
+    // song outlive the node that was counting it.
     chart_.era += 1;
   }
   chart_.conductor_id = node_id_;
@@ -94,6 +98,26 @@ bool Engine::update(uint32_t now_ms, Chart& out, uint64_t& out_conductor_epoch) 
     return true;
   }
   return false;
+}
+
+bool Engine::setScene(uint16_t scene_id, uint32_t now_ms) {
+  // The conductor owns the chart. A follower that tries to author one would fork the
+  // band, so it declines and waits for the beacon like everyone else.
+  if (!am_conductor_ || !have_chart_) return false;
+  if (chart_.scene_id == scene_id) return false;   // idempotent: no era churn
+  chart_.scene_id = scene_id;
+  chart_.era += 1;               // a scene move is a chart revision
+  fastlock_ = true;              // turn the page together, not over a resync period
+  (void)now_ms;
+  return true;
+}
+
+bool Engine::sceneChanged(uint16_t& scene_id) {
+  if (!have_chart_) return false;
+  if ((uint32_t)chart_.scene_id == last_scene_reported_) return false;
+  last_scene_reported_ = chart_.scene_id;
+  scene_id = chart_.scene_id;
+  return true;
 }
 
 bool Engine::tick(uint32_t now_ms, uint8_t& beat_in_bar, uint32_t& beat_count) {

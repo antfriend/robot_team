@@ -36,8 +36,15 @@ namespace pulse {
 #define PULSE_STEPS_PER_BEAT 4          // sixteenth-note sequencer resolution (Score.h)
 #endif
 
-// The chart: the four numbers (plus owner/revision) that define the grid. Mirrors
-// the PULSE payload (Toot.h buildPulse/parsePulse).
+// The chart: the numbers (plus owner/revision) that define the grid. Mirrors the
+// PULSE payload (Toot.h buildPulse/parsePulse).
+//
+// `scene_id` is the band's shared position in a multi-part song — the chart says not
+// only how fast to play but WHAT to play. It is deliberately part of the chart rather
+// than a separate message, so it inherits the chart's two hard-won properties: it
+// propagates on the same rare drift-paced beacon (no per-scene chatter), and it
+// SURVIVES CONDUCTOR HANDOFF, because selfAppoint(takeover) keeps the chart and only
+// bumps the era. Kill the node that is counting and the song keeps its place.
 struct Chart {
   uint32_t conductor_id = 0;
   uint32_t era = 0;
@@ -45,6 +52,7 @@ struct Chart {
   uint16_t beat_period_ms = PULSE_DEFAULT_BEAT_MS;
   uint8_t  meter_beats = PULSE_DEFAULT_METER;
   uint8_t  flags = 0;
+  uint16_t scene_id = 0;                // which part of the song the band is playing
 };
 
 class Engine {
@@ -82,6 +90,21 @@ class Engine {
   bool stepTick(uint32_t now_ms, uint16_t phrase_steps, uint16_t& step_in_phrase,
                 uint32_t& step_count);
 
+  // Move the band to a scene of the song. Only the conductor owns the chart, so this
+  // is a no-op (returns false) on a follower — it will learn the scene from the next
+  // beacon instead. Also a no-op if already on that scene, so re-issuing is idempotent
+  // and doesn't churn the era. On a real change it bumps the era (a scene move IS a
+  // chart revision) and schedules an immediate beacon, so the band turns the page
+  // together within a round trip rather than drifting apart for a resync period.
+  bool setScene(uint16_t scene_id, uint32_t now_ms);
+
+  // Scene-change edge detector, in the style of tick()/stepTick(): true once each time
+  // the chart's scene differs from the last one reported here — including the first
+  // read after adopting a chart, so a node joining a running band selects its part for
+  // the scene already in progress. Call every loop().
+  bool sceneChanged(uint16_t& scene_id);
+
+  uint16_t scene() const { return chart_.scene_id; }
   bool playing() const { return have_chart_; }
   bool conductor() const { return am_conductor_; }
   const Chart& chart() const { return chart_; }
@@ -102,6 +125,8 @@ class Engine {
   uint32_t next_beacon_tx_ms_ = 0;      // when (as conductor) to emit next
   uint32_t last_beat_count_ = 0xFFFFFFFFu;
   uint32_t last_step_count_ = 0xFFFFFFFFu;
+  // Wider than a u16 so no real scene id can collide with "nothing reported yet".
+  uint32_t last_scene_reported_ = 0xFFFFFFFFu;
   bool fastlock_ = false;               // pending on-join beacon
 };
 

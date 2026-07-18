@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/Gps/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -21,6 +21,12 @@ NMEA_SRCS := test_nmea.cpp \
 # the compressed RFC corpus stays fleet-carryable as the RFCs evolve.
 RFC_SRCS := test_rfc_ttdb.cpp \
         $(LIB)/TTDB/src/TtdbParse.cpp
+# Fleet-pulse chart scene extension: wire compatibility both ways + the scene
+# surviving conductor handoff (TTN-RFC-0010).
+PULSE_SRCS := test_pulse.cpp \
+        $(LIB)/Toot/src/Toot.cpp \
+        $(LIB)/Toot/src/TootCrypto.cpp \
+        $(LIB)/Pulse/src/Pulse.cpp
 
 test: build
 	./test_toot
@@ -28,17 +34,20 @@ test: build
 	./test_entitypercept
 	./test_rfc_ttdb
 	./test_nmea
+	./test_pulse
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(RFC_SRCS) $(NMEA_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(RFC_SRCS) $(NMEA_SRCS) $(PULSE_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(RFC_SRCS) -o test_rfc_ttdb
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(NMEA_SRCS) -o test_nmea
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PULSE_SRCS) -o test_pulse
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
 	      test_entitypercept test_entitypercept.exe \
-	      test_rfc_ttdb test_rfc_ttdb.exe test_nmea test_nmea.exe
+	      test_rfc_ttdb test_rfc_ttdb.exe test_nmea test_nmea.exe \
+	      test_pulse test_pulse.exe
 
 .PHONY: test build clean

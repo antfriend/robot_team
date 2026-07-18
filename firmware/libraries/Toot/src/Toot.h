@@ -91,6 +91,14 @@ enum CmdOp : uint8_t {
                            // ground-truth anchor/verifier). Cheap (no flash): the
                            // node reports its last parsed NMEA fix, so a leaf that
                            // has no GPS just answers quality:0.
+  CMD_SET_SCENE = 10,      // args: scene_id u16 LE — move the band to a scene of the
+                           // song (TTN-RFC-0010 chart scene). Only the CONDUCTOR owns
+                           // the chart, so only the conductor applies + ACKs this;
+                           // everyone else ignores it and learns the scene from the
+                           // next beacon. Safe to send to NODE_BROADCAST for exactly
+                           // that reason — at most one node answers, so a broadcast
+                           // cannot storm ACKs, and the operator needn't know who
+                           // currently holds the baton.
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
@@ -123,7 +131,12 @@ const size_t STATUS_PAYLOAD_LEN = 15;
 //   [33..40] downbeat_epoch u64 LE  band-epoch ms of beat 0
 //   [41]     beat_in_bar   u8       current beat position (0 = downbeat)
 //   [42]     pstate        u8       bit0 playing · bit1 conductor
-const size_t STATUS_PULSE_PAYLOAD_LEN = 43;
+//   [43..44] scene_id      u16 LE   (v2) the chart's scene — what the band is playing
+// Same additive discipline as the PULSE beacon: a reader that knows only the 43-byte
+// layout still parses everything before the scene, so `monitor`/`band` keep working
+// against a node that hasn't been reflashed yet.
+const size_t STATUS_PULSE_PAYLOAD_LEN_V1 = 43;
+const size_t STATUS_PULSE_PAYLOAD_LEN = 45;
 
 // GPS PERCEPT payload — a GPS-bearing node's last NMEA fix, returned as a PERCEPT
 // toot in answer to CMD_GET_GPS (semantic positioning SP2, ttn-semantic-positioning.md
@@ -258,21 +271,38 @@ bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
 
 // --- PULSE beacon (TTN-RFC-0010) -------------------------------------------
 // The band chart + time-base: conductor_id | era | conductor_epoch | downbeat_epoch
-// | beat_period_ms | meter_beats | flags. Carried rarely (drift-paced), never per
-// beat. `conductor_epoch` is the conductor's pulseNow() sampled as the beacon is
-// built — a follower adopts (epoch - recv_millis) as its band-clock offset.
-const size_t PULSE_PAYLOAD_LEN = 28;
+// | beat_period_ms | meter_beats | flags | scene_id. Carried rarely (drift-paced),
+// never per beat. `conductor_epoch` is the conductor's pulseNow() sampled as the
+// beacon is built — a follower adopts (epoch - recv_millis) as its band-clock offset.
+//
+// `scene_id` (v2, bytes [28..29]) is the band's shared position in a multi-part song:
+// the chart says not just how fast to play but WHAT to play. It rides the chart, so it
+// inherits the chart's properties for free — it propagates on the same rare beacon and
+// it SURVIVES CONDUCTOR HANDOFF (selfAppoint(takeover) keeps the chart and only bumps
+// the era), which is the whole point: the song's position outlives the node that was
+// counting it.
+//
+// Wire compatibility is two-way, because the fleet is flashed one cable at a time:
+// a v1 (28-byte) beacon from a not-yet-reflashed node parses here as scene 0, and a
+// v2 (30-byte) beacon parses on v1 firmware because its length check is `>= 28` and it
+// ignores the tail. So a half-reflashed fleet still shares one time-base; it just
+// hasn't got a shared scene until the conductor is on v2.
+const size_t PULSE_PAYLOAD_LEN_V1 = 28;  // legacy; still accepted on the wire
+const size_t PULSE_PAYLOAD_LEN = 30;     // current; what builders emit + buffers hold
 enum PulseFlag : uint8_t {
   PULSE_LAPTOP_TIMEBASE = 1 << 0,  // pulse clock == laptop wall epoch (TTN-RFC-0008)
 };
 // Build a PULSE payload into `p` (>= PULSE_PAYLOAD_LEN). Returns bytes written.
 uint8_t buildPulse(uint8_t* p, uint32_t conductor_id, uint32_t era,
                    uint64_t conductor_epoch, uint64_t downbeat_epoch,
-                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags);
-// Read a PULSE payload. False if `t` is not PULSE or is too short.
+                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags,
+                   uint16_t scene_id = 0);
+// Read a PULSE payload. False if `t` is not PULSE or is shorter than the v1 layout.
+// `scene_id` (optional) reads 0 for a v1 beacon that carries no scene.
 bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
                 uint64_t& conductor_epoch, uint64_t& downbeat_epoch,
-                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags);
+                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags,
+                uint16_t* scene_id = nullptr);
 
 // --- BLE proximity advert (semantic positioning SP0, near-range tier) --------
 // A tiny BLE manufacturer-specific-data blob so a node can be heard + ranged by RSSI

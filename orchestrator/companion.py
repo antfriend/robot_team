@@ -88,6 +88,11 @@ CMD_PLAY = 6         # start the node's melody/part (K10 song); nodes boot with 
 CMD_STOP = 7         # stop the node's melody/part
 CMD_CLEAR_PERCEPTS = 8  # drop the @LAT97 link-percept lane (SP1 prune, no args)
 CMD_GET_GPS = 9      # GPS-bearing node replies a GPS PERCEPT (SP2 roaming anchor)
+CMD_SET_SCENE = 10   # args: scene_id u16 LE — move the band to a scene of the song.
+                     # Only the CONDUCTOR owns the chart, so only it applies + ACKs;
+                     # every other node learns the scene from the next beacon. That is
+                     # why `--node broadcast` is safe here: at most one node answers.
+NODE_BROADCAST = 0xFFFFFFFF
 # GPS PERCEPT payload (Toot.h GPS_PERCEPT_PAYLOAD_LEN): lat_1e7 i32 | lon_1e7 i32 |
 # alt_cm i32 | quality u8 | sats u8 | hdop_x10 u16 | epoch_ms u64. 24 B distinguishes
 # it from a STATUS PERCEPT (15/43). Returned in answer to CMD_GET_GPS.
@@ -96,7 +101,7 @@ GPS_PERCEPT_PAYLOAD_LEN = 24
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
            "play": CMD_PLAY, "stop": CMD_STOP,
-           "clear-percepts": CMD_CLEAR_PERCEPTS}
+           "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -108,8 +113,11 @@ STATUS_SYNCED = 1 << 2
 # Optional PULSE telemetry tail (TTN-RFC-0010 §8), appended to STATUS after the 15
 # base bytes when a node is built with USE_PULSE: conductor_id u32 | era u32 |
 # beat_period_ms u16 | pulse_epoch u64 | downbeat_epoch u64 | beat_in_bar u8 | pstate
-# u8. `band` reads it to measure phase; `monitor` ignores it (reads only the prefix).
-STATUS_PULSE_PAYLOAD_LEN = 43
+# u8 | scene_id u16 (v2). `band` reads it to measure phase; `monitor` ignores it (reads
+# only the prefix). The scene tail is additive, so a node still on v1 firmware parses
+# fine and just reports scene 0.
+STATUS_PULSE_PAYLOAD_LEN_V1 = 43
+STATUS_PULSE_PAYLOAD_LEN = 45
 PSTATE_PLAYING = 1 << 0
 PSTATE_CONDUCTOR = 1 << 1
 
@@ -211,7 +219,7 @@ def parse_status(payload):
 def parse_status_pulse(payload):
     """Read the PULSE telemetry tail of a STATUS payload (TTN-RFC-0010 §8). Returns a
     dict, or None if the node didn't append it (not built with USE_PULSE)."""
-    if len(payload) < STATUS_PULSE_PAYLOAD_LEN:
+    if len(payload) < STATUS_PULSE_PAYLOAD_LEN_V1:
         return None
     cond, era, period = struct.unpack("<IIH", payload[15:25])
     pulse_epoch, downbeat = struct.unpack("<QQ", payload[25:41])
@@ -224,6 +232,9 @@ def parse_status_pulse(payload):
         "beat_in_bar": payload[41],
         "playing": bool(payload[42] & PSTATE_PLAYING),
         "conductor": bool(payload[42] & PSTATE_CONDUCTOR),
+        # v2 tail; a node on v1 firmware reports scene 0 rather than nothing.
+        "scene": (struct.unpack("<H", payload[43:45])[0]
+                  if len(payload) >= STATUS_PULSE_PAYLOAD_LEN else 0),
     }
 
 
@@ -457,11 +468,19 @@ def send_reliable(ser, reader, frame, target, seq, chunk=0,
                 t = decode_toot(fr)
                 # The ACK's header src is the responding node; its payload echoes
                 # our (src,seq,chunk). Match both.
-                if not t or t["type"] != ACK or t["src"] != target:
+                if not t or t["type"] != ACK:
+                    continue
+                # A broadcast has no single expected responder, so the src filter
+                # cannot apply — the band-wide ops are designed so that exactly one
+                # node answers (only the conductor applies a scene change), and the
+                # echoed (src,seq,chunk) below still proves the ACK is ours.
+                if target != NODE_BROADCAST and t["src"] != target:
                     continue
                 pa = parse_ack(t)
                 if pa and pa[0] == ORCHESTRATOR_ID and pa[1] == seq \
                         and pa[2] == chunk:
+                    if target == NODE_BROADCAST:
+                        print(f"  ACK from 0x{t['src']:08X} (answered the broadcast)")
                     return attempt
         rto *= 2
     return 0
@@ -578,18 +597,22 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
 
 
 def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
-             settle, rto0, attempts):
+             settle, rto0, attempts, scene=None):
     """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
-    it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval."""
+    it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval,
+    set-scene. `node` may be "broadcast" for the band-wide ops (play/stop/set-scene)."""
     try:
         import serial  # pyserial
     except ImportError:
         sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
-    if node not in NODE_IDS:
-        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    if node == "broadcast":
+        target = NODE_BROADCAST
+    elif node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}, broadcast")
+    else:
+        target = NODE_IDS[node]
     if op not in CMD_OPS:
         sys.exit(f"unknown op '{op}'. choices: {', '.join(CMD_OPS)}")
-    target = NODE_IDS[node]
     opcode = CMD_OPS[op]
 
     args = b""
@@ -612,6 +635,11 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
             sys.exit("set-interval needs --interval-ms (e.g. 500)")
         args = struct.pack("<H", interval_ms & 0xFFFF)
         detail = f" {interval_ms}ms"
+    elif opcode == CMD_SET_SCENE:
+        if scene is None:
+            sys.exit("set-scene needs --scene N (e.g. --scene 1)")
+        args = struct.pack("<H", scene & 0xFFFF)
+        detail = f" scene {scene}"
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
@@ -629,6 +657,12 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
     if acked:
         print(f"ACK from {node} on attempt {acked} — APPLIED")
     else:
+        if opcode == CMD_SET_SCENE:
+            # Only the conductor owns the chart, so a follower stays deliberately
+            # silent here. That is the most likely reason for no ACK, not a lost frame.
+            print("no ACK — only the CONDUCTOR applies a scene change. Check who holds"
+                  " the baton (`band` marks it with *) and target that node, or use"
+                  " `--node broadcast`.")
         sys.exit(f"no ACK from {node} after {attempts} attempts — NOT applied")
 
 
@@ -1040,9 +1074,10 @@ def _render_band(probed, bound_ms, watch):
 
     if watch:
         print(f"\n[{time.strftime('%H:%M:%S')}] fleet pulse (TTN-RFC-0010)")
-    print(f"{'node':<12}{'conductor':<13}{'era':>4}{'bpm':>6}{'beat':>5}"
+    print(f"{'node':<12}{'conductor':<13}{'era':>4}{'scene':>6}{'bpm':>6}{'beat':>5}"
           f"{'phase_ms':>10}{'skew_ms':>9}{'rtt_ms':>8}")
     conductors = set()
+    scenes = set()
     max_skew = 0.0
     ok = True
     for n in probed:
@@ -1060,12 +1095,14 @@ def _render_band(probed, bound_ms, watch):
             ok = False
             continue
         conductors.add(r["conductor_id"])
+        scenes.add(r.get("scene", 0))
         bpm = 60000.0 / r["period_ms"] if r["period_ms"] else 0.0
         skew = circular_diff(phases[n], phases[ref], r["period_ms"]) if ref else 0.0
         max_skew = max(max_skew, abs(skew))
         label = f"0x{r['conductor_id']:08X}" + ("*" if r.get("conductor") else "")
         flag = "" if abs(skew) <= bound_ms else "  <-- OUT"
-        print(f"{n:<12}{label:<13}{r['era']:>4}{bpm:>6.0f}{r['beat_in_bar']:>5}"
+        print(f"{n:<12}{label:<13}{r['era']:>4}{r.get('scene', 0):>6}{bpm:>6.0f}"
+              f"{r['beat_in_bar']:>5}"
               f"{phases[n]:>10.1f}{skew:>+9.1f}{r['rtt']:>7.0f}{flag}")
         if abs(skew) > bound_ms:
             ok = False
@@ -1073,6 +1110,12 @@ def _render_band(probed, bound_ms, watch):
         print("  ! not converged — "
               f"{len(conductors)} conductors: "
               f"{', '.join(f'0x{c:08X}' for c in sorted(conductors))}")
+        ok = False
+    if len(scenes) > 1:
+        # One shared chart means one shared scene: a band split across scenes is
+        # playing different parts of the song, which is a real failure, not cosmetic.
+        print(f"  ! not converged — {len(scenes)} scenes: "
+              f"{', '.join(str(s) for s in sorted(scenes))}")
         ok = False
     elif playing:
         print(f"  * = conductor;  band tight to +/-{max_skew:.1f} ms "
@@ -2879,7 +2922,7 @@ def main():
     cm = sub.add_parser("cmd", help="send a CMD to a node (ping/set-led/clear-led)")
     cm.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     cm.add_argument("--baud", type=int, default=115200)
-    cm.add_argument("--node", required=True, choices=list(NODE_IDS))
+    cm.add_argument("--node", required=True, choices=list(NODE_IDS) + ["broadcast"])
     cm.add_argument("--op", required=True, choices=list(CMD_OPS))
     cm.add_argument("--rgb", default=None, help="RRGGBB hex for set-led (e.g. FF0000)")
     cm.add_argument("--freq", type=int, default=880, help="beep frequency Hz")
@@ -2887,6 +2930,8 @@ def main():
                     help="beep duration ms")
     cm.add_argument("--interval-ms", type=int, default=None, dest="interval_ms",
                     help="agent sense/act cadence ms (set-interval)")
+    cm.add_argument("--scene", type=int, default=None,
+                    help="scene id for set-scene (only the conductor applies it)")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
@@ -3051,7 +3096,8 @@ def main():
              args.bound_ms, args.probes, args.settle, args.watch, args.interval)
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
-                 args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts)
+                 args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts,
+                 scene=args.scene)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "entities":

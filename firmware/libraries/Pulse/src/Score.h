@@ -41,4 +41,39 @@ inline const Note* noteAt(const Phrase& ph, uint16_t step_in_phrase) {
   return nullptr;
 }
 
+// --- Scenes: one node's line across a multi-part song -----------------------
+// The pulse chart carries a `scene_id` (Pulse.h), so the band shares not just a tempo
+// but a position in a song. A `Part` is this node's whole score: which Phrase it loops
+// in each scene. Selecting a part stays a table lookup — re-arranging the song is a
+// data edit here, never a protocol change, exactly as re-voicing the band already is.
+//
+// A scene with no entry for this node returns nullptr, which is a first-class state,
+// not an error: it means this node is SILENT in that scene. That's what lets an
+// ensemble enter progressively — members join the story one at a time — without any
+// per-node special-casing in the sketches.
+const uint16_t kAllScenes = 0xFFFF;  // wildcard: this line plays in every scene
+
+struct ScenePhrase {
+  uint16_t scene;    // scene id, or kAllScenes to match any scene
+  Phrase phrase;
+};
+
+struct Part {
+  const ScenePhrase* scenes;
+  uint16_t count;
+};
+
+// This node's phrase for `scene`, or nullptr if it is silent there. An exact scene
+// match wins; a kAllScenes entry is the fallback, so "same line throughout" costs one
+// row rather than one per scene.
+inline const Phrase* phraseForScene(const Part& part, uint16_t scene) {
+  const Phrase* fallback = nullptr;
+  for (uint16_t i = 0; i < part.count; ++i) {
+    if (part.scenes[i].scene == scene) return &part.scenes[i].phrase;
+    if (part.scenes[i].scene == kAllScenes && !fallback)
+      fallback = &part.scenes[i].phrase;
+  }
+  return fallback;
+}
+
 }  // namespace score

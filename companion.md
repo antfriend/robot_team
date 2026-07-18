@@ -1007,6 +1007,87 @@ If a fact lives in one of these, link to it from here — don't copy it.
   still ACKed**. Not diagnosed further (the band was playing fine by ear, so it was cosmetic here) —
   but **don't read a post-stop `(no reply)` as a dead node**, and remember the era latch survives
   reflash, so **cold-start the fleet** if the era/conductor looks stuck ([[pulse-tempo-lives-in-pulse-cpp]]).
+- **PULSE chart carries a SCENE ✅ built + native-verified, all five sketches compile-clean
+  (2026-07-18) — the chart now says WHAT to play, not just how fast.** The keystone for a
+  multi-part song: `scene_id` (u16) joins the pulse chart (`TTN-RFC-0010 §4.1`, payload
+  **28 B → 30 B**), so the band shares a position in a piece the same way it already shares
+  a tempo. Putting it on the chart rather than in a message of its own is the whole point —
+  it inherits both chart properties for free: it rides the **rare drift-paced beacon** (no
+  per-scene chatter), and it **survives conductor handoff**, because `selfAppoint(takeover)`
+  keeps the chart and only bumps the era. *Kill the node that is counting and the band keeps
+  its place in the song* — that is the property the extension exists for, and it is asserted
+  directly in `tests/test_pulse.cpp` (**38 checks, all pass** under `zig c++`), along with the
+  beat not lurching across the handoff and a **cold start restarting at scene 0** (a takeover
+  inherits; a cold band starts from the top). **Wire compatibility is two-way** (the fleet is
+  flashed one cable at a time): a v1 28-B beacon parses as scene 0, and a v2 beacon parses on
+  v1 firmware because its length check is `>= 28` — a half-reflashed band still shares one
+  time-base, it just has no shared scene until the conductor is on v2. Same additive trick on
+  the STATUS pulse tail (**43 B → 45 B**), so `monitor`/`band` keep working against an
+  un-reflashed node. **Engine API:** `Chart.scene_id`, `setScene()` (conductor-only — a
+  follower declines rather than forking the band; idempotent, so re-issuing doesn't churn the
+  era; bumps the era + beacons immediately so everyone turns the page together) and
+  `sceneChanged()`, an edge detector in the style of `tick`/`stepTick` that also fires on
+  first adopting a chart, so **a node joining a running band selects the scene already in
+  progress**. **Score.h** gained `Part`/`ScenePhrase`/`phraseForScene()` — a scene→phrase
+  lookup where **nullptr means this node is SILENT in that scene**, a first-class state (it is
+  what lets an ensemble enter progressively) plus a `kAllScenes` wildcard for a line that
+  doesn't change. **New `CMD_SET_SCENE` (op 10)** drives it: only the conductor applies + ACKs,
+  which is exactly why `--node broadcast` is safe (at most one node answers, so no ACK storm,
+  and the operator needn't know who holds the baton); `companion.py cmd --op set-scene --scene N`,
+  and the ACK reflects the *achieved* scene so a repeat still ACKs instead of looking like a
+  failure. `band` gained a **scene column** and now **fails on a split scene** the same way it
+  fails on two conductors. **Compile-verified at unchanged flash** (V4-A/B/C 92%, T-Deck 39%
+  huge_app, K10 20%) — the change is essentially free. **Deliberately behavior-neutral: every
+  node's part is still single-scene, so nothing sounds different until a song is authored.**
+  (Toolchain note: the previous
+  session's `zig` in `%TEMP%` had been **partially cleaned by Windows** — `libcxx/src` down to
+  6 of 57 files, presenting as "unable to find zig installation directory"; re-downloaded to
+  this session's scratchpad. Invoke it via PowerShell with native backslash paths; MSYS-style
+  `/c/...` paths break its lib-dir resolution.)
+- **SCENE ✅ ON-DEVICE VERIFIED END-TO-END — the whole band turned the page together
+  (2026-07-18).** Flashed all four band members to v2 in one session (**V4-A COM6, V4-B COM9,
+  V4-C COM13, T-Deck COM10** — ports identified by VID_303A&PID_1001 and each confirmed by a
+  `ping` ACK *before* overwriting; firmware-only, every TTDB untouched, each node
+  hash-verified + regression-pulled byte-exact afterwards: 52104 / 54290 / 36951 / 52026 B.
+  The T-Deck's auto-reset cooperated — no manual BOOT/RST — and its FS at 0x310000 still
+  mounts). **The proof:** `cmd --op set-scene --scene 1 --node broadcast --port COM6` →
+  laptop → USB → V4-A bridge → ESP-NOW → the conductor (V4-B) applied it, bumped **era 8 → 9**,
+  fast-beaconed, and **all four nodes reported `scene 1` at era 9, PASS ±10.9 ms**; the return
+  trip to `scene 0` (era 10) landed the same way. So chart-scene authorship, conductor-only
+  gating, the immediate re-beacon, and follower adoption are all confirmed on real hardware.
+  **Bonus, unplanned:** before V4-B was flashed, a v2 V4-A ran as a follower of V4-B's **v1
+  28-byte beacon**, reading scene 0 and staying tight — the two-way wire compatibility proven
+  live in a genuinely half-reflashed fleet, not just in the test harness. K10 left on v1 (off
+  the band roster, unpowered).
+- **Two operational gotchas found while running the above (2026-07-18).** (1) **`cmd` resets
+  whichever node holds the USB lead** (DTR/RTS on port-open; `band`/`sync` open cleanly), so
+  **never command the conductor over its own cable** — the reset demotes it to a follower and
+  it then correctly *declines* its own scene change. Drive the band **over the air through the
+  V4-A bridge with `--node broadcast`** instead: only the conductor applies, so at most one
+  node answers and the operator needn't track who holds the baton (which moved 0x10→0x12→0x200
+  →0x11 across this session's cable shuffling — exactly why broadcast is the right path).
+  Give the bridge a long `--settle` (35 s) so it re-adopts the live chart before relaying,
+  otherwise it briefly self-appoints at era 1 and applies the scene to its own stale chart.
+  (2) **`--node broadcast` silently never ACKed** — `send_reliable` filtered ACKs on
+  `src == target`, and a broadcast's responder is the conductor's real id, not 0xFFFFFFFF.
+  Found because the band *did* move to scene 1 while the CLI reported "NOT applied" (the
+  [[band-play-ack-false-negative]] pattern, different cause). **Fixed** in `send_reliable`:
+  skip the src filter for broadcast — the echoed `(src,seq,chunk)` still proves the ACK is
+  ours — and print which node answered. Re-verified: `ACK from 0x00000011 (answered the
+  broadcast) … APPLIED`.
+- **V4 pulse rejoin is slow — the V4s never got the K10's returning-neighbor fast-lock
+  (2026-07-18, pre-existing).** A reflashed/power-cycled V4 **self-appoints at era 1 and
+  free-runs as its own conductor for up to a full `PULSE_RESYNC_PERIOD_MS` (30 s)** before it
+  hears the real conductor and yields. Cause: the V4 sketches use `neighborIsNew()`, which
+  fast-locks only a *brand-new* neighbor, whereas the K10 got `neighborNeedsLock()`
+  (per-neighbor last-seen, re-beacons when one reappears after a >3 s gap — the power-cycle
+  case) in the 2026-07-06 rejoin fix. Observed three times today (V4-C, the T-Deck, and V4-A
+  after each `cmd` reset), each time resolving itself within a beacon period. **This is the
+  "faster pulse reconvergence" backlog item, now diagnosed with a fix that already exists —
+  port `neighborNeedsLock()` from `k10_percept.ino` into the three V4 sketches.** Practical
+  consequence meanwhile: **a `band` sample taken within ~30 s of any reflash or power-cycle
+  will show a split conductor/era and mean nothing** — the [[band-phase-settle-window]] rule,
+  with a mechanism behind it.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

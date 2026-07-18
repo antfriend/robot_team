@@ -127,7 +127,8 @@ bool parsePut(const Toot& t, uint32_t& target, uint32_t& belief_id,
 // --- PULSE beacon (TTN-RFC-0010) -------------------------------------------
 uint8_t buildPulse(uint8_t* p, uint32_t conductor_id, uint32_t era,
                    uint64_t conductor_epoch, uint64_t downbeat_epoch,
-                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags) {
+                   uint16_t beat_period_ms, uint8_t meter_beats, uint8_t flags,
+                   uint16_t scene_id) {
   put_u32(p + 0, conductor_id);
   put_u32(p + 4, era);
   put_u64(p + 8, conductor_epoch);
@@ -135,13 +136,16 @@ uint8_t buildPulse(uint8_t* p, uint32_t conductor_id, uint32_t era,
   put_u16(p + 24, beat_period_ms);
   p[26] = meter_beats;
   p[27] = flags;
+  put_u16(p + 28, scene_id);
   return (uint8_t)PULSE_PAYLOAD_LEN;
 }
 
 bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
                 uint64_t& conductor_epoch, uint64_t& downbeat_epoch,
-                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags) {
-  if (t.type != PULSE || t.payload_len < PULSE_PAYLOAD_LEN) return false;
+                uint16_t& beat_period_ms, uint8_t& meter_beats, uint8_t& flags,
+                uint16_t* scene_id) {
+  // Accept the v1 length: a not-yet-reflashed conductor still shares its time-base.
+  if (t.type != PULSE || t.payload_len < PULSE_PAYLOAD_LEN_V1) return false;
   conductor_id = get_u32(t.payload + 0);
   era = get_u32(t.payload + 4);
   conductor_epoch = get_u64(t.payload + 8);
@@ -149,6 +153,8 @@ bool parsePulse(const Toot& t, uint32_t& conductor_id, uint32_t& era,
   beat_period_ms = get_u16(t.payload + 24);
   meter_beats = t.payload[26];
   flags = t.payload[27];
+  if (scene_id)
+    *scene_id = (t.payload_len >= PULSE_PAYLOAD_LEN) ? get_u16(t.payload + 28) : 0;
   return true;
 }
 

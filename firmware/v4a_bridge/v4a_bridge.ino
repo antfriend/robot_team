@@ -318,6 +318,7 @@ static uint8_t buildStatus(uint8_t* p) {
   p[41] = bib;
   p[42] = (playing ? toot::PSTATE_PLAYING : 0) |
           (gPulse.conductor() ? toot::PSTATE_CONDUCTOR : 0);
+  toot::put_u16(p + 43, ch.scene_id);   // v2 tail: what the band is playing
   return (uint8_t)toot::STATUS_PULSE_PAYLOAD_LEN;
 #else
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
@@ -370,6 +371,14 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
     gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
   }
 #if USE_PULSE
+  else if (t.type == toot::CMD && toot::cmdOp(t) == toot::CMD_SET_SCENE &&
+           (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+    // Scene change from the T-Deck / mesh. Only the CONDUCTOR owns the chart, so only
+    // it applies this; the rest learn the scene from the next beacon. Cheap (chart
+    // fields + a beacon flag, no flash), so it is callback-safe like beacon adoption.
+    if (gPulse.conductor() && t.payload_len >= 7)
+      gPulse.setScene(toot::get_u16(t.payload + 5), millis());
+  }
   else if (t.type == toot::PULSE) {
     // Band time-base beacon (TTN-RFC-0010). Adoption is cheap (no flash), so it
     // runs here where millis() is the accurate receipt time; the beat renders from
@@ -378,7 +387,7 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
     pulse::Chart c;
     uint64_t cond_epoch;
     if (toot::parsePulse(t, c.conductor_id, c.era, cond_epoch, c.downbeat_epoch,
-                         c.beat_period_ms, c.meter_beats, c.flags))
+                         c.beat_period_ms, c.meter_beats, c.flags, &c.scene_id))
       gPulse.onBeacon(c, cond_epoch, millis());
   } else if (t.type == toot::HELLO) {
     if (neighborIsNew(t.src_node_id)) gPulse.noteNeighbor(millis());
@@ -553,9 +562,37 @@ void loop() {
         else if (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) {
           gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);   // band play/stop over USB
         }
+#if USE_PULSE
+        else if (toot::cmdOp(t) == toot::CMD_SET_SCENE) {
+          // Move the band to a scene of the song. Only the conductor may author the
+          // chart, so the ACK reflects the achieved state: it confirms both that we
+          // hold the baton and that the band is now on the asked-for scene (so a
+          // repeat of the current scene still ACKs rather than looking like a failure).
+          ok = false;
+          if (gPulse.conductor() && t.payload_len >= 7) {
+            uint16_t want = toot::get_u16(t.payload + 5);
+            gPulse.setScene(want, millis());
+            ok = (gPulse.scene() == want);
+          }
+        }
+#endif
         if (ok && (t.flags & toot::FLAG_WANT_ACK))
           emitAckSerial(t, toot::ACK_ACCEPTED);
-      } else {
+      }
+#if USE_PULSE
+      else if (t.type == toot::CMD && toot::cmdOp(t) == toot::CMD_SET_SCENE &&
+               toot::cmdTarget(t) == NODE_BROADCAST) {
+        // Broadcast scene change over USB: apply it here if we hold the baton, and
+        // relay it either way so a mesh-side conductor can act on it.
+        if (gPulse.conductor() && t.payload_len >= 7) {
+          gPulse.setScene(toot::get_u16(t.payload + 5), millis());
+          if (t.flags & toot::FLAG_WANT_ACK) emitAckSerial(t, toot::ACK_ACCEPTED);
+        }
+        injectToMesh(buf, n);
+        gInjected++;
+      }
+#endif
+      else {
         injectToMesh(buf, n);
         gInjected++;
       }
@@ -591,12 +628,21 @@ void loop() {
       uint8_t body[toot::PULSE_PAYLOAD_LEN];
       uint8_t blen = toot::buildPulse(body, oc.conductor_id, oc.era, oepoch,
                                       oc.downbeat_epoch, oc.beat_period_ms,
-                                      oc.meter_beats, oc.flags);
+                                      oc.meter_beats, oc.flags, oc.scene_id);
       emitMesh(toot::PULSE, body, blen);
-      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums%s\n",
+      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums scene=%u%s\n",
                     (unsigned long)oc.era, (unsigned)oc.conductor_id,
-                    oc.beat_period_ms, gPulse.conductor() ? " (conductor)" : "");
+                    oc.beat_period_ms, oc.scene_id,
+                    gPulse.conductor() ? " (conductor)" : "");
     }
+    // The chart's scene moved (or we just joined a band mid-song): this is the seam
+    // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
+    // are still single-scene, so for now it only reports the move.
+    uint16_t new_scene;
+    if (gPulse.sceneChanged(new_scene))
+      Serial.printf("[scene] scene %u (era %lu cond 0x%08X)\n", new_scene,
+                    (unsigned long)gPulse.chart().era,
+                    (unsigned)gPulse.chart().conductor_id);
     // Timekeeper part: strike the note (kick) + flash the LED + OLED dot on each struck
     // step of the phrase.
     uint16_t sip;

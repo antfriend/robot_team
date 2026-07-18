@@ -535,6 +535,7 @@ static uint8_t buildStatus(uint8_t* p) {
   p[41] = bib;
   p[42] = (playing ? toot::PSTATE_PLAYING : 0) |
           (gPulse.conductor() ? toot::PSTATE_CONDUCTOR : 0);
+  toot::put_u16(p + 43, ch.scene_id);   // v2 tail: what the band is playing
   return (uint8_t)toot::STATUS_PULSE_PAYLOAD_LEN;
 #else
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
@@ -586,6 +587,21 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP)) {
         gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
         if (!gPlayEnabled) gHitPending = false;   // drop any already-scheduled note
+        break;
+      }
+      // Move the band to a scene of the song. The chart belongs to the CONDUCTOR, so
+      // only the conductor applies + ACKs this; everyone else ignores it and learns the
+      // scene from the next beacon. That is exactly why it is safe to broadcast: at
+      // most one node answers, so the operator needn't know who holds the baton.
+      if (toot::cmdOp(t) == toot::CMD_SET_SCENE &&
+          (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+#if USE_PULSE
+        if (gPulse.conductor() && t.payload_len >= 7) {
+          uint16_t want = toot::get_u16(t.payload + 5);
+          gPulse.setScene(want, millis());
+          accepted = (gPulse.scene() == want);  // ACK the achieved state (idempotent)
+        }
+#endif
         break;
       }
       if (toot::cmdTarget(t) == kNodeId) {
@@ -680,7 +696,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       pulse::Chart c;
       uint64_t cond_epoch;
       if (toot::parsePulse(t, c.conductor_id, c.era, cond_epoch, c.downbeat_epoch,
-                           c.beat_period_ms, c.meter_beats, c.flags))
+                           c.beat_period_ms, c.meter_beats, c.flags, &c.scene_id))
         gPulse.onBeacon(c, cond_epoch, millis());
 #endif
       break;
@@ -862,12 +878,21 @@ void loop() {
       uint8_t body[toot::PULSE_PAYLOAD_LEN];
       uint8_t blen = toot::buildPulse(body, oc.conductor_id, oc.era, oepoch,
                                       oc.downbeat_epoch, oc.beat_period_ms,
-                                      oc.meter_beats, oc.flags);
+                                      oc.meter_beats, oc.flags, oc.scene_id);
       emit(toot::PULSE, body, blen, sendEspNow, nullptr);
-      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums%s\n",
+      Serial.printf("[pulse] beacon era=%lu cond=0x%08X period=%ums scene=%u%s\n",
                     (unsigned long)oc.era, (unsigned)oc.conductor_id,
-                    oc.beat_period_ms, gPulse.conductor() ? " (conductor)" : "");
+                    oc.beat_period_ms, oc.scene_id,
+                    gPulse.conductor() ? " (conductor)" : "");
     }
+    // The chart's scene moved (or we just joined a band mid-song): this is the seam
+    // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
+    // are still single-scene, so for now it only reports the move.
+    uint16_t new_scene;
+    if (gPulse.sceneChanged(new_scene))
+      Serial.printf("[scene] scene %u (era %lu cond 0x%08X)\n", new_scene,
+                    (unsigned long)gPulse.chart().era,
+                    (unsigned)gPulse.chart().conductor_id);
     // The lead's melody: on each new sequencer step, strike the note (if any) at this
     // phrase position. Empty steps and RESTs are silent. Scheduled a humanize-jitter
     // after the step so the line breathes within the swing budget.
