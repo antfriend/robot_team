@@ -33,7 +33,21 @@ void Engine::onBeacon(const Chart& c, uint64_t conductor_epoch, uint32_t recv_ms
   else if (from_current && c.era >= chart_.era) adopt = true;  // routine correction
   else if (better(c, chart_)) adopt = true;  // a better conductor: yield to it
 
-  if (!adopt) return;
+  if (!adopt) {
+    // We heard a chart WORSE than ours. If we hold the baton, whoever sent it is out
+    // of sync — typically a node that just rebooted, heard nothing during its listen
+    // window, and self-appointed at era 1. It will not learn better until our next
+    // drift-paced beacon, which can be a full resync period away.
+    //
+    // Correct it now. This triggers on *evidence* (a stale chart on the air) rather
+    // than on inferred timing, which is why it is more reliable than the HELLO-gap
+    // fast-lock in noteNeighbor(): that one has to guess "has this neighbor been away
+    // long enough to have lost the chart?" from a gap threshold that sits awkwardly
+    // close to the HELLO period. A self-appointing node emits one beacon immediately,
+    // so a single frame getting through is enough to pull it back in.
+    if (am_conductor_) fastlock_ = true;
+    return;
+  }
   chart_ = c;
   offset_ms_ = (int64_t)conductor_epoch - (int64_t)recv_ms;
   have_chart_ = true;

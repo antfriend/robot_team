@@ -147,6 +147,46 @@ int main() {
   cold.update(3000, out, oepoch);
   CHECK(cold.scene() == 0, "a cold start restarts the song at scene 0, unlike a takeover");
 
+  // --- 7b) a conductor corrects a stale chart on sight ----------------------
+  // A node that reboots hears nothing during its listen window and self-appoints at
+  // era 1. Nothing pulls it back until the real conductor's next drift-paced beacon,
+  // which can be a whole resync period away (measured on hardware: a rejoin at 15-17 s
+  // against a 30 s beacon). So the conductor beacons as soon as it HEARS a worse chart
+  // — triggered by evidence rather than by guessing from HELLO timing.
+  pulse::Engine boss;
+  boss.begin(0x10, 0);
+  CHECK(boss.update(3000, out, oepoch) && boss.conductor(),
+        "the conductor self-appoints and emits its first beacon");
+  CHECK(!boss.update(4000, out, oepoch),
+        "its next scheduled beacon is a resync period away, so nothing is due");
+
+  pulse::Chart stale;                 // a freshly rebooted node's self-appointed chart
+  stale.conductor_id = 0x11;
+  stale.era = 1;
+  stale.downbeat_epoch = 0;
+  stale.beat_period_ms = 500;
+  stale.meter_beats = 4;
+  boss.onBeacon(stale, /*conductor_epoch=*/5000, /*recv_ms=*/5000);
+  CHECK(boss.conductor() && boss.chart().conductor_id == 0x10,
+        "the conductor does not adopt a chart worse than its own");
+  CHECK(boss.update(5100, out, oepoch),
+        "...it beacons IMMEDIATELY to correct the stale node, not at the next resync");
+
+  // Its own echo (e.g. relayed back by the bridge) must not trigger a correction.
+  pulse::Chart echo = boss.chart();
+  boss.onBeacon(echo, 5200, 5200);
+  CHECK(!boss.update(5300, out, oepoch),
+        "our own echoed chart does not trigger a correction beacon");
+
+  // Only the conductor corrects; a follower stays quiet (one voice on the air).
+  pulse::Engine quiet;
+  quiet.begin(0x12, 0);
+  quiet.onBeacon(beacon, 200000, 100);      // adopt 0x10's era-5 chart -> follower
+  CHECK(!quiet.conductor(), "the follower follows");
+  quiet.onBeacon(stale, 6000, 6000);        // hears the same stale era-1 chart
+  CHECK(!quiet.update(6100, out, oepoch),
+        "a follower hearing a stale chart stays silent — only the conductor corrects");
+
   // --- 8) scene -> phrase selection (Score.h) -------------------------------
   static const score::Note kIntro[] = {{0, score::C4, 1}};
   static const score::Note kFinale[] = {{0, score::E4, 1}, {4, score::G4, 1}};

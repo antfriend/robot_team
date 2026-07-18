@@ -1120,6 +1120,34 @@ If a fact lives in one of these, link to it from here — don't copy it.
   "someone out there needs correcting" signal rather than an inference from HELLO timing.
   Until this is resolved, **the [[band-phase-settle-window]] rule still stands unchanged** —
   the port is committed but must be treated as unproven, not as a fix.
+- **Dedup-across-reboot RULED OUT by measurement (2026-07-18).** Hypothesis (b) above was
+  testable: V4-A's `gDedup` is a **128-entry ring shared across all sources** (~60–85 s of
+  fleet history at ~1.5–2 frames/s), and [v4a_bridge.ino:354](firmware/v4a_bridge/v4a_bridge.ino#L354)
+  `return`s on a dedup hit **before** HELLO reaches `neighborNeedsLock` — so a returning
+  node's replayed low seqs really could swallow exactly the frames the fast-lock needs.
+  Two-condition test: **COLD** (V4-B left running 3 min first, so its post-boot low seqs had
+  aged out of the ring) vs **WARM** (reset again ~30 s later, low seqs freshly re-cached).
+  Prediction if dedup were the blocker: cold ≈ 5 s, warm ≈ 15 s. **Measured: COLD 17.5 s,
+  WARM 15.2 s — no difference**, both just the periodic beacon. So dedup is NOT the cause.
+  (The seq-restart-on-reboot exposure is real and worth remembering for other paths, it
+  simply isn't what's biting here.) Remaining suspect is the marginal 3 s threshold: steady
+  state gap is ~2 s and the reboot gap only ~2.3–4.5 s, so the trigger straddles it and fires
+  at best coin-flip often. **Not chased further — replaced by the mechanism below.**
+- **Conductor now corrects a stale chart ON SIGHT ✅ built + native-verified (2026-07-18) —
+  evidence-triggered instead of timing-triggered.** New rule in `Engine::onBeacon`
+  (`Pulse.cpp`): when a chart arrives that is **worse than ours and we hold the baton**, set
+  `fastlock_` so the next `update()` beacons immediately. A rebooted node self-appoints at
+  era 1 and **emits one beacon straight away** (`selfAppoint` sets `next_beacon_tx_ms_ = now`),
+  so a single frame getting through is enough to pull it back in — no guessing from HELLO
+  gaps, no dependence on a threshold that sits awkwardly close to the 2 s HELLO period.
+  Guards: a conductor ignores **its own echoed chart** (the existing early return), and a
+  **follower stays silent** so only one voice corrects. **This is a library-level change, so
+  all five sketches inherit it with no per-sketch edit** — all five compile clean (V4s 92%,
+  T-Deck 39%, K10 20%). `tests/test_pulse.cpp` now **45 checks**, incl. the correction
+  beacon firing, the echo not firing it, and the follower staying quiet. **V4-B flashed
+  (COM9); still UNPROVEN on hardware** — the proof needs the fix on the node that holds the
+  baton, currently V4-A, so it wants a cable move: flash V4-A, then reset V4-B and expect a
+  rejoin in ~5–6 s instead of the measured 15–17.5 s.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**
