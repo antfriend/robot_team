@@ -1,6 +1,7 @@
+# Open-source Universal Agent Memory & Learning System
 ## Multi Agent Memory, Learning, Reasoning and Coordination on *Any* Substrate
 
-It's a drafty, synthetic, unified field experiment with concrete elements of:
+It's a drafty, synthetic, experimentally unified field ("the cognitive glue of intelligence in spaces other than neural." - Levin) with concrete elements of:
 - free energy principle.
 - subjective data, the Umwelt.
 - experiential perception as synthetic modeling or maybe synthetic perception as experiential modeling, depending on your umwelt valence.
@@ -8,13 +9,13 @@ It's a drafty, synthetic, unified field experiment with concrete elements of:
 
 ## Where to start:
 
-- [agent-memory-system_ttdb.md](agent-memory-system_ttdb.md) — the semantically compressed spec file for all of this. It is also *an instance of the thing it specifies*: a conforming store describing itself in its own format. If you read one file, read this one.
+- [agent-memory-system_ttdb.md](agent-memory-system_ttdb.md) — the semantically compressed spec file for all of this. It is also *an instance of the thing it specifies*: **a conforming store describing itself in its own format.** If you read one file, read this one.
 
 - [RFCs/](RFCs/) — the Request For Comment, internet spec style documents: the fully expanded version of agent-memory-system_ttdb.md. Start at [RFCs/INDEX.md](RFCs/INDEX.md).
 
 - [https://antfriend.github.io](https://antfriend.github.io) — the reference viewer. 
 
-Drop any conforming store on it (including the spec file above) and walk the globe of records.
+Upload any conforming TTDB store on it (including the spec file above) and walk the globe of records. This website is all static files, hosted on github. File "upload" is merely to a client-side cookie on your own machine.
 ![upload here](/replicate/upload.png)
 
 The load-bearing idea, in one breath: an agent's memory is one plain-text file
@@ -36,11 +37,11 @@ compactly at `@LAT50LON1` / `@LAT50LON3` in the spec store.
 
 **SOLUTION:** Copy or fork
 [https://github.com/antfriend/robot_team](https://github.com/antfriend/robot_team),
-assemble the hardware, flash. The fleet is a UNIHIKER K10, three Heltec WiFi
+assemble the hardware, flash. The fleet is three Heltec WiFi
 LoRa 32 V4s, and a LilyGo T-Deck, coordinated by a laptop running
 `orchestrator/companion.py`. The repo's `CLAUDE.md` documents the build path
 (arduino-cli, not PlatformIO) and every hardware gotcha we hit so you don't
-have to. The primary hypothesis under test is semantic positioning: inferring
+have to. The primary hypothesis under test is *semantic positioning:* inferring
 where nodes are from what they perceive in common.
 
 ### "I want a minimal, single-agent memory system to be the librarian for a large sprawling project of many folders and files. I'd appreciate hand-holding, I don't understand this thing at all."
