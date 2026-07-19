@@ -15,5 +15,9 @@ It's a drafty, synthetic, unified field experiment with concrete elements of:
 ## What do you want to make?
 ### I want to replicate this experiment as exactly as possible.
     **SOLUTION:** Copy or fork [https://github.com/antfriend/robot_team](https://github.com/antfriend/robot_team), assemble the hardware, flash.
-    
-### I want to make a minimal, single agent memory system to be the librarian for a large sprawling project of many folders and large and small files.
+
+### I want to make a minimal, single agent memory system to be the librarian for a large sprawling project of many folders and large and small files. I'd appreciate hand-holding, I don't understand this thing at all.
+    **SOLUTION:** [solution here]
+
+### Appealing Idea #1
+
