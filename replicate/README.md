@@ -96,7 +96,7 @@ layers). The network invariants that survived real hardware are in
 [0009](RFCs/TTN-RFC-0009-TTDB-Push-Back.md); offline-first is the foundation,
 not a degraded mode, so a node that loses the mesh is still a complete agent.
 
-### "I want synchronized music / light from a swarm of cheap microcontrollers, no conductor cable, no NTP."
+### "I want synchronized music / light from a swarm of cheap microcontrollers, no conductor cable, no NTP (Network Time Protocol)."
 
 **SOLUTION:** [TTN-RFC-0010 Fleet Pulse](RFCs/TTN-RFC-0010-Fleet-Pulse.md).
 Nodes elect a pulse clock (first-up conducts, joiners never coup), broadcast
