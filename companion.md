@@ -1204,6 +1204,36 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ORDEAL, `x` to stop. The 07-18 design choices — distributed finale score over
   `TtdbShare`, presence/proximity-gated scene advance, position-derived parts — remain
   the follow-on increments (the last is what makes the song serve `@LAT90LON50`).
+- **FIRST PERFORMANCE ✅ — the hero's arc walked end-to-end on hardware, measured
+  (2026-07-20).** V4-B (COM9) + V4-C (COM13) reflashed the same session (hash-verified,
+  ping ACK attempt 1, regression pulls clean — V4-C's TTDB grew 36951→48599 B, all of it
+  self-logged `@LAT96`/`@LAT97` percept windows, the SP0 tiers working as designed), so
+  all four members carry the score; the user committed the code and performed with V4-A
+  back on the cable. A laptop watcher (`band --probes 2` every ~10 s through the bridge)
+  recorded the story: **scene 0→1→2→3→4→5 over ~2.5 min, each `o` press bumping the era
+  exactly once (era 1→6 tracks scene+1), every full-reply sample showing all four nodes
+  on the same scene, conductor V4-A (`0x10`) throughout, typical tightness ±5–12 ms
+  (PASS on every all-reply sample)** — chart-scene authorship from the T-Deck keys,
+  broadcast conductor-apply, and follower page-turns are now *performance*-verified, not
+  just set-scene-verified. Scattered single-node `(no reply)`s are the known transient
+  bridged-probe misses, not defects. **Not exercised this run:** the ORDEAL
+  conductor-kill — `0x10` held the baton across the whole log and scene 3 was passed
+  through in ~10 s, so the handoff-survival moment of the story is still to be staged
+  live. Audio is confirmed by ear only ([[band-play-ack-false-negative]]); the watcher
+  went silent at 17:02:57, consistent with the bench being powered down after the finale.
+- **THE LAPTOP CAN CONDUCT ✅ (2026-07-20) — second performance, driven end-to-end from
+  `orchestrator/conduct.py`.** One serial session on the bridge, opened **without** the
+  DTR/RTS reset, runs the whole show: per-node `CMD_PLAY`/`CMD_STOP` (the bridge doesn't
+  rebroadcast those), broadcast `CMD_SET_SCENE` walking the scenes on a musical schedule
+  (ALONE/ALLY/GROOVE 8 s each, ORDEAL held 12 s, RETURN 16 s, FINALE 24 s), and a fresh
+  **ms-resolution `toot_seq` per send** so consecutive cues aren't dedup-dropped at the
+  far nodes. Ran 17:09–17:11: 4/4 play ACKs (V4-C/T-Deck on attempt 2 — the blocking-tone
+  delay), all six scene changes ACKed attempt 1–2, 4/4 stops, tale reset to scene 0.
+  **Role clarification the run surfaced: every scene ACK came from `0x11` — V4-B holds
+  the baton now** (the bench re-power after the first performance re-elected; V4-A is
+  currently bridge-only follower). Bridge ≠ conductor: the laptop always enters through
+  V4-A's USB, and the broadcast conductor-apply makes conducting work no matter where
+  the baton sits — which is exactly why broadcast is the designed path.
 - **▶ START HERE (handoff written 2026-07-18).** *One-line state:* the pulse chart now
   carries a **scene**, verified on hardware; **V4-A / V4-B / V4-C / T-Deck are all flashed**
   with that build and playing as one band (K10 is on the old build, off the band roster,
