@@ -30,6 +30,7 @@
 #include <TtdbShare.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <HeroArc.h>  // the hero's-arc song: scene -> phrase tables for every role
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
@@ -210,11 +211,10 @@ static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
 static int gTargetIdx = 0;
 static uint32_t gCmdTarget = NODE_K10_1;
 
-// The T-Deck's own musical part (part 2): a harmony a diatonic third below the K10's
-// Ode-to-Joy lead, on the shared pulse step grid. `g`/`x` (or a received CMD_PLAY/STOP)
-// toggle it, so one `g` starts both voices at once. The on/off state is persisted in NVS
-// (setLocalPlay), so a power-cycle RESUMES the part — the T-Deck rejoins the song once it
-// re-locks to the band (played only as an in-phase follower; see the harmony gate below).
+// The T-Deck's own musical voice. `g`/`x` (or a received CMD_PLAY/STOP) toggle it, so
+// one `g` starts the whole band at once. The on/off state is persisted in NVS
+// (setLocalPlay), so a power-cycle RESUMES the part — the T-Deck rejoins the song once
+// it re-locks to the band (played only as an in-phase follower; see the gate below).
 static Preferences gPrefs;
 static bool gLocalPlay = false;
 static void setLocalPlay(bool on) {
@@ -222,14 +222,11 @@ static void setLocalPlay(bool on) {
   gPrefs.putBool("play", on);     // survive a reboot (screen refreshes within 1 s)
 }
 static const uint32_t PULSE_HARM_TONE_MS = 180;   // staccato note (blocks; keep short)
-static const score::Note kHarmNotes[] = {
-  {0,  score::C4, 4}, {4,  score::C4, 4}, {8,  score::D4, 4}, {12, score::E4, 4},
-  {16, score::E4, 4}, {20, score::D4, 4}, {24, score::C4, 4}, {28, score::B3, 4},
-  {32, score::A3, 4}, {36, score::A3, 4}, {40, score::B3, 4}, {44, score::C4, 4},
-  {48, score::C4, 6}, {54, score::B3, 2}, {56, score::B3, 8},
-};
-static const score::Phrase kHarm = {
-    kHarmNotes, sizeof(kHarmNotes) / sizeof(kHarmNotes[0]), 64};
+// The T-Deck's PART in the hero's-arc song (HeroArc.h, TTN-RFC-0010 §7): the RETURNING
+// ROAMER — silent through scenes 0-3, back with the Ode-to-Joy HARMONY in scene 4 (the
+// song's first pitched voice), then carrying the LEAD in the finale. Which scenes play
+// what is authored in the score table, not here.
+static const score::Part& kPart = heroarc::kConsole;
 
 // Friendly short name for a node id (for the screen).
 static const char* nodeName(uint32_t id) {
@@ -471,6 +468,20 @@ static void emitCmdTo(uint8_t op, uint32_t target, const uint8_t* args, uint8_t 
 static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
   emitCmdTo(op, gCmdTarget, args, argn);
 }
+
+#if USE_PULSE
+// Walk the hero's-arc story to a scene: broadcast CMD_SET_SCENE (only the conductor
+// applies a scene change, so at most one node acts — the operator needn't know who
+// holds the baton) and also try locally, in case WE are the one counting (a broadcast
+// doesn't loop back to its sender; setScene is a no-op on a follower).
+static void emitSetScene(uint16_t scene) {
+  uint8_t a[2];
+  toot::put_u16(a, scene);
+  emitCmdTo(toot::CMD_SET_SCENE, NODE_BROADCAST, a, 2);
+  gPulse.setScene(scene, millis());
+  Serial.printf("[scene] requested scene %u %s\n", scene, heroarc::sceneName(scene));
+}
+#endif
 
 // Build a GPS PERCEPT payload (Toot.h GPS_PERCEPT_PAYLOAD_LEN) from the last fix — the
 // answer to CMD_GET_GPS (SP2). No flash/blocking, so it is safe from the recv path.
@@ -1073,9 +1084,15 @@ static void renderConsole() {
 // Frame dispatcher: thin status bar, globe (top), then the active bottom pane.
 static void renderScreen() {
   char l[54];
-  snprintf(l, sizeof(l), "T-DECK 0x%X %s sync%s drive>%s z%d %c", (unsigned)kNodeId,
+  snprintf(l, sizeof(l), "T-DECK 0x%X %s sync%s drive>%s z%d %c %s", (unsigned)kNodeId,
            viewName(gView), gSynced ? "+" : "-", nodeName(gCmdTarget),
-           gZoomIdx + 1, gPane == PANE_CONSOLE ? 'C' : 'M');
+           gZoomIdx + 1, gPane == PANE_CONSOLE ? 'C' : 'M',
+#if USE_PULSE
+           heroarc::sceneName(gPulse.scene())
+#else
+           ""
+#endif
+           );
   drawWide(STATUS_Y, ST77XX_WHITE, l);
 
   if (gGlobe) {
@@ -1384,7 +1401,8 @@ void loop() {
   // (no "enter"; every press sends immediately):
   //   t = next node (both globes; also cycles the comm target in Semantic Position view)
   //   s = get-status   p = ping   b = beep
-  //   g = play (start the target's song)  x = stop   SPACE = toggle console pane
+  //   g = play (start the band)  x = stop   SPACE = toggle console pane
+  //   o = onward (next scene of the hero's-arc song)   r = restart the tale (scene 0)
   //   +/= = zoom in (closer)   -/_ = zoom out (further)
   // Any other key defaults to a status query. See the on-screen legend.
   char k = readKey();
@@ -1413,6 +1431,17 @@ void loop() {
       // Play/stop are band-wide: broadcast so ONE press starts/stops the whole fleet (+ our part).
       case 'g': setLocalPlay(true);  emitCmdTo(toot::CMD_PLAY, NODE_BROADCAST, nullptr, 0); break;
       case 'x': setLocalPlay(false); emitCmdTo(toot::CMD_STOP, NODE_BROADCAST, nullptr, 0); break;
+#if USE_PULSE
+      // Walk the hero's-arc story from the handheld: o = onward one scene (capped at
+      // the finale — re-issuing the current scene is idempotent), r = back to the top.
+      case 'o': {
+        uint16_t next = gPulse.scene() + 1;
+        if (next >= heroarc::SCENE_COUNT) next = heroarc::SCENE_COUNT - 1;
+        emitSetScene(next);
+        break;
+      }
+      case 'r': emitSetScene(0); break;
+#endif
       case ' ':                                  // swipe-up analog: toggle the console
       case 'n':
         gPane = (gPane == PANE_MAIN) ? PANE_CONSOLE : PANE_MAIN;
@@ -1445,27 +1474,32 @@ void loop() {
     // the console screen can show the band's place in the song).
     uint16_t new_scene;
     if (gPulse.sceneChanged(new_scene)) {
-      Serial.printf("[scene] scene %u (era %lu cond 0x%08X)\n", new_scene,
+      Serial.printf("[scene] scene %u %s (era %lu cond 0x%08X)\n", new_scene,
+                    heroarc::sceneName(new_scene),
                     (unsigned long)gPulse.chart().era,
                     (unsigned)gPulse.chart().conductor_id);
       gScreenDirty = true;
     }
-    // Part 2: the harmony line. On each new step, sound its note (if playing) on the I2S
-    // speaker — same shared clock as the K10 lead, so the two voices lock. toneI2S blocks
-    // ~PULSE_HARM_TONE_MS, which is the K10's deferred-tone discipline (fine in loop()).
-    // Play only when the song is on AND we're locked to the band as a FOLLOWER — i.e. in
-    // phase with the K10 lead. While self-appointed (just rebooted, not yet re-locked) we
-    // stay silent so the harmony never plays out of phase; it resumes the moment we adopt
-    // the conductor's chart. This is what makes a power-cycled T-Deck rejoin cleanly.
+    // The console's voice: the scene selects the phrase (HeroArc.h — silent until the
+    // RETURN, harmony there, lead in the FINALE). On each new step, sound its note (if
+    // playing) on the I2S speaker; toneI2S blocks ~PULSE_HARM_TONE_MS (deferred-tone
+    // discipline, fine in loop()). Play only when the song is on AND we're locked to
+    // the band as a FOLLOWER — while self-appointed (just rebooted, not yet re-locked)
+    // we stay silent so the voice never plays out of phase; it resumes the moment we
+    // adopt the conductor's chart. This is what makes a power-cycled T-Deck rejoin
+    // cleanly. The step clock runs in silent scenes too, so entrances land on the grid.
+    const score::Phrase* ph = score::phraseForScene(kPart, gPulse.scene());
     uint16_t sip;
     uint32_t sc;
-    if (gPulse.stepTick(pnow, kHarm.steps, sip, sc) && gLocalPlay && !gPulse.conductor()) {
-      const score::Note* nt = score::noteAt(kHarm, sip);
+    if (gPulse.stepTick(pnow, ph ? ph->steps : 16, sip, sc) && ph &&
+        gLocalPlay && !gPulse.conductor()) {
+      const score::Note* nt = score::noteAt(*ph, sip);
       if (nt && nt->freq != score::REST) {
 #if USE_TDECK_HW
         toneI2S((float)nt->freq, PULSE_HARM_TONE_MS);
 #endif
-        Serial.printf("[harmony] step %2u/%u  %4uHz\n", sip, kHarm.steps, nt->freq);
+        Serial.printf("[part] step %2u/%u  %4uHz (%s)\n", sip, ph->steps, nt->freq,
+                      heroarc::sceneName(gPulse.scene()));
       }
     }
   }

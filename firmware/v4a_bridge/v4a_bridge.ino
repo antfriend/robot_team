@@ -24,6 +24,7 @@
 #include <TtdbShare.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <HeroArc.h>  // the hero's-arc song: scene -> phrase tables for every role
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
@@ -155,15 +156,11 @@ static bool     gBeatFlash = false;    // OLED beat-dot state
 // only the audible/LED hit is muted. Mirrors the K10.
 static bool     gPlayEnabled = false;
 static uint32_t gHelloAt = 0;          // periodic HELLO so the conductor fast-locks us
-// V4-A's PART (TTN-RFC-0010 §7): the timekeeper — "four on the floor", a note on every
-// beat (steps 0/4/8/12 of the 16-step bar), the steady pulse the band rides. Now that the
-// V4 has a MAX98357A speaker it sounds a C4 kick on each beat (was REST/LED-only); the
-// LED + OLED-dot still hit with it. C4 (262 Hz) square — one octave below the old C5.
-// Re-voicing is a table edit (Score.h).
-static const score::Note kPartNotes[] = {
-  {0, score::C4, 1}, {4, score::C4, 1}, {8, score::C4, 1}, {12, score::C4, 1},
-};
-static const score::Phrase kPart = {kPartNotes, 4, 16};
+// V4-A's PART in the hero's-arc song (HeroArc.h, TTN-RFC-0010 §7): the TIMEKEEPER —
+// "four on the floor", the steady C4 kick the story rides, present from scene 0
+// (V4-A alone) and silent only through the ordeal. Which scenes it plays is authored
+// in the score table, not here — re-arranging the song is a HeroArc.h edit.
+static const score::Part& kPart = heroarc::kTimekeeper;
 // Conductor fast-lock (§4.2): only beacon when a neighbor actually needs locking, not on
 // every HELLO.
 static uint32_t gNeighbors[8] = {0};
@@ -653,20 +650,23 @@ void loop() {
                     oc.beat_period_ms, oc.scene_id,
                     gPulse.conductor() ? " (conductor)" : "");
     }
-    // The chart's scene moved (or we just joined a band mid-song): this is the seam
-    // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
-    // are still single-scene, so for now it only reports the move.
+    // The chart's scene moved (or we just joined a band mid-song): re-selection is
+    // just the phraseForScene lookup below reading the new scene.
     uint16_t new_scene;
     if (gPulse.sceneChanged(new_scene))
-      Serial.printf("[scene] scene %u (era %lu cond 0x%08X)\n", new_scene,
+      Serial.printf("[scene] scene %u %s (era %lu cond 0x%08X)\n", new_scene,
+                    heroarc::sceneName(new_scene),
                     (unsigned long)gPulse.chart().era,
                     (unsigned)gPulse.chart().conductor_id);
-    // Timekeeper part: strike the note (kick) + flash the LED + OLED dot on each struck
-    // step of the phrase.
+    // Timekeeper part: the scene selects the phrase (no row = SILENT in that scene);
+    // the step clock runs regardless, so a silent scene stays in phase and re-entry
+    // lands on the grid. Strike the note + LED + OLED dot on each struck step.
+    const score::Phrase* ph = score::phraseForScene(kPart, gPulse.scene());
     uint16_t sip;
     uint32_t sc;
     const score::Note* nt = nullptr;
-    if (gPulse.stepTick(pnow, kPart.steps, sip, sc) && (nt = score::noteAt(kPart, sip))) {
+    if (gPulse.stepTick(pnow, ph ? ph->steps : 16, sip, sc) && ph &&
+        (nt = score::noteAt(*ph, sip))) {
       if (gPlayEnabled) {              // boots silent; only between CMD_PLAY and CMD_STOP
         digitalWrite(kLedPin, HIGH);
         gLedClearMs = pnow + PULSE_LED_MS;

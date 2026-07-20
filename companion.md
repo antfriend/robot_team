@@ -1172,13 +1172,47 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `[pulse] beacon`. Add a temporary print of the `neighborNeedsLock` gap and the `fastlock_`
   decision before flashing. **Until then both fixes stay in as unproven** (native-tested,
   +52 B and a few lines, harmless) and **[[band-phase-settle-window]] stands unchanged**.
+- **HERO'S-ARC SONG AUTHORED ✅ + flashed to the two cabled nodes (2026-07-20) — track ①
+  built; the fleet's own history is now a six-scene score.** New
+  **`firmware/libraries/Pulse/src/HeroArc.h`** holds the ENTIRE song as `score::Part`
+  tables — one file is the whole score, so re-arranging the song is a data edit there,
+  never a sketch or protocol change. The scenes replay the build history: **0 ALONE**
+  (V4-A's kick keeping time by itself) → **1 ALLY** (V4-B's G3 backbeat answers) →
+  **2 GROOVE** (V4-C's offbeat hats complete it — and still no pitched voice, audibly) →
+  **3 ORDEAL** (everything falls away except V4-B's lub-dub heartbeat; this is where the
+  conductor is killed live, and the chart — the song's place — survives the handoff, the
+  property the scene extension exists to prove) → **4 RETURN** (the T-Deck back with the
+  Ode-to-Joy harmony, the song's first pitched voice) → **5 FINALE** (the T-Deck carries
+  the lead over the full groove; a K10 harmony row is pre-authored so its rejoin is a
+  reflash, not a rewrite). All four band sketches now select their phrase per scene via
+  `score::phraseForScene` (each sketch's `kPart` is a reference into HeroArc): **no row =
+  SILENT in that scene**, the step clock runs while silent so every entrance lands on the
+  grid, and mixed loop lengths (16-step grooves under 64-step melodies) stay locked
+  because step-in-phrase is absolute-step mod length. The T-Deck is the storyteller's
+  remote: **`o` = onward one scene** (capped at the finale; re-issuing is idempotent),
+  **`r` = restart the tale** — both broadcast `CMD_SET_SCENE` (conductor-only apply, at
+  most one responder) AND call `setScene` locally in case the console itself holds the
+  baton; the status bar and every node's `[scene]` serial log now show the scene NAME.
+  Compile-verified all four (V4s 92%, T-Deck 40% huge_app — the song is flash-free);
+  **V4-A (COM6) + T-Deck (COM10) flashed** (ping ACK attempt 1 before and after;
+  regression pulls byte-count-exact 52104 / 52026 B, FS intact). **V4-B + V4-C still run
+  the single-scene build — they play their old part in EVERY scene until the cable visits
+  them**, so the progressive-entry story is not performable until both are reflashed.
+  Performance runbook (after their reflash): **cold-start the whole fleet** (a cold band
+  starts at scene 0; the era latch keeps an old chart alive across reflashes), wait the
+  settle window, `g` to play, walk the story with `o`, kill the conductor during the
+  ORDEAL, `x` to stop. The 07-18 design choices — distributed finale score over
+  `TtdbShare`, presence/proximity-gated scene advance, position-derived parts — remain
+  the follow-on increments (the last is what makes the song serve `@LAT90LON50`).
 - **▶ START HERE (handoff written 2026-07-18).** *One-line state:* the pulse chart now
   carries a **scene**, verified on hardware; **V4-A / V4-B / V4-C / T-Deck are all flashed**
   with that build and playing as one band (K10 is on the old build, off the band roster,
   usually unpowered). Everything below is committed on `main`. **Three tracks, in the order
   I'd take them:**
-  - **① Author the hero's-arc song — no blockers, all the machinery exists.** This is the
-    live creative thread the scene work was built for. The originating idea: a multi-part
+  - **① Author the hero's-arc song — ✅ DONE 2026-07-20 (bullet above): HeroArc.h authored,
+    all four sketches scene-wired, V4-A + T-Deck flashed. Remaining: reflash V4-B/V4-C
+    (cable visit) and perform it; design choices (a)/(b)/(c) below are the follow-ons.**
+    This was the live creative thread the scene work was built for. The originating idea: a multi-part
     song shaped as a **hero's arc**, where the fleet's own history is the story (V4-A alone
     keeping time → V4-B's backbeat → V4-C's hi-hat completes the groove but there is still
     **no pitched voice** → the *ordeal* is the conductor dying and the song surviving the
