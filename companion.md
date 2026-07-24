@@ -1278,6 +1278,50 @@ If a fact lives in one of these, link to it from here — don't copy it.
     holds the USB lead** (`band`/`sync` do not), so drive the band with **`--node broadcast`**
     through the V4-A bridge; and **wait 30–60 s after any reflash/power-cycle before trusting
     a `band` sample** ([[band-phase-settle-window]]).
+- **Feelings globe + self-walking hero's-arc song ✅ BUILT + the auto-walk is ON-DEVICE
+  VERIFIED (2026-07-24).** Two coupled features, all five sketches compile clean (T-Deck 40%
+  huge_app, V4-A/B/C 92/93/92%, K10 20%). **V4-A, V4-B, V4-C, and the T-Deck flashed with the new
+  firmware (K10 not yet); one `g` press walked the whole story autonomously** — captured on V4-B's
+  serial as `scene 0 ALONE → 1 ALLY → 2 GROOVE → 3 ORDEAL` (V4-A conducting `0x10`, auto-advancing
+  ~6 s/scene, era 10→13) then `→ 4 RETURN → 5 FINALE` (the T-Deck driving the turn: RETURN 5.7 s
+  after ORDEAL = its `ORDEAL_HOLD_MS`, FINALE 9.6 s later = `RETURN_HOLD_MS`). So the conductor
+  auto-advances 0→3 and **holds at grief**, and the T-Deck is the **only** actor past the gate —
+  proving the grief-hold-until-roamer-returns behavior. **Bench lesson:** the conductor is whoever
+  holds the baton, and the baton does NOT return to the lowest id on a reflash (era wins, lowest-id
+  is only a tie-break) — a stale-firmware node (V4-C at era 8) kept conducting after V4-A/T-Deck
+  were flashed, so the auto-walk didn't run until V4-C was reflashed and V4-A (new fw) reclaimed the
+  baton at era 9. Followers on OLD firmware still follow the scene + play their part; only the
+  CONDUCTOR needs the new code (plus the T-Deck for 3→5). **BOTH remaining checks then PASSED on
+  hardware (user-confirmed 2026-07-24):** the feelings-globe screen renders the band eyeballs +
+  live status, and the **explicit grief-gate power-cycle worked** — with the T-Deck powered off
+  the band held at ORDEAL, and it jumped to RETURN→FINALE when the T-Deck returned. So the whole
+  feature is end-to-end verified except the K10 (still on old fw — it follows scenes + plays its
+  part fine as a follower; reflash it for the full six-instrument arc). Also added + verified: the
+  T-Deck globe zoom now has **5 levels** (was 3) — two closer steps (`z4` 4.05×, `z5` 5.75×), and
+  the node dots + eyeballs scale with `gZoom` so magnified globes keep proportional marks.
+  - **Third T-Deck globe = the feelings landscape, now the DEFAULT power-up view.** The trackball
+    click cycles **Feelings → Semantic Position → RFC** (`VIEW_FEELINGS=0`, skips any globe that
+    didn't load). New TTDB `firmware/tdeck_console/data/feelings.ttdb.md` (the repo's
+    `feelings_ttdb.md` + a band overlay), loaded as a view-only globe `gFeelDb` from
+    `/feelings.ttdb.md` — **flash it with `scripts/Upload-Tdeck-FS.ps1`** (it's in `data/`, so
+    mklittlefs picks it up). On this globe the **three other band members (V4-A/V4-B/V4-C) are
+    always-on eyeballs** carrying a live status label (name + `*` if it holds the baton + "2s"/
+    "LOST" from the HELLO last-seen) — parsed from each record's `name:`/`node:` lines
+    (`gNodeMeshId`), repainted at 1 Hz; the affective records are dim, unlabeled dots. The globe
+    never touches the mesh (like the RFC one).
+  - **`g` now plays the whole hero's-arc song on its own, with a grief gate for the roamer.** New
+    `Pulse::armSong/disarmSong/serviceSong` (RAM `song_armed_` + per-scene `scene_entered_ms_`):
+    a **CMD_PLAY arms every node**, and whoever conducts auto-advances the early scenes on
+    `heroarc::SCENE_HOLD_MS` (6 s) but **HOLDS at `SCENE_ORDEAL` (grief)** — so a mid-song T-Deck
+    power-cycle leaves the band waiting at grief (V4-B's heartbeat loops there). The **T-Deck is
+    the only actor past the gate**: when present + playing + locked at ORDEAL it dwells, then
+    `emitSetScene(RETURN)`, then `(FINALE)` — so `g` plays end-to-end when it's present, and a
+    returned T-Deck (gLocalPlay restored from NVS + the adopted ORDEAL chart) picks up right at
+    the turn. Because every node arms on CMD_PLAY, the walk even **survives a conductor handoff**.
+    Story pacing lives in `HeroArc.h` (`SCENE_HOLD_MS`/`ORDEAL_HOLD_MS`/`RETURN_HOLD_MS`).
+    `o`/`r` still work for manual scene walking. **Needs the whole fleet reflashed** (shared
+    `Pulse` engine change) + an on-device run to confirm the auto-walk timing and the grief-gate
+    rejoin by ear/eye.
 - **Next action — earn TTN-RFC-0011 its "confirmed" status (or falsify it).** The floor and all
   three render/verify mechanisms are built; what's unproven is the *hypothesis itself*. The
   load-bearing **multi-tier field re-run ran 2026-07-13 (bullet above) and did NOT yet confirm**

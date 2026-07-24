@@ -384,6 +384,12 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
            (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
     // Band-wide play/stop (T-Deck g/x, broadcast). Just a flag — safe from the callback.
     gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+#if USE_PULSE
+    // CMD_PLAY also arms the story to walk itself: as conductor we auto-advance the early
+    // scenes and hold at the grief (ORDEAL) for the returning roamer (see serviceSong).
+    if (gPlayEnabled) gPulse.armSong(heroarc::SCENE_ALONE, millis());
+    else              gPulse.disarmSong();
+#endif
   }
 #if USE_PULSE
   else if (t.type == toot::CMD && toot::cmdOp(t) == toot::CMD_SET_SCENE &&
@@ -576,6 +582,10 @@ void loop() {
 #endif
         else if (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) {
           gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);   // band play/stop over USB
+#if USE_PULSE
+          if (gPlayEnabled) gPulse.armSong(heroarc::SCENE_ALONE, millis());
+          else              gPulse.disarmSong();
+#endif
         }
 #if USE_PULSE
         else if (toot::cmdOp(t) == toot::CMD_SET_SCENE) {
@@ -650,6 +660,9 @@ void loop() {
                     oc.beat_period_ms, oc.scene_id,
                     gPulse.conductor() ? " (conductor)" : "");
     }
+    // As conductor, walk the story: auto-advance the early scenes on SCENE_HOLD_MS and
+    // hold at the grief (ORDEAL) until the returning T-Deck drives the RETURN/FINALE.
+    gPulse.serviceSong(pnow, heroarc::SCENE_HOLD_MS, heroarc::SCENE_ORDEAL);
     // The chart's scene moved (or we just joined a band mid-song): re-selection is
     // just the phraseForScene lookup below reading the new scene.
     uint16_t new_scene;

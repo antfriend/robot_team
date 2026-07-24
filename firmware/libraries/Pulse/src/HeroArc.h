@@ -32,6 +32,17 @@ enum Scene : uint16_t {
   SCENE_COUNT  = 6,
 };
 
+// --- story pacing (the song walks itself; see Pulse::serviceSong + the T-Deck) ------
+// One place for the tempo of the STORY (distinct from the musical tempo in Pulse.h).
+// The conductor auto-advances the early scenes on SCENE_HOLD_MS; it holds at SCENE_ORDEAL
+// (the grief the roamer must return to). The returning T-Deck drives the last two scenes:
+// it dwells ORDEAL_HOLD_MS in the grief, then calls the RETURN, then RETURN_HOLD_MS later
+// the FINALE. So `g` starts the song and it plays to the end on its own — but the band
+// waits at grief whenever the T-Deck is away, and rejoins its part the moment it is back.
+static const uint32_t SCENE_HOLD_MS  = 6000;  // conductor: each early scene's dwell (0->3)
+static const uint32_t ORDEAL_HOLD_MS = 6000;  // roamer: grief dwell before the turn
+static const uint32_t RETURN_HOLD_MS = 9000;  // roamer: let the RETURN harmony play out
+
 // Short scene names for screens/serial (fits the T-Deck status line).
 inline const char* sceneName(uint16_t s) {
   switch (s) {

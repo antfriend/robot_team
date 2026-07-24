@@ -104,6 +104,24 @@ class Engine {
   // the scene already in progress. Call every loop().
   bool sceneChanged(uint16_t& scene_id);
 
+  // --- song auto-advance (conductor-driven story pacing) ---------------------
+  // Arm the band to walk the song on its own: seat `start_scene` and mark the story
+  // playing, so serviceSong() advances the scenes without a per-scene command. Called
+  // from a CMD_PLAY handler on every node — it only bites on the conductor (setScene is
+  // a follower no-op), but the flag is kept on followers too so a mid-song HANDOFF
+  // resumes the walk on the new conductor. Idempotent: re-arming just restarts the walk.
+  void armSong(uint16_t start_scene, uint32_t now_ms);
+  // Stop the auto-advance (CMD_STOP). The current scene is left as-is (silence is the
+  // sketch's local play flag); a later armSong() restarts the story from the top.
+  void disarmSong();
+  bool songArmed() const { return song_armed_; }
+  // Conductor-only, call every loop(): once the current scene has held `hold_ms`, advance
+  // to the next scene — but never PAST `stop_scene`, which the band holds at until some
+  // other actor (the returning roamer) drives the story onward with setScene. Returns
+  // true on an advance. `stop_scene` keeps the HeroArc gate policy in the sketch, out of
+  // this generic engine. A no-op on a follower or while disarmed.
+  bool serviceSong(uint32_t now_ms, uint32_t hold_ms, uint16_t stop_scene);
+
   uint16_t scene() const { return chart_.scene_id; }
   bool playing() const { return have_chart_; }
   bool conductor() const { return am_conductor_; }
@@ -128,6 +146,8 @@ class Engine {
   // Wider than a u16 so no real scene id can collide with "nothing reported yet".
   uint32_t last_scene_reported_ = 0xFFFFFFFFu;
   bool fastlock_ = false;               // pending on-join beacon
+  bool song_armed_ = false;             // auto-advance the story (see serviceSong)
+  uint32_t scene_entered_ms_ = 0;       // when the current scene began (advance timer)
 };
 
 }  // namespace pulse

@@ -426,6 +426,12 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       if ((toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) &&
           (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
         gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+#if USE_PULSE
+        // CMD_PLAY arms the story to walk itself: as conductor we auto-advance the early
+        // scenes and hold at the grief (ORDEAL) for the returning roamer (see serviceSong).
+        if (gPlayEnabled) gPulse.armSong(heroarc::SCENE_ALONE, millis());
+        else              gPulse.disarmSong();
+#endif
         accepted = true;
         break;
       }
@@ -816,6 +822,9 @@ void loop() {
                     oc.beat_period_ms, oc.scene_id,
                     gPulse.conductor() ? " (conductor)" : "");
     }
+    // As conductor, walk the story: auto-advance the early scenes on SCENE_HOLD_MS and
+    // hold at the grief (ORDEAL) until the returning T-Deck drives the RETURN/FINALE.
+    gPulse.serviceSong(pnow, heroarc::SCENE_HOLD_MS, heroarc::SCENE_ORDEAL);
     // The chart's scene moved (or we just joined a band mid-song): re-selection is
     // just the phraseForScene lookup below reading the new scene.
     uint16_t new_scene;

@@ -81,6 +81,7 @@ void Engine::selfAppoint(uint32_t now_ms, bool takeover) {
     // song outlive the node that was counting it.
     chart_.era += 1;
   }
+  scene_entered_ms_ = now_ms;   // fresh advance timer under the new baton
   chart_.conductor_id = node_id_;
   have_chart_ = true;
   am_conductor_ = true;
@@ -121,9 +122,24 @@ bool Engine::setScene(uint16_t scene_id, uint32_t now_ms) {
   if (chart_.scene_id == scene_id) return false;   // idempotent: no era churn
   chart_.scene_id = scene_id;
   chart_.era += 1;               // a scene move is a chart revision
+  scene_entered_ms_ = now_ms;    // restart the auto-advance dwell for the new scene
   fastlock_ = true;              // turn the page together, not over a resync period
-  (void)now_ms;
   return true;
+}
+
+void Engine::armSong(uint16_t start_scene, uint32_t now_ms) {
+  song_armed_ = true;
+  scene_entered_ms_ = now_ms;
+  setScene(start_scene, now_ms);   // conductor-only; a follower just carries the flag
+}
+
+void Engine::disarmSong() { song_armed_ = false; }
+
+bool Engine::serviceSong(uint32_t now_ms, uint32_t hold_ms, uint16_t stop_scene) {
+  if (!song_armed_ || !am_conductor_ || !have_chart_) return false;
+  if (chart_.scene_id >= stop_scene) return false;          // hold at the gate
+  if ((uint32_t)(now_ms - scene_entered_ms_) < hold_ms) return false;
+  return setScene((uint16_t)(chart_.scene_id + 1), now_ms); // advance one scene
 }
 
 bool Engine::sceneChanged(uint16_t& scene_id) {

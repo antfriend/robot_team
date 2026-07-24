@@ -131,6 +131,18 @@ ST7789 Library"`), deliberately NOT TFT_eSPI, so it never touches the K10's shar
 `User_Setup.h`; (3) **GPIO10 must be driven HIGH** first or the LCD/keyboard/LoRa/SD
 are unpowered. Audio is I²S (MAX98357A) via the core's `ESP_I2S` — no analog tone path.
 
+The T-Deck now carries **three globes** flashed as three files in `data/` (all picked up by
+`Upload-Tdeck-FS.ps1` since it images the whole dir): `ttdb.md` (the mesh fleet globe),
+`rfc.ttdb.md` (the RFC corpus), and **`feelings.ttdb.md` (the affective landscape + band
+overlay — the DEFAULT power-up view)**. The trackball click cycles Feelings → SemPos → RFC,
+skipping any file that failed to load; only `ttdb.md` touches the mesh. If the feelings globe
+boots empty, `feelings.ttdb.md` wasn't flashed (re-run `Upload-Tdeck-FS.ps1`). Separately, the
+**self-walking hero's-arc song** (`g` auto-advances scenes and holds at the grief for the
+returning T-Deck) lives in the **shared `Pulse` engine** (`armSong`/`serviceSong`) + `HeroArc.h`
+pacing, so enabling it means **reflashing the whole fleet** (K10 + all three V4s + T-Deck), not
+just the T-Deck — the conductor is whichever node holds the baton, and every node must know how
+to walk the story and where the grief gate is.
+
 ## TTDB on the filesystem, shared over the network
 
 - The TTDB is plain markdown in `firmware/<node>/data/ttdb.md`, flashed to

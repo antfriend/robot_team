@@ -21,6 +21,7 @@
 #include <Agent32.h>
 #include <Pulse.h>    // band tempo (PULSE_DEFAULT_BEAT_MS) lives in Pulse.h — 120 BPM
 #include <Score.h>
+#include <HeroArc.h>  // shared story scenes + pacing (SCENE_ALONE/ORDEAL, SCENE_HOLD_MS)
 #include <LinkPercept.h>  // SP0: link-percept histograms -> @LAT97 records
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan (K10's FIRST direct percept)
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
@@ -587,6 +588,12 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           (toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP)) {
         gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
         if (!gPlayEnabled) gHitPending = false;   // drop any already-scheduled note
+#if USE_PULSE
+        // CMD_PLAY arms the story to walk itself: as conductor we auto-advance the early
+        // scenes and hold at the grief (ORDEAL) for the returning roamer (see serviceSong).
+        if (gPlayEnabled) gPulse.armSong(heroarc::SCENE_ALONE, millis());
+        else              gPulse.disarmSong();
+#endif
         break;
       }
       // Move the band to a scene of the song. The chart belongs to the CONDUCTOR, so
@@ -643,10 +650,16 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             break;
           case toot::CMD_PLAY:                    // start the song (boots silent)
             gPlayEnabled = true;
+#if USE_PULSE
+            gPulse.armSong(heroarc::SCENE_ALONE, millis());  // walk the story if we conduct
+#endif
             break;
           case toot::CMD_STOP:                    // stop the song
             gPlayEnabled = false;
             gHitPending = false;                  // drop any already-scheduled note
+#if USE_PULSE
+            gPulse.disarmSong();
+#endif
             break;
           default:  // CMD_PING / unknown: nothing to do but ACK
             break;
@@ -885,6 +898,9 @@ void loop() {
                     oc.beat_period_ms, oc.scene_id,
                     gPulse.conductor() ? " (conductor)" : "");
     }
+    // As conductor, walk the story: auto-advance the early scenes on SCENE_HOLD_MS and
+    // hold at the grief (ORDEAL) until the returning T-Deck drives the RETURN/FINALE.
+    gPulse.serviceSong(pnow, heroarc::SCENE_HOLD_MS, heroarc::SCENE_ORDEAL);
     // The chart's scene moved (or we just joined a band mid-song): this is the seam
     // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
     // are still single-scene, so for now it only reports the move.

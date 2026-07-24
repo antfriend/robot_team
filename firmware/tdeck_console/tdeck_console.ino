@@ -243,18 +243,25 @@ static const char* nodeName(uint32_t id) {
 
 Ttdb gDb;                 // fleet globe — the network-facing TTDB (shared/synced/attested)
 Ttdb gRfcDb;              // RFC corpus globe — view-only (never shared over the mesh)
+Ttdb gFeelDb;             // feelings globe — affective landscape + the band overlay (view-only)
 static const char* kRfcTtdbPath = "/rfc.ttdb.md";
+static const char* kFeelTtdbPath = "/feelings.ttdb.md";
 static bool gRfcLoaded = false;
+static bool gFeelLoaded = false;
 TtdbShare* gShare = nullptr;
 
-// Globe views the trackball click cycles through. VIEW_FLEET (Semantic Position) is the
-// fleet TTDB; VIEW_RFC is the read-only RFC corpus. Only the fleet TTDB touches the mesh
-// — TTDB_REQ / @LAT99 sync / @LAT98 belief always operate on gDb, never gViewDb.
-enum GlobeView { VIEW_FLEET = 0, VIEW_RFC, VIEW_COUNT };
-static int   gView = VIEW_FLEET;
-static Ttdb* gViewDb = &gDb;                  // active globe for render + navigation
-static int   gViewSel[VIEW_COUNT] = {-1, -1}; // remembered selection per view
-static inline const char* viewName(int v) { return v == VIEW_RFC ? "RFC" : "SemPos"; }
+// Globe views the trackball click cycles through. VIEW_FEELINGS (the affective landscape
+// with the three other band members overlaid as live eyeballs) is the DEFAULT power-up
+// view; VIEW_FLEET (Semantic Position) is the fleet TTDB; VIEW_RFC is the read-only RFC
+// corpus. Only the fleet TTDB touches the mesh — TTDB_REQ / @LAT99 sync / @LAT98 belief
+// always operate on gDb, never gViewDb.
+enum GlobeView { VIEW_FEELINGS = 0, VIEW_FLEET, VIEW_RFC, VIEW_COUNT };
+static int   gView = VIEW_FEELINGS;
+static Ttdb* gViewDb = &gFeelDb;                  // active globe for render + navigation
+static int   gViewSel[VIEW_COUNT] = {-1, -1, -1}; // remembered selection per view
+static inline const char* viewName(int v) {
+  return v == VIEW_RFC ? "RFC" : v == VIEW_FLEET ? "SemPos" : "Feelings";
+}
 toot::DedupSet gDedup(128);
 TootSerialLink gSerial(Serial);
 static uint32_t gSeq = 1;
@@ -395,6 +402,24 @@ static bool neighborNeedsLock(uint32_t src, uint32_t now) {
   }
   return true;   // brand new
 }
+
+// millis() of the last HELLO heard from `id` (0 if never seen) — the feelings globe reads
+// this to show each band member's liveness (seen 2s ago / LOST) beside its eyeball.
+static uint32_t nodeLastSeen(uint32_t id) {
+  for (int i = 0; i < gNeighborCount; ++i)
+    if (gNeighbors[i] == id) return gNeighborSeen[i];
+  return 0;
+}
+
+// The T-Deck is the RETURNING ROAMER: the one actor that drives the story past the ORDEAL
+// gate the conductor holds at. When we are present and the band is dwelling in the grief,
+// we call the RETURN, then the FINALE — so `g` plays the whole song, yet the band waits at
+// grief whenever we are away and rejoins its part the instant we are back (a power-cycle
+// resumes from NVS + the adopted chart). gSceneEnteredMs times our dwell in the current
+// scene; the two latches fire each call exactly once per episode.
+static uint32_t gSceneEnteredMs = 0;
+static bool gTurnRequested = false;
+static bool gFinaleRequested = false;
 #endif
 
 // --- transports -------------------------------------------------------------
@@ -590,8 +615,18 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             emit(toot::PERCEPT, body, glen, reply, ctx);  // GPS PERCEPT is the answer
             break;
           }
-          case toot::CMD_PLAY: setLocalPlay(true);  break;  // start our harmony part
-          case toot::CMD_STOP: setLocalPlay(false); break;
+          case toot::CMD_PLAY:                      // start the song (+ our harmony part)
+            setLocalPlay(true);
+#if USE_PULSE
+            gPulse.armSong(heroarc::SCENE_ALONE, millis());  // walk the story if we conduct
+#endif
+            break;
+          case toot::CMD_STOP:
+            setLocalPlay(false);
+#if USE_PULSE
+            gPulse.disarmSong();
+#endif
+            break;
           case toot::CMD_CLEAR_PERCEPTS:
             // Flash rewrite: reaches here only from loop() (radio path defers).
             // ACK only on success, so a failed prune is loud (laptop retries).
@@ -819,12 +854,14 @@ static GFXcanvas16* gGlobe = nullptr;
 static float gRotLat = 0.0f, gRotLon = 0.0f;   // current globe rotation
 static float gTgtLat = 0.0f, gTgtLon = 0.0f;   // selection-animation target
 static bool  gAnim = false;                    // easing rotation toward a selection
-// 3 zoom levels (TTCP-RFC-0002 §2.3): level 0 = the whole globe (furthest, the
-// original view), level 2 = front face filling the screen (closest; diameter
-// 54*2.85*2 = 308 px < 320, so never wider than the screen). Default = middle.
-static const float kZoomLevels[3] = {1.15f, 2.0f, 2.85f};
+// 5 zoom levels (TTCP-RFC-0002 §2.3): level 0 = the whole globe (furthest), level 2 =
+// front face filling the screen, levels 3-4 push in further to inspect one node up close
+// (~1.42x per step). The node dots + eyeballs scale with the zoom (see renderGlobe /
+// drawEyeball) so a magnified globe keeps proportional marks. Default = middle (level 1).
+static const float kZoomLevels[5] = {1.15f, 2.0f, 2.85f, 4.05f, 5.75f};
 static int   gZoomIdx = 1;
 static float gZoom = kZoomLevels[1];
+static const int kZoomMax = (int)(sizeof(kZoomLevels) / sizeof(kZoomLevels[0])) - 1;
 static bool  gGlobeDirty = true;               // repaint the globe canvas
 static bool  gBottomDirty = true;              // repaint the bottom half
 
@@ -877,6 +914,9 @@ static inline bool isNodeRecord(const TtdbRecord& r) {
 // Filled from each record body's `name:` / `sigma_m:` lines by parseNodeAttrs().
 static char  gNodeName[TTDB_MAX_RECORDS][12];
 static float gNodeSigmaM[TTDB_MAX_RECORDS];
+// Mesh node id parsed from a record's `node:` line (0 if none). Non-zero marks a live
+// fleet member on the feelings globe — drawn as an always-on eyeball with mesh status.
+static uint32_t gNodeMeshId[TTDB_MAX_RECORDS];
 static const float DEG_PER_M = 1.0f;      // companion.py fleetmap metres->degrees scale
 static const float SIGMA_VIS_SCALE = 0.35f;  // shrink the (honestly huge) sigma rings
 
@@ -884,6 +924,7 @@ static void parseNodeAttrs() {
   for (int i = 0; i < gViewDb->recordCount(); ++i) {
     gNodeName[i][0] = 0;
     gNodeSigmaM[i] = 0.0f;
+    gNodeMeshId[i] = 0;
     if (!isNodeRecord(gViewDb->record(i))) continue;
     size_t off, len;
     if (!gViewDb->recordSpan(i, off, len)) continue;
@@ -900,6 +941,8 @@ static void parseNodeAttrs() {
     }
     const char* s = strstr(buf, "sigma_m:");
     if (s) gNodeSigmaM[i] = atof(s + 8);
+    const char* q = strstr(buf, "node:");           // e.g. `node: 0x10` -> live member
+    if (q) gNodeMeshId[i] = (uint32_t)strtoul(q + 5, nullptr, 0);  // base 0 = auto 0x hex
   }
 }
 
@@ -912,9 +955,60 @@ static uint16_t edgeColor(const char* type, bool hot) {
   return hot ? rgb565(120, 230, 150) : rgb565(40, 110, 70);
 }
 
+// Draw a gazing eyeball (TTCP-RFC-0002 §3.2) at sx,sy looking toward the globe centre,
+// with an optional label to its right. Used for the selected node in any view and for
+// every band member on the feelings globe (so all three read as living eyes at once).
+static void drawEyeball(int sx, int sy, int cx, int cy, uint16_t col, const char* label) {
+  if (!gGlobe) return;
+  GFXcanvas16& c = *gGlobe;
+  int er = (int)(4.0f * gZoom); if (er < 5) er = 5;   // eye radius scales with zoom (~8 @ z1)
+  int irisR  = er - 2;
+  int pupilR = er / 2 > 1 ? er / 2 : 2;
+  c.fillCircle(sx, sy, er, ST77XX_WHITE);      // sclera
+  float gvx = cx - sx, gvy = cy - sy;
+  float gl = sqrtf(gvx * gvx + gvy * gvy);
+  float ux = 0.0f, uy = 0.0f;
+  if (gl > 0.001f) { ux = gvx / gl; uy = gvy / gl; }
+  float look     = gl * 0.22f;                 // gaze inward, clamped inside the sclera
+  float irisOff  = look < (float)(er - irisR)  ? look : (float)(er - irisR);
+  float pupilOff = look < (float)(er - pupilR) ? look : (float)(er - pupilR);
+  c.fillCircle(sx + (int)(ux * irisOff),  sy + (int)(uy * irisOff),  irisR,  col);
+  c.fillCircle(sx + (int)(ux * pupilOff), sy + (int)(uy * pupilOff), pupilR, ST77XX_BLACK);
+  c.drawPixel(sx - er / 3, sy - er / 3, ST77XX_WHITE);   // shine
+  if (label && label[0]) {
+    c.setTextColor(ST77XX_WHITE);
+    c.setCursor(sx + er + 2, sy - 3);
+    c.print(label);
+  }
+}
+
+// Build a band member's eyeball label for the feelings globe: name + a conductor star +
+// its mesh liveness (how long since its last HELLO, or LOST). This is the live "status
+// info" the console shows for the three other players. Falls back to the bare name if
+// pulse tracking is compiled out.
+static void bandLabel(int rec, char* out, size_t n) {
+#if USE_PULSE
+  uint32_t seen = nodeLastSeen(gNodeMeshId[rec]);
+  bool cond = (gPulse.chart().conductor_id == gNodeMeshId[rec]);
+  char age[8];
+  if (seen == 0) {
+    strncpy(age, "--", sizeof(age));
+  } else {
+    uint32_t a = (millis() - seen) / 1000;
+    if (a > 9) strncpy(age, "LOST", sizeof(age));   // >9 s since a 2 s HELLO = gone
+    else snprintf(age, sizeof(age), "%lus", (unsigned long)a);
+  }
+  snprintf(out, n, "%s%s %s", gNodeName[rec], cond ? "*" : "", age);
+#else
+  snprintf(out, n, "%s", gNodeName[rec]);
+#endif
+}
+
 // Render the globe into the off-screen canvas: sphere outline + graticule, every link
-// coloured by transport, each node's sigma uncertainty ring, then the nodes (selected =
-// eyeball, front = labeled dot, back = muted dot). Pushed to the panel by renderScreen().
+// coloured by transport, each node's sigma uncertainty ring, then the nodes. In the
+// feelings view the band members are always eyeballs (name + live status) and the
+// affective records are dim dots; in the other views the selected node is the eyeball,
+// front nodes are labeled dots, back nodes muted. Pushed to the panel by renderScreen().
 static void renderGlobe() {
   if (!gGlobe) return;
   GFXcanvas16& c = *gGlobe;
@@ -978,9 +1072,13 @@ static void renderGlobe() {
     if (rr > 1) c.drawCircle(sx, sy, rr, rgb565(34, 46, 34));
   }
 
-  // Nodes. No discovery gating (removed by request): every node record is always drawn
-  // and labeled with its fleet name — front nodes get a colored dot + label, the
-  // selected one an eyeball, back-facing ones a muted dot (occluded, so unlabeled).
+  // Nodes. In the feelings view the three band members are always eyeballs (name + live
+  // mesh status) and the affective records are dim, unlabeled dots — so the globe reads
+  // as "the band, watching, over the field of feelings." In the fleet/RFC views every
+  // node is drawn and labeled: front nodes a colored dot + label, the selected one an
+  // eyeball, back-facing ones a muted dot.
+  const bool feelView = (gViewDb == &gFeelDb);
+  const int dotR = (int)(1.5f * gZoom) < 2 ? 2 : (int)(1.5f * gZoom);  // node dot scales w/ zoom (3 @ z1)
   c.setTextSize(1);
   for (int i = 0; i < gViewDb->recordCount(); ++i) {
     const TtdbRecord& r = gViewDb->record(i);
@@ -988,36 +1086,21 @@ static void renderGlobe() {
     int sx, sy; float z;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx, sy, z);
     uint16_t col = nodeColor(r.lat, r.lon);
-    char id[20];
-    if (gNodeName[i][0]) snprintf(id, sizeof(id), "%s", gNodeName[i]);
-    else                 snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
-    if (i == gSel) {
-      int er = GLOBE_H / 14; if (er < 5) er = 5;         // eyeball (TTCP-RFC-0002 §3.2)
-      int irisR  = er - 2;                               // iris radius
-      int pupilR = er / 2 > 1 ? er / 2 : 2;              // pupil radius
-      c.fillCircle(sx, sy, er, ST77XX_WHITE);            // sclera
-      // Gaze toward the globe center: iris and pupil both slide along the look
-      // direction, each clamped so its own outer edge never crosses the white
-      // sclera (looks inward, but never spills past the eye).
-      float gvx = cx - sx, gvy = cy - sy;
-      float gl = sqrtf(gvx * gvx + gvy * gvy);
-      float ux = 0.0f, uy = 0.0f;
-      if (gl > 0.001f) { ux = gvx / gl; uy = gvy / gl; }
-      float look     = gl * 0.22f;                       // desired look distance (px)
-      float irisOff  = look < (float)(er - irisR)  ? look : (float)(er - irisR);
-      float pupilOff = look < (float)(er - pupilR) ? look : (float)(er - pupilR);
-      c.fillCircle(sx + (int)(ux * irisOff),  sy + (int)(uy * irisOff),  irisR,  col);
-      int px = sx + (int)(ux * pupilOff);
-      int py = sy + (int)(uy * pupilOff);
-      c.fillCircle(px, py, pupilR, ST77XX_BLACK);
-      c.drawPixel(sx - er / 3, sy - er / 3, ST77XX_WHITE);  // shine
-      c.setTextColor(ST77XX_WHITE);
-      c.setCursor(sx + er + 2, sy - 3);
-      c.print(id);
+    const bool isBand = feelView && gNodeMeshId[i] != 0;
+    char id[28];
+    if (isBand)                 bandLabel(i, id, sizeof(id));   // name + live status
+    else if (gNodeName[i][0])   snprintf(id, sizeof(id), "%s", gNodeName[i]);
+    else                        snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
+
+    if (i == gSel || isBand) {
+      drawEyeball(sx, sy, cx, cy, col, id);      // living eye (selected, or a band member)
+    } else if (feelView) {
+      int fr = dotR - 1 < 1 ? 1 : dotR - 1;
+      if (z > 0) c.fillCircle(sx, sy, fr, rgb565(50, 56, 78));  // dim, unlabeled feeling
     } else if (z > 0) {
-      c.fillCircle(sx, sy, 3, col);                      // front node
+      c.fillCircle(sx, sy, dotR, col);                   // front node
       c.setTextColor(col);
-      c.setCursor(sx + 5, sy - 3);
+      c.setCursor(sx + dotR + 2, sy - 3);
       c.print(id);
     } else {
       c.drawPixel(sx, sy, rgb565(60, 66, 78));           // back-facing indicator
@@ -1140,8 +1223,8 @@ static void selectNextNode() {
 // what the screen draws and the trackball/'t' key drive changes.
 static void activateView(int v) {
   gView   = v;
-  gViewDb = (v == VIEW_RFC) ? &gRfcDb : &gDb;
-  parseNodeAttrs();                        // refill gNodeName/gNodeSigmaM for this db
+  gViewDb = (v == VIEW_RFC) ? &gRfcDb : (v == VIEW_FEELINGS) ? &gFeelDb : &gDb;
+  parseNodeAttrs();                        // refill gNodeName/gNodeSigmaM/gNodeMeshId
   int sel = gViewSel[v];
   if (sel < 0 || sel >= gViewDb->recordCount() || !isNodeRecord(gViewDb->record(sel))) {
     sel = -1;
@@ -1157,12 +1240,18 @@ static void activateView(int v) {
   gGlobeDirty = gBottomDirty = gScreenDirty = true;
 }
 
-// Trackball click: cycle to the next globe view (skipping the RFC globe if it never
-// loaded). Remembers where the cursor was in the view we are leaving.
+// Trackball click: cycle to the next globe view (Feelings -> Semantic Position -> RFC),
+// skipping any globe that never loaded. Remembers where the cursor was in the view we
+// are leaving.
 static void toggleGlobeView() {
   gViewSel[gView] = gSel;
-  int nv = (gView + 1) % VIEW_COUNT;
-  if (nv == VIEW_RFC && !gRfcLoaded) nv = VIEW_FLEET;   // no RFC globe -> stay on fleet
+  int nv = gView;
+  for (int k = 0; k < VIEW_COUNT; ++k) {
+    nv = (nv + 1) % VIEW_COUNT;
+    if (nv == VIEW_RFC && !gRfcLoaded) continue;
+    if (nv == VIEW_FEELINGS && !gFeelLoaded) continue;
+    break;                                  // landed on a loadable view
+  }
   activateView(nv);
 }
 #endif
@@ -1244,10 +1333,21 @@ void setup() {
     Serial.println("RFC globe (/rfc.ttdb.md) not found - fleet view only");
   }
 
+  // Third globe: the feelings landscape with the band overlaid (the default power-up
+  // view). View-only — like the RFC globe, it never joins the mesh or gets shared.
+  if (gFeelDb.begin(LittleFS, kFeelTtdbPath)) {
+    gFeelLoaded = true;
+    Serial.printf("Feelings globe loaded: %u bytes, %d records\n",
+                  (unsigned)gFeelDb.fileSize(), gFeelDb.recordCount());
+  } else {
+    Serial.println("Feelings globe (/feelings.ttdb.md) not found - fleet view default");
+  }
+
 #if USE_TDECK_HW
-  // Seat the fleet globe: derive node labels, seat the cursor on the first navigable
-  // record and center on it with no boot animation (TTCP-RFC-0002 §6.1).
-  activateView(VIEW_FLEET);
+  // Seat the default globe: the feelings view on power-up (fall back to the fleet globe
+  // if its TTDB is missing). Derives node labels, seats the cursor on the first navigable
+  // record and centers on it with no boot animation (TTCP-RFC-0002 §6.1).
+  activateView(gFeelLoaded ? VIEW_FEELINGS : VIEW_FLEET);
 #endif
 
   WiFi.mode(WIFI_STA);
@@ -1418,7 +1518,7 @@ void loop() {
         gScreenDirty = true;
         break;
       case '+': case '=':                        // zoom in (closer)
-        if (gZoomIdx < 2) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
+        if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
         break;
       case '-': case '_':                        // zoom out (further)
@@ -1428,9 +1528,20 @@ void loop() {
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
-      // Play/stop are band-wide: broadcast so ONE press starts/stops the whole fleet (+ our part).
-      case 'g': setLocalPlay(true);  emitCmdTo(toot::CMD_PLAY, NODE_BROADCAST, nullptr, 0); break;
-      case 'x': setLocalPlay(false); emitCmdTo(toot::CMD_STOP, NODE_BROADCAST, nullptr, 0); break;
+      // Play/stop are band-wide: broadcast so ONE press starts/stops the whole fleet (+ our
+      // part). `g` also arms the story to WALK ITSELF — the conductor auto-advances the
+      // early scenes and holds at the grief; we (the roamer) bring the RETURN + FINALE, so
+      // one press plays the song end to end with no further keys.
+      case 'g': setLocalPlay(true);
+#if USE_PULSE
+                gPulse.armSong(heroarc::SCENE_ALONE, millis());
+#endif
+                emitCmdTo(toot::CMD_PLAY, NODE_BROADCAST, nullptr, 0); break;
+      case 'x': setLocalPlay(false);
+#if USE_PULSE
+                gPulse.disarmSong();
+#endif
+                emitCmdTo(toot::CMD_STOP, NODE_BROADCAST, nullptr, 0); break;
 #if USE_PULSE
       // Walk the hero's-arc story from the handheld: o = onward one scene (capped at
       // the finale — re-issuing the current scene is idempotent), r = back to the top.
@@ -1468,17 +1579,44 @@ void loop() {
                                       oc.meter_beats, oc.flags, oc.scene_id);
       emit(toot::PULSE, body, blen, sendEspNow, nullptr);
     }
+    // If WE somehow hold the baton (alone on the bench), walk the early scenes ourselves
+    // and hold at the grief; normally a V4/K10 conducts and this is a no-op on us.
+    gPulse.serviceSong(pnow, heroarc::SCENE_HOLD_MS, heroarc::SCENE_ORDEAL);
+
     // The chart's scene moved (or we just joined a band mid-song): this is the seam
     // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
     // are still single-scene, so for now it only reports the move (and repaints, so
     // the console screen can show the band's place in the song).
     uint16_t new_scene;
     if (gPulse.sceneChanged(new_scene)) {
+      gSceneEnteredMs = pnow;                 // restart our dwell timer for the new scene
+      if (new_scene != heroarc::SCENE_ORDEAL) gTurnRequested = false;   // re-arm latches
+      if (new_scene != heroarc::SCENE_RETURN) gFinaleRequested = false;
       Serial.printf("[scene] scene %u %s (era %lu cond 0x%08X)\n", new_scene,
                     heroarc::sceneName(new_scene),
                     (unsigned long)gPulse.chart().era,
                     (unsigned)gPulse.chart().conductor_id);
       gScreenDirty = true;
+    }
+
+    // Narrative driver — the roamer's return. When the song is on and we are locked to a
+    // band that is holding at the ORDEAL (grief), dwell a moment, then call the RETURN;
+    // once its harmony has played, call the FINALE. emitSetScene broadcasts (the conductor
+    // applies it) AND sets it locally (if we conduct), so this works either way. Because
+    // WE are the only actor that drives past the ORDEAL, the band waits at grief whenever
+    // the T-Deck is absent — and a power-cycled T-Deck, once it re-locks and sees the grief
+    // still held, picks up right here and brings the turn (gLocalPlay is restored from NVS).
+    if (gLocalPlay && gPulse.playing()) {
+      uint32_t dwell = pnow - gSceneEnteredMs;
+      uint16_t sc = gPulse.scene();
+      if (sc == heroarc::SCENE_ORDEAL && !gTurnRequested && dwell >= heroarc::ORDEAL_HOLD_MS) {
+        emitSetScene(heroarc::SCENE_RETURN);
+        gTurnRequested = true;
+      } else if (sc == heroarc::SCENE_RETURN && !gFinaleRequested &&
+                 dwell >= heroarc::RETURN_HOLD_MS) {
+        emitSetScene(heroarc::SCENE_FINALE);
+        gFinaleRequested = true;
+      }
     }
     // The console's voice: the scene selects the phrase (HeroArc.h — silent until the
     // RETURN, harmony there, lead in the FINALE). On each new step, sound its note (if
@@ -1525,6 +1663,9 @@ void loop() {
   if (gScreenDirty || gGlobeDirty || millis() - lastRender >= 1000) {
     lastRender = millis();
     gScreenDirty = false;
+    // On the feelings globe the band members carry live status (seen 2s / LOST / *cond),
+    // so repaint the globe on the 1 Hz heartbeat to age it even without a nav change.
+    if (gView == VIEW_FEELINGS) gGlobeDirty = true;
     renderScreen();
   }
 #endif
