@@ -51,6 +51,20 @@ RSSI-only ranging is shadowing-limited outdoors. So the moves that matter now:
    **V4-C edge** (a 4th static anchor that breaks flip ambiguity without GPS); a
    **K10 core bump to 3.x** to un-block its BLE + promiscuous-RSSI capture.
 
+**New since this list was written (2026-07-27): the Cardputer ADV joined as node `0x300`
+and brought the first NON-AMPLITUDE evidence tier.** The garden run's verdict was that
+2.4 GHz RSSI is shadowing-limited outdoors — so every tier we had was measuring the wrong
+physics. The Cardputer's microphone (`@LAT94`, `AcousticPercept`) logs the **fleet-clock
+timestamp of each impulsive transient**, which is a time-of-arrival measurement, not an
+amplitude one: sound at 343 m/s makes ~10 ms of time-sync worth ~3.4 m, bounded by clock
+quality rather than by foliage. That is **SP Phase 3 (env TDoA) instrumentation, live and
+on hardware** — the consolidator that turns two nodes' transient timestamps into a
+hyperbola is not written yet, and is now the most interesting thing on this list. Its
+BMI270 (`@LAT95`, `MotionPercept`) also makes "the observer held still during this window"
+a checkable claim instead of an assumption — the thing that made `proximity --last N`
+necessary. **The multi-tier field re-run above should now include this node**, and one
+clap heard by two nodes is a cheaper first TDoA experiment than a walk.
+
 Everything else I can build and offline-test solo (native `zig c++` tests +
 arduino-cli compiles); I'll queue firmware so your cable time is batched.
 

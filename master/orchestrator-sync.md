@@ -48,3 +48,15 @@ lon: 0
 @LAT99LON4 | created:1783367393 | updated:1783367393 | relates:logs@LAT0LON0
 
 **SYNC** id:5 t_ms:1783367393574 recv_ms:1783367393574 offset_ms:0
+
+---
+
+@LAT99LON5 | created:1785189513 | updated:1785189513 | relates:logs@LAT0LON0
+
+**SYNC** id:6 t_ms:1785189513430 recv_ms:1785189513430 offset_ms:0
+
+---
+
+@LAT99LON6 | created:1785190035 | updated:1785190035 | relates:logs@LAT0LON0
+
+**SYNC** id:7 t_ms:1785190035995 recv_ms:1785190035995 offset_ms:0

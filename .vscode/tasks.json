@@ -95,6 +95,50 @@
         "panel": "shared"
       },
       "problemMatcher": []
+    },
+    {
+      // M5Stack Cardputer ADV (node 0x300). Same esp32-core FQBN family as the V4s and
+      // the T-Deck, but on huge_app (the screen UI + BLE don't fit the default scheme)
+      // and FlashSize=8M. Its auto-reset works — no BOOT/RST dance like the T-Deck.
+      "label": "Upload Cardputer",
+      "type": "process",
+      "command": "C:\\Program Files\\Arduino CLI\\arduino-cli.exe",
+      "args": [
+        "compile",
+        "--upload",
+        "-p", "${input:serialPort}",
+        "--fqbn", "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app,FlashSize=8M",
+        "--libraries", "firmware/libraries",
+        "firmware/cardputer_console"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      // Flashes all three globes in data/ to the Cardputer's LittleFS. huge_app puts
+      // spiffs at 0x310000 — NOT the V4 script's 0x290000 — so this is its own script.
+      // Run AFTER Upload Cardputer (different flash regions).
+      "label": "Upload Cardputer Filesystem",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy", "Bypass",
+        "-File", "scripts/Upload-Cardputer-FS.ps1",
+        "-Port", "${input:serialPort}"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ],
   "inputs": [
@@ -102,7 +146,8 @@
       "id": "serialPort",
       "description": "Select the serial port for upload",
       "type": "pickString",
-      "options": ["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM10"],
+      "options": ["COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+                  "COM9", "COM10", "COM11", "COM12", "COM13", "COM14", "COM15"],
       "default": "COM3"
     }
   ]

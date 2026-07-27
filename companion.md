@@ -61,6 +61,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
+| **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor) |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
@@ -79,6 +80,14 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > the trackball-click (GPIO0/BOOT) + tap RST to enter download mode (port re-enumerates,
 > e.g. COM11→COM10), then tap RST *without* the trackball to boot the app. V4-C is built and flashed
 > (COM13 as of 2026-07-16) — the whole fleet is now real hardware.
+> **The M5Stack Cardputer ADV** (`firmware/cardputer_console`, node id `0x300`) joined
+> 2026-07-27 as the 6th node and second handheld — same FQBN family as the V4s/T-Deck
+> (`esp32:esp32:esp32s3:CDCOnBoot=cdc`) but on **`PartitionScheme=huge_app,FlashSize=8M`**,
+> FS via `scripts/Upload-Cardputer-FS.ps1` (huge_app spiffs @0x310000, **not** the V4 script's
+> 0x290000). Its auto-reset works — **no BOOT/RST dance needed**, unlike the T-Deck. It is the
+> only node with an accelerometer and a microphone, hence the fleet's motion (`@LAT95`) and
+> acoustic (`@LAT94`) percept tiers. **Its BMI270 is at I2C 0x69**, not the 0x68 the published
+> pin map implies.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -1346,6 +1355,67 @@ If a fact lives in one of these, link to it from here — don't copy it.
   node's `/ttdb.md` and pull it back byte-diff (key gotcha: `TTDB_REQ` only pulls the
   *configured* file, so host it AS `/ttdb.md` — don't invent a request type; restore with
   `git checkout firmware/<node>/data/ttdb.md`; prepared 2026-07-08, not yet on hardware).
+
+- **CARDPUTER ADV JOINS THE FLEET ✅ on-device verified (2026-07-27, COM14) — a 6th node,
+  and the fleet's first NON-RADIO SENSES.** An M5Stack Cardputer ADV (`firmware/cardputer_console`,
+  node id `0x300`) came up as a second handheld console — everything the T-Deck is (full
+  Dream-Cycle participant + keyboard→CMD + TTCP globe screen) — plus two evidence tiers no
+  other node has. Built from `tdeck_console.ino`, **compiled clean first try** (40% flash /
+  22% RAM on `huge_app`) and worked on hardware with one fix.
+  **Verified on the bench:** boots from TTDB with all three globes (`ttdb.md` 4166 B /
+  `rfc.ttdb.md` 34 recs / `feelings.ttdb.md` 45 recs); **byte-exact pull** (4166 B, sha
+  `c764ae3b…`); `negchecks.py` **wrong-key + tampered → 0 frames** (HMAC reject), serial replay
+  served by design (radio-only dedup); `cmd --op beep` **ACK APPLIED attempt 1**; and it is
+  **already on the mesh** — its first `@LAT97` window logged V4-A (`peer:0x00000010`) at
+  −32 dBm over ESP-NOW, i.e. it authenticated real fleet traffic before anyone told it to.
+  **Two NEW percept tiers, both live on first boot:**
+  - **`@LAT94` ACOUSTIC** (`firmware/libraries/AcousticPercept`) — the ES8311 codec's MEMS mic,
+    read as 8 kHz PCM through the same I2S port that drives the speaker. First window:
+    **2706 blocks, rms_mean 122 / rms_max 300 / peak 638, transients 0** (a quiet room, honestly
+    reported). The record carries the **fleet-clock timestamp of the loudest transient** — that
+    is the SP Phase-3 TDoA datum: sound at 343 m/s makes ~10 ms of time-sync worth ~3.4 m, an
+    error bounded by CLOCK quality rather than by foliage. This is the first tier that is not
+    an amplitude measurement, which is exactly what the 2026-07-10 garden run said we needed.
+  - **`@LAT95` MOTION** (`firmware/libraries/MotionPercept`) — a BMI270 sampled at 20 Hz, folded
+    into a per-window `still|moving` verdict. It makes the assumption every earlier tier quietly
+    relied on **checkable**: a window whose observer was walking is evidence about several
+    places at once (the reason `proximity --last N` had to exist).
+  - Also carries the existing `@LAT97` link + `@LAT96` entity tiers, so `CMD_CLEAR_PERCEPTS`
+    on this node prunes **four** lanes (94-97), all-or-nothing so a partial prune fails loudly.
+  **The one hardware fix:** the **BMI270 answers at the SECONDARY I2C address (0x69)**, not the
+  `0x68` the ADV's published pin map implies — first boot printed `BMI270 NOT FOUND`. The sketch
+  now tries both and, on failure, **scans and prints the whole I2C bus**, so the next missing
+  device on that shared bus (keyboard 0x34 / codec 0x18 / IMU 0x69) is a one-line answer at the
+  bench instead of a guess.
+  **New shared code:** `firmware/libraries/Es8311` (the codec bring-up — nothing is heard or
+  sounded until those registers are written; distilled from the Espressif MIT driver to the one
+  configuration this board uses: I2S slave, 16-bit, **MCLK derived from BCLK** because the ADV
+  routes no MCLK), plus `heroarc::kNewcomer` — the Cardputer's part in the hero's-arc song is to
+  be **silent through the whole story and join only the finale**, because listening is its job.
+  **A REAL PERFORMANCE BUG, found by measuring instead of guessing (2026-07-27).** The first
+  `verify` **FAILED**: skew −254.6 ms at **rtt 419 ms**, when every other node reads 1–34 ms.
+  Instead of chaining hypotheses off that timing, the sketch was instrumented to print its
+  worst loop pass — which said **render 767 ms, worst pass 1022 ms**. Mechanism: `Ttdb::edgesAt()`
+  **re-opens the TTDB file on every call**, and the globe called it once per record per frame, so
+  a repaint of the 45-record feelings globe cost ~45 LittleFS opens. The toot link is serviced
+  once per loop pass, so the slowest pass IS the node's response time. Fix: cache each record's
+  edges in `parseNodeAttrs()`, which already reads that same header line — **zero extra I/O**.
+  Re-measured: **render 767 → 68 ms, worst pass 1022 → 104 ms**, and `verify` now **PASSES at
+  skew +10.6 ms / rtt 65 ms**. The loop profiler was left in (prints every 30 s) so the next
+  node that goes sluggish on the mesh explains itself.
+  **⚠ The T-Deck shares this defect** — same globe code, same 45-record feelings TTDB, and it is
+  the node whose timing the band measurements lean on. Its sketch has NOT been patched or
+  reflashed; that is a one-cable job whenever it is next on the bench.
+  **Confirmed by the user at the bench (2026-07-27):** it **sounds and looks right** — the ES8311
+  audio path works by ear (the blind codec bring-up was correct) and the screen renders. One
+  correction needed: **`setRotation(1)` was UPSIDE-DOWN; it is `setRotation(3)`** — the identical
+  correction the T-Deck's ST7789 needed, so treat 3 as the fleet default for these panels.
+  Reflashed and confirmed.
+  **Still unexercised (not broken — just not yet driven):** the 56-key TCA8418 map is
+  *transcribed from published sources, not derived*, so each binding (`t`/`s`/`p`/`b`/`g`/`x`/
+  `o`/`r`/arrows/ENTER/space/±) is unverified until pressed; likewise tilt-to-roll the globe.
+  **Not built on purpose:** LoRa and GPS — the T-Deck stays the roaming GPS anchor and the
+  SX1262 handheld.
 
 Keep this section current. It is the first thing the next session reads.
 

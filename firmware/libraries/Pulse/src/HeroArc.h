@@ -138,6 +138,17 @@ static const score::ScenePhrase kConsoleScenes[] = {
 static const score::Part kConsole = {
     kConsoleScenes, sizeof(kConsoleScenes) / sizeof(kConsoleScenes[0])};
 
+// Cardputer the newcomer — the fleet's EARS. It arrives after the story is already
+// being told, and it is the one node with a microphone, so its line is to LISTEN: it
+// is silent through every scene and joins only the finale, doubling the harmony under
+// the T-Deck's lead. (Its acoustic percepts run the whole time; the silence is the
+// part, not an omission.)
+static const score::ScenePhrase kNewcomerScenes[] = {
+  {SCENE_FINALE, kOdeHarm},
+};
+static const score::Part kNewcomer = {
+    kNewcomerScenes, sizeof(kNewcomerScenes) / sizeof(kNewcomerScenes[0])};
+
 // K10 the percept leaf (future — still on v1 firmware, off the band roster): joins the
 // finale with the harmony under the T-Deck's lead. Defined now so rejoining is a
 // reflash, not a rewrite.

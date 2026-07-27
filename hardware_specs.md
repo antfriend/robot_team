@@ -222,6 +222,52 @@ the map the mesh draws of itself, carried in the hand.
 
 ---
 
+## 3b. M5Stack Cardputer ADV (K132-Adv)
+
+The fleet's second handheld and its **only accelerometer and microphone** — which is
+why it carries the motion (`@LAT95`) and acoustic (`@LAT94`) percept tiers. Sketch:
+`firmware/cardputer_console`, node id `0x300`. No LoRa, no GPS (the T-Deck keeps both).
+
+| Item | Value |
+|---|---|
+| Module / MCU | Stamp-S3A — ESP32-S3FN8 (LX7 dual-core, 240 MHz) |
+| Flash / PSRAM | 8 MB / **none** (so the globe canvas must fit internal SRAM) |
+| Display | ST7789V2, 1.14", **240×135** |
+| Keyboard | 56 keys via a **TCA8418** I²C matrix scanner (7 col × 8 row) |
+| Audio out | **ES8311 codec** → NS4150B amp → 8 Ω 1 W speaker; 3.5 mm jack |
+| Audio in | MEMS mic (65 dB SNR) through the same ES8311 |
+| IMU | **BMI270** 6-axis |
+| Other | microSD, IR emitter, Grove HY2.0-4P, EXT 14-pin, 1750 mAh battery |
+| Radios | Wi-Fi + BLE (no LoRa) |
+
+**Pin map** (verified on hardware 2026-07-27):
+
+| Function | GPIO |
+|---|---|
+| I²C bus (keyboard + codec + IMU) | SDA **8**, SCL **9** |
+| TCA8418 keyboard INT / address | **11** (active low) / **0x34** |
+| ES8311 address | **0x18** |
+| BMI270 address | **0x69** — the *secondary* address, NOT the 0x68 the published map implies |
+| Display | SCLK **36**, MOSI **35**, CS **37**, DC **34**, RST **33**, BL **38**; `init(135,240)` + **`setRotation(3)`** (rotation 1 is upside-down — same as the T-Deck) |
+| I²S | BCLK **41**, LRCK **43**, DOUT→codec **42**, DIN←codec **46**; **no MCLK pin** |
+| microSD (unused) | CS 12, MOSI 14, CLK 40, MISO 39 |
+| IR TX / battery ADC | 44 / 10 |
+| Grove HY2.0-4P | G2, G1 (+5V, GND) |
+
+**Gotchas that cost time here:**
+- **No MCLK is routed**, so the ES8311 must be told to derive its internal MCLK from
+  BCLK. That only holds while the I²S bus runs **16-bit stereo** (BCLK = 32·fs).
+- The **TCA8418 boots asleep**: no keypresses at all until `KP_GPIO1/2/3` + `CFG` are
+  written. Key numbers are `col*10 + row + 1`, and the deck's physical rows interleave
+  TCA rows — the keycode→character map is tabulated, not derivable.
+- **Auto-reset works** — plain `arduino-cli compile --upload`, no BOOT/RST dance
+  (unlike the T-Deck).
+
+### Official resources
+- Product / pinout: `https://docs.m5stack.com/en/core/Cardputer-Adv`
+
+---
+
 ## 4. Laptop orchestrator
 
 Not a fixed spec — but for the toot-toot network design, the relevant interfaces:
@@ -251,20 +297,20 @@ Suggested topology for Locus:
 
 ## 5. Quick comparison
 
-| | UNIHIKER K10 | Heltec WiFi LoRa 32 V4 | LilyGo T-Deck |
-|---|---|---|---|
-| MCU | ESP32-S3 (LX7) | ESP32-S3R2 (LX7) | ESP32-S3 (LX7) |
-| PSRAM / Flash | 8 MB / 16 MB | 2 MB / 16 MB | 8 MB / 16 MB |
-| LoRa | ✗ | ✓ SX1262, 28 dBm | ✓ SX1262 |
-| Wi-Fi / BLE | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
-| Display | 240×320 color LCD | 128×64 mono OLED | 320×240 color LCD |
-| Input | 2 buttons | 2 buttons | keyboard + trackball |
-| Camera / mics | 2 MP + 2 mic | ✗ | 1 mic |
-| Onboard sensors | temp, humidity, light, accel | ✗ | ✗ |
-| Free fast GPIO | limited (I²C expander) | yes (40-pin native) | limited (shared SPI + I²C kbd) |
-| Battery / solar | battery port | battery + solar + GNSS | battery (Plus adds GPS) |
-| Native USB serial | yes | yes (no UART bridge chip) | yes |
-| Best role | perception + UI endpoint | long-range mesh node / gateway | handheld operator console |
+| | UNIHIKER K10 | Heltec WiFi LoRa 32 V4 | LilyGo T-Deck | M5 Cardputer ADV |
+|---|---|---|---|---|
+| MCU | ESP32-S3 (LX7) | ESP32-S3R2 (LX7) | ESP32-S3 (LX7) | ESP32-S3FN8 (LX7) |
+| PSRAM / Flash | 8 MB / 16 MB | 2 MB / 16 MB | 8 MB / 16 MB | none / 8 MB |
+| LoRa | ✗ | ✓ SX1262, 28 dBm | ✓ SX1262 | ✗ |
+| Wi-Fi / BLE | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ | ✓ / ✓ |
+| Display | 240×320 color LCD | 128×64 mono OLED | 320×240 color LCD | 240×135 color LCD |
+| Input | 2 buttons | 2 buttons | keyboard + trackball | 56-key keyboard |
+| Camera / mics | 2 MP + 2 mic | ✗ | 1 mic | 1 mic (ES8311 codec) |
+| Onboard sensors | temp, humidity, light, accel | ✗ | ✗ | BMI270 accel/gyro |
+| Free fast GPIO | limited (I²C expander) | yes (40-pin native) | limited (shared SPI + I²C kbd) | limited (Grove + EXT 14-pin) |
+| Battery / solar | battery port | battery + solar + GNSS | battery (Plus adds GPS) | 1750 mAh battery |
+| Native USB serial | yes | yes (no UART bridge chip) | yes | yes (auto-reset works) |
+| Best role | perception + UI endpoint | long-range mesh node / gateway | handheld operator console | handheld console + motion/acoustic senses |
 
 ---
 

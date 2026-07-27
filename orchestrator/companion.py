@@ -50,6 +50,7 @@ NODE_IDS = {
     "k10_2": 0x00000101,
     "k10_3": 0x00000102,
     "tdeck_1": 0x00000200,
+    "cardputer_1": 0x00000300,
 }
 
 # Toot types.
@@ -2718,6 +2719,7 @@ FLEETMAP_SCALE_DEG_PER_M = 1.0   # metres -> globe degrees (must match the firmw
 FLEET_FRIENDLY = {
     "v4a_bridge": "V4-A", "v4b_relay": "V4-B", "v4c_edge": "V4-C",
     "k10_1": "K10", "k10_2": "K10-2", "k10_3": "K10-3", "tdeck_1": "T-Deck",
+    "cardputer_1": "Card",
 }
 
 

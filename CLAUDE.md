@@ -30,10 +30,17 @@ firmware/
                         @LAT97 TTDB records (ttn-semantic-positioning.md)
     EntityPercept/      SP0 entity tier: duty-cycled WiFi BSSID sightings ->
                         @LAT96 records; Jaccard overlap = coarse proximity bound
+    MotionPercept/      SP0 motion tier: accelerometer windows -> @LAT95 still|moving
+                        (makes "the observer held still" checkable, not assumed)
+    AcousticPercept/    SP0 acoustic tier: mic windows -> @LAT94, incl. the fleet-clock
+                        timestamp of the loudest transient (Phase 3 TDoA groundwork)
+    Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
   v4a_bridge/  v4b_relay/  v4c_edge/   LoRa spine sketches (LoRa gated off)
   tdeck_console/        LilyGo T-Deck handheld console (fleet remote + harmony voice)
+  cardputer_console/    M5Stack Cardputer ADV — 2nd handheld + the fleet's motion and
+                        acoustic senses (BMI270 + ES8311 mic); no LoRa, no GPS
 orchestrator/companion.py   Laptop side: pull/sync/verify/reconcile/push/cmd/
                             monitor/band over the link
 master/                 Laptop-side artifacts: consolidated + belief TTDBs, logs
@@ -130,6 +137,32 @@ Adafruit_ST7789 with runtime pins** (`arduino-cli lib install "Adafruit ST7735 a
 ST7789 Library"`), deliberately NOT TFT_eSPI, so it never touches the K10's shared
 `User_Setup.h`; (3) **GPIO10 must be driven HIGH** first or the LCD/keyboard/LoRa/SD
 are unpowered. Audio is I²S (MAX98357A) via the core's `ESP_I2S` — no analog tone path.
+
+The **M5Stack Cardputer ADV** (`firmware/cardputer_console`, node `0x300`) is the second
+handheld and builds like the T-Deck — `esp32:esp32:esp32s3:CDCOnBoot=cdc` on **huge_app**,
+plus `FlashSize=8M` (the ADV has 8 MB; huge_app only describes the first 4 MB, which is
+deliberate so its FS offset matches the T-Deck's). Flash its FS with
+**`scripts/Upload-Cardputer-FS.ps1`** (spiffs @0x310000) — same three globes as the T-Deck.
+Unlike the T-Deck its **auto-reset works**: plain `arduino-cli compile --upload -p COMx` with
+no BOOT/RST dance. Board-specific rules:
+1. **Everything hangs off one I2C bus** (SDA 8 / SCL 9): keyboard **0x34**, codec **0x18**,
+   IMU **0x69** — the BMI270 is at the *secondary* address, NOT the 0x68 the published pin map
+   implies (first boot printed `BMI270 NOT FOUND`). The sketch tries both and, on failure,
+   prints an I2C bus scan; read that before touching pin constants.
+2. **The keyboard is a TCA8418 matrix scanner**, not a keyboard MCU handing over ASCII. It
+   boots asleep — it does nothing until `KP_GPIO1/2/3` + `CFG` are written. Key numbers are
+   `col*10 + row + 1` over a 7-col × 8-row matrix, and the physical rows interleave TCA rows,
+   so the keycode→character map in the sketch is **tabulated, not derived** — if a key does
+   the wrong thing, fix the table, not the decode.
+3. **Audio goes through an ES8311 codec** (`firmware/libraries/Es8311`), so the speaker AND the
+   mic are dead until its registers are written. The board routes **no MCLK**, so the codec is
+   configured to derive MCLK from BCLK — which only holds while the I2S bus runs **16-bit
+   stereo** (BCLK = 32·fs). Don't switch it to mono or another bit width without revisiting
+   `Es8311.cpp`.
+4. The display is an **ST7789V2 240×135 on its own SPI** (SCLK 36 / MOSI 35 / CS 37 / DC 34 /
+   RST 33 / BL 38), driven by Adafruit_ST7789 with runtime pins — same reasoning as the T-Deck,
+   so it never touches the K10's shared `User_Setup.h`. Use `init(135,240)` +
+   **`setRotation(3)`**; rotation 1 renders upside-down, exactly as it did on the T-Deck.
 
 The T-Deck now carries **three globes** flashed as three files in `data/` (all picked up by
 `Upload-Tdeck-FS.ps1` since it images the whole dir): `ttdb.md` (the mesh fleet globe),

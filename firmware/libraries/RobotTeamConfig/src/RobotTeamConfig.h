@@ -27,6 +27,8 @@ enum RobotTeamNodeId : uint32_t {
   NODE_K10_2 = 0x00000101,
   NODE_K10_3 = 0x00000102,
   NODE_TDECK_1 = 0x00000200,  // LilyGo T-Deck handheld console / field operator
+  NODE_CARDPUTER_1 = 0x00000300,  // M5Stack Cardputer ADV — 2nd handheld; the fleet's
+                                  // motion + acoustic sense organ (BMI270 + ES8311 mic)
   // Wildcard CMD target: a CMD addressed here is honored by every node, not one. Only
   // band-wide ops (CMD_PLAY / CMD_STOP) act on it; targeted ops (get-status, set-led,
   // beep) still require an exact node id so a broadcast doesn't storm replies/ACKs.
