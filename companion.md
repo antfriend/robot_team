@@ -162,6 +162,7 @@ orchestrates them live:
 | TTDB file format / edges / weights | `RFCs/TTDB-RFC-000{1..8}` |
 | Mesh transport, toot frame, bring-up order | `toot_network_architecture.md` |
 | **Semantic positioning — the primary hypothesis** | `ttn-semantic-positioning.md` (build plan) + `RFCs/TTN-RFC-0011-Semantic-Positioning.md` (normative half, Experimental) |
+| Cardputer sensory-representor mode (proposal) | `cardputer-sensorium.md` |
 | TTCP rendering (records, globe, URIs) | `RFCs/TTCP-RFC-000{1..3}`; live reference viewer: [antfriend.github.io](https://github.com/antfriend/antfriend.github.io) |
 | Board specs, GPIO maps, gotchas | `hardware_specs.md` |
 | Build plan & milestones | `PLAN.md` |
