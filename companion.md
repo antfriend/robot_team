@@ -1455,6 +1455,72 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `PULSE_DEFAULT_BEAT_MS` — the face's clock must never stop, or the eye freezes and looks broken.
   Visible consequence, and intended: the gaze now moves in **beat-quantized steps**, so the eye
   tracks a tilt rhythmically rather than smoothly.
+- **The blocking microphone read: 30 ms → gone (fixed 2026-07-28). Worst loop pass 54 → 22 ms.**
+  With the append fixed, the mic was the node's widest loop section. **Pacing it did not work,
+  and the reason is the mechanism, not the tuning:** ESP_I2S configures the RX DMA with
+  **`dma_frame_num = 240`**, and nothing is readable until a whole descriptor completes — at
+  8 kHz that descriptor is exactly **30 ms** of audio, which is precisely what the section
+  measured. A 128-frame (16 ms) request therefore waited for the full descriptor *no matter when
+  it was asked*, so a poll gate was a no-op (and worse: with a 29 ms read, `now - lastRead` was
+  always past any gate shorter than that).
+  **Fix — align the READ to the DMA, keep what the TIER sees identical.** `serviceMic` now reads
+  **exactly one descriptor** (240 frames) once per descriptor period, so the audio has already
+  landed when we ask and the read returns at once. The samples then pass through a small carry
+  buffer and reach `@LAT94` in the **same 128-frame blocks at the same 16 ms spacing as before**,
+  each block's fleet-clock timestamp derived from how many frames still sit behind it. **The TDoA
+  datum is unchanged** — only what waits for what.
+  **Result:** worst loop pass **22 ms**, and the widest section is now the **render** (the
+  blink-open frame). The loop is finally bounded by the face itself, which is where a display
+  node's time should go. `mic` no longer appears in the profile at all.
+  **AND IT WAS NOT ONLY A LATENCY FIX — THE ACOUSTIC TIER HAD BEEN SILENTLY DROPPING ~35% OF ITS
+  AUDIO.** Verified after a `CMD_CLEAR_PERCEPTS` refilled the lanes (they were all at their cap of
+  48, so the tiers had gone silent). Blocks captured per 60 s window, against a theoretical
+  maximum of 60000/16 = **3750**:
+  - **Before:** 1955, 2501, 2591, 2871, 2927, 2958 — **52-79%** of the stream.
+  - **After:** 3198 (boot window), then **3732, 3720, 3742, 3615** — **99.2-99.8%**.
+
+  The mechanism follows directly from the descriptor: the old code consumed 128 frames (16 ms)
+  per call but *waited a whole 240-frame (30 ms) descriptor* to get them, so it drained barely
+  half the stream and the rest was overwritten in the DMA ring. **Transient detection was
+  therefore sampling roughly half the timeline** — any transient landing in a dropped span was
+  simply invisible, and two nodes could disagree about whether a clap happened at all. For the
+  tier that is supposed to deliver the fleet's first non-amplitude ranging measurement, that is a
+  much more serious defect than the 30 ms it also cost the loop.
+  **Timestamps confirmed against fresh records:** every `**TRANSIENT** t_ms` falls inside its own
+  window (44686 / 63408 / 164436 / 198254 / 262930 against windows starting 0 / 60000 / 120000 /
+  180000 / 240000), so the carry buffer's back-derived per-block timestamps are correct.
+  **Residual:** the percept flush is now just the LittleFS write itself, observed **43-185 ms**
+  depending on file state — once per 60 s per tier, and no longer O(file).
+  Byte-exact backups of the pre-prune TTDB are in the session scratchpad (`card_ttdb.md`,
+  `card_ttdb2.md`, 84061 B / 89157 B).
+- **The percept-window flash append: 3.1 s → 43 ms (fixed 2026-07-28).** The spike this node had
+  been carrying all along — and the reason it was growing session over session (676 ms at a 68 KB
+  TTDB, **3111 ms at 81 KB**) — was never the flash write. `Ttdb::appendRecord` ended with
+  `return begin(*fs_, path_)`: **a full re-scan and re-parse of the entire file on every append.**
+  Two compounding costs underneath it, and the second is a defect the fleet has met before:
+  1. `begin()` pass 2 called `readLine()` once per record, and **`readLine()` opens and closes the
+     file on every call** — ~190 file opens per append. This is the *same defect class* as the
+     `edgesAt()` per-frame trap (§6 above): the per-call open, not the bytes.
+  2. `appendRecord` did not need to re-index at all. It knows exactly what it wrote and where it
+     landed, so the index update is O(1); the re-scan was O(file), on a file that grows every
+     window across four tiers.
+  **Fixes:** `begin()` now does both passes through **one open handle** (new private
+  `readLineFrom(File&, ...)`; `readLine()` keeps its signature for single-line callers like
+  `edgesAt`), and `appendRecord` **indexes the appended block incrementally** — parsing the
+  header(s) out of the text it just wrote and appending to the record table. Anything unexpected
+  (a block starting with `@`, a header that will not parse, a full record table, or a file whose
+  real size disagrees with the cached one) **falls back to the authoritative full scan**, so the
+  index cannot silently drift from the file.
+  **Verified on hardware, three ways** — there is no native test for `TTDB.cpp` (it needs Arduino
+  `FS`; only `TtdbParse.cpp` is covered), so this was checked on the device: flush pass
+  **3111 → 43 ms**; a `companion.py pull` reassembles **84061 B / 190 record headers**, matching
+  the node's own `fileSize()` and its boot record count exactly; and the `@LAT96` lane numbers run
+  **34, 35, 36, 37, 38, 39** across an append, a reboot and another append — consecutive, no gaps
+  or repeats, which is the direct test that `laneCount()` is reading a correct in-memory index.
+  **This helps every node**, not just this one — `begin()` runs at boot everywhere.
+  **⚠ Now the largest remaining spike, and it is NOT the append:** the boot `[wifi] scan` blocks
+  the loop for **~2.0 s** (widest section `entity`, which contains `serviceWifiScan()`). Once per
+  10 minutes, pre-existing, untouched.
   **A visible artifact with a real cause, reported from the bench and fixed:** the iris showed
   momentary **vertical black bars** on every pupil change. Cause: `Adafruit_GFX::fillCircle` fills
   with **vertical spans**, and `drawIris` painted a full black disc and then covered it with red —

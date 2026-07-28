@@ -28,13 +28,15 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
     }
     yield();  // feed the watchdog during the boot scan
   }
-  f.close();
-
-  // Pass 2: parse each header line into coordinates/timestamps.
+  // Pass 2: parse each header line into coordinates/timestamps. Reuses the handle from
+  // pass 1 — `readLine()` OPENS AND CLOSES THE FILE PER CALL, so calling it once per
+  // record turned this loop into one file open per record. On a node whose TTDB grows at
+  // runtime that is the same defect that made `edgesAt()` cost 767 ms a frame
+  // (companion.md §6): the per-call open, not the bytes.
   char line[256];
   for (int i = 0; i < record_count_; ++i) {
     size_t fo = records_[i].file_offset;
-    readLine(fo, line, sizeof(line));
+    readLineFrom(f, fo, line, sizeof(line));
     TtdbRecord r;
     if (ttdbParseHeader(line, r)) {
       r.file_offset = fo;
@@ -42,17 +44,63 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
     }
     if ((i & 0x0F) == 0) yield();
   }
+  f.close();
   return true;
 }
 
+// Append a record block and index it INCREMENTALLY.
+//
+// This used to end with `return begin(*fs_, path_)` — a full re-scan and re-parse of the
+// whole file on every append. On the K10 and the bridge, whose TTDBs are written rarely,
+// that was invisible. On the Cardputer, which appends a percept window every 60 s across
+// four tiers, it was the node's single worst loop pass: measured at **676 ms with a 68 KB
+// TTDB and 3.1 s at 81 KB**, growing without bound because the file grows every window.
+// The append is O(1) work; the re-index was O(file) and did not need doing at all — we
+// know exactly what we just wrote and where it landed.
+//
+// Anything unexpected in the appended text falls back to the authoritative full scan, so
+// the index can never silently drift from the file.
 bool Ttdb::appendRecord(const char* text, size_t len) {
   if (!fs_ || !text || len == 0) return false;
   File f = fs_->open(path_, "a");
   if (!f) return false;
+  const size_t base = f.size();     // authoritative, not the cached file_size_
   size_t w = f.write(reinterpret_cast<const uint8_t*>(text), len);
   f.close();
   if (w != len) return false;
-  return begin(*fs_, path_);  // re-index: refreshes file_size_ + the record table
+
+  // A record header is a line whose first character is '@'. Offset 0 of the block would
+  // need the file's last byte to know whether it starts a line, so a block beginning with
+  // '@' is handed to the full scan; a well-formed block starts with the "\n---\n\n"
+  // separator, so this never fires in practice.
+  const int start_count = record_count_;
+  int added = 0;
+  bool ok = (base == file_size_) && (text[0] != '@');
+  bool line_start = false;
+  char line[256];
+  for (size_t i = 0; ok && i < len; ++i) {
+    if (line_start && text[i] == '@') {
+      if (record_count_ >= TTDB_MAX_RECORDS) { ok = false; break; }
+      size_t j = i, k = 0;
+      while (j < len && text[j] != '\n' && k < sizeof(line) - 1) {
+        if (text[j] != '\r') line[k++] = text[j];
+        ++j;
+      }
+      line[k] = '\0';
+      TtdbRecord r;
+      if (!ttdbParseHeader(line, r)) { ok = false; break; }
+      r.file_offset = base + i;
+      records_[record_count_++] = r;
+      ++added;
+    }
+    line_start = (text[i] == '\n');
+  }
+  if (!ok || added == 0) {
+    record_count_ = start_count;      // roll back a partial index
+    return begin(*fs_, path_);
+  }
+  file_size_ = base + len;
+  return true;
 }
 
 // Copy [off, off+len) from `in` to `out` in small chunks.
@@ -147,12 +195,12 @@ uint8_t Ttdb::edgesAt(int index, TtdbEdge* out, uint8_t max) {
   return ttdbParseEdges(line, out, max);
 }
 
-size_t Ttdb::readLine(size_t offset, char* buf, size_t cap) {
+// Read one line through an ALREADY-OPEN handle. Every caller that reads more than one
+// line must use this: the open, not the bytes, is what costs.
+size_t Ttdb::readLineFrom(File& f, size_t offset, char* buf, size_t cap) {
   buf[0] = '\0';
-  if (!fs_ || cap == 0) return 0;
-  File f = fs_->open(path_, "r");
-  if (!f) return 0;
-  f.seek(offset);
+  if (cap == 0 || !f) return 0;
+  if (!f.seek(offset)) return 0;
   size_t i = 0;
   while (i < cap - 1) {
     int c = f.read();
@@ -160,6 +208,15 @@ size_t Ttdb::readLine(size_t offset, char* buf, size_t cap) {
     if (c != '\r') buf[i++] = (char)c;
   }
   buf[i] = '\0';
+  return i;
+}
+
+size_t Ttdb::readLine(size_t offset, char* buf, size_t cap) {
+  buf[0] = '\0';
+  if (!fs_ || cap == 0) return 0;
+  File f = fs_->open(path_, "r");
+  if (!f) return 0;
+  size_t i = readLineFrom(f, offset, buf, cap);
   f.close();
   return i;
 }

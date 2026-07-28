@@ -28,10 +28,16 @@ class Ttdb {
   size_t readBytes(size_t offset, uint8_t* buf, size_t len);
 
   // Append a complete, well-formed record block (separator + header line + body,
-  // per TTDB-RFC-0001) to the file and re-index so it is immediately visible to
+  // per TTDB-RFC-0001) to the file and index it so it is immediately visible to
   // readBytes()/recordCount()/nearest() and to the next network pull. The first
   // runtime writer of a node's TTDB (TTN-RFC-0008 sync log). Returns false if the
   // file can't be opened/written or the re-index fails.
+  //
+  // Indexes the new record INCREMENTALLY — it does not re-read the file. Nodes whose
+  // TTDB grows at runtime (the Cardputer appends four percept lanes a minute) append
+  // often enough that an O(file) re-index per append dominates their worst loop pass,
+  // and the toot link is serviced once per pass. Falls back to a full begin() if the
+  // appended block is anything other than the expected one-or-more record headers.
   bool appendRecord(const char* text, size_t len);
 
   // Rewrite the TTDB without any record at latitude `lat` (percept-lane prune,
@@ -54,6 +60,9 @@ class Ttdb {
 
  private:
   size_t readLine(size_t offset, char* buf, size_t cap);
+  // Same, through a handle the caller already holds. readLine() opens and closes the
+  // file per call, so any loop reading more than one line must use this instead.
+  static size_t readLineFrom(File& f, size_t offset, char* buf, size_t cap);
 
   fs::FS* fs_ = nullptr;
   char path_[64] = {0};

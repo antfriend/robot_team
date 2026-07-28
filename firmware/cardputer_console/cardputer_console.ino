@@ -963,32 +963,75 @@ static void serviceImu(uint32_t now) {
 #endif
 
 #if USE_MIC && USE_CARD_HW
-// Read whatever the codec's ADC has ready and fold it into the acoustic window. The
-// I2S RX channel free-runs, so this drains rather than waits — a blocking read here
-// would stall the mesh. Each block is timestamped on the FLEET clock when we are
-// synced, because that timestamp is the entire point of the tier (TDoA).
+// Read a block of the codec's ADC and fold it into the acoustic window. Each block is
+// timestamped on the FLEET clock when we are synced, because that timestamp is the
+// entire point of the tier (TDoA).
+//
+// READ ALIGNED TO THE DMA, FED TO THE TIER UNCHANGED. That split is the whole point of
+// the function's shape, and it is not optional — three facts about ESP_I2S force it:
+//
+//   1. `I2SClass::available()` is a STUB. It returns the constant I2S_READ_CHUNK_SIZE
+//      (1920) regardless of what is actually buffered, so the `if (avail < sizeof(block))
+//      return;` guard that used to sit here could never fire — it was dead code that read
+//      like a non-blocking guard.
+//   2. `readBytes()` loops until it has the FULL request, blocking on the DMA.
+//   3. **The RX DMA is configured `dma_frame_num = 240`**, and nothing becomes readable
+//      until a whole descriptor completes. At 8 kHz that descriptor is exactly **30 ms**
+//      of audio — which is precisely the 29-30 ms this section was measured at.
+//
+// So a 128-frame (16 ms) request waited for the full 30 ms descriptor no matter when it
+// was asked; the main loop spent 30 ms per pass waiting for the microphone. The toot link
+// is serviced once per pass, so whatever the loop waits on, the whole fleet waits on
+// (companion.md §6). Pacing alone does NOT fix this: any request smaller than a descriptor
+// still waits for the descriptor.
+//
+// The fix reads **exactly one descriptor** and only once per descriptor period, so the
+// data has already landed when we ask and the read returns at once. What the tier sees is
+// then decoupled from that: the samples go through a small carry buffer and are handed to
+// `@LAT94` in the **same 128-frame blocks at the same 16 ms spacing as before**, with each
+// block's fleet-clock timestamp derived from how many frames still sit behind it. The
+// TDoA datum is untouched — only what waits for what has changed.
+static const size_t   MIC_TIER_FRAMES = 128;                  // what @LAT94 sees: UNCHANGED
+static const size_t   MIC_DMA_FRAMES  = 240;                  // ESP_I2S dma_frame_num
+static const uint32_t MIC_POLL_MS = (MIC_DMA_FRAMES * 1000) / I2S_RATE;   // 30 ms
+static int16_t gMicCarry[MIC_DMA_FRAMES + MIC_TIER_FRAMES];   // mono, awaiting a full block
+static size_t  gMicCarryN = 0;
 static void serviceMic(uint32_t now) {
   if (!gCodecOk) return;
-  static int16_t block[256];                   // 128 stereo frames @ 8 kHz = 16 ms
-  int avail = gI2S.available();
-  if (avail < (int)sizeof(block)) return;
+  static uint32_t lastRead = 0;
+  if (now - lastRead < MIC_POLL_MS) return;
+  lastRead = now;
+  static int16_t block[MIC_DMA_FRAMES * 2];
   size_t got = gI2S.readBytes((char*)block, sizeof(block));
-  if (got < sizeof(int16_t) * 2) return;
+  size_t frames = got / (sizeof(int16_t) * 2);
+  if (!frames) return;
+  if (frames > MIC_DMA_FRAMES) frames = MIC_DMA_FRAMES;
   // De-interleave to mono by taking the left slot (the codec is single-channel; both
   // slots carry the same mic).
-  static int16_t mono[128];
-  size_t frames = got / (sizeof(int16_t) * 2);
-  if (frames > 128) frames = 128;
-  for (size_t i = 0; i < frames; ++i) mono[i] = block[i * 2];
-  uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
-  gAcousticLog.addBlock(mono, frames, t_ms, now);
+  if (gMicCarryN + frames > sizeof(gMicCarry) / sizeof(gMicCarry[0]))
+    gMicCarryN = 0;                      // can't happen; if it does, drop rather than smear
+  for (size_t i = 0; i < frames; ++i) gMicCarry[gMicCarryN + i] = block[i * 2];
+  gMicCarryN += frames;
+
+  // These samples end NOW; every block still behind them is that many frames older.
+  const uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
+  while (gMicCarryN >= MIC_TIER_FRAMES) {
+    size_t rest = gMicCarryN - MIC_TIER_FRAMES;
+    uint64_t blk_t = t_ms - (uint64_t)((rest * 1000) / I2S_RATE);
+    gAcousticLog.addBlock(gMicCarry, MIC_TIER_FRAMES, blk_t, now);
+    memmove(gMicCarry, gMicCarry + MIC_TIER_FRAMES, rest * sizeof(int16_t));
+    gMicCarryN = rest;
+  }
 
   // Instantaneous loudness for the face. The @LAT94 log keeps window statistics (60 s)
   // which are the wrong timescale for a screen, so this is a separate, cheap mean-|s|
-  // over the same block — expressed against a slow room baseline, because "loud" only
-  // means anything relative to the room this node is standing in (§3.1).
+  // over the samples just read — expressed against a slow room baseline, because "loud"
+  // only means anything relative to the room this node is standing in (§3.1).
   uint32_t acc = 0;
-  for (size_t i = 0; i < frames; ++i) acc += (uint32_t)(mono[i] < 0 ? -mono[i] : mono[i]);
+  for (size_t i = 0; i < frames; ++i) {
+    int16_t s = block[i * 2];
+    acc += (uint32_t)(s < 0 ? -s : s);
+  }
   float lvl = (float)acc / (float)frames;
   gSndAmb += (lvl - gSndAmb) * 0.02f;         // our own voice still feeds the baseline
   if (now < gToneUntilMs) {
