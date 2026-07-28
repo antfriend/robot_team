@@ -484,7 +484,11 @@ static uint8_t buildStatus(uint8_t* p) {
 // burst, so radio callers must invoke this from loop().
 static void serveTtdbReq(const toot::Toot& req, TtdbShare::SendFn send, void* ctx) {
   if (!gShare || TtdbShare::requestTarget(req) != kNodeId) return;
-  if (req.payload_len >= 1 && req.payload[0] == toot::TTDB_REQ_BELIEF) {
+  if (req.payload_len >= 1 && req.payload[0] == toot::TTDB_REQ_RECORDING) {
+    const uint8_t* rec = nullptr;
+    size_t n = recordingObject(&rec);
+    gShare->handleBufferRequest(rec, n, send, ctx);   // 0 bytes = "nothing captured"
+  } else if (req.payload_len >= 1 && req.payload[0] == toot::TTDB_REQ_BELIEF) {
     static uint8_t bbuf[1536];
     File f = LittleFS.open(kBeliefPath, "r");
     size_t n = f ? f.read(bbuf, sizeof(bbuf)) : 0;
@@ -539,6 +543,23 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           accepted = (gPulse.scene() == want);   // ACK the achieved state
         }
 #endif
+        break;
+      }
+      // CMD_RECORD is band-wide by nature: the entire value of it is that several nodes
+      // capture the SAME window, so a broadcast is the normal case rather than a
+      // convenience. Armed here in the recv path deliberately — arming is a few stores
+      // and no I/O, and deferring it to loop() could push it past the start instant on a
+      // pass that happens to be doing a percept flush (60-220 ms, half a beat).
+      if (toot::cmdOp(t) == toot::CMD_RECORD &&
+          (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
+#if USE_MIC && USE_CARD_HW && USE_PULSE
+        if (t.payload_len >= 15)
+          accepted = armRecord(toot::get_u64(t.payload + 5),
+                               toot::get_u16(t.payload + 13));
+#endif
+        // Addressed requests still ACK (accepted stays false if we declined); a
+        // broadcast must not, or every node answers at once.
+        if (toot::cmdTarget(t) == NODE_BROADCAST) return;
         break;
       }
       // Band-wide play/stop honor the broadcast target; everything else is addressed.
@@ -794,6 +815,36 @@ static const size_t SCOPE_SPAN = 240;
 static int16_t  gScopeRing[SCOPE_SPAN * 2];  // [0..239] older block, [240..479] newest
 static int32_t  gTransCount = 0;             // @LAT94 transients this window, as logged
 static uint32_t gTransAt = 0;                // millis() of the last one that wasn't us
+
+// The beat-scheduled capture buffer (CMD_RECORD). Sized at ONE BAR — 4 beats at 120 BPM
+// is 2 s, which at 8 kHz/16-bit mono is 32,000 bytes. That number is not a coincidence
+// worth ignoring: the largest contiguous block this node can allocate once WiFi and BLE
+// are up is ~45 KB (measured — it is why the oscilloscope's canvas was refused), so one
+// bar fits in RAM with room and needs no filesystem, no repartition and no SD card.
+// Static rather than allocated, for the same reason the scope's row buffer is: a
+// feature whose allocation can fail is a feature that can vanish.
+static const uint32_t REC_MAX_SAMPLES = 16000;
+static uint8_t  gRecObj[toot::RECHDR_LEN + REC_MAX_SAMPLES * 2];
+static bool     gRecArmed = false, gRecActive = false;
+static uint32_t gRecWant = 0, gRecHave = 0;
+static uint64_t gRecReqEpoch = 0;            // the instant we were asked for
+static uint8_t  gRecFlags = 0;
+
+// The capture as a servable object, reached through a FUNCTION rather than the buffer
+// directly because the reader (serveTtdbReq) sits earlier in the file — arduino-cli
+// auto-prototypes functions but not variables, so a function is the thing that can be
+// used before it is defined.
+//
+// Returns 0 bytes while a capture is armed or running. Serving a half-filled buffer
+// would hand the companion audio whose tail is the PREVIOUS capture's samples, and it
+// would look entirely plausible — the worst kind of wrong on a measurement path.
+static size_t recordingObject(const uint8_t** out) {
+  *out = gRecObj;
+  if (gRecArmed || gRecActive) return 0;
+  uint32_t n = toot::get_u32(gRecObj + 12);
+  if (!n || toot::get_u32(gRecObj + 0) != toot::RECHDR_MAGIC) return 0;
+  return toot::RECHDR_LEN + (size_t)n * 2;
+}
 // Our own speaker is sounding until here. The node has a mic AND sings, so without a
 // gate every note it plays is a stimulus to itself (§3.3). This gate covers the FACE
 // only — phase S0 still owes the same gate to the @LAT94 transient log.
@@ -1037,6 +1088,122 @@ static void serviceImu(uint32_t now) {
 // `@LAT94` in the **same 128-frame blocks at the same 16 ms spacing as before**, with each
 // block's fleet-clock timestamp derived from how many frames still sit behind it. The
 // TDoA datum is untouched — only what waits for what has changed.
+// --- beat-scheduled capture (CMD_RECORD -> TTDB_REQ_RECORDING) ---------------
+//
+// A recording that starts on a BEAT rather than on a threshold. Broadcast one command
+// and every node captures the same window of wall-clock time, because the band clock is
+// already a shared time base the whole fleet agrees on (TTN-RFC-0010). Two nodes that
+// heard the same clap can then be cross-correlated directly — no threshold in the path,
+// which is precisely the weakness §6 identifies in the @LAT94 transient timestamps: a
+// threshold fires at a different point on the waveform depending on distance and gain,
+// so its error is the shape of the sound rather than the geometry.
+//
+// SIZED AT ONE BAR, and that is not arbitrary: 4 beats at 120 BPM is 2 s, which at
+// 8 kHz/16-bit mono is 32,000 bytes. The largest contiguous block this node can actually
+// allocate once WiFi and BLE are up is ~45 KB (measured — it is why the oscilloscope's
+// canvas was refused), so one bar fits in RAM with room and needs no filesystem, no
+// repartition and no SD card. It is a static buffer for the same reason the scope's row
+// buffer is: an allocation that can fail is a feature that can vanish.
+// (the buffer + its state live up with the other published sense state, because
+// serveTtdbReq reads them and sits earlier in the file than this)
+
+// Arm a capture. Refuses rather than guesses: a node with no chart has no idea when the
+// requested instant IS, and a buffer stamped with a clock we do not really hold is worse
+// than no buffer at all — the entire hypothesis rests on those timestamps being true.
+static bool armRecord(uint64_t start_band_epoch_ms, uint16_t dur_beats) {
+#if USE_PULSE
+  if (!gPulse.playing()) { Serial.println("[rec] declined: no chart"); return false; }
+  // A broadcast is sent more than once so a node cannot silently miss it, which means
+  // duplicates are NORMAL. Re-arming for an instant we are already committed to must be
+  // a no-op — without this a second copy arriving mid-capture would restart the buffer
+  // and we would return the tail of the window as though it were the whole of it.
+  if ((gRecArmed || gRecActive) && gRecReqEpoch == start_band_epoch_ms) return true;
+  uint32_t per = gPulse.chart().beat_period_ms ? gPulse.chart().beat_period_ms
+                                               : PULSE_DEFAULT_BEAT_MS;
+  uint64_t want = (uint64_t)dur_beats * per * I2S_RATE / 1000;
+  if (want == 0 || want > REC_MAX_SAMPLES) want = REC_MAX_SAMPLES;
+  gRecWant = (uint32_t)want;
+  gRecReqEpoch = start_band_epoch_ms;
+  gRecHave = 0;
+  gRecFlags = 0;
+  gRecActive = false;
+  gRecArmed = true;
+  Serial.printf("[rec] armed: start %llu (in %lld ms) %u beats = %lu samples\n",
+                (unsigned long long)start_band_epoch_ms,
+                (long long)((int64_t)start_band_epoch_ms - gPulse.pulseNow(millis())),
+                dur_beats, (unsigned long)gRecWant);
+  return true;
+#else
+  (void)start_band_epoch_ms; (void)dur_beats;
+  return false;
+#endif
+}
+
+// Called with every mic block. Copies the slice of it that belongs to the capture.
+static void serviceRecord(const int16_t* block, size_t frames, uint32_t now) {
+#if USE_PULSE
+  if (!gRecArmed && !gRecActive) return;
+  if (!gPulse.playing()) { gRecArmed = gRecActive = false; return; }
+
+  // The block we were just handed ENDS about now, so it spans [tStart, tEnd] on the band
+  // clock. Everything below is in that frame.
+  int64_t tEnd = gPulse.pulseNow(now);
+  int64_t tStart = tEnd - (int64_t)((frames * 1000) / I2S_RATE);
+
+  size_t i0 = 0;
+  if (gRecArmed) {
+    if ((int64_t)gRecReqEpoch > tEnd) return;            // still in the future: wait
+    if ((int64_t)gRecReqEpoch > tStart) {
+      // The start lands INSIDE this block — begin at that sample, not at the block edge.
+      i0 = (size_t)((((int64_t)gRecReqEpoch - tStart) * (int64_t)I2S_RATE) / 1000);
+      if (i0 >= frames) return;
+    } else {
+      gRecFlags |= toot::REC_FLAG_LATE;   // we missed it; say so rather than pretend
+    }
+    gRecArmed = false;
+    gRecActive = true;
+    gRecHave = 0;
+
+    // Stamp what we BELIEVE, at sample 0. This is the header's whole purpose: the fleet
+    // wanders together by 15-25 ms, and a reported clock is a correctable offset whereas
+    // an assumed one is permanent error.
+    uint64_t start = (uint64_t)(tStart + (int64_t)((i0 * 1000) / I2S_RATE));
+    uint8_t* h = gRecObj;
+    toot::put_u32(h + 0, toot::RECHDR_MAGIC);
+    toot::put_u32(h + 4, kNodeId);
+    toot::put_u32(h + 8, I2S_RATE);
+    toot::put_u32(h + 12, 0);                            // samples: filled at the end
+    toot::put_u64(h + 16, start);
+    toot::put_u64(h + 24, gRecReqEpoch);
+    toot::put_u64(h + 32, (uint64_t)gPulse.offsetMs());
+    toot::put_u64(h + 40, gSynced ? (uint64_t)nowEpochMs() : 0);
+    toot::put_u32(h + 48, gPulse.chart().era);
+    toot::put_u32(h + 52, gPulse.chart().conductor_id);
+    toot::put_u16(h + 56, gPulse.chart().beat_period_ms);
+    if (gSynced) gRecFlags |= toot::REC_FLAG_SYNCED;
+    for (size_t i = 58; i < toot::RECHDR_LEN; ++i) h[i] = 0;
+  }
+
+  // Our own speaker sounding during the window is not a failure — it is a fact the
+  // companion needs, because a node that sang into its own capture will cross-correlate
+  // against its own voice rather than the event (§3.3).
+  if (now < gToneUntilMs) gRecFlags |= toot::REC_FLAG_SELF;
+
+  int16_t* pcm = (int16_t*)(gRecObj + toot::RECHDR_LEN);
+  for (size_t i = i0; i < frames && gRecHave < gRecWant; ++i)
+    pcm[gRecHave++] = block[i * 2];                      // left slot = the mic
+  if (gRecHave >= gRecWant) {
+    gRecActive = false;
+    toot::put_u32(gRecObj + 12, gRecHave);
+    gRecObj[58] = gRecFlags;
+    Serial.printf("[rec] captured %lu samples, flags 0x%02X\n",
+                  (unsigned long)gRecHave, gRecFlags);
+  }
+#else
+  (void)block; (void)frames; (void)now;
+#endif
+}
+
 static const size_t   MIC_TIER_FRAMES = 128;                  // what @LAT94 sees: UNCHANGED
 static const size_t   MIC_DMA_FRAMES  = 240;                  // ESP_I2S dma_frame_num
 static const uint32_t MIC_POLL_MS = (MIC_DMA_FRAMES * 1000) / I2S_RATE;   // 30 ms
@@ -1058,6 +1225,8 @@ static void serviceMic(uint32_t now) {
     gMicCarryN = 0;                      // can't happen; if it does, drop rather than smear
   for (size_t i = 0; i < frames; ++i) gMicCarry[gMicCarryN + i] = block[i * 2];
   gMicCarryN += frames;
+
+  serviceRecord(block, frames, now);      // beat-scheduled capture, if one is armed
 
   // Publish the same samples for the scope (§4.2), shifted in as one sweep. This is a
   // copy, not a tap on the tier: the tier's blocks are 128 frames on a 16 ms cadence
@@ -2264,6 +2433,15 @@ void setup() {
   gTft.setCursor(4, 4);
   gTft.print("CARDPUTER");
 
+  // What this node actually has to spend, printed rather than assumed. The heap FIGURE
+  // is not the useful one — `maxalloc` is: the oscilloscope's first build asked for a
+  // contiguous 64,800 B canvas and was refused while plenty of heap was free
+  // (cardputer-sensorium.md §4.2). Anything sizing a buffer on this board should read
+  // this line first.
+  Serial.printf("[mem] heap %lu free, maxalloc %lu, psram %lu\n",
+                (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMaxAllocHeap(),
+                (unsigned long)ESP.getPsramSize());
+
   // Off-screen globe canvas (~36 KB, internal RAM — this board has no PSRAM).
   gGlobe = new GFXcanvas16(GLOBE_W, GLOBE_H);
   if (!gGlobe || !gGlobe->getBuffer()) {
@@ -2725,10 +2903,11 @@ void loop() {
       // should track (~25/s). A resting node quietly burning 25 fps would look identical
       // on every other number in this line.
       Serial.printf("[loop] worst pass %lums (render %lums, widest section %s %lums) "
-                    "| worst render %lums | frames %lu\n",
+                    "| worst render %lums | frames %lu | maxalloc %luK\n",
                     (unsigned long)worst, (unsigned long)worstOwnRender,
                     worstSectName, (unsigned long)worstSect,
-                    (unsigned long)gWorstRenderMs, (unsigned long)gRenderCount);
+                    (unsigned long)gWorstRenderMs, (unsigned long)gRenderCount,
+                    (unsigned long)(ESP.getMaxAllocHeap() / 1024));
       gRenderCount = 0;
       worst = 0;
       worstOwnRender = 0;

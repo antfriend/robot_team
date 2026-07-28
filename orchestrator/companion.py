@@ -18,6 +18,7 @@ Requires: pyserial  (pip install -r requirements.txt)
 import argparse
 import hashlib
 import hmac
+import math
 import os
 import re
 import struct
@@ -67,6 +68,17 @@ TTDB_PUT = 12
 TTDB_REQ_WHOLE = 0    # entire live TTDB
 TTDB_REQ_RANGE = 1    # bytes [start,end) of the live TTDB (selective re-request)
 TTDB_REQ_BELIEF = 2   # entire stored belief object (/belief.md, TTN-RFC-0009 §3)
+TTDB_REQ_RECORDING = 3  # the last beat-scheduled audio capture (CMD_RECORD), in RAM
+
+# RECHDR (Toot.h) — the header on a CMD_RECORD capture. Every node reports what it
+# BELIEVED the time was at sample 0 rather than assuming the fleet agrees, so the
+# 15-25 ms common-mode wander measured on 2026-07-28 becomes a correction here instead
+# of an error baked into the audio.
+RECHDR_MAGIC = 0x31524554   # "TER1"
+RECHDR_LEN = 64
+REC_FLAG_SYNCED = 1 << 0
+REC_FLAG_LATE = 1 << 1
+REC_FLAG_SELF = 1 << 2
 
 # TTDB_PUT payload (TTN-RFC-0009 §2.1): target u32 | belief_id u32 | total u32 |
 # crc32 u32 | offset u32 | len u16 | data. crc32 is zlib/IEEE (== firmware toot::crc32).
@@ -103,6 +115,7 @@ CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
            "play": CMD_PLAY, "stop": CMD_STOP,
            "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE}
+CMD_RECORD = 11      # args: start_band_epoch_ms u64 LE | dur_beats u16 LE
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -1163,6 +1176,160 @@ def band(port, baud, nodes, bound_ms, probes, settle, watch, interval):
             print(f"\nPASS: band converged + tight within +/-{bound_ms:.0f} ms")
         else:
             sys.exit("\nFAIL: band not converged or a node out of bound")
+
+
+def parse_rechdr(data):
+    """Read a RECHDR (Toot.h). Returns a dict, or None if this isn't one."""
+    if len(data) < RECHDR_LEN or struct.unpack_from("<I", data, 0)[0] != RECHDR_MAGIC:
+        return None
+    node, rate, samples = struct.unpack_from("<III", data, 4)
+    start, req, offset, fleet = struct.unpack_from("<QQqQ", data, 16)
+    era, cond, period = struct.unpack_from("<IIH", data, 48)
+    return {"node": node, "rate": rate, "samples": samples, "start": start,
+            "req": req, "offset": offset, "fleet": fleet, "era": era,
+            "conductor": cond, "period": period, "flags": data[58]}
+
+
+def write_wav(path, pcm, rate):
+    """Minimal 16-bit mono PCM WAV. Not worth a dependency."""
+    n = len(pcm)
+    with open(path, "wb") as f:
+        f.write(b"RIFF" + struct.pack("<I", 36 + n) + b"WAVE")
+        f.write(b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16))
+        f.write(b"data" + struct.pack("<I", n) + pcm)
+
+
+def record(port, baud, nodes, lead_beats, dur_beats, outdir, settle, copies,
+           self_test=False):
+    """Beat-scheduled fleet recording: every node captures the SAME window of wall-clock
+    time, because the band clock (TTN-RFC-0010) is a time base they already share.
+
+    Why schedule it rather than trigger on a threshold: the @LAT94 transient timestamps
+    fire at a different point on the waveform depending on distance and gain, so their
+    error is the SHAPE of the sound rather than the geometry (cardputer-sensorium.md §6).
+    A scheduled capture has no threshold anywhere in the path, so two nodes that heard
+    one clap can be cross-correlated directly.
+
+    The laptop has no per-beat role. It reads one node's chart, projects the requested
+    beat onto the band clock, and broadcasts the resulting instant; each node then
+    compares that instant against its OWN clock and stamps what it believed."""
+    try:
+        import serial  # noqa: F401
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    for name in nodes:
+        if name not in NODE_IDS:
+            sys.exit(f"unknown node '{name}'. choices: {', '.join(NODE_IDS)}")
+
+    reader = SerialFrameReader()
+    ser = open_serial_no_reset(port, baud)   # a reset would wipe the very clock we use
+    try:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+
+        # Read the chart from whichever node answers. Any node will do: they share the
+        # chart, and disagreement about it is exactly what the per-node stamps capture.
+        chart = None
+        for name in nodes:
+            got = status_probe(ser, reader, NODE_IDS[name], probes=5)
+            if got and not got.get("plain") and got.get("playing"):
+                chart = got
+                print(f"chart from {name}: era {got['era']} "
+                      f"conductor 0x{got['conductor_id']:08X} {got['period_ms']} ms/beat")
+                break
+        if chart is None:
+            sys.exit("no node reported a pulse chart — nothing to schedule against")
+
+        period = chart["period_ms"] or 500
+        # band_epoch(laptop_ms) = pulse_epoch + (laptop_ms - t_mid)
+        now_band = chart["pulse_epoch"] + (time.time() * 1000.0 - chart["t_mid"])
+        beats_now = (now_band - chart["downbeat"]) / float(period)
+        # Round UP to a downbeat at least `lead_beats` away. The lead is not politeness:
+        # this fleet's percept-window flush stalls a node's loop for 60-220 ms, nearly
+        # half a beat, so a node caught mid-flush would miss a start scheduled too close.
+        target = int(math.ceil(beats_now)) + lead_beats
+        target += (-target) % 4                      # next downbeat (meter 4)
+        start = int(chart["downbeat"] + target * period)
+        wait_s = (start - now_band) / 1000.0
+        print(f"start at band epoch {start} (beat {target}), "
+              f"in {wait_s:.2f} s, for {dur_beats} beats "
+              f"({dur_beats * period / 1000.0:.2f} s)")
+
+        args = struct.pack("<QH", start, dur_beats)
+        payload = bytes([CMD_RECORD]) + struct.pack("<I", NODE_BROADCAST) + args
+        base = int(time.time() * 1000) & 0x7FFFFFFF
+        for k in range(copies):
+            # Distinct seqs, or the radio dedup drops the copies. Re-arming the SAME
+            # instant is a no-op on the node, so duplicates are safe by construction.
+            write_serial_frame(ser, encode_toot(CMD, ORCHESTRATOR_ID, base + k, payload))
+            time.sleep(0.02)
+        print(f"broadcast CMD_RECORD x{copies}")
+
+        window_s = dur_beats * period / 1000.0
+        if self_test:
+            # Put a KNOWN signal at a KNOWN instant inside the window. Bytes arriving
+            # only proves the transport; a tone that lands at the midpoint proves the
+            # capture is sampling the microphone at the scheduled time, which is the
+            # entire claim. It also exercises the self-noise flag, since the node is
+            # both the source and the listener.
+            #
+            # Sent on THIS already-open handle rather than via `cmd`, deliberately:
+            # send_cmd opens the port with the DTR reset, which would reboot the bridge
+            # and shatter the very band we are recording against.
+            time.sleep(max(0.0, wait_s) + window_s / 2.0)
+            beep = (bytes([CMD_BEEP]) + struct.pack("<I", NODE_IDS[nodes[0]])
+                    + struct.pack("<HH", 1000, 200))
+            write_serial_frame(ser, encode_toot(CMD, ORCHESTRATOR_ID,
+                                                (base + 100) & 0x7FFFFFFF, beep))
+            print(f"self-test: 1 kHz 200 ms at +{window_s / 2.0:.2f} s into the window")
+            time.sleep(window_s / 2.0 + 0.5)
+        else:
+            time.sleep(max(0.0, wait_s) + window_s + 0.5)
+
+        os.makedirs(outdir, exist_ok=True)
+        rows = []
+        for name in nodes:
+            data = request_ttdb(ser, reader, NODE_IDS[name], 30.0, TTDB_REQ_RECORDING)
+            if not data:
+                print(f"{name:<12} nothing captured")
+                continue
+            h = parse_rechdr(data)
+            if h is None:
+                print(f"{name:<12} reply was not a RECHDR ({len(data)} B)")
+                continue
+            pcm = data[RECHDR_LEN:RECHDR_LEN + h["samples"] * 2]
+            path = os.path.join(outdir, f"{name}.wav")
+            write_wav(path, pcm, h["rate"])
+            rows.append((name, h, path))
+
+        if not rows:
+            sys.exit("\nno node returned a capture")
+
+        # The payoff table. `late` is the node's OWN report of how far past the requested
+        # instant its first sample actually landed — a measurement, not an unknown, and
+        # the thing that lets a shared clock wobble be corrected rather than inherited.
+        print(f"\n{'node':<12} {'samples':>8} {'late_ms':>8} {'offset_ms':>10} "
+              f"{'era':>4} {'flags':>6}  file")
+        for name, h, path in rows:
+            fl = "".join([("S" if h["flags"] & REC_FLAG_SYNCED else "-"),
+                          ("L" if h["flags"] & REC_FLAG_LATE else "-"),
+                          ("V" if h["flags"] & REC_FLAG_SELF else "-")])
+            print(f"{name:<12} {h['samples']:>8} {h['start'] - h['req']:>8} "
+                  f"{h['offset']:>10} {h['era']:>4} {fl:>6}  {path}")
+        print("  flags: S=fleet-clock synced  L=start already past on arrival  "
+              "V=our own speaker sounded")
+
+        if len(rows) > 1:
+            base_start = rows[0][1]["start"]
+            spread = max(abs(r[1]["start"] - base_start) for r in rows)
+            eras = {r[1]["era"] for r in rows}
+            print(f"\ncapture-start spread across nodes: {spread} ms "
+                  f"= {spread * 0.343:.2f} m of sound")
+            if len(eras) > 1:
+                print("  WARNING: nodes reported different chart eras "
+                      f"{sorted(eras)} — their beat numbering is not comparable")
+    finally:
+        ser.close()
 
 
 def reconcile(port, baud, nodes, master, out, do_pull, settle):
@@ -2921,6 +3088,29 @@ def main():
     bd.add_argument("--interval", type=float, default=1.0,
                     help="seconds between refreshes (--watch)")
 
+    rd = sub.add_parser("record",
+                        help="beat-scheduled fleet audio capture (CMD_RECORD)")
+    rd.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
+    rd.add_argument("--baud", type=int, default=115200)
+    rd.add_argument("--nodes", default="cardputer_1",
+                    help="comma-separated nodes to record + pull from")
+    rd.add_argument("--lead-beats", type=int, default=8, dest="lead_beats",
+                    help="beats of notice before the capture starts; rounded up to a "
+                         "downbeat. Keep it >=4: a node mid percept-flush stalls for "
+                         "60-220 ms and would miss a nearer start")
+    rd.add_argument("--dur-beats", type=int, default=4, dest="dur_beats",
+                    help="capture length in beats (4 = one bar = 2 s at 120 BPM, "
+                         "which is the 32 KB the node's RAM buffer holds)")
+    rd.add_argument("--out", default=os.path.join("master", "recordings"),
+                    help="directory for the per-node WAVs")
+    rd.add_argument("--settle", type=float, default=0.5)
+    rd.add_argument("--copies", type=int, default=3,
+                    help="broadcast repeats; re-arming the same instant is a node no-op")
+    rd.add_argument("--self-test", action="store_true", dest="self_test",
+                    help="beep 1 kHz for 200 ms at the MIDPOINT of the window, so the "
+                         "captured audio can be checked for the right signal at the "
+                         "right instant rather than merely for having arrived")
+
     cm = sub.add_parser("cmd", help="send a CMD to a node (ping/set-led/clear-led)")
     cm.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     cm.add_argument("--baud", type=int, default=115200)
@@ -3096,6 +3286,10 @@ def main():
     elif args.cmd == "band":
         band(args.port, args.baud, [s for s in args.nodes.split(",") if s],
              args.bound_ms, args.probes, args.settle, args.watch, args.interval)
+    elif args.cmd == "record":
+        record(args.port, args.baud, [s for s in args.nodes.split(",") if s],
+               args.lead_beats, args.dur_beats, args.out, args.settle, args.copies,
+               args.self_test)
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts,

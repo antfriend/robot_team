@@ -1578,6 +1578,75 @@ If a fact lives in one of these, link to it from here — don't copy it.
   notes cannot dilate its own pupil. **S0 still owes the same gate to the `@LAT94` transient log**
   — that is a live data-quality bug in the acoustic tier, and it is the cheapest next thing here.
 
+- **The fleet's beat skew, measured properly (2026-07-28). n=18, two independent runs.**
+  Node-to-node agreement is **~2–4 ms sd, worst 5.5 ms = 1.9 m of sound** — and it reproduced
+  (1.93 m, then 1.89 m). For scale, this fleet's **best ever** ranging result is 4.98 m
+  (RSSI-only, 07-10), with the garden re-runs at 6.71 and 7.31 m, so acoustic timing is worth
+  roughly **2.5× the best amplitude number**, and it is the non-amplitude physics the RSSI work
+  concluded to chase.
+  **The raw `band` skew column flatters and damns nodes unfairly, and must not be read directly.**
+  Raw spreads are 17–38 ms, but most of that is COMMON MODE: the whole fleet swings together by
+  15–25 ms in some runs. Removing the per-run mean leaves the residual, and only the residual
+  bounds ranging. **Exclude the conductor when computing that mean** — its skew is 0.0 *by
+  construction*, so averaging it in drags the mean and then charges the difference back to the
+  reference as though it were the noisiest node on the fleet. It is the one node that cannot be.
+  Harness: `scratchpad/band_skew.py` (n≥9, jittered gap, prints metres).
+  ⚠ **The 15–25 ms common-mode excursion is UNEXPLAINED.** I proposed it was my sampler beating
+  against the 30 s resync beacon, jittered the gap to decorrelate them — and it came back just as
+  strong. So it is a property of the fleet, not of the measurement. It is the only thing between
+  "probably 1.9 m" and "measured 1.9 m", and chasing it wants a serial print at the moment of an
+  excursion, not another round of indirect timing.
+
+- **Beat-scheduled fleet recording — BUILT and verified end-to-end on hardware (2026-07-28).**
+  `CMD_RECORD` (op 11, args `start_band_epoch_ms u64 | dur_beats u16`, broadcast) makes every node
+  capture the SAME window of wall-clock time off the band clock; `TTDB_REQ_RECORDING` (mode 3)
+  reads it back over the existing pull path; `companion.py record` schedules it, pulls, and writes
+  per-node WAVs. **No new toot type and no new RFC** — both are payload conventions over existing
+  types, exactly as `TTDB_REQ_BELIEF` is.
+  *Why schedule instead of threshold:* the `@LAT94` transient timestamps fire at a different point
+  on the waveform depending on distance and gain, so their error is the **shape of the sound**
+  rather than the geometry (sensorium §6). A scheduled capture has no threshold anywhere in the
+  path, so two nodes that heard one clap cross-correlate directly.
+  **Verified:** `[rec] armed` → `[rec] captured 16000 samples`, **`late_ms 0`** (first sample landed
+  exactly on the requested instant), 16000 samples = **2.000 s** at 8 kHz. `--self-test` beeps
+  1 kHz for 200 ms at the window midpoint; the DFT of the capture shows **1000 Hz + 3000 Hz and
+  nothing else** — fundamental plus the only harmonic under Nyquist, i.e. the square wave
+  `toneI2S` actually synthesizes — and the self-noise flag fired. Bytes arriving proves the
+  transport; a known tone at a known instant proves the *timing*, which is the whole claim.
+  **The design answer to the unexplained common mode: every node stamps what it BELIEVED.** RECHDR
+  carries the node's band epoch at sample 0, the instant it was asked for (the difference is its
+  own lateness — a measurement, not an unknown), its adopted pulse offset, its fleet epoch, and
+  the chart era. A shared clock wobble becomes a correction the companion can apply instead of
+  error baked into the audio. Do not "fix" this by trusting the clocks.
+  **One bar fits in RAM, and that is why there is no filesystem in this feature at all.** 4 beats
+  at 120 BPM = 2 s = 32,000 B, against a *measured* ~45 KB largest contiguous block once WiFi and
+  BLE are up. Static buffer, not allocated: a feature whose allocation can fail is a feature that
+  can vanish (the oscilloscope's canvas was refused at exactly this size — see below).
+  ⚠ **The multi-node payoff is UNEXERCISED: only the Cardputer has a microphone.** The mechanism is
+  fleet-wide and correct, but TDoA needs a second listening node and this fleet has one. Everything
+  measured above is single-node.
+
+- **Runtime RAM on the Cardputer is ~45 KB contiguous, not the ~245 KB the free-heap number
+  suggests.** `[mem] heap 246192 free, maxalloc 204788, psram 0` at boot, but the profiler's
+  `maxalloc` reads **~45 KB** in steady state once WiFi, BLE (Bluedroid), ESP-NOW and the 36 KB
+  globe canvas are up. **No PSRAM** — the sketch's assertion was right. This refutes
+  cardputer-sensorium.md §6's budget line for a 64,800 B full-screen canvas: that allocation was
+  tried and **failed on hardware**. Size buffers against `maxalloc`, never against free heap.
+
+- **`rst:0x15 (USB_UART_CHIP_RESET)` is NOT a firmware crash.** The Cardputer went into a reboot
+  cycle for a while; every boot reported that cause, reached "online" cleanly, and showed no Guru
+  Meditation, no watchdog and no brownout. It cycled on battery too, so USB was not the cause
+  either. **A full power-off then replug cleared it** — a wedged state, nothing on flash. Two
+  lessons: (1) read the reset cause before suspecting code — a code fault fails in the same place
+  every time, and this one moved earlier as it went; (2) **observing costs something**: opening
+  the port with DTR asserted resets an S3 native-USB board, so use `open_serial_no_reset` (or
+  `scratchpad/rec_watch.py`, which watches a node's console while a command runs against it).
+
+- ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
+  51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
+  policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
+  file. This is the next thing that will bite, on every node.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

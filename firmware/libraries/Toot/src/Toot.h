@@ -65,6 +65,40 @@ enum TtdbReqMode : uint8_t {
   TTDB_REQ_WHOLE = 0,   // entire live TTDB (/ttdb.md)
   TTDB_REQ_RANGE = 1,   // bytes [start,end) of the live TTDB
   TTDB_REQ_BELIEF = 2,  // entire stored belief object (/belief.md, TTN-RFC-0009 §3)
+  TTDB_REQ_RECORDING = 3,  // the last beat-scheduled audio capture (CMD_RECORD), as a
+                           // RECHDR header + 16-bit mono PCM. In RAM, not on flash: it
+                           // is a one-shot buffer that does not survive a reboot.
+};
+
+// RECHDR — the header prepended to a CMD_RECORD capture, little-endian.
+//
+// The point of this header is that the fleet's clocks DO NOT have to agree. Measured
+// 2026-07-28, nodes hold ~2-4 ms of each other (worst 5.5 ms ~ 1.9 m of sound) but the
+// whole fleet wanders together by 15-25 ms for reasons not yet explained. Rather than
+// bet on that going away, every node reports what it BELIEVED the time was when it took
+// sample 0 — its band epoch, its adopted pulse offset, and its fleet-synced epoch. A
+// shared wobble then becomes a correction the companion can apply, instead of an error
+// baked into the audio. `start_band_epoch` minus `req_band_epoch` is the node's own
+// lateness, which is a measurement rather than an unknown.
+const uint32_t RECHDR_MAGIC = 0x31524554;   // "TER1" LE  (Toot rEcording R1)
+const size_t   RECHDR_LEN = 64;
+//   [0..3]   magic u32 = RECHDR_MAGIC
+//   [4..7]   node_id u32
+//   [8..11]  sample_rate u32
+//   [12..15] samples u32                (16-bit mono, follow at [RECHDR_LEN..])
+//   [16..23] start_band_epoch_ms u64    what we believe sample 0 landed on
+//   [24..31] req_band_epoch_ms u64      what we were ASKED for (difference = lateness)
+//   [32..39] pulse_offset_ms i64        our adopted offset from the conductor
+//   [40..47] fleet_epoch_ms u64         TIME_SYNC epoch at sample 0 (0 if unsynced)
+//   [48..51] era u32                    chart era; a mismatch invalidates comparison
+//   [52..55] conductor_id u32
+//   [56..57] beat_period_ms u16
+//   [58]     flags u8
+//   [59..63] reserved
+enum RecFlags : uint8_t {
+  REC_FLAG_SYNCED = 1 << 0,   // fleet_epoch_ms is meaningful
+  REC_FLAG_LATE   = 1 << 1,   // the start instant had already passed on arrival
+  REC_FLAG_SELF   = 1 << 2,   // our own speaker sounded during the capture (§3.3)
 };
 
 // CMD payload layout — the orchestrator drives node behavior (companion.md §4b).
@@ -99,6 +133,17 @@ enum CmdOp : uint8_t {
                            // that reason — at most one node answers, so a broadcast
                            // cannot storm ACKs, and the operator needn't know who
                            // currently holds the baton.
+  CMD_RECORD = 11,         // args: start_band_epoch_ms u64 LE | dur_beats u16 LE.
+                           // Capture 16-bit mono PCM starting at a BAND-CLOCK instant,
+                           // so a broadcast makes every node record the SAME window of
+                           // wall-clock time. That is the whole point: two nodes that
+                           // captured one clap can be cross-correlated directly, with no
+                           // threshold anywhere in the path — and a threshold is exactly
+                           // what made the @LAT94 transient timestamps weak, because it
+                           // fires at a different point on the waveform depending on
+                           // distance and gain (cardputer-sensorium.md §6).
+                           // Safe to broadcast; a node with no mic or no chart declines.
+                           // Read the result back with TTDB_REQ_RECORDING.
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
