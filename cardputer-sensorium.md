@@ -1,9 +1,11 @@
 # cardputer-sensorium.md — the Cardputer as a sensing creature
 
-**Status:** proposal / build plan. **The eyeball resting face (§4.1) is BUILT, flashed and
-verified on hardware 2026-07-28** — it is the node's boot view, and it holds the loop budget
-(render 3–4 ms, worst pass 36 ms). Everything else below is still proposal: no arbiter (§3),
-no scope, console, or constellation view. See §7 for what each phase now owes.
+**Status:** proposal / build plan. **Two views are BUILT, flashed and verified on hardware
+2026-07-28: the eyeball resting face (§4.1, the boot view, worst render 18 ms) and the
+oscilloscope (§4.2, worst render 21 ms).** Both hold the loop budget (worst pass 28 ms
+against ≤40). `1`/`2`/ENTER choose between them; there is still **no arbiter** (§3), so the
+keyboard is the only thing that picks a view. Console and constellation are still proposal.
+See §7 for what each phase now owes.
 **Node:** `cardputer_1` = `0x300`, `firmware/cardputer_console`.
 **Governing docs:** [companion.md](companion.md) §2/§6 (state), [PLAN.md](PLAN.md) (build
 order), [ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the primary
@@ -186,6 +188,14 @@ and an eyelid rectangle.
   axes needed **inverting** on hardware: the chip's frame is the opposite of what was
   assumed blind. The saccade is scaled by the same constants, so one flip fixes an axis
   end to end.)*
+  **The gaze sits in a bowl, not on a slope.** Raw tilt is linear in sin(angle), so the
+  iris left centre at the slightest lean and the face read as a spirit level. The tilt
+  magnitude now runs through `r = (tilt / BOWL_FULL_G) ^ BOWL_GAMMA` (2.0 / 0.80 g ≈ 53°):
+  a subtle tilt barely disturbs the ball, a steeper one runs it a long way, and it stops
+  at the rim — which `EYE_REACH` always enforced, but the ball used to arrive there early
+  and sit on it. Only the **magnitude** is curved; the direction is untouched, or the gaze
+  would bend off downhill on the diagonals. **The saccade bypasses the bowl** and is added
+  after it: a flick is a kick, not a lean, and a squaring curve would swallow it.
 - **Saccade** = gyroscope. Angular velocity displaces the pupil sharply and it springs
   back; a flick makes the eye dart, a shake makes it tremble. *(Built.)*
 - **Blink** on a hard tap (accel spike above the shake threshold), and idly every 8–16 s
@@ -226,8 +236,10 @@ and an eyelid rectangle.
   around. It is only visible when something dark is beneath it, which is correct.
 - **Sizing (tuned at the bench 2026-07-28):** eye radius 74 px — *larger than the screen
   is tall*, so it crops top and bottom and reads as a close-up of an eye rather than a
-  ball drawn on a panel. Iris 34 px, grown proportionally more than the eye, inside a
-  **4 px black limbal ring**. Catchlight 18 px.
+  ball drawn on a panel. Iris **36 px**, grown proportionally more than the eye, inside a
+  **4 px black limbal ring**. Pupil **10–18 px**. Catchlight 18 px.
+  Iris and pupil are specified by **area**: the last +15% is radius × √1.15 = ×1.072
+  (34→36, 9→10, 17→18), not ×1.15, which would have been a 32% bigger iris.
   ⚠ The ring is the outermost thing that moves, so **two constants derive from it, not
   from the iris**: how far the gaze may travel (or a full tilt pushes the ring past the
   edge of the sclera) and the erase radius (or a moving iris leaves a crescent of ring
@@ -237,19 +249,54 @@ and an eyelid rectangle.
 is happening. A scope with no sound is a flat line; a console with no traffic is empty;
 an eye at rest is still a face.
 
-### 4.2 Oscilloscope — sound (green)
+### 4.2 Oscilloscope — sound (green) — **BUILT 2026-07-28**
 
-240 columns = 240 samples = **30 ms per sweep at 8 kHz.**
+240 columns = 240 samples = **30 ms per sweep at 8 kHz.** That was not chosen: the mic's
+DMA descriptor is 240 frames, so one sweep is exactly one descriptor. The sweep length
+fell out of the audio path.
 
-- **Triggered sweep.** Free-running, the trace is an unreadable smear. Trigger on a
-  rising zero-crossing above a small threshold (a classic scope trigger) and the
-  waveform stands still — a whistled note becomes a stable sine.
-- **Auto-gain** off the acoustic tier's rolling `ambient_` baseline, so a quiet room
-  still shows a living trace instead of a flat line.
-- **Peak-hold ghost** in dim green behind the live trace, decaying over ~1 s, so a
-  transient leaves a visible mark instead of flashing past between 10 Hz frames.
-- A transient that clears the `@LAT94` threshold flashes the trace border — the screen
-  shows you the exact event the TDoA log just recorded.
+- **Triggered sweep.** Free-running, the trace is an unreadable smear. An **armed** rising
+  edge (fall below zero to arm, then cross the level going up) locks the sweep to the same
+  point of the same cycle every frame, and a whistled note stands still. Two blocks of PCM
+  are kept, not one, because the trigger needs slack to slide within. The trigger level
+  rides the tier's `ambient` mean — the one place that statistic is the right one. *(Built.)*
+- **Auto-gain**, fast attack / slow release, on the **peak** rather than the ambient mean:
+  a scope clips on peaks, so gain off a mean lets a transient run off the top of the
+  screen. A floor keeps a quiet room showing a living trace instead of a flat line. *(Built.)*
+- **Peak-hold ghost** in dim green behind the live trace, decaying ~15%/frame ≈ a 1 s tail,
+  so a transient leaves a visible mark instead of flashing past between 10 Hz frames.
+  It also does double duty as the **dirty-band bound** — see below. *(Built.)*
+- **The border carries what the waveform cannot say for itself:** it flashes pale on a
+  transient the `@LAT94` log actually recorded (watching the tier's own `transients()`
+  counter, not a second threshold in the renderer — a private threshold would flash on a
+  different set of events and quietly lie about the log), and goes **amber while we are the
+  noise** (§3.3). *(Built.)*
+
+**Its rendering strategy is the opposite of the eye's, on purpose.** The eye paints
+straight to the panel and touches only what moved, because almost nothing moves. A scope
+changes in every column of every frame, so "only what changed" buys nothing — the eye's
+rule would degenerate into ~500 separate spans, and it is the per-span `setAddrWindow`,
+not the pixels, that costs. So the scope opens **one** address window over the band of
+rows that can have changed and streams it row by row from a 480-byte row buffer. A quiet
+room deflects into a thin band and pushes ~20 rows; a loud one pushes the lot. **Loud
+sound costs more than quiet sound, which is the right way round.**
+
+⚠ **Two things the bench contradicted, both worth keeping:**
+
+1. **The canvas §6 budgets does not fit.** The first build allocated the 64,800 B
+   full-screen `GFXcanvas16` §6 costs out "against 249 KB free heap" — and it **failed on
+   hardware**: `[scope] canvas alloc failed`. The static free-heap figure is not the number
+   that matters. By the time this view can be opened, WiFi, BLE (Bluedroid), ESP-NOW and the
+   36 KB globe canvas are all up, and what is missing is a **contiguous** 65 KB block, not
+   65 KB. Streaming rows needs 480 bytes and cannot fail — a better property than fitting
+   today. **§6's canvas line should be treated as refuted for any view that needs one.**
+2. **A live text readout cost ~20 ms per frame — nearly as much as the entire waveform.**
+   `Adafruit_GFX::drawChar` with a background colour writes every pixel of the glyph cell
+   *individually*: 40 separate `setAddrWindow`+1-pixel transactions per character, ~1,700
+   for a 42-character line. The readout is gone. Its only text is a static label painted
+   once **on entry, from the key handler** — a key press can afford 20 ms, a render frame
+   cannot. Everything live is in the picture already: the trace is the level, the ghost is
+   recent peaks, the border is the transient and the self-noise gate.
 
 ### 4.3 Console — neighbors
 
@@ -288,8 +335,9 @@ fleet's STATUS temperature field.
 | `n` | toggle console pane | next node / cycle comm target | ✅ built |
 | SPACE | toggle console pane | unchanged | ✅ built |
 | arrows, `±`, ENTER | globe navigation | ignored while the face holds the screen | ✅ built |
-| ENTER | cycle globes | cycle globes *(in globe mode)* / cycle views manually *(in representor)* | globe half only |
-| `1`–`5` | — | force a specific modality view (pin it, disabling the arbiter) | ⏳ needs S1 |
+| ENTER | cycle globes | cycle globes *(in globe mode)* / cycle views *(in representor)* | ✅ built |
+| `1` / `2` | — | force eyeball / oscilloscope | ✅ built |
+| `3`–`5` | — | force console / constellation / … | ⏳ needs those views |
 | `0` | — | release the pin, return to automatic arbitration | ⏳ needs S1 |
 
 A **pin** matters more than it looks: without it there is no way to *watch* a quiet
@@ -305,10 +353,11 @@ An honest accounting, because the premise of the question deserves one.
 
 | Item | Cost | Against |
 |---|---|---|
-| Full-screen canvas 240×135×16bpp | 64,800 B | 249 KB free heap |
-| Scope sample + ghost buffers | ~2 KB | — |
+| ~~Full-screen canvas 240×135×16bpp~~ | ~~64,800 B~~ | ❌ **refuted on hardware — see §4.2** |
+| Scope row buffer (what it actually uses) | 480 B | — |
+| Scope sample + ghost + trace buffers | ~1.7 KB | — |
 | Arbiter state (6 modalities) | < 1 KB | — |
-| Added code | ~15–25 KB flash | 1.79 MB free in the app partition |
+| The whole scope view, measured | **1.6 KB flash + 2.2 KB RAM** | app at 40%, 1.87 MB free |
 
 All of it fits in what the node has **today**, with no repartition. If the goal is only
 the display modes, the 4 MB stays unused and that is fine.
@@ -372,7 +421,10 @@ than after it — because the resting face is the one view that needs no arbiter
 Gaze, gyro saccade, tap + idle blink, and pupil dilation from a two-term stand-in for EPS.
 Measured on hardware: **worst render 24 ms** (budget ≤25 — the blink-open sclera repaint, the
 most expensive recurring frame), **worst loop pass 37 ms** (budget ≤40; it was 104 ms),
-`ping --node cardputer_1` DELIVERED on attempt 1. No canvas, no filesystem, only the crescent
+`ping --node cardputer_1` DELIVERED on attempt 1.
+**Re-measured 2026-07-28 after the +15% iris/pupil: worst render 22 ms** — the bigger iris made
+the face *cheaper*, because the expensive frame is the sclera repaint and it now skips a larger
+disc. Growing the iris buys frame budget; it does not spend it. No canvas, no filesystem, only the crescent
 the iris vacated, and **zero pixels written** when the deck is held still.
 **The budget is a live constraint, not a note in a doc:** adding the limbal ring pushed the
 blink-open frame to **26 ms** and broke it. The fix was ordering, not cutting the feature —
@@ -386,8 +438,27 @@ It happens once, on entry or on `t`. Two measured fixes already went in (stop pa
 panel twice; batch ~150 spans under one SPI transaction instead of one each); the remaining cost
 is per-row `setAddrWindow` overhead. The loop pass the mesh actually feels stayed at 37 ms, so
 the next spend belongs elsewhere.
-⏳ Still owed: the scope, and a fleet-wide `verify` (measured with `ping` on the cabled node,
-not the full sync-bound run).
+✅ **The oscilloscope is built, flashed and measured (2026-07-28)** — triggered sweep,
+peak auto-gain, peak-hold ghost, and a border that flashes on the tier's own logged
+transients and goes amber on our own voice. Measured on hardware: **worst render 21 ms**
+(budget ≤25; that is a full-height loud frame — a quiet one pushes ~20 rows), **worst loop
+pass 28 ms** (budget ≤40), `ping --node cardputer_1` DELIVERED on attempt 1. Reached with
+`2`, or ENTER to cycle; `1` returns to the eye. Two doc-contradicting findings are recorded
+in §4.2 — the canvas that will not allocate, and the 20 ms text readout.
+**The panel SPI was raised 24 → 40 MHz** to pay for it. Pixel data is the one cost that
+cannot be optimized away, and the library's 24 MHz default was leaving 40% of the bus
+unused; the ST7789V2 is specified far above this. Everything got faster: **the eye's worst
+render fell 22 → 18 ms and its entry frame 36 → 31 ms**, so the known over-budget entry
+frame in the warning below is now 31 ms.
+⏳ Still owed: a fleet-wide `verify` (measured with `ping` on the cabled node, not the full
+sync-bound run).
+⚠ **Not verifiable from the laptop — needs eyes at the bench**, same class as the gaze axes:
+that the trace, ghost, trigger and border colours actually look right, and that **40 MHz
+leaves the panel clean**. If pixels ever tear or speckle, `setSPISpeed(40000000)` in
+`setup()` is the first suspect, not a renderer.
+⚠ **Seen once, not reproduced:** the first boot after one flash hit a `Guru Meditation
+(stack canary, ipc0)` during BLE init and rebooted cleanly. Four subsequent resets were
+clean. Noted rather than chased — it is in BLE bring-up, not the scope.
 ⚠ **Unverifiable from the laptop — needs eyes at the bench:** whether the gaze runs downhill
 and whether the axes are swapped. Deliberately exposed as `EYE_GAZE_X` / `EYE_GAZE_Y` /
 `EYE_SWAP_AXES` at the top of the eyeball block; this board's IMU already lied once about its
