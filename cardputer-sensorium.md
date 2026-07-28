@@ -1,6 +1,9 @@
 # cardputer-sensorium.md — the Cardputer as a sensing creature
 
-**Status:** proposal / build plan. Not implemented.
+**Status:** proposal / build plan. **The eyeball resting face (§4.1) is BUILT, flashed and
+verified on hardware 2026-07-28** — it is the node's boot view, and it holds the loop budget
+(render 3–4 ms, worst pass 36 ms). Everything else below is still proposal: no arbiter (§3),
+no scope, console, or constellation view. See §7 for what each phase now owes.
 **Node:** `cardputer_1` = `0x300`, `firmware/cardputer_console`.
 **Governing docs:** [companion.md](companion.md) §2/§6 (state), [PLAN.md](PLAN.md) (build
 order), [ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the primary
@@ -179,15 +182,56 @@ A single eye filling all 240×135. Rendering is deliberately cheap: three filled
 and an eyelid rectangle.
 
 - **Gaze** = accelerometer tilt. The iris tracks the direction of gravity, so the eye
-  appears to look "downhill" — the device physically points its attention.
+  appears to look "downhill" — the device physically points its attention. *(Built. The
+  axes needed **inverting** on hardware: the chip's frame is the opposite of what was
+  assumed blind. The saccade is scaled by the same constants, so one flip fixes an axis
+  end to end.)*
 - **Saccade** = gyroscope. Angular velocity displaces the pupil sharply and it springs
-  back; a flick makes the eye dart, a shake makes it tremble.
-- **Blink** on a hard tap (accel spike above the shake threshold), and idly every 4–8 s
-  so a resting eye is alive.
+  back; a flick makes the eye dart, a shake makes it tremble. *(Built.)*
+- **Blink** on a hard tap (accel spike above the shake threshold), and idly every 8–16 s
+  so a resting eye is alive without fidgeting. The lid is **black** and goes straight to
+  fully shut: one frame closed, one frame open. *(Built. The blink-open repaint is the
+  face's most expensive recurring frame at 24 ms — it is what the ≤25 ms budget buys.)*
+  **The 100 ms frame grid is the floor on blink speed.** A blink is quantized to it
+  whatever `BLINK_MS` says, and a partial-closure phase would eat the whole blink. Going
+  faster than one frame needs the blink to render off the 10 Hz grid — a bigger change
+  than a faster blink is worth.
 - **Pupil dilation** = overall arousal (the summed EPS across all modalities), so even
-  in eyeball mode the face reports that *something else* is happening.
+  in eyeball mode the face reports that *something else* is happening. *(Built as a
+  two-term stand-in until the arbiter lands.)*
+- **The pupil also carries the beat**, widening on every beat and hardest on the
+  downbeat. This replaced a beat dot in the corner: the rhythm mark §4 asks every view
+  to carry is better as a property of something you are already looking at than as a
+  second thing to watch.
+- **The beat is the face's frame clock.** Rendering happens only inside a ~220 ms pulse
+  at the head of each beat (4 frames); between beats the eye is entirely still — no gaze
+  update, no repaint, nothing on the SPI bus. With no other sensory input the beat is a
+  **one-pixel** dilation; arousal is what opens the swing up to 7 px. Blinks land on a
+  beat, and `BLINK_MS` is derived from the frame interval because a blink is quantized to
+  the render grid regardless of what it is set to.
+  **The clock must never stop:** when the band has no chart the face falls back to a
+  free-running local pulse at the fleet tempo. An eye that freezes because the conductor
+  died does not read as "dispossessed of the beat", it reads as broken.
+  **Intended consequence:** the gaze now moves in beat-quantized steps, so the eye tracks
+  a tilt rhythmically rather than smoothly.
 - Sclera is off-white, iris **red** as specified; the sclera carries a thin battery
-  ring (§4.5).
+  ring (§4.5). *(Battery ring not built — that is S4.)*
+- **Nothing in this view fills a circle it is about to cover.** `Adafruit_GFX::fillCircle`
+  fills with *vertical* spans, so a black disc painted under the red one was visible from
+  the bench as momentary vertical bars sweeping the iris. The limbal ring is drawn as a
+  ring, and a pupil-only change paints **just the circumference** between the old and new
+  radius — black outward to dilate, iris-red inward to constrict. The iris is not touched.
+- **The catchlight is fixed in ROOM coordinates, not on the iris.** A specular highlight
+  belongs to the light source, so the iris slides under it rather than dragging it
+  around. It is only visible when something dark is beneath it, which is correct.
+- **Sizing (tuned at the bench 2026-07-28):** eye radius 74 px — *larger than the screen
+  is tall*, so it crops top and bottom and reads as a close-up of an eye rather than a
+  ball drawn on a panel. Iris 34 px, grown proportionally more than the eye, inside a
+  **4 px black limbal ring**. Catchlight 18 px.
+  ⚠ The ring is the outermost thing that moves, so **two constants derive from it, not
+  from the iris**: how far the gaze may travel (or a full tilt pushes the ring past the
+  edge of the sclera) and the erase radius (or a moving iris leaves a crescent of ring
+  behind it). Both are `IRIS_OUTER` in the sketch — change the ring and they follow.
 
 *Why the eyeball is the default:* it is the only view that reads correctly when nothing
 is happening. A scope with no sound is a flat line; a console with no traffic is empty;
@@ -238,14 +282,15 @@ fleet's STATUS temperature field.
 
 `t` is currently *next node / cycle comm target*. The brief reassigns it, so:
 
-| Key | Now | Proposed |
-|---|---|---|
-| `t` | next node / cycle target | **toggle REPRESENTOR ↔ globe views** |
-| `n` | toggle console pane | next node / cycle comm target |
-| ENTER | cycle globes | cycle globes *(in globe mode)* / cycle views manually *(in representor)* |
-| `1`–`5` | — | force a specific modality view (pin it, disabling the arbiter) |
-| `0` | — | release the pin, return to automatic arbitration |
-| SPACE | toggle console pane | unchanged |
+| Key | Was | Now | State |
+|---|---|---|---|
+| `t` | next node / cycle target | **toggle REPRESENTOR ↔ globe views** | ✅ built |
+| `n` | toggle console pane | next node / cycle comm target | ✅ built |
+| SPACE | toggle console pane | unchanged | ✅ built |
+| arrows, `±`, ENTER | globe navigation | ignored while the face holds the screen | ✅ built |
+| ENTER | cycle globes | cycle globes *(in globe mode)* / cycle views manually *(in representor)* | globe half only |
+| `1`–`5` | — | force a specific modality view (pin it, disabling the arbiter) | ⏳ needs S1 |
+| `0` | — | release the pin, return to automatic arbitration | ⏳ needs S1 |
 
 A **pin** matters more than it looks: without it there is no way to *watch* a quiet
 sense, because by definition the arbiter only shows you the loud one.
@@ -308,10 +353,13 @@ the script change as one atomic commit.
 Each phase ends with something that runs and is verified, and **every phase re-checks
 the loop budget (§3.4)** — that is the gate this node has already failed once.
 
-**Phase S0 — the self-noise gate.** Mark acoustic samples taken while our own speaker
-sounds as fully explained; stop logging them as transients.
+**Phase S0 — the self-noise gate.** *(half done)* Mark acoustic samples taken while our own
+speaker sounds as fully explained; stop logging them as transients.
+✅ The **display** half is in: `toneI2S()` sets `gToneUntilMs`, and the face's sound term is
+suppressed while it holds, so the node's own notes cannot dilate its own pupil.
+⏳ **Still owed: the `@LAT94` log itself.** Our voice is still eligible to be logged as a
+transient, which is a live data-quality bug in the tier the TDoA idea rests on.
 *Done when:* a `CMD_BEEP` produces **no** `@LAT94` transient, while a clap still does.
-*(Worth doing even if nothing else here gets built.)*
 
 **Phase S1 — the arbiter, headless.** Per-modality `(sal, conf)`, EPS ranking,
 hysteresis. No new rendering; print the winning modality to serial.
@@ -319,8 +367,31 @@ hysteresis. No new rendering; print the winning modality to serial.
 and the winner decays back to `idle` within ~3 s.
 
 **Phase S2 — eyeball + scope.** The two views in the brief, plus gyro saccades.
-*Done when:* both render inside 25 ms, `verify` still PASSES, and the worst loop pass is
-≤ 40 ms.
+✅ **The eyeball is built, flashed and measured (2026-07-28)**, ahead of the arbiter rather
+than after it — because the resting face is the one view that needs no arbiter to be correct.
+Gaze, gyro saccade, tap + idle blink, and pupil dilation from a two-term stand-in for EPS.
+Measured on hardware: **worst render 24 ms** (budget ≤25 — the blink-open sclera repaint, the
+most expensive recurring frame), **worst loop pass 37 ms** (budget ≤40; it was 104 ms),
+`ping --node cardputer_1` DELIVERED on attempt 1. No canvas, no filesystem, only the crescent
+the iris vacated, and **zero pixels written** when the deck is held still.
+**The budget is a live constraint, not a note in a doc:** adding the limbal ring pushed the
+blink-open frame to **26 ms** and broke it. The fix was ordering, not cutting the feature —
+work the geometry out *before* painting anything, so the sclera repaint skips the disc the
+iris is about to cover. **Never paint a pixel you are about to paint over.** Back to 24 ms.
+**The profiler had to be fixed before any of that could be believed:** it printed the *last*
+render, which for a paint-only-what-changed view is almost always 0 ms. Printing the **worst**
+render per window immediately exposed a 47 ms entry frame that the old number hid.
+⚠ **Known and left there:** entering the face costs **36 ms**, over the ≤25 ms per-frame budget.
+It happens once, on entry or on `t`. Two measured fixes already went in (stop painting half the
+panel twice; batch ~150 spans under one SPI transaction instead of one each); the remaining cost
+is per-row `setAddrWindow` overhead. The loop pass the mesh actually feels stayed at 37 ms, so
+the next spend belongs elsewhere.
+⏳ Still owed: the scope, and a fleet-wide `verify` (measured with `ping` on the cabled node,
+not the full sync-bound run).
+⚠ **Unverifiable from the laptop — needs eyes at the bench:** whether the gaze runs downhill
+and whether the axes are swapped. Deliberately exposed as `EYE_GAZE_X` / `EYE_GAZE_Y` /
+`EYE_SWAP_AXES` at the top of the eyeball block; this board's IMU already lied once about its
+own I2C address, so its axis convention is not something to bury in the renderer.
 
 **Phase S3 — console + key map.** Promote the log ring, add RSSI sparklines, move `t`.
 *Done when:* a neighbour power-cycling seizes the screen exactly once, and routine
@@ -349,7 +420,10 @@ cross-correlation that agrees with their known separation.
    with the FS script), later, or never?
 2. **`t` reassignment** — is the table in §5 right? `n` is currently the console-pane
    toggle and would move.
-3. **Is the eyeball the right resting face**, or should the node rest on the scope?
+3. ~~**Is the eyeball the right resting face**, or should the node rest on the scope?~~
+   **Answered 2026-07-28: the eyeball, and it was built first.** Open follow-up: it is now
+   the *only* face, so it is also the boot view — say if the globe should stay the power-up
+   view instead, with the face reached by `t`.
 4. **Constellation and interoception** are my additions, not yours. Worth building, or
    noise?
 5. **Should the representor be the boot default on this node only**, or should the

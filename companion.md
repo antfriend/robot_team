@@ -1418,6 +1418,100 @@ If a fact lives in one of these, link to it from here — don't copy it.
   **Not built on purpose:** LoRa and GPS — the T-Deck stays the roaming GPS anchor and the
   SX1262 handheld.
 
+- **The Cardputer has a resting face (2026-07-28).** First piece of
+  [cardputer-sensorium.md](cardputer-sensorium.md) built: the **REPRESENTOR eyeball**, and the
+  node now **boots into it** (`t` toggles back to the three globes). Gaze tracks gravity, so the
+  eye looks downhill when the deck is tipped; the **gyro** — free all along, the SparkFun driver
+  enables both BMI270 features in `begin()`, we were reading half the sensor — displaces the
+  pupil on a flick and springs it back; a hard tap blinks it, and it blinks idly every 4–8 s.
+  Pupil dilation is a **stand-in** for the arbiter's summed EPS (two raw terms, motion and sound,
+  each against its own baseline) until phase S1 lands the real one.
+  **Tuned at the bench the same day** (all five on request): gaze axes **inverted** — the eye ran
+  uphill, so the chip's accelerometer frame is the opposite of the blind assumption, and the
+  saccade is now scaled by the same constants so one flip fixes an axis end to end; eye **+15%**
+  (R 64→74, so it is now *taller than the screen* and crops top and bottom, which reads as a
+  close-up rather than a ball on a panel); iris **+15% on top of that** (26→34); the **corner beat
+  dot is gone — the beat is now the pupil**, which widens on every beat and hardest on the
+  downbeat; and the catchlight is **bigger and fixed in room coordinates**, so the iris slides
+  under it instead of dragging it around (a specular highlight belongs to the light source, not
+  the eye).
+  **A second bench pass** made the blink **twice as fast and half as often** (one frame shut,
+  idle every 8–16 s), the eyelid **black**, the iris ring **thick black**, and the catchlight
+  3×. The 100 ms frame grid is the **floor on blink speed** — a blink is quantized to it
+  whatever `BLINK_MS` says, so a partial-closure phase would have eaten the whole blink.
+  **The budget was the design constraint, and it held — but the growth was not free.** Measured
+  on hardware: **worst render 24 ms** (budget ≤25) for the most expensive recurring frame, the
+  full-sclera repaint when a blink opens; **worst loop pass 37 ms** (budget ≤40, and it was
+  **104 ms** before); `companion.py ping --node cardputer_1` **DELIVERED on attempt 1**. A frame
+  where the deck sits still writes **zero pixels**.
+  **Third bench pass — the face now runs on the BEAT, not on a frame clock.** Rendering happens
+  only inside a ~220 ms pulse at the head of each beat (4 frames), and between beats the eye is
+  entirely still: no gaze update, no repaint, nothing on the SPI bus. Every change it has to show
+  is consolidated into those frames. With no other sensory input the beat is a **one-pixel**
+  pupil dilation — you have to look to see it; arousal is what opens the swing up (to 7 px).
+  Blinks now land ON a beat, one frame shut, and `BLINK_MS` is **derived from the frame interval**
+  rather than set in absolute time, because a blink is quantized to the render grid regardless.
+  When the band has no chart the face falls back to a **free-running local pulse** at
+  `PULSE_DEFAULT_BEAT_MS` — the face's clock must never stop, or the eye freezes and looks broken.
+  Visible consequence, and intended: the gaze now moves in **beat-quantized steps**, so the eye
+  tracks a tilt rhythmically rather than smoothly.
+  **A visible artifact with a real cause, reported from the bench and fixed:** the iris showed
+  momentary **vertical black bars** on every pupil change. Cause: `Adafruit_GFX::fillCircle` fills
+  with **vertical spans**, and `drawIris` painted a full black disc and then covered it with red —
+  so the black infill was visible sweeping through before the red landed. Filling a circle you are
+  about to cover costs the pixels twice *and* you can see it. Two fixes: the limbal ring is drawn
+  as a **ring** (`drawRing`, horizontal spans, batched), and a **pupil-only change no longer
+  touches the iris at all** — it paints just the circumference between the old and new radius,
+  black outward to dilate and iris-red inward to constrict. That is the resting case (a one-pixel
+  ring on the beat), so it is now the cheapest thing the face does. Worst render **24 → 22 ms**.
+  **⚠ THE REAL LOOP-BUDGET CULPRIT IS THE MICROPHONE, NOT THE SCREEN (found 2026-07-28).** The
+  beat change appeared to blow the budget — worst pass 41–54 ms at n=8, against ≤40. It did not.
+  The profiler was made to report **which section** of the pass was widest (and the render cost
+  *of that same pass*, since "worst pass 53 ms / worst render 24 ms" never said whether they were
+  the same pass). Answer, every window: **`mic` 29 ms**, with the render only 11–15 ms of it.
+  Root cause in `serviceMic`: **`I2SClass::available()` is a stub that returns the constant 1920**
+  regardless of what is buffered, so the `if (avail < sizeof(block)) return;` guard has never once
+  fired — it is dead code. `readBytes()` then **loops until it has the full request**, blocking on
+  the DMA for a whole 512-byte block = 128 stereo frames @ 8 kHz = **16 ms of audio** (~29 ms
+  observed with DMA granularity). The node is pacing its main loop on the microphone: it waits
+  for sound to happen in real time, once per pass.
+  **Not fixed, deliberately — this is a decision about the primary hypothesis's instrument.** The
+  obvious fix (read a smaller chunk per pass) changes the block size the `@LAT94` tier computes
+  per-block RMS and transient timestamps over, which is the TDoA datum. That is not a drive-by
+  change. Options: smaller blocks + re-verify the tier, or drain in a task/callback. **This is now
+  the #1 thing standing between this node and the ≤40 ms budget** — the face costs 24 ms worst.
+  **The section profiler was left in** (five `millis()` stamps, reports the widest section of the
+  worst pass), on the same reasoning as the loop profiler: the number that explains the next
+  slowdown should already be on the wire.
+  **The budget caught a real breach and the fix was ordering, not cutting the feature.** Adding
+  the limbal ring took the blink-open frame to **26 ms** — over. `renderEye` now works out the
+  geometry *before* painting anything, so both expensive repaints skip the disc the iris is
+  about to cover: **never paint a pixel you are about to paint over.** Back to 24 ms with the
+  ring kept. (`IRIS_OUTER` is now what the gaze reach and the erase radius derive from — the
+  ring is the outermost thing that moves, so deriving either from the iris leaves a crescent
+  behind it or pushes the ring off the sclera at full tilt.)
+  **A profiler lesson worth keeping:** the loop report printed the *last* render, which for a
+  paint-only-what-changed view is almost always **0 ms** and proves nothing. It now prints the
+  **worst** render per window — which is what exposed the 47 ms entry frame below.
+  **Two things measurement changed, not taste.** (1) Entry into the face did `fillScreen` +
+  sclera, painting over half the panel twice: **47 ms**. Now one pass writing every pixel once.
+  (2) Every shape was ~150 separate `drawFastHLine` calls, each opening and closing its own SPI
+  transaction; batched under one `startWrite`/`endWrite` the entry frame is **36 ms**. It is still
+  over the ≤25 ms *per-frame* budget, but it happens **once on entry / on `t`**, and the loop pass
+  the mesh actually feels stays at 37 ms. Left there deliberately rather than spent more on it.
+  (Unchanged and pre-existing: the loop still spikes to **~1.2 s** on a percept-window **flash
+  append**, and that spike GROWS with the TTDB — 68 KB then, 73 KB now. That is every node's cost,
+  not the face's, but it is far and away the next thing that will hurt this node's rtt.)
+  **`t` was reassigned** (sensorium §5): `t` = face ↔ globes, **`n` inherits next-node / next
+  comm-target**, SPACE keeps the console pane. Nothing was lost in the move.
+  **What the laptop cannot check — needs your eyes at the bench:** whether the gaze runs downhill
+  or uphill, and whether the axes are swapped. That is deliberately **three constants**
+  (`EYE_GAZE_X`, `EYE_GAZE_Y`, `EYE_SWAP_AXES`) at the top of the eyeball block, not arithmetic
+  buried in the renderer — this board's IMU already lied once about its I2C address.
+  **Also landed, half of phase S0:** our own speaker now sets `gToneUntilMs`, so the node's own
+  notes cannot dilate its own pupil. **S0 still owes the same gate to the `@LAT94` transient log**
+  — that is a live data-quality bug in the acoustic tier, and it is the cheapest next thing here.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

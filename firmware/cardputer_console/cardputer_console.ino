@@ -238,6 +238,26 @@ static void logLine(const char* s) {
 
 static int gSel = -1;      // selected TTDB record (globe cursor)
 static uint32_t gLastRenderMs = 0;   // cost of the last screen repaint (loop profile)
+// ...and the worst one in the reporting window. The LAST render is nearly useless as a
+// budget check for a view that only repaints what changed: a still deck writes zero
+// pixels, so the number printed is almost always 0 and says nothing about the frame
+// that actually costs (a blink, a full sclera repaint). Track the max (§3.4).
+static uint32_t gWorstRenderMs = 0;
+static uint32_t gPassRenderMs = 0;   // render cost inside the CURRENT loop pass
+
+// Section profiler. "Worst pass 42 ms, of which render 12 ms" says the other 30 ms is
+// somewhere else and stops there; this says WHERE. Stamps are taken at a handful of
+// points through loop() and the widest gap in the worst pass is what gets reported —
+// the same discipline that found the edgesAt defect (companion.md §6): instrument the
+// mechanism, do not chain hypotheses off timings.
+static const char* const kSectionNames[] = {"link", "linkperc", "entity", "imu",
+                                            "mic", "nav", "pulse", "render"};
+static const int kNumSections = 8;
+static uint32_t gSectMark[kNumSections + 1];
+static int gSectN = 0;
+static inline void sectMark() {
+  if (gSectN <= kNumSections) gSectMark[gSectN++] = millis();
+}
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
 static int64_t gClockOffsetMs = 0;
@@ -741,6 +761,21 @@ static void serviceWifiScan() {
 }
 #endif
 
+// --- what the representor reads (cardputer-sensorium.md §4.1) ----------------
+// The sense services publish here; the face only reads. Keeping the coupling one-way
+// is what lets the eyeball cost nothing while it is off screen, and it keeps the
+// percept tiers unaware that anything is watching them.
+static float gTiltX = 0.0f, gTiltY = 0.0f;   // low-passed accel, in g: where gravity is
+static float gSacX = 0.0f, gSacY = 0.0f;     // gyro saccade, leaky-integrated, ~-1..1
+static int   gDevMg = 0;                     // ||accel| - 1 g| in mg: shove/tap energy
+static uint32_t gTapAt = 0;                  // millis() of the last hard tap (0 = none)
+static float gSndHot = 0.0f;                 // 0..1: how far sound is over its ambient
+static float gSndAmb = 0.0f;                 // slow room baseline (mean |sample|)
+// Our own speaker is sounding until here. The node has a mic AND sings, so without a
+// gate every note it plays is a stimulus to itself (§3.3). This gate covers the FACE
+// only — phase S0 still owes the same gate to the @LAT94 transient log.
+static uint32_t gToneUntilMs = 0;
+
 // --- audio, keyboard, IMU, screen (all gated on the real board) --------------
 #if USE_CARD_HW
 // Synthesize a `ms`-long SQUARE wave at `freq` as 16-bit stereo samples (L=R). Square,
@@ -764,6 +799,9 @@ static void toneI2S(float freq, uint32_t ms, float amp = 16000.0f) {
     gI2S.write((uint8_t*)buf, n * 2 * sizeof(int16_t));
     done += n;
   }
+  // The write is buffered, so the speaker is still sounding after this returns; hold
+  // the self-noise gate open a little past the end of the note (§3.3).
+  gToneUntilMs = millis() + ms / 4 + 50;
 }
 
 // The fleet's shared boot voice: two rising toots, C4 -> G4.
@@ -888,7 +926,14 @@ static char readKey() {
 // Sample the accelerometer into the motion log. Called at ~20 Hz from loop(): fast
 // enough to catch a stride, slow enough to cost nothing. Also returns the current tilt
 // so the globe can be rolled by tipping the device.
-static float gTiltX = 0.0f, gTiltY = 0.0f;    // low-passed, in g
+//
+// The BMI270 is a 6-axis part and the SparkFun driver enables BOTH features in
+// begin(), so the gyro has always been free here — we were reading half the sensor.
+// Angular velocity is a perceptually different quantity from tilt (a flick, not a
+// lean), and it is what makes the eyeball dart instead of sweep (§2, §4.1).
+static const float SAC_GAIN  = 0.0016f;   // deg/s -> gaze units; ~300 deg/s pegs it
+static const float SAC_DECAY = 0.72f;     // per 50 ms sample: a flick springs back ~150 ms
+static const int   TAP_MG    = 320;       // deviation from 1 g that counts as a tap
 static void serviceImu(uint32_t now) {
   static uint32_t last = 0;
   if (now - last < 50) return;                 // 20 Hz
@@ -901,6 +946,19 @@ static void serviceImu(uint32_t now) {
   // Heavy low-pass: the globe should answer a deliberate tilt, not a hand tremor.
   gTiltX += (gImu.data.accelX - gTiltX) * 0.12f;
   gTiltY += (gImu.data.accelY - gTiltY) * 0.12f;
+
+  // Saccade + tap, sampled here at 20 Hz rather than in the renderer at 10 Hz, so a
+  // quick flick between two frames still lands. Gravity-invariant, like the motion
+  // tier's own statistic: this is acceleration, not orientation.
+  float mag = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
+  gDevMg = (int)fabsf(mag - 1000.0f);
+  if (gDevMg > TAP_MG) gTapAt = now;
+  gSacX = gSacX * SAC_DECAY + gImu.data.gyroY * SAC_GAIN;
+  gSacY = gSacY * SAC_DECAY + gImu.data.gyroX * SAC_GAIN;
+  if (gSacX >  0.85f) gSacX =  0.85f;
+  if (gSacX < -0.85f) gSacX = -0.85f;
+  if (gSacY >  0.85f) gSacY =  0.85f;
+  if (gSacY < -0.85f) gSacY = -0.85f;
 }
 #endif
 
@@ -924,6 +982,23 @@ static void serviceMic(uint32_t now) {
   for (size_t i = 0; i < frames; ++i) mono[i] = block[i * 2];
   uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
   gAcousticLog.addBlock(mono, frames, t_ms, now);
+
+  // Instantaneous loudness for the face. The @LAT94 log keeps window statistics (60 s)
+  // which are the wrong timescale for a screen, so this is a separate, cheap mean-|s|
+  // over the same block — expressed against a slow room baseline, because "loud" only
+  // means anything relative to the room this node is standing in (§3.1).
+  uint32_t acc = 0;
+  for (size_t i = 0; i < frames; ++i) acc += (uint32_t)(mono[i] < 0 ? -mono[i] : mono[i]);
+  float lvl = (float)acc / (float)frames;
+  gSndAmb += (lvl - gSndAmb) * 0.02f;         // our own voice still feeds the baseline
+  if (now < gToneUntilMs) {
+    gSndHot *= 0.7f;                          // we are the noise: fully explained (§3.3)
+  } else {
+    float over = (gSndAmb > 30.0f) ? (lvl / gSndAmb - 1.0f) * 0.5f : 0.0f;
+    if (over < 0.0f) over = 0.0f;
+    if (over > 1.0f) over = 1.0f;
+    gSndHot = (over > gSndHot) ? over : gSndHot * 0.85f;   // fast attack, slow release
+  }
 }
 #endif
 
@@ -1345,6 +1420,366 @@ static void toggleGlobeView() {
   }
   activateView(nv);
 }
+
+// --- REPRESENTOR: the eyeball resting face (cardputer-sensorium.md §4.1) -----
+//
+// The first face of the representor. The other modality views (scope, console,
+// constellation) and the EPS arbiter that chooses between them are NOT built yet
+// (§7 phases S1/S2) — so for now the eye simply is the screen, which is exactly the
+// argument for starting here (§3.2): the eye is the only view that reads correctly
+// when nothing is happening. A scope with no sound is a flat line; an eye at rest is
+// still a face.
+//
+// Drawn straight to the panel: no canvas, no filesystem, and only the pixels that
+// actually changed (§3.4). A frame that moves the iris repaints ~5k pixels; a full
+// sclera repaint (entering the face, opening from a blink) ~13k. A frame where the
+// deck is sitting still writes ZERO pixels. All of it is far inside the 25 ms budget.
+static const int EYE_CX = SCR_W / 2;          // 120
+static const int EYE_CY = SCR_H / 2;          // 67
+// The eye is now WIDER THAN THE SCREEN IS TALL (148 px on a 135 px panel), so it is
+// cropped a few pixels top and bottom — deliberately: it reads as a close-up of an eye
+// rather than a ball drawn on a screen. Adafruit_GFX clips every span for us.
+static const int EYE_R  = 74;                 // rows -7..141
+static const int IRIS_R = 34;                 // grown MORE than the eye did, on request
+static const int IRIS_OUTLINE = 4;            // thick black limbal ring
+static const int IRIS_OUTER = IRIS_R + IRIS_OUTLINE;
+static const int PUPIL_R_MIN = 9, PUPIL_R_MAX = 17;   // arousal
+// How far the pupil swings on a beat. At rest this is ONE PIXEL — the face breathes
+// rather than performs, and you have to look to see it. Arousal opens the swing up.
+static const int PUPIL_BEAT_MIN = 1, PUPIL_BEAT_MAX = 7;
+// Travel is bounded by the OUTLINE's radius, not the iris's, or a full-tilt gaze pushes
+// the black ring past the edge of the sclera.
+static const int EYE_REACH = EYE_R - IRIS_OUTER - 2;
+// The face does not run on a frame clock — it runs on the BEAT. Rendering happens only
+// inside a short pulse at the head of each beat, and between beats the eye is entirely
+// still: no gaze update, no repaint, nothing on the SPI bus. Every change the eye has to
+// show is consolidated into these few frames.
+//
+// At the fleet's 120 BPM that is 4 frames per 500 ms instead of a free-running 5, and
+// they arrive in a burst rather than a drip. The visible consequence is deliberate: the
+// gaze now moves in beat-quantized steps, so the eye tracks a tilt rhythmically instead
+// of smoothly. It is a creature with a pulse, not a needle on a meter.
+static const uint32_t EYE_PULSE_MS = 220;       // the render window at each beat
+static const uint32_t EYE_PULSE_FRAME_MS = 70;  // frames within that window
+// Exactly one frame shut. A blink is quantized to the render grid whatever this says, so
+// it is DERIVED from the frame interval rather than set in absolute time — the blink
+// stays one frame long if the pulse window is ever retimed. One frame is also the floor:
+// blinking faster means rendering off the beat, which is the thing this view no longer
+// does. Blinks now land ON a beat, which is a better place for them to be anyway.
+static const uint32_t BLINK_MS = EYE_PULSE_FRAME_MS - 10;
+static const uint32_t BLINK_GAP_MS = 8000;    // idle blink every 8-16 s
+
+// The catchlight: a specular reflection of the room's light source, so it belongs to
+// the ROOM, not to the eye — it stays put while the iris slides under it, and is only
+// visible when something dark is beneath it. That is why it is a screen coordinate
+// and not an offset from the iris.
+static const int GLINT_X = EYE_CX - (EYE_R * 45) / 100;   // up and to the left
+static const int GLINT_Y = EYE_CY - (EYE_R * 45) / 100;
+static const int GLINT_R = 18;
+
+// Which way the eye looks when the deck is tipped. The BMI270's axes are not
+// documented for this board in a form worth trusting (its I2C address wasn't either),
+// so the mapping is three constants rather than arithmetic buried in the renderer: if
+// the gaze runs uphill, flip a sign; if it runs sideways, set the swap.
+// **Both signs flipped 2026-07-28** — on hardware the eye ran uphill, so the chip's
+// accelerometer frame is opposite to the assumption made blind. The saccade is scaled
+// by the SAME constants (the gyro shares the chip's frame), so a flick darts the way
+// the lean leans and one flip still fixes an axis end to end.
+#define EYE_SWAP_AXES 0
+static const float EYE_GAZE_X = -1.0f;
+static const float EYE_GAZE_Y =  1.0f;
+
+static bool  gFaceEye = true;                 // boot into the resting face (§1)
+static bool  gEyePainted = false;             // is the sclera currently on the panel?
+static float gGazeX = 0.0f, gGazeY = 0.0f;    // eased gaze, -1..1
+static float gArousal = 0.0f;                 // 0..1 -> pupil dilation
+static int   gIrisX = -1000, gIrisY = 0, gPupilR = -1;   // last painted iris
+static bool  gBlinking = false;
+static uint32_t gBlinkT0 = 0, gNextBlink = 0, gTapSeen = 0;
+
+static const uint16_t COL_SCLERA = rgb565(238, 236, 228);
+static const uint16_t COL_IRIS   = rgb565(210, 40, 40);
+// (no lid colour: the eyelid is black, so a blink simply takes the eye off the panel)
+
+// Fill the sclera's horizontal spans between two rows. Adafruit_GFX has no clipping,
+// so this is how the eyelid stays inside the eye instead of painting the black corners.
+//
+// Wrapped in ONE startWrite/endWrite. `drawFastHLine` opens and closes its own SPI
+// transaction — for a shape made of ~150 spans that overhead, not the pixels, is the
+// cost: at 32 MHz the sclera's 17k pixels are ~8 ms of data but measured 22 ms drawn
+// span-by-span. Batching is what keeps a full repaint inside the frame budget (§3.4).
+static void eyeSpans(int y0, int y1, uint16_t color) {
+  if (y0 < EYE_CY - EYE_R) y0 = EYE_CY - EYE_R;
+  if (y1 > EYE_CY + EYE_R) y1 = EYE_CY + EYE_R;
+  gTft.startWrite();
+  for (int y = y0; y <= y1; ++y) {
+    int dy = y - EYE_CY;
+    int hw = (int)sqrtf((float)(EYE_R * EYE_R - dy * dy));
+    if (hw > 0) gTft.writeFastHLine(EYE_CX - hw, y, hw * 2 + 1, color);
+  }
+  gTft.endWrite();
+}
+
+// Lay the sclera down across one row, in the two pieces either side of the disc at
+// (ex, ey) that the iris is about to cover. Returns nothing drawn if the row is
+// entirely inside that disc.
+static inline void scleraRow(int y, int x0, int x1, int ex, int ey, int e2) {
+  int edy = y - ey;
+  int ehw = (edy * edy < e2) ? (int)sqrtf((float)(e2 - edy * edy)) : -1;
+  if (ehw < 0) { gTft.writeFastHLine(x0, y, x1 - x0 + 1, COL_SCLERA); return; }
+  int ex0 = ex - ehw, ex1 = ex + ehw;
+  if (x0 < ex0) {
+    int e = (x1 < ex0 - 1) ? x1 : ex0 - 1;
+    gTft.writeFastHLine(x0, y, e - x0 + 1, COL_SCLERA);
+  }
+  if (x1 > ex1) {
+    int s = (x0 > ex1 + 1) ? x0 : ex1 + 1;
+    gTft.writeFastHLine(s, y, x1 - s + 1, COL_SCLERA);
+  }
+}
+
+// Entering the face: clear whatever the globe left AND lay the sclera down, writing
+// every pixel at most once. `fillScreen` + `eyeSpans` painted the middle of the screen
+// twice — over half the panel — for no benefit.
+static void paintEyeBase(int ix, int iy) {
+  const int r2 = EYE_R * EYE_R, e2 = IRIS_OUTER * IRIS_OUTER;
+  gTft.startWrite();
+  for (int y = 0; y < SCR_H; ++y) {
+    int dy = y - EYE_CY;
+    int hw = (dy * dy < r2) ? (int)sqrtf((float)(r2 - dy * dy)) : -1;
+    if (hw <= 0) { gTft.writeFastHLine(0, y, SCR_W, ST77XX_BLACK); continue; }
+    int x0 = EYE_CX - hw, x1 = EYE_CX + hw;
+    if (x0 > 0) gTft.writeFastHLine(0, y, x0, ST77XX_BLACK);
+    scleraRow(y, x0, x1, ix, iy, e2);
+    if (x1 < SCR_W - 1) gTft.writeFastHLine(x1 + 1, y, SCR_W - 1 - x1, ST77XX_BLACK);
+  }
+  gTft.endWrite();
+}
+
+// Opening from a blink: the lids covered the whole eye, so the whole sclera comes back
+// — minus the disc the iris is about to land on.
+static void paintSclera(int ix, int iy) {
+  const int r2 = EYE_R * EYE_R, e2 = IRIS_OUTER * IRIS_OUTER;
+  gTft.startWrite();
+  for (int y = EYE_CY - EYE_R; y <= EYE_CY + EYE_R; ++y) {
+    int dy = y - EYE_CY;
+    int hw = (int)sqrtf((float)(r2 - dy * dy));
+    if (hw > 0) scleraRow(y, EYE_CX - hw, EYE_CX + hw, ix, iy, e2);
+  }
+  gTft.endWrite();
+}
+
+// Erase the crescent the iris vacated: the rows of the OLD iris the NEW one does not
+// cover. The new iris is painted FIRST and only the leftover cleared, so the eye never
+// flashes white between the erase and the redraw — the K10 canvas-blink lesson applied
+// to a view that draws direct to the panel.
+//
+// Works on the OUTLINE's radius, not the iris's: the black ring is the outermost thing
+// that moves, and clearing only the red would leave a crescent of ring behind it.
+static void eraseIrisCrescent(int ox, int oy, int nx, int ny) {
+  const int r2 = IRIS_OUTER * IRIS_OUTER;
+  gTft.startWrite();
+  for (int y = oy - IRIS_OUTER; y <= oy + IRIS_OUTER; ++y) {
+    int dy = y - oy;
+    int hw = (int)sqrtf((float)(r2 - dy * dy));
+    int x0 = ox - hw, x1 = ox + hw;
+    int ndy = y - ny;
+    int nhw = (ndy * ndy <= r2) ? (int)sqrtf((float)(r2 - ndy * ndy)) : -1;
+    if (nhw < 0) { gTft.writeFastHLine(x0, y, x1 - x0 + 1, COL_SCLERA); continue; }
+    int nx0 = nx - nhw, nx1 = nx + nhw;
+    if (x0 < nx0) {
+      int e = (x1 < nx0 - 1) ? x1 : nx0 - 1;
+      gTft.writeFastHLine(x0, y, e - x0 + 1, COL_SCLERA);
+    }
+    if (x1 > nx1) {
+      int s = (x0 > nx1 + 1) ? x0 : nx1 + 1;
+      gTft.writeFastHLine(s, y, x1 - s + 1, COL_SCLERA);
+    }
+  }
+  gTft.endWrite();
+}
+
+// Paint ONLY the ring between two radii, never the disc inside it.
+//
+// This exists because of a visible artifact: `Adafruit_GFX::fillCircle` fills with
+// VERTICAL spans, so painting a big black disc and then covering it with red showed the
+// black infill sweeping through as vertical bars for the moment before it was covered.
+// Filling a circle you are about to cover costs those pixels twice AND you can see it.
+// Every ring in this view is now drawn as a ring.
+static void drawRing(int cx, int cy, int rIn, int rOut, uint16_t color) {
+  if (rOut <= rIn) return;
+  const int o2 = rOut * rOut, i2 = rIn * rIn;
+  gTft.startWrite();
+  for (int y = cy - rOut; y <= cy + rOut; ++y) {
+    int dy = y - cy;
+    int ho = (int)sqrtf((float)(o2 - dy * dy));
+    if (ho <= 0) continue;
+    int hi = (dy * dy < i2) ? (int)sqrtf((float)(i2 - dy * dy)) : -1;
+    if (hi < 0) { gTft.writeFastHLine(cx - ho, y, ho * 2 + 1, color); continue; }
+    gTft.writeFastHLine(cx - ho, y, ho - hi, color);       // left arc
+    gTft.writeFastHLine(cx + hi + 1, y, ho - hi, color);   // right arc
+  }
+  gTft.endWrite();
+}
+
+static void drawIris(int x, int y, int pr) {
+  gTft.fillCircle(x, y, IRIS_R, COL_IRIS);              // red disc
+  drawRing(x, y, IRIS_R, IRIS_OUTER, ST77XX_BLACK);     // limbal ring, ring only
+  gTft.fillCircle(x, y, pr, ST77XX_BLACK);              // pupil
+}
+
+// Painted last, after the vacated crescent has been cleared — otherwise an iris moving
+// out from under the catchlight erases it on the way past.
+static void drawGlint() {
+  gTft.fillCircle(GLINT_X, GLINT_Y, GLINT_R, ST77XX_WHITE);
+}
+
+// Where the beat is: ms into the current beat, and whether it is a downbeat. This is the
+// face's entire clock, so it must never stop — when the band has no chart (no conductor,
+// nobody playing) it falls back to a free-running local pulse at the fleet's tempo. A
+// creature does not stop having a heartbeat because nobody is playing; it just stops
+// having someone else's.
+static void eyeBeatPhase(uint32_t now, uint32_t& phase_ms, bool& downbeat) {
+#if USE_PULSE
+  uint8_t bib; uint16_t ph; uint32_t bc;
+  if (gPulse.phaseNow(now, bib, ph, bc)) {
+    phase_ms = ph;
+    downbeat = (bib == 0);
+    return;
+  }
+#endif
+  phase_ms = now % PULSE_DEFAULT_BEAT_MS;
+  downbeat = ((now / PULSE_DEFAULT_BEAT_MS) % 4) == 0;
+}
+
+// The only thing that lets the face draw. False for most of every beat.
+static bool eyeFrameDue(uint32_t now) {
+  static uint32_t last = 0;
+  if (!gEyePainted) { last = now; return true; }   // entry must not wait for a beat
+  uint32_t ph; bool db;
+  eyeBeatPhase(now, ph, db);
+  if (ph >= EYE_PULSE_MS) return false;             // between beats: hold still
+  if (now - last < EYE_PULSE_FRAME_MS) return false;
+  last = now;
+  return true;
+}
+
+// One frame of the resting face.
+//
+// The geometry is worked out BEFORE anything is painted, so the two expensive repaints
+// (entering the face, opening from a blink) can skip the disc the iris is about to
+// cover. Never paint a pixel you are about to paint over: that is what keeps the
+// blink-open frame inside the 25 ms budget now that the limbal ring made the iris
+// bigger — it measured 26 ms drawn in the naive order.
+static void renderEye(uint32_t now) {
+  // Gaze follows gravity, so the eye looks DOWNHILL: tip the deck and it turns its
+  // attention that way. The saccade rides on top — the gyro displaces the pupil
+  // sharply and it springs back, which is the whole difference between a gauge and a
+  // face.
+#if EYE_SWAP_AXES
+  float gx = (gTiltY + gSacY) * EYE_GAZE_X, gy = (gTiltX + gSacX) * EYE_GAZE_Y;
+#else
+  float gx = (gTiltX + gSacX) * EYE_GAZE_X, gy = (gTiltY + gSacY) * EYE_GAZE_Y;
+#endif
+  gGazeX += (gx - gGazeX) * 0.35f;
+  gGazeY += (gy - gGazeY) * 0.35f;
+  float ex = gGazeX, ey = gGazeY;
+  float m = sqrtf(ex * ex + ey * ey);
+  if (m > 1.0f) { ex /= m; ey /= m; }
+
+  // Pupil dilation carries TWO things at once: how aroused the node is, and where the
+  // band is in the bar. Arousal is a STAND-IN for the arbiter's summed EPS (§3.1,
+  // phase S1) — two raw terms, each already against its own baseline; when the arbiter
+  // lands this becomes one line reading its total.
+  float want = gSndHot;
+  float mot = (float)gDevMg / 400.0f;
+  if (mot > 1.0f) mot = 1.0f;
+  if (mot > want) want = mot;
+  gArousal = (want > gArousal) ? want : gArousal * 0.88f;
+
+  // The beat rides on top as a swing that decays across the pulse window. With nothing
+  // else happening the swing is a single pixel: the eye is doing one thing, quietly, and
+  // that one thing is keeping time. Arousal is what makes the beat visible.
+  uint32_t ph; bool downbeat;
+  eyeBeatPhase(now, ph, downbeat);
+  float env = (ph < EYE_PULSE_MS) ? (1.0f - (float)ph / (float)EYE_PULSE_MS) : 0.0f;
+  if (!downbeat) env *= 0.55f;
+  float swing = PUPIL_BEAT_MIN + gArousal * (PUPIL_BEAT_MAX - PUPIL_BEAT_MIN);
+
+  int ix = EYE_CX + (int)(ex * EYE_REACH);
+  int iy = EYE_CY + (int)(ey * EYE_REACH);
+  int pr = PUPIL_R_MIN + (int)(gArousal * (PUPIL_R_MAX - PUPIL_R_MIN)
+                               + env * swing + 0.5f);
+
+  if (!gEyePainted) {                     // entering the face, or recovering from one
+    paintEyeBase(ix, iy);
+    gEyePainted = true;
+    gIrisX = -1000;                       // force the iris to paint
+    gPupilR = -1;
+    gBlinking = false;
+    gNextBlink = now + BLINK_GAP_MS + (uint32_t)random(BLINK_GAP_MS);
+  }
+
+  // Blink: on a hard tap, and idly every 8-16 s so a resting eye is alive without
+  // fidgeting. One frame shut, one frame open — the lids go straight to fully closed
+  // because on this frame grid a partial phase would eat the entire blink. The gaze
+  // above keeps tracking behind the closed lids, so the eye opens looking the right way.
+  //
+  // A blink may only START in the first half of the pulse window, or its opening frame
+  // falls outside the window and the eye stays shut until the next beat.
+  if (!gBlinking) {
+    bool tapped = (gTapAt != 0 && gTapAt != gTapSeen && now - gTapAt < 400);
+    if (gTapAt != 0) gTapSeen = gTapAt;
+    if ((tapped || (int32_t)(now - gNextBlink) >= 0) && ph < EYE_PULSE_MS / 2) {
+      gBlinking = true;
+      gBlinkT0 = now;
+    }
+  }
+  if (gBlinking) {
+    if (now - gBlinkT0 < BLINK_MS) {
+      eyeSpans(EYE_CY - EYE_R, EYE_CY + EYE_R, ST77XX_BLACK);
+      return;                             // the iris is behind the lids
+    }
+    gBlinking = false;
+    gNextBlink = now + BLINK_GAP_MS + (uint32_t)random(BLINK_GAP_MS);
+    paintSclera(ix, iy);
+    gIrisX = -1000;
+  }
+
+  if (ix != gIrisX || iy != gIrisY) {          // the gaze moved: the whole iris follows
+    int ox = gIrisX, oy = gIrisY;
+    drawIris(ix, iy, pr);
+    if (ox > -999) eraseIrisCrescent(ox, oy, ix, iy);
+    drawGlint();
+    gIrisX = ix; gIrisY = iy; gPupilR = pr;
+  } else if (pr != gPupilR) {
+    // The pupil breathed but the eye is looking where it was. Touch NOTHING but the
+    // circumference between the two radii: black outward to dilate, iris-red inward to
+    // constrict. This is the resting case — a one-pixel ring on the beat — so it has to
+    // be the cheapest and quietest thing the face does, not a repaint of the whole iris.
+    int rIn  = (pr < gPupilR) ? pr : gPupilR;
+    int rOut = (pr > gPupilR) ? pr : gPupilR;
+    drawRing(ix, iy, rIn, rOut, (pr > gPupilR) ? ST77XX_BLACK : COL_IRIS);
+    gPupilR = pr;
+    // The catchlight is in room coordinates, so the ring can pass under it. Put it back
+    // only when it actually did.
+    int gdx = GLINT_X - ix, gdy = GLINT_Y - iy, reach = GLINT_R + rOut;
+    if (gdx * gdx + gdy * gdy <= reach * reach) drawGlint();
+  }
+}
+
+// `t` switches between the representor and the inherited globes (§5). Leaving the face
+// hands a clean panel back to the globe renderer, which paints in dirty-rect pieces
+// and would otherwise draw over the sclera.
+static void setFace(bool eye) {
+  gFaceEye = eye;
+  gEyePainted = false;
+  if (!eye) {
+    gTft.fillScreen(ST77XX_BLACK);
+    gGlobeDirty = gBottomDirty = gScreenDirty = true;
+  }
+  Serial.printf("[face] %s\n", eye ? "REPRESENTOR (eyeball)" : "globe views");
+}
 #endif  // USE_CARD_HW
 
 void setup() {
@@ -1497,6 +1932,8 @@ void setup() {
 
 void loop() {
   const uint32_t now = millis();
+  gSectN = 0;
+  sectMark();                       // [0] top of the pass
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Trusted, un-deduped link.
@@ -1517,6 +1954,8 @@ void loop() {
   if (gSyncPending)  { gSyncPending = false;  appendSyncRecord(); }
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
 
+  sectMark();                       // [1] end of "link": serial toot + deferred work
+
   // --- the four percept tiers: sample continuously, flush one record per window ---
   // Every flush is a flash write, so it happens here in loop() and never in a callback,
   // and every lane is capped until SP1 pruning takes it (CMD_CLEAR_PERCEPTS).
@@ -1534,6 +1973,8 @@ void loop() {
                       (unsigned)gDb.fileSize());
     }
   }
+
+  sectMark();                       // [2] end of "linkperc": the @LAT97 tier
 
 #if USE_WIFI_SCAN
   serviceWifiScan();
@@ -1553,6 +1994,8 @@ void loop() {
   }
 #endif
 
+  sectMark();                       // [3] end of "entity": WiFi scan + @LAT96 tier
+
 #if USE_IMU
   serviceImu(now);
   if (gMotionLog.due(now)) {
@@ -1570,6 +2013,8 @@ void loop() {
     }
   }
 #endif
+
+  sectMark();                       // [4] end of "imu": BMI270 + @LAT95 tier
 
 #if USE_MIC && USE_CARD_HW
   serviceMic(now);
@@ -1590,12 +2035,14 @@ void loop() {
   }
 #endif
 
+  sectMark();                       // [5] end of "mic": ES8311 read + @LAT94 tier
+
 #if USE_CARD_HW
   // Tilt rolls the globe — this board has no trackball, and the IMU is a better
   // pointer anyway: tip the deck and the world turns. Dead-zoned so a hand at rest
   // holds the view still.
 #if USE_IMU
-  if (gImuOk && gGlobe) {
+  if (gImuOk && gGlobe && !gFaceEye) {     // in the resting face the tilt aims the gaze
     const float DEAD = 0.12f;
     float tx = gTiltX, ty = gTiltY;
     if (fabsf(tx) > DEAD || fabsf(ty) > DEAD) {
@@ -1621,11 +2068,16 @@ void loop() {
 
   // Keyboard — the operator function. Every press acts immediately (no enter-to-send):
   //   arrows = roll the globe        ENTER = next globe (Feel / SemPos / RFC)
-  //   t = next node (+ next comm target in the SemPos view)
+  //   t = REPRESENTOR (eyeball) <-> globe views   n = next node (+ next comm target)
   //   s = get-status   p = ping   b = beep   SPACE = toggle the console pane
   //   g = play the song (whole band)   x = stop   o = onward a scene   r = restart
   //   +/= zoom in      -/_ zoom out
   char k = readKey();
+  // In the resting face the globe-navigation keys have nothing to steer. The fleet
+  // keys (n/p/b/s/g/x/o/r) still work, so the face is never a dead end.
+  if (k && gFaceEye && (k == KEY_LEFT_C || k == KEY_RIGHT_C || k == KEY_UP_C ||
+                        k == KEY_DOWN_C || k == KEY_ENTER_C || k == '+' || k == '=' ||
+                        k == '-' || k == '_')) k = 0;
   if (k) {
     switch (k) {
       case KEY_LEFT_C:  gRotLon += 0.20f; gGlobeDirty = true; gAnim = false; break;
@@ -1637,14 +2089,7 @@ void loop() {
         gRotLat += 0.20f; if (gRotLat > 1.52f) gRotLat = 1.52f;
         gGlobeDirty = true; gAnim = false; break;
       case KEY_ENTER_C: toggleGlobeView(); break;
-      case 't':
-        selectNextNode();
-        if (gView == VIEW_FLEET) {
-          gTargetIdx = (gTargetIdx + 1) % kNumTargets;
-          gCmdTarget = kTargets[gTargetIdx];
-        }
-        gScreenDirty = true;
-        break;
+      case 't': setFace(!gFaceEye); break;
       case '+': case '=':
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -1676,8 +2121,17 @@ void loop() {
       }
       case 'r': emitSetScene(0); break;
 #endif
-      case ' ':
+      // `n` inherits what `t` used to do — `t` now owns the face toggle (§5). SPACE
+      // keeps the console pane, so nothing was lost in the move.
       case 'n':
+        selectNextNode();
+        if (gView == VIEW_FLEET) {
+          gTargetIdx = (gTargetIdx + 1) % kNumTargets;
+          gCmdTarget = kTargets[gTargetIdx];
+        }
+        gScreenDirty = true;
+        break;
+      case ' ':
         gPane = (gPane == PANE_MAIN) ? PANE_CONSOLE : PANE_MAIN;
         gBottomDirty = true;
         gScreenDirty = true;
@@ -1687,6 +2141,7 @@ void loop() {
     }
   }
 #endif  // USE_CARD_HW
+  sectMark();                       // [6] end of "nav": tilt/anim + keyboard
 
 #if USE_PULSE
   {
@@ -1733,6 +2188,8 @@ void loop() {
   }
 #endif
 
+  sectMark();                       // [7] end of "pulse": band clock + our voice
+
   // Periodic HELLO beacon.
   static uint32_t lastBeacon = 0;
   if (now - lastBeacon >= 2000) {
@@ -1751,7 +2208,17 @@ void loop() {
     logLine(lg);
   }
   static uint32_t lastRender = 0;
-  if (gScreenDirty || gGlobeDirty || now - lastRender >= 1000) {
+  if (gFaceEye) {
+    // The resting face renders ONLY in the pulse at the head of a beat (§3.4), and the
+    // globe is not drawn at all while it holds the screen — so the face costs the mesh
+    // far less than the 1 Hz feelings-globe repaint it replaced.
+    if (eyeFrameDue(now)) {
+      uint32_t r0 = millis();
+      renderEye(now);
+      gLastRenderMs = gPassRenderMs = millis() - r0;
+      if (gLastRenderMs > gWorstRenderMs) gWorstRenderMs = gLastRenderMs;
+    }
+  } else if (gScreenDirty || gGlobeDirty || now - lastRender >= 1000) {
     lastRender = now;
     gScreenDirty = false;
     // Band members carry live status on the feelings globe, so repaint on the 1 Hz
@@ -1759,7 +2226,8 @@ void loop() {
     if (gView == VIEW_FEELINGS) gGlobeDirty = true;
     uint32_t r0 = millis();
     renderScreen();
-    gLastRenderMs = millis() - r0;
+    gLastRenderMs = gPassRenderMs = millis() - r0;
+    if (gLastRenderMs > gWorstRenderMs) gWorstRenderMs = gLastRenderMs;
   }
 #endif
 
@@ -1769,17 +2237,40 @@ void loop() {
   // leave on: when a future change makes this node sluggish on the mesh, the number
   // that explains it is already on the wire.
   {
-    static uint32_t loopStart = 0, worst = 0, lastReport = 0;
+    sectMark();                     // [8] end of "render": the screen
+    static uint32_t loopStart = 0, worst = 0, worstOwnRender = 0, lastReport = 0;
+    static uint32_t worstSect = 0;
+    static const char* worstSectName = "-";
     if (loopStart) {
       uint32_t d = millis() - loopStart;
-      if (d > worst) worst = d;
+      // Carry the render cost OF THAT PASS along with it. "Worst pass 53 ms, worst
+      // render 24 ms" is ambiguous — they may be different passes — and the whole
+      // point of this profiler is to stop us guessing which.
+      if (d > worst) {
+        worst = d;
+        worstOwnRender = gPassRenderMs;
+        worstSect = 0;
+        worstSectName = "-";
+        for (int i = 0; i + 1 < gSectN; ++i) {
+          uint32_t s = gSectMark[i + 1] - gSectMark[i];
+          if (s > worstSect) { worstSect = s; worstSectName = kSectionNames[i]; }
+        }
+      }
     }
+    gPassRenderMs = 0;
     loopStart = millis();
     if (loopStart - lastReport >= 30000) {
       lastReport = loopStart;
-      Serial.printf("[loop] worst pass %lums (last render %lums)\n",
-                    (unsigned long)worst, (unsigned long)gLastRenderMs);
+      Serial.printf("[loop] worst pass %lums (render %lums, widest section %s %lums) "
+                    "| worst render %lums\n",
+                    (unsigned long)worst, (unsigned long)worstOwnRender,
+                    worstSectName, (unsigned long)worstSect,
+                    (unsigned long)gWorstRenderMs);
       worst = 0;
+      worstOwnRender = 0;
+      worstSect = 0;
+      worstSectName = "-";
+      gWorstRenderMs = 0;
     }
   }
 }
