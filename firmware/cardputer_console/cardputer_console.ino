@@ -80,7 +80,8 @@
 // generated prototype. Any enum used as a PARAMETER type has to be declared before that
 // insertion point. (`enum Pane` below gets away with sitting mid-file only because
 // nothing takes one as an argument.)
-enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_VIEW_COUNT = 2 };
+enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_INTERO = 2,
+                          FACE_VIEW_COUNT = 3 };
 
 // --- Cardputer ADV pin map (M5Stack K132-Adv, Stamp-S3A) ---------------------
 // Documented here and in hardware_specs.md. Three peripherals share ONE I2C bus
@@ -261,8 +262,8 @@ static uint32_t gRenderCount = 0;    // frames drawn this profiler window
 // the same discipline that found the edgesAt defect (companion.md §6): instrument the
 // mechanism, do not chain hypotheses off timings.
 static const char* const kSectionNames[] = {"link", "linkperc", "entity", "imu",
-                                            "mic", "nav", "pulse", "render"};
-static const int kNumSections = 8;
+                                            "mic", "nav", "pulse", "intero", "render"};
+static const int kNumSections = 9;
 static uint32_t gSectMark[kNumSections + 1];
 static int gSectN = 0;
 static inline void sectMark() {
@@ -451,12 +452,108 @@ static void emitSetScene(uint16_t scene) {
 }
 #endif
 
-// STATUS telemetry for the `monitor` table. No sensor cursor/temp on a console, so
-// those fields are 0; report the synced state + epoch, plus the PULSE tail for `band`.
+// --- INTEROCEPTION: the node's sense of its own body (sensorium §4.5, phase S4) ----
+//
+// Three interior signals, all slow and all cheap: how much ENERGY is left (the pack, via
+// the G10 divider), how HOT the die is, and how much contiguous RAM is left to think in.
+//
+// Sampled HERE, in loop context, rather than inside the renderer — for two reasons that
+// are not style. (1) The STATUS reply needs the temperature whether or not anybody is
+// looking at the screen: this node has been sending a literal 0 in the fleet's
+// `temp_c_x100` field since it joined, which is the hole phase S4 exists to fill. (2) A
+// renderer that reads a sensor is a renderer whose frame cost depends on that sensor,
+// and this view's whole claim is that it costs almost nothing at rest (§3.4).
+//
+// ⚠ THE DIVIDER RATIO IS AN ASSUMPTION, and it is the one number here that cannot be
+// checked from the laptop. G10 reads the pack through a resistive divider; 1:1 (so
+// double it) is what M5's own code does for this family, but nothing on hand proves it
+// for the ADV. So the RAW pin millivolts are printed alongside the derived pack voltage
+// on every sample line — put a meter on the JST battery lead, compare, and change this
+// one constant if they disagree. Same discipline as the eye's gaze axes: the thing the
+// bench must confirm is a named constant at the top, not arithmetic buried in a renderer.
+static const float BAT_DIVIDER = 2.0f;
+static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes
+
+static uint16_t gBatMv    = 0;      // pack millivolts (0 = never sampled)
+static float    gBatSlow  = 0.0f;   // slow EMA of the above — the fill/drain reference
+static int8_t   gBatTrend = 0;      // +1 filling, -1 draining, 0 steady
+static uint8_t  gBatPct   = 0;
+static int16_t  gDieC10   = 0;      // ESP32-S3 die temperature, tenths of a degree
+static uint32_t gMaxAllocK = 0;     // largest CONTIGUOUS block, not free heap (§6)
+static uint32_t gWorstLoopMs = 0;   // published by the loop profiler: our own slowness
+
+// Voltage -> state of charge for a 1S Li-ion, linear between measured curve points.
+// Deliberately coarse: the flat middle of a Li-ion curve means any percentage between
+// 3.7 and 3.9 V is a guess, and pretending otherwise with more decimals would be worse.
+static uint8_t batPercent(uint16_t mv) {
+  static const uint16_t kV[] = {3300, 3500, 3680, 3730, 3760, 3790,
+                                3820, 3870, 3950, 4000, 4100, 4200};
+  static const uint8_t  kP[] = {   0,    5,   10,   20,   30,   40,
+                                  50,   60,   70,   80,   90,  100};
+  const int n = sizeof(kP) / sizeof(kP[0]);
+  if (mv <= kV[0]) return 0;
+  if (mv >= kV[n - 1]) return 100;
+  for (int i = 1; i < n; ++i) {
+    if (mv < kV[i]) {
+      int span = kV[i] - kV[i - 1];
+      return (uint8_t)(kP[i - 1] + (int)(kP[i] - kP[i - 1]) * (mv - kV[i - 1]) / span);
+    }
+  }
+  return 100;
+}
+
+static void serviceIntero(uint32_t now) {
+  static uint32_t last = 0;
+  if (gBatMv && now - last < INTERO_PERIOD_MS) return;
+  last = now;
+
+  // Four reads averaged. One 12-bit sample of a divided pack sitting behind a switching
+  // charger is noisy at exactly the millivolt scale the trend arrow reads, and the whole
+  // burst costs well under a millisecond once per 2 s.
+  uint32_t acc = 0;
+  for (int i = 0; i < 4; ++i) acc += analogReadMilliVolts(PIN_BAT_ADC);
+  uint32_t pin_mv = acc / 4;
+  uint16_t mv = (uint16_t)(pin_mv * BAT_DIVIDER);
+
+  bool first = (gBatMv == 0);
+  gBatMv = mv;
+  gBatPct = batPercent(mv);
+  // Am I filling or draining? A ~2-minute EMA is the reference, so the arrow reports the
+  // direction of the PACK rather than of the last sample's noise. This is the honest
+  // version of "am I charging": we have no VBUS sense pin, so we do not claim one — we
+  // report the only thing actually measured, which is which way the voltage is going.
+  if (first) gBatSlow = (float)mv;
+  else       gBatSlow += ((float)mv - gBatSlow) * 0.03f;
+  float d = (float)mv - gBatSlow;
+  gBatTrend = (d > 12.0f) ? 1 : (d < -12.0f) ? -1 : 0;
+
+  // Die temperature, not ambient: there is no ambient sensor on this board. It reads
+  // high (40-55 C is normal) because WiFi and BLE are up a few millimetres away, so it
+  // is a measure of how hard the node is working as much as of the room.
+  gDieC10 = (int16_t)lroundf(temperatureRead() * 10.0f);
+
+  gMaxAllocK = ESP.getMaxAllocHeap() / 1024;
+
+  if (first) {
+    Serial.printf("[intero] pin %lumV x%.2f = pack %umV (%u%%) | die %.1fC | "
+                  "maxalloc %luK  <- CHECK THE PACK VOLTAGE AGAINST A METER\n",
+                  (unsigned long)pin_mv, BAT_DIVIDER, mv, gBatPct,
+                  gDieC10 / 10.0f, (unsigned long)gMaxAllocK);
+  }
+}
+
+// STATUS telemetry for the `monitor` table. No sensor cursor on a console, so those
+// fields are 0; report the synced state + epoch, plus the PULSE tail for `band`.
+//
+// The temperature field is NO LONGER 0 (phase S4): it carries this node's die
+// temperature. Toot.h calls the field "ambient", and this is not that — but a die
+// reading is a real measurement of a real body, and an empty field is not. `monitor`
+// showing 47.2 C for cardputer_1 means "the Cardputer is warm", which is true and was
+// previously unsayable.
 static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 0, 0);
   toot::put_u16(p + 2, 0);
-  toot::put_u16(p + 4, 0);
+  toot::put_u16(p + 4, (uint16_t)(gDieC10 * 10));   // tenths here, HUNDREDTHS on the wire
   p[6] = gSynced ? toot::STATUS_SYNCED : 0;
   toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
 #if USE_PULSE
@@ -1802,7 +1899,9 @@ static const float SAC_GAMMA   = 0.60f;
 static bool     gFaceOn = true;               // boot into the resting face (§1)
 static FaceView gFaceView = FACE_EYE;
 static const char* faceViewName(FaceView v) {
-  return (v == FACE_SCOPE) ? "REPRESENTOR (oscilloscope)" : "REPRESENTOR (eyeball)";
+  return (v == FACE_SCOPE)  ? "REPRESENTOR (oscilloscope)"
+       : (v == FACE_INTERO) ? "REPRESENTOR (interoception)"
+                            : "REPRESENTOR (eyeball)";
 }
 
 static bool  gEyePainted = false;             // is the sclera currently on the panel?
@@ -2330,6 +2429,209 @@ static void renderScope(uint32_t now) {
 }
 #endif  // USE_MIC && USE_CARD_HW
 
+// ============ 4.5 interoception — the body (blue/amber/red) ==================
+//
+// The third representor view, and the only one that looks INWARD. The eye is what the
+// node's senses do with the world and the scope is the room's own signal; this is the
+// node reporting on itself: energy, heat, the room it has left to think in, how fast it
+// is currently thinking, and its heartbeat.
+//
+// (Sensorium §4.5 argued interoception should only ever be ambient colouring on the
+// other views, never a view of its own. That was wrong in one specific way: a creature
+// that can look at the world but never at itself is exactly as half-finished as the doc
+// says a creature with no interoception is. The ambient version is still worth building
+// on top of the eye — a battery ring on the sclera — but it is a SUMMARY, and a summary
+// is not a place you can go and read a number.)
+//
+// RENDERING STRATEGY: the eye's, not the scope's. Almost nothing here changes between
+// frames — the battery moves in minutes, the die temperature in tens of seconds — so
+// every element is compared against what is already on the panel and skipped if it
+// still matches. At rest this view paints ONLY the heartbeat.
+//
+// ⚠ TEXT IS THE EXPENSIVE THING IN THIS VIEW, and it is the reason it is built the way
+// it is. `Adafruit_GFX::drawChar` issues one `setAddrWindow`+write per glyph pixel, and
+// the scope measured a 42-character live readout at ~20 ms — nearly the cost of the
+// entire waveform (§4.2). Two consequences, both load-bearing:
+//   1. Every LABEL is painted once on entry, from the key handler, never in a frame.
+//   2. Every VALUE is redrawn only when its rendered STRING changes. A frame where the
+//      voltage still reads "4.02V" writes nothing at all for that row. This is what
+//      makes a text-heavy view affordable at 10 Hz — the strings, not the numbers, are
+//      the thing compared.
+// Values are drawn with a TRANSPARENT background over a one-`fillRect` erase, which is
+// ~3x cheaper than opaque text: `drawChar` writes background pixels individually too,
+// but a fillRect is a single address window for the whole box.
+static const int IN_TITLE_Y = 2;
+static const int IN_ROW_Y[3] = {24, 56, 88};      // top of each gauge row
+static const int IN_LBL_X  = 3;                   // "BAT" / "DIE" / "MEM", size 1
+static const int IN_VAL_X  = 28;                  // the number, size 2
+static const int IN_VAL_W  = 76;
+static const int IN_BAR_X  = 108, IN_BAR_W = 128, IN_BAR_H = 14;
+static const int IN_FILL_W = IN_BAR_W - 2, IN_FILL_H = IN_BAR_H - 2;
+static const int IN_FOOT_Y = 118;
+static const int HEART_CX  = 224, HEART_CY = 9;   // the beat, top right
+static const int HEART_MIN = 3, HEART_MAX = 8;
+
+static const uint16_t IN_COL_TITLE = rgb565(70, 110, 140);
+static const uint16_t IN_COL_LBL   = rgb565(130, 145, 165);
+static const uint16_t IN_COL_FRAME = rgb565(48, 62, 80);
+static const uint16_t IN_COL_FOOT  = rgb565(140, 155, 175);
+static const uint16_t IN_COL_HEART = rgb565(210, 40, 60);
+
+// One band per gauge, so a glance is enough: the colour IS the reading. The number is
+// for when you want to know how bad, the colour is for whether to care.
+static const uint16_t IN_COL_GOOD  = rgb565(40, 210, 120);
+static const uint16_t IN_COL_WARN  = rgb565(240, 175, 40);
+static const uint16_t IN_COL_BAD   = rgb565(235, 60, 50);
+static const uint16_t IN_COL_COOL  = rgb565(60, 190, 225);
+static const uint16_t IN_COL_MIND  = rgb565(130, 145, 245);
+
+static bool     gInPainted = false;
+static char     gInVal[3][10] = {{0}, {0}, {0}};     // last strings on the panel
+static uint16_t gInCol[3] = {0, 0, 0};               // last colours on the panel
+static int      gInFill[3] = {-1, -1, -1};           // last fill widths, px
+static char     gInFoot[42] = {0};
+static int      gInHeart = -1;
+
+// The chrome: everything that never changes. Painted once, on entry, from the key
+// handler — a key press can afford 20 ms, a render frame cannot (§4.2).
+static void interoChrome() {
+  gTft.fillScreen(ST77XX_BLACK);
+  gTft.setTextSize(1);
+  gTft.setTextColor(IN_COL_TITLE);
+  gTft.setCursor(IN_LBL_X, IN_TITLE_Y);
+  gTft.print("INTEROCEPTION");
+  static const char* kLbl[3] = {"BAT", "DIE", "MEM"};
+  gTft.setTextColor(IN_COL_LBL);
+  for (int i = 0; i < 3; ++i) {
+    gTft.setCursor(IN_LBL_X, IN_ROW_Y[i] + 5);
+    gTft.print(kLbl[i]);
+    gTft.drawRect(IN_BAR_X, IN_ROW_Y[i] + 1, IN_BAR_W, IN_BAR_H, IN_COL_FRAME);
+  }
+  gTft.drawFastHLine(0, IN_FOOT_Y - 6, SCR_W, IN_COL_FRAME);
+}
+
+// Flat 10 Hz. Unlike the eye this view does not run on the beat — it is an instrument
+// reporting on a body, and a body's temperature does not have a tempo. The HEARTBEAT
+// inside it does, and it reads the same never-stopping clock the eye does.
+static bool interoFrameDue(uint32_t now) {
+  static uint32_t last = 0;
+  if (!gInPainted) { last = now; return true; }
+  if (now - last < 100) return false;
+  last = now;
+  return true;
+}
+
+// Repaint one gauge row, but only the parts of it that actually differ from the panel.
+static void interoRow(int i, const char* val, uint16_t col, int pct) {
+  if (col != gInCol[i] || strcmp(val, gInVal[i]) != 0) {
+    gTft.fillRect(IN_VAL_X, IN_ROW_Y[i] + 1, IN_VAL_W, 16, ST77XX_BLACK);
+    gTft.setTextSize(2);
+    gTft.setTextColor(col);                     // transparent: the box is already black
+    gTft.setCursor(IN_VAL_X, IN_ROW_Y[i] + 2);
+    gTft.print(val);
+    gTft.setTextSize(1);
+    snprintf(gInVal[i], sizeof(gInVal[i]), "%s", val);
+  }
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  int w = (IN_FILL_W * pct) / 100;
+  const int x = IN_BAR_X + 1, y = IN_ROW_Y[i] + 2;
+  if (col != gInCol[i]) {                       // banded across: repaint the whole fill
+    if (w) gTft.fillRect(x, y, w, IN_FILL_H, col);
+    if (w < IN_FILL_W) gTft.fillRect(x + w, y, IN_FILL_W - w, IN_FILL_H, ST77XX_BLACK);
+  } else if (w > gInFill[i]) {                  // grew: paint only the new part
+    gTft.fillRect(x + gInFill[i], y, w - gInFill[i], IN_FILL_H, col);
+  } else if (w < gInFill[i]) {                  // shrank: black out only what it lost
+    gTft.fillRect(x + w, y, gInFill[i] - w, IN_FILL_H, ST77XX_BLACK);
+  }
+  gInFill[i] = w;
+  gInCol[i] = col;
+}
+
+static void renderIntero(uint32_t now) {
+  char v[10];
+
+  // --- energy ---------------------------------------------------------------
+  // The trend arrow is appended to the voltage rather than given its own glyph position,
+  // so it costs nothing extra: it is part of a string that is already being compared.
+  uint16_t mv = gBatMv;
+  snprintf(v, sizeof(v), "%u.%02u%c", mv / 1000, (mv % 1000) / 10,
+           gBatTrend > 0 ? '^' : gBatTrend < 0 ? 'v' : ' ');
+  uint16_t bcol = (gBatPct > 50) ? IN_COL_GOOD : (gBatPct > 20) ? IN_COL_WARN
+                                                                : IN_COL_BAD;
+  interoRow(0, v, bcol, gBatPct);
+
+  // --- heat -----------------------------------------------------------------
+  // 20-80 C across the bar. The die idles in the forties with the radios up, so the
+  // resting bar sits around a third — deliberately, so a real climb is visible as one.
+  snprintf(v, sizeof(v), "%d.%dC", gDieC10 / 10, abs(gDieC10 % 10));
+  uint16_t tcol = (gDieC10 < 450) ? IN_COL_COOL : (gDieC10 < 600) ? IN_COL_WARN
+                                                                  : IN_COL_BAD;
+  interoRow(1, v, tcol, (int)((gDieC10 / 10 - 20) * 100 / 60));
+
+  // --- room to think --------------------------------------------------------
+  // maxalloc, NOT free heap. The free-heap number reads ~245 KB and is a lie about what
+  // can actually be allocated: the oscilloscope's 65 KB canvas was refused at exactly
+  // that number (companion.md §6). 64 KB is full scale.
+  snprintf(v, sizeof(v), "%luK", (unsigned long)gMaxAllocK);
+  uint16_t mcol = (gMaxAllocK > 32) ? IN_COL_MIND : (gMaxAllocK > 16) ? IN_COL_WARN
+                                                                      : IN_COL_BAD;
+  interoRow(2, v, mcol, (int)(gMaxAllocK * 100 / 64));
+
+  // --- the footer: uptime, own slowness, the band, the clock ----------------
+  // `lp` is this node's sense of its OWN response time — the worst loop pass in the
+  // current profiler window, which is exactly what the mesh feels as rtt (§3.4). It
+  // belongs on the interoception screen more than anywhere else: it is the node
+  // noticing that it has become sluggish.
+  char f[42];
+  uint32_t up = now / 1000;
+#if USE_PULSE
+  const pulse::Chart& ch = gPulse.chart();
+  unsigned bpm = ch.beat_period_ms ? (unsigned)(60000UL / ch.beat_period_ms) : 0;
+  if (up < 3600) snprintf(f, sizeof(f), "up %lum%02lus  lp%lums  %ubpm %s%s %s",
+                          (unsigned long)(up / 60), (unsigned long)(up % 60),
+                          (unsigned long)gWorstLoopMs, bpm,
+                          nodeName(ch.conductor_id), gPulse.conductor() ? "*" : "",
+                          gSynced ? "clk+" : "clk-");
+  else snprintf(f, sizeof(f), "up %luh%02lum  lp%lums  %ubpm %s%s %s",
+                (unsigned long)(up / 3600), (unsigned long)((up % 3600) / 60),
+                (unsigned long)gWorstLoopMs, bpm,
+                nodeName(ch.conductor_id), gPulse.conductor() ? "*" : "",
+                gSynced ? "clk+" : "clk-");
+#else
+  snprintf(f, sizeof(f), "up %lum%02lus  lp%lums  %s",
+           (unsigned long)(up / 60), (unsigned long)(up % 60),
+           (unsigned long)gWorstLoopMs, gSynced ? "clk+" : "clk-");
+#endif
+  if (strcmp(f, gInFoot) != 0) {
+    gTft.fillRect(0, IN_FOOT_Y, SCR_W, 10, ST77XX_BLACK);
+    gTft.setTextSize(1);
+    gTft.setTextColor(IN_COL_FOOT);
+    gTft.setCursor(IN_LBL_X, IN_FOOT_Y);
+    gTft.print(f);
+    snprintf(gInFoot, sizeof(gInFoot), "%s", f);
+  }
+
+  // --- the heartbeat --------------------------------------------------------
+  // The one thing here that moves every frame, and the cheapest: a disc that swells on
+  // the beat and relaxes between them, painted as the RING between the old radius and
+  // the new one (never a disc you are about to cover — §4.1's rule, same reason). It
+  // runs on the same clock the eye's pupil does, including the free-running local
+  // fallback: a body does not stop having a pulse because the conductor died.
+  uint32_t ph; bool db;
+  eyeBeatPhase(now, ph, db);
+  float env = (ph < 240) ? (1.0f - (float)ph / 240.0f) : 0.0f;
+  if (!db) env *= 0.55f;                        // the downbeat is the strong one
+  int r = HEART_MIN + (int)((HEART_MAX - HEART_MIN) * env + 0.5f);
+  if (r != gInHeart) {
+    if (gInHeart < 0) gTft.fillCircle(HEART_CX, HEART_CY, r, IN_COL_HEART);
+    else if (r > gInHeart) drawRing(HEART_CX, HEART_CY, gInHeart, r, IN_COL_HEART);
+    else drawRing(HEART_CX, HEART_CY, r, gInHeart, ST77XX_BLACK);
+    gInHeart = r;
+  }
+  gInPainted = true;
+}
+
 // `t` switches between the representor and the inherited globes (§5). Leaving the face
 // hands a clean panel back to the globe renderer, which paints in dirty-rect pieces
 // and would otherwise draw over the sclera.
@@ -2341,6 +2643,15 @@ static void enterFaceView() {
 #if USE_MIC && USE_CARD_HW
   gScopePainted = false;
   gScopeDY0 = gScopeDY1 = SCOPE_CY;
+#endif
+  // Interoception forgets everything it believes is on the panel, or the first frame
+  // after re-entry skips every element that "hasn't changed" and leaves a blank screen.
+  gInPainted = false;
+  gInHeart = -1;
+  gInFoot[0] = 0;
+  for (int i = 0; i < 3; ++i) { gInVal[i][0] = 0; gInCol[i] = 0; gInFill[i] = 0; }
+  if (gFaceView == FACE_INTERO) { interoChrome(); return; }
+#if USE_MIC && USE_CARD_HW
   if (gFaceView == FACE_SCOPE) { scopeChrome(); return; }
 #endif
   // NO fillScreen for the eye: `paintEyeBase` writes every pixel of the panel exactly
@@ -2540,6 +2851,12 @@ void setup() {
                 "off"
 #endif
                 );
+
+  // Take the body's first reading here, AFTER WiFi/BLE/ESP-NOW are up: `maxalloc` before
+  // the radios is a number that never comes back, and the first STATUS reply can be
+  // asked for immediately. This is also the line that prints the raw ADC millivolts for
+  // the divider check (see BAT_DIVIDER).
+  serviceIntero(millis());
 }
 
 void loop() {
@@ -2713,6 +3030,7 @@ void loop() {
       // lands they become the pin that overrides it, which is the same binding.
       case '1': setFaceView(FACE_EYE); break;
       case '2': setFaceView(FACE_SCOPE); break;
+      case '3': setFaceView(FACE_INTERO); break;
       case '+': case '=':
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -2813,6 +3131,14 @@ void loop() {
 
   sectMark();                       // [7] end of "pulse": band clock + our voice
 
+  // The body's own senses (§4.5). Cheap and rare — four ADC reads and a die-temperature
+  // read once per 2 s — but it gets its own profiler section rather than being folded
+  // into a neighbour's, because a section that quietly carries somebody else's cost is
+  // how a profiler starts lying (companion.md §6: instrument the mechanism).
+  serviceIntero(now);
+
+  sectMark();                       // [8] end of "intero": battery + die temp + heap
+
   // Periodic HELLO beacon.
   static uint32_t lastBeacon = 0;
   if (now - lastBeacon >= 2000) {
@@ -2839,16 +3165,19 @@ void loop() {
     bool due = false;
     switch (gFaceView) {
 #if USE_MIC && USE_CARD_HW
-      case FACE_SCOPE: due = scopeFrameDue(now); break;
+      case FACE_SCOPE:  due = scopeFrameDue(now);  break;
 #endif
-      default:         due = eyeFrameDue(now);   break;
+      case FACE_INTERO: due = interoFrameDue(now); break;
+      default:          due = eyeFrameDue(now);    break;
     }
     if (due) {
       uint32_t r0 = millis();
 #if USE_MIC && USE_CARD_HW
-      if (gFaceView == FACE_SCOPE) renderScope(now); else renderEye(now);
+      if (gFaceView == FACE_SCOPE)       renderScope(now);
+      else if (gFaceView == FACE_INTERO) renderIntero(now);
+      else                               renderEye(now);
 #else
-      renderEye(now);
+      if (gFaceView == FACE_INTERO) renderIntero(now); else renderEye(now);
 #endif
       gLastRenderMs = gPassRenderMs = millis() - r0;
       if (gLastRenderMs > gWorstRenderMs) gWorstRenderMs = gLastRenderMs;
@@ -2873,7 +3202,7 @@ void loop() {
   // leave on: when a future change makes this node sluggish on the mesh, the number
   // that explains it is already on the wire.
   {
-    sectMark();                     // [8] end of "render": the screen
+    sectMark();                     // [9] end of "render": the screen
     static uint32_t loopStart = 0, worst = 0, worstOwnRender = 0, lastReport = 0;
     static uint32_t worstSect = 0;
     static const char* worstSectName = "-";
@@ -2884,6 +3213,10 @@ void loop() {
       // point of this profiler is to stop us guessing which.
       if (d > worst) {
         worst = d;
+        // Published so the node can SEE its own response time (§4.5 footer). This is the
+        // number the mesh feels as rtt, and the interoception view is the right place
+        // for a body to notice it has become slow.
+        gWorstLoopMs = worst;
         worstOwnRender = gPassRenderMs;
         worstSect = 0;
         worstSectName = "-";
@@ -2910,6 +3243,7 @@ void loop() {
                     (unsigned long)(ESP.getMaxAllocHeap() / 1024));
       gRenderCount = 0;
       worst = 0;
+      gWorstLoopMs = 0;              // per-window, like every other number on that line
       worstOwnRender = 0;
       worstSect = 0;
       worstSectName = "-";

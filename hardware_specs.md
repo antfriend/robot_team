@@ -251,7 +251,7 @@ why it carries the motion (`@LAT95`) and acoustic (`@LAT94`) percept tiers. Sket
 | Display | SCLK **36**, MOSI **35**, CS **37**, DC **34**, RST **33**, BL **38**; `init(135,240)` + **`setRotation(3)`** (rotation 1 is upside-down — same as the T-Deck) |
 | I²S | BCLK **41**, LRCK **43**, DOUT→codec **42**, DIN←codec **46**; **no MCLK pin** |
 | microSD (unused) | CS 12, MOSI 14, CLK 40, MISO 39 |
-| IR TX / battery ADC | 44 / 10 |
+| IR TX / battery ADC | 44 / **10** (ADC1_CH9, so WiFi-safe; pack read through an assumed **1:1 divider** — `BAT_DIVIDER` in the sketch, meter-checkable against the `[intero]` boot line) |
 | Grove HY2.0-4P | G2, G1 (+5V, GND) |
 
 **Gotchas that cost time here:**

@@ -1,11 +1,12 @@
 # cardputer-sensorium.md — the Cardputer as a sensing creature
 
-**Status:** proposal / build plan. **Two views are BUILT, flashed and verified on hardware
-2026-07-28: the eyeball resting face (§4.1, the boot view, worst render 18 ms) and the
-oscilloscope (§4.2, worst render 21 ms).** Both hold the loop budget (worst pass 28 ms
-against ≤40). `1`/`2`/ENTER choose between them; there is still **no arbiter** (§3), so the
-keyboard is the only thing that picks a view. Console and constellation are still proposal.
-See §7 for what each phase now owes.
+**Status:** proposal / build plan. **Three views are BUILT, flashed and verified on hardware:
+the eyeball resting face (§4.1, the boot view, worst render 18 ms), the oscilloscope
+(§4.2, worst render 21 ms), and interoception (§4.5, worst render 15 ms on entry / 7–8 ms
+steady — the cheapest view on the node), all 2026-07-28.** All three hold the loop budget
+(worst pass 7–18 ms against ≤40). `1`/`2`/`3`/ENTER choose between them; there is still **no
+arbiter** (§3), so the keyboard is the only thing that picks a view. Console and
+constellation are still proposal. See §7 for what each phase now owes.
 **Node:** `cardputer_1` = `0x300`, `firmware/cardputer_console`.
 **Governing docs:** [companion.md](companion.md) §2/§6 (state), [PLAN.md](PLAN.md) (build
 order), [ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the primary
@@ -49,8 +50,8 @@ already being polled and logged today.
 | 3 | **Sound** | ES8311 + MEMS mic | ✅ `@LAT94` | ✅ green scope |
 | 4 | **Neighbors** | ESP-NOW / BLE toots + RSSI | ✅ `@LAT97` | ✅ console |
 | 5 | **Place** | WiFi BSSID scan | ✅ `@LAT96` | ❌ **missed** |
-| 6 | **Interoception — energy** | battery ADC (G10) | ❌ | ❌ **missed** |
-| 7 | **Interoception — heat** | ESP32-S3 internal die temp | ❌ | ❌ **missed** |
+| 6 | **Interoception — energy** | battery ADC (G10) | ✅ *(2026-07-28, §4.5)* | ❌ **missed** |
+| 7 | **Interoception — heat** | ESP32-S3 internal die temp | ✅ *(2026-07-28, §4.5 + STATUS)* | ❌ **missed** |
 | 8 | **Rhythm** | the band pulse (`Pulse.h`) | ✅ | ❌ **missed** |
 | 9 | **Contact** | 56-key TCA8418 keyboard | ✅ (as input) | — |
 | — | *IR (G44)* | emitter only | — | **an effector, not a sense** |
@@ -316,12 +317,67 @@ the same room always draws the same sky. Salience fires when the **set changes**
 which is to say, when you carry the node somewhere else. It is the cheapest possible
 rendering of "I am somewhere new."
 
-### 4.5 Interoception — always on, never a view
+### 4.5 Interoception — the body (`3`) — **BUILT 2026-07-28**
 
-Battery and die temperature are ambient, not events: they colour the other views rather
-than claiming the screen. Battery drives a thin arc; below ~15% it is allowed to raise
-salience and take the screen once, with a plain low-power message. Heat feeds the
-fleet's STATUS temperature field.
+*This section used to be titled "always on, never a view", on the argument that battery
+and heat are ambient rather than events and should only colour the other views. That was
+half right and it is now half wrong: a creature that can look at the world but never at
+itself is exactly as unfinished as §2 says a creature with no interoception is. Ambient
+colouring is a **summary**, and a summary is not somewhere you can go and read a number.
+So interoception is now a view — and the ambient arc is still owed on top of it.*
+
+Five interior signals, all slow, on one screen. Three gauges, a footer and a heartbeat:
+
+| Row | Reads | Bar | Why it is here |
+|---|---|---|---|
+| **BAT** | pack volts + `^`/`v` trend | % of a 1S Li-ion curve | energy — the only budget it cannot earn back |
+| **DIE** | `temperatureRead()` °C | 20–80 °C | heat — and the same number the fleet's STATUS now carries |
+| **MEM** | `maxalloc` KB | 0–64 KB | room left to *think* in |
+| footer | uptime · **`lp` worst loop pass** · tempo · conductor · `clk±` | — | the node noticing it has become slow |
+| heart | — | — | the beat, on the eye's never-stopping clock |
+
+- **`lp` is the node feeling its own response time.** The worst loop pass in the current
+  profiler window is exactly what the mesh experiences as rtt (§3.4). It has always been
+  printed to serial; here the node can see it. A body that cannot notice it has become
+  sluggish has to be told by the laptop.
+- **The trend arrow is the honest version of "am I charging".** There is no VBUS sense
+  pin on this board, so no charge state is claimed. What is measured is which way the
+  pack voltage is going against a ~2-minute EMA, and that is what is shown. ⚠ **With the
+  USB cable in, the charger holds the pack near 4.2 V and the bar reads ~100% — that is
+  the charger, not the pack.** A real state-of-charge reading needs it unplugged.
+- **The `%` is coarse on purpose.** The middle of a Li-ion discharge curve is flat, so
+  anything between 3.7 and 3.9 V is a guess; more decimals would only dress it up.
+- ⚠ **The divider ratio is the one number here the laptop cannot check.** `BAT_DIVIDER`
+  (2.0, i.e. a 1:1 divider on G10) is what M5's own code uses for this family, but
+  nothing on hand proves it for the ADV. The sketch therefore prints the **raw pin
+  millivolts** beside the derived pack voltage on the first sample —
+  `[intero] pin 2091mV x2.00 = pack 4182mV (98%) | die 45.6C | maxalloc 30K`. Put a meter
+  on the JST lead; if it disagrees, change that one constant. (Same discipline as the
+  eye's gaze axes: the thing the bench must confirm is a named constant, not arithmetic
+  buried in a renderer.)
+- **Die temperature is not ambient temperature**, and the reading (45–48 °C at idle) is
+  as much a measure of how hard the radios are working as of the room. It is still a real
+  measurement of a real body, which an empty field was not.
+
+**Rendering follows the eye's strategy, not the scope's**, because almost nothing here
+changes between frames: every element is compared against what is already on the panel
+and skipped if it matches. The comparison is on the **rendered string**, not the number —
+a frame where the voltage still reads `4.02V` writes nothing for that row. Values are
+drawn transparent over a single-`fillRect` erase (opaque `drawChar` writes background
+pixels one address window at a time, which is the 20 ms readout §4.2 deleted), and all
+labels are painted once on entry from the key handler. At rest the only thing that paints
+is the heartbeat.
+
+**Measured on hardware:** worst render **15 ms on entry / 7–8 ms steady**, worst loop
+pass **7–9 ms** (budgets ≤25 and ≤40) — the cheapest of the three views, and the entry
+frame is the only one of the three that is *inside* the per-frame budget. 300 frames per
+30 s window = exactly the 10 Hz cap. `ping --node cardputer_1` DELIVERED on attempt 1
+with the view held on screen.
+
+**Still owed from this section:** the ambient half — a thin battery ring on the eye's
+sclera and a battery hue on the scope — and the low-power alert that lets a pack below
+~15% raise salience and take the screen once. Both want the arbiter (§7 S1) to exist
+first, since "take the screen once" is a salience claim.
 
 ---
 
@@ -337,7 +393,8 @@ fleet's STATUS temperature field.
 | arrows, `±`, ENTER | globe navigation | ignored while the face holds the screen | ✅ built |
 | ENTER | cycle globes | cycle globes *(in globe mode)* / cycle views *(in representor)* | ✅ built |
 | `1` / `2` | — | force eyeball / oscilloscope | ✅ built |
-| `3`–`5` | — | force console / constellation / … | ⏳ needs those views |
+| `3` | — | force **interoception** (§4.5) | ✅ built |
+| `4`–`5` | — | force console / constellation | ⏳ needs those views |
 | `0` | — | release the pin, return to automatic arbitration | ⏳ needs S1 |
 
 A **pin** matters more than it looks: without it there is no way to *watch* a quiet
@@ -468,10 +525,20 @@ own I2C address, so its axis convention is not something to bury in the renderer
 *Done when:* a neighbour power-cycling seizes the screen exactly once, and routine
 HELLOs never do.
 
-**Phase S4 — interoception + heat.** Battery arc, low-power alert, and fill the fleet's
-STATUS temperature field.
+**Phase S4 — interoception + heat.** ✅ **BUILT, flashed and verified 2026-07-28.**
 *Done when:* `companion.py monitor` shows a real temperature for `cardputer_1` instead
-of `0`.
+of `0` — **met: `cardputer_1  47.6C`.**
+Delivered as a **view on `3`** (§4.5) rather than as ambient colouring only, plus the
+G10 battery ADC, the die temperature in the fleet's STATUS `temp_c_x100` field, and a
+new `intero` section in the loop profiler so the sampler's cost is attributed to itself
+rather than folded into a neighbour.
+⚠ **One scaling bug, caught by the fleet rather than by reading the code:** the first
+build put *tenths* of a degree into a field Toot.h documents as **hundredths**, and
+`monitor` printed `4.8C` for a 48 °C die. The end-to-end check is what found it — a
+compile and a screenshot would both have looked fine.
+⏳ **Still owed:** the ambient half (battery ring on the eye's sclera, battery hue on the
+scope) and the low-power alert, both of which want the arbiter (S1) first. Also
+unverified from the laptop: **the divider ratio** — see the meter check in §4.5.
 
 **Phase S5 — constellation.** The place view.
 *Done when:* carrying the node between two rooms visibly changes the sky and raises
@@ -495,8 +562,9 @@ cross-correlation that agrees with their known separation.
    **Answered 2026-07-28: the eyeball, and it was built first.** Open follow-up: it is now
    the *only* face, so it is also the boot view — say if the globe should stay the power-up
    view instead, with the face reached by `t`.
-4. **Constellation and interoception** are my additions, not yours. Worth building, or
-   noise?
+4. ~~**Constellation and interoception** are my additions, not yours. Worth building, or
+   noise?~~ **Interoception answered 2026-07-28: worth building, and asked for as a view
+   on `3` rather than as ambient colouring.** Constellation (§4.4) is still open.
 5. **Should the representor be the boot default on this node only**, or should the
    T-Deck eventually get it too? (It has no IMU and no mic, so it would only ever show
    the console — probably not.)

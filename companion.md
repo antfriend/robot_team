@@ -1642,6 +1642,46 @@ If a fact lives in one of these, link to it from here — don't copy it.
   the port with DTR asserted resets an S3 native-USB board, so use `open_serial_no_reset` (or
   `scratchpad/rec_watch.py`, which watches a node's console while a command runs against it).
 
+- **The Cardputer can look at itself now — INTEROCEPTION, the third representor view
+  (`3`), built + flashed + verified 2026-07-28.** Phase S4 of
+  [cardputer-sensorium.md](cardputer-sensorium.md) §4.5, and the first view on this node
+  that points inward rather than outward: **BAT** (pack volts + a fill/drain trend arrow,
+  bar = % of a 1S Li-ion curve), **DIE** (`temperatureRead()`, 20–80 °C), **MEM**
+  (`maxalloc`, 0–64 KB — never free heap), a footer carrying uptime · **`lp`, the worst
+  loop pass** · tempo · conductor · `clk±`, and a heartbeat on the eye's never-stopping
+  clock. `lp` matters more than it looks: it is the number the mesh feels as rtt, and
+  until now the node could only be *told* by the laptop that it had gone sluggish.
+  **The fleet's STATUS temperature field is no longer 0 on this node** — `monitor` reads
+  **`cardputer_1  47.6C`**, which was S4's stated done-when. Toot.h calls that field
+  "ambient" and a die reading is not that; it is still a real measurement of a real body,
+  and it says "the Cardputer is warm", which was previously unsayable.
+  ⚠ **The bug that mattered was found by the fleet, not by the compiler:** the first build
+  put *tenths* of a degree in a field documented as *hundredths*, and `monitor` printed
+  `4.8C` for a 48 °C die. Nothing on the node itself looked wrong. **End-to-end is the
+  only check that catches a units error at a protocol boundary.**
+  **Budget (§3.4), measured:** worst render **15 ms on entry, 7–8 ms steady**, worst loop
+  pass **7–9 ms** (≤25 / ≤40) — the cheapest of the three views, and the only one whose
+  *entry* frame is inside the per-frame budget (the eye's is 31 ms). 300 frames per 30 s =
+  exactly the 10 Hz cap. `ping --node cardputer_1` DELIVERED on attempt 1 with the view
+  held. It is cheap for the eye's reason, not the scope's: nothing here changes between
+  frames, so each element is compared against what is already on the panel — **on its
+  rendered string, not its number** — and skipped if it matches. At rest only the heart
+  paints. A new `intero` profiler section carries the sampler's own cost (four ADC reads
+  + a die read per 2 s) rather than hiding it in a neighbour's.
+  ⚠ **What the laptop cannot check — needs a meter at the bench:** `BAT_DIVIDER` = 2.0
+  (a 1:1 divider on G10) is what M5's own code uses for this family; nothing on hand
+  proves it for the ADV. The node prints the raw pin millivolts beside the derived pack
+  voltage on its first sample — `[intero] pin 2091mV x2.00 = pack 4182mV (98%) | die
+  45.6C | maxalloc 30K` — so a meter on the JST lead settles it, and it is one constant.
+  Also: **with the cable in, the bar reads the charger, not the pack** (~4.2 V ≈ 100%);
+  a real state-of-charge reading needs it unplugged. No VBUS sense pin exists on this
+  board, so no charge state is *claimed* — the arrow reports only which way the voltage
+  is actually moving against a ~2-minute EMA.
+  Sensorium §4.5 previously argued interoception should be ambient colouring and never a
+  view. Half of that stands: the battery ring on the sclera and the low-power alert are
+  still owed, and both want the arbiter (S1) first, since "take the screen once" is a
+  salience claim.
+
 - ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
   51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
