@@ -169,7 +169,23 @@ The T-Deck now carries **three globes** flashed as three files in `data/` (all p
 `rfc.ttdb.md` (the RFC corpus), and **`feelings.ttdb.md` (the affective landscape + band
 overlay — the DEFAULT power-up view)**. The trackball click cycles Feelings → SemPos → RFC,
 skipping any file that failed to load; only `ttdb.md` touches the mesh. If the feelings globe
-boots empty, `feelings.ttdb.md` wasn't flashed (re-run `Upload-Tdeck-FS.ps1`). Separately, the
+boots empty, `feelings.ttdb.md` wasn't flashed (re-run `Upload-Tdeck-FS.ps1`).
+
+**On SemPos (the mesh map) the record pane renders the selected node's INTEROCEPTION**, not
+record text: BAT/DIE/MEM gauges + a footer (uptime · `lp` worst loop pass · bpm · conductor ·
+clk). Its own body comes from a local sampler; every other node's arrives as a 21-byte **INTERO
+PERCEPT** answering **`CMD_GET_INTERO` (op 12)**, polled every 3 s *only* while that record is
+selected and the main pane is showing. INTERO PERCEPT is a payload convention over the existing
+PERCEPT type distinguished by **length** (15/43/45 STATUS · 24 GPS · **21 INTERO**) — no new toot
+type, so the bridge already forwards it. Transmit the numbers, never the pixels: the receiver has
+a different panel and palette, which is what makes this a TTCP render. Read it from the laptop
+with `companion.py intero --node <n> --port <p>`. The mesh map holds **V4-A, V4-B, T-Deck and the
+Cardputer as of 2026-07-29 — the K10 was removed** (v1 firmware, off the band roster). ⚠ The
+T-Deck's own `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, NOT a meter:
+it reads **4.71 V**, above the 4.20 V Li-ion ceiling, so above that ceiling the node withholds
+the percentage instead of inventing one. A meter on the JST lead settles it; it is one constant.
+
+Separately, the
 **self-walking hero's-arc song** (`g` auto-advances scenes and holds at the grief for the
 returning T-Deck) lives in the **shared `Pulse` engine** (`armSong`/`serviceSong`) + `HeroArc.h`
 pacing, so enabling it means **reflashing the whole fleet** (K10 + all three V4s + T-Deck), not

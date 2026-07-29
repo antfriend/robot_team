@@ -116,6 +116,13 @@ CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "play": CMD_PLAY, "stop": CMD_STOP,
            "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE}
 CMD_RECORD = 11      # args: start_band_epoch_ms u64 LE | dur_beats u16 LE
+CMD_GET_INTERO = 12  # node replies an INTERO PERCEPT — its sense of its OWN body
+# INTERO PERCEPT payload (Toot.h INTERO_PERCEPT_PAYLOAD_LEN): bat_mv u16 | bat_pct u8 |
+# bat_trend i8 | die_c_x10 i16 | maxalloc_kb u16 | uptime_s u32 | worst_loop_ms u16 |
+# beat_period_ms u16 | conductor_id u32 | flags u8. 21 B distinguishes it from a STATUS
+# (15/43/45) or GPS (24) PERCEPT. Returned in answer to CMD_GET_INTERO.
+INTERO_PERCEPT_PAYLOAD_LEN = 21
+INTERO_SYNCED, INTERO_CONDUCTOR, INTERO_PLAYING = 1, 2, 4
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -2654,6 +2661,116 @@ def gps_probe(ser, reader, target, probes=6, per_timeout=1.2):
     return best
 
 
+def parse_intero(payload):
+    """Decode an INTERO PERCEPT payload -> dict, or None if it isn't one (len != 21)."""
+    if len(payload) != INTERO_PERCEPT_PAYLOAD_LEN:
+        return None
+    bat_mv = struct.unpack("<H", payload[0:2])[0]
+    bat_pct = payload[2]
+    bat_trend = struct.unpack("<b", payload[3:4])[0]
+    die_c10 = struct.unpack("<h", payload[4:6])[0]
+    maxalloc_kb, = struct.unpack("<H", payload[6:8])
+    uptime_s, = struct.unpack("<I", payload[8:12])
+    worst_loop_ms, = struct.unpack("<H", payload[12:14])
+    beat_period_ms, = struct.unpack("<H", payload[14:16])
+    conductor_id, = struct.unpack("<I", payload[16:20])
+    flags = payload[20]
+    return {"bat_mv": bat_mv, "bat_pct": None if bat_pct == 255 else bat_pct,
+            "bat_trend": bat_trend, "die_c": die_c10 / 10.0,
+            "maxalloc_kb": maxalloc_kb, "uptime_s": uptime_s,
+            "worst_loop_ms": worst_loop_ms, "beat_period_ms": beat_period_ms,
+            "conductor_id": conductor_id, "flags": flags,
+            "synced": bool(flags & INTERO_SYNCED),
+            "conductor": bool(flags & INTERO_CONDUCTOR),
+            "playing": bool(flags & INTERO_PLAYING)}
+
+
+def intero_probe(ser, reader, target, probes=4, per_timeout=1.2):
+    """Query a node with CMD_GET_INTERO and return the last reply (parse_intero dict),
+    or None if it never answered. Fresh toot_seq per probe dodges the radio dedup."""
+    got = None
+    base = int(time.time() * 1000) & 0x7FFFFFFF
+    old_to = ser.timeout
+    ser.timeout = 0
+    try:
+        for k in range(probes):
+            seq = (base + k) & 0x7FFFFFFF
+            payload = bytes([CMD_GET_INTERO]) + struct.pack("<I", target)
+            write_serial_frame(ser, encode_toot(CMD, ORCHESTRATOR_ID, seq, payload))
+            deadline = time.time() + per_timeout
+            while time.time() < deadline:
+                data = ser.read(256)
+                if not data:
+                    time.sleep(0.0005)
+                    continue
+                hit = False
+                for fr in reader.feed(data):
+                    t = decode_toot(fr)
+                    if not t or t["type"] != PERCEPT or t["src"] != target:
+                        continue
+                    b = parse_intero(t["payload"])
+                    if b is not None:
+                        got, hit = b, True
+                        break
+                if hit:
+                    break
+            if got is not None:
+                return got
+    finally:
+        ser.timeout = old_to
+    return got
+
+
+def intero(port, baud, node, probes, settle):
+    """Read a node's INTEROCEPTION (CMD_GET_INTERO): energy, heat, room to think, its own
+    worst loop pass, the band it hears, its clock. The laptop-side twin of the T-Deck's
+    record-pane body view — and the reason it exists here at all: a units error at a
+    protocol boundary is invisible on the node itself (the Cardputer shipped TENTHS in a
+    field documented as HUNDREDTHS and only `monitor` printing 4.8C for a 48C die caught
+    it), so every field is read back end to end from the laptop too."""
+    try:
+        import serial  # pyserial
+    except ImportError:
+        sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+    if node not in NODE_IDS:
+        sys.exit(f"unknown node '{node}'. choices: {', '.join(NODE_IDS)}")
+    target = NODE_IDS[node]
+    reader = SerialFrameReader()
+    with serial.Serial(port, baud, timeout=0.1) as ser:
+        time.sleep(settle)
+        ser.reset_input_buffer()
+        print(f"querying interoception on {node} (0x{target:08X}) via {port} ...")
+        b = intero_probe(ser, reader, target, probes)
+    if b is None:
+        sys.exit(f"no INTERO PERCEPT from {node} — is it powered, on the mesh/bridge, and "
+                 f"flashed with CMD op {CMD_GET_INTERO}?")
+    arrow = {1: "rising", -1: "falling", 0: "steady"}[b["bat_trend"]]
+    pct = "--" if b["bat_pct"] is None else f"{b['bat_pct']}%"
+    up = b["uptime_s"]
+    up_s = (f"{up // 3600}h{(up % 3600) // 60:02d}m" if up >= 3600
+            else f"{up // 60}m{up % 60:02d}s")
+    bpm = 60000 // b["beat_period_ms"] if b["beat_period_ms"] else 0
+    cond = next((n for n, i in NODE_IDS.items() if i == b["conductor_id"]),
+                f"0x{b['conductor_id']:08X}" if b["conductor_id"] else "-")
+    print(f"{node} BODY")
+    note = ""
+    if not b["bat_mv"]:
+        note = "   [0 mV = no battery sense on this node]"
+    elif b["bat_pct"] is None:
+        # Above the 4.20 V Li-ion ceiling the node withholds the percentage rather than
+        # invent one: it is measuring the charge rail with no pack on it, or its divider
+        # ratio is wrong. Both are real readings of the wrong thing.
+        note = "   [EXT: not a 1S pack voltage — charge rail, or check the divider]"
+    print(f"  energy : {b['bat_mv'] / 1000:.3f} V  {pct}  ({arrow}){note}")
+    print(f"  heat   : {b['die_c']:.1f} C die (not ambient — no ambient sensor exists)")
+    print(f"  mind   : {b['maxalloc_kb']} KB largest contiguous block (NOT free heap)")
+    print(f"  self   : up {up_s}   worst loop pass {b['worst_loop_ms']} ms "
+          f"(= what the mesh feels as rtt)")
+    print(f"  band   : {bpm} bpm  conductor {cond}"
+          + ("*" if b["conductor"] else "") + ("  playing" if b["playing"] else "")
+          + ("  clk+" if b["synced"] else "  clk-"))
+
+
 def gps(port, baud, node, at, probes, settle, fixes_path):
     """SP2: read the node's GPS fix (CMD_GET_GPS). With --at NODE, record it as a
     ground-truth tie point beside that static node for `anchor` to consume."""
@@ -3197,6 +3314,15 @@ def main():
     gp.add_argument("--fixes", default=DEFAULT_GPS_FIXES,
                     help="tie-point file `anchor` consumes")
 
+    io = sub.add_parser(
+        "intero", help="read a node's INTEROCEPTION (energy/heat/RAM/own slowness/band)")
+    io.add_argument("--port", required=True, help="serial port (direct, or the bridge)")
+    io.add_argument("--baud", type=int, default=115200)
+    io.add_argument("--node", default="cardputer_1", choices=list(NODE_IDS),
+                    help="the node to ask about its own body (default cardputer_1)")
+    io.add_argument("--probes", type=int, default=4)
+    io.add_argument("--settle", type=float, default=2.5)
+
     an = sub.add_parser(
         "anchor",
         help="SP2: fit the relative position map to GPS ties -> absolute lat/lon")
@@ -3310,6 +3436,8 @@ def main():
     elif args.cmd == "gps":
         gps(args.port, args.baud, args.node, args.at, args.probes, args.settle,
             args.fixes)
+    elif args.cmd == "intero":
+        intero(args.port, args.baud, args.node, args.probes, args.settle)
     elif args.cmd == "anchor":
         anchor(args.positions, args.fixes, args.out)
     elif args.cmd == "fleetmap":

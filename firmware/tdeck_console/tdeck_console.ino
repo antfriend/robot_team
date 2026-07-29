@@ -131,6 +131,15 @@ static const int PIN_I2S_DOUT  = 6;   // data to amp
 // TXD0/RXD0, freed because the board runs native USB CDC — LilyGo wires the GPS there.
 static const int PIN_GPS_RX    = 44;  // ESP32 RX  <- GPS module TX (NMEA in)
 static const int PIN_GPS_TX    = 43;  // ESP32 TX  -> GPS module RX (config; unused here)
+// Battery sense for interoception. GPIO4 is ADC1_CH3 (WiFi-safe) and is where LilyGo's
+// own board support reads the pack, through a 1:1 resistive divider — hence x2. BOTH of
+// those are ASSUMPTIONS taken from LilyGo's utilities.h, not from a meter on this unit,
+// so the sampler prints the RAW pin millivolts beside the derived pack voltage on its
+// first sample: put a meter on the JST lead and change this one constant if they
+// disagree. Exactly the Cardputer's discipline (BAT_DIVIDER there) and for the same
+// reason — the number the laptop cannot check is a named constant, not buried arithmetic.
+static const int PIN_BAT_ADC   = 4;
+static const float BAT_DIVIDER = 2.0f;
 
 #if USE_TDECK_HW
 #include <Wire.h>
@@ -202,14 +211,19 @@ static const char* kBeliefPath = "/belief.md";
 static const uint8_t kBroadcast[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 
-// Which node the keyboard drives. Cycled with the 't' key. Default K10: it plays the
-// Ode-to-Joy lead, so `g`/`x` on it (plus the T-Deck's own harmony) is the duet. Both
-// the K10 and V4-B answer a get-status over the air (the V4-A bridge does not — it only
-// answers CMDs from the laptop over USB).
-static const uint32_t kTargets[] = {NODE_K10_1, NODE_V4B_RELAY, NODE_V4A_BRIDGE};
+// Which node the keyboard drives. Cycled with the 't' key. The band no longer rides on
+// this (`g`/`x` broadcast, so one press starts every member), so the target is now purely
+// "who do the addressed keys talk to". Every entry answers a get-status over the air
+// EXCEPT the V4-A bridge, which answers CMDs only from the laptop over USB.
+// The K10 left this list when it left the mesh map (it still runs v1 firmware and is off
+// the band roster); the Cardputer took its place and leads, being the node most worth
+// driving from here — it is the fleet's sense organ and the only one that answers
+// CMD_GET_INTERO, so it is what the record pane's interoception view watches.
+static const uint32_t kTargets[] = {NODE_CARDPUTER_1, NODE_V4B_RELAY, NODE_V4C_EDGE,
+                                    NODE_V4A_BRIDGE};
 static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
 static int gTargetIdx = 0;
-static uint32_t gCmdTarget = NODE_K10_1;
+static uint32_t gCmdTarget = NODE_CARDPUTER_1;
 
 // The T-Deck's own musical voice. `g`/`x` (or a received CMD_PLAY/STOP) toggle it, so
 // one `g` starts the whole band at once. The on/off state is persisted in NVS
@@ -236,9 +250,27 @@ static const char* nodeName(uint32_t id) {
     case NODE_V4C_EDGE:   return "V4-C";
     case NODE_K10_1:      return "K10";
     case NODE_TDECK_1:    return "T-Deck";
+    case NODE_CARDPUTER_1: return "Card";
     case NODE_BROADCAST:  return "ALL";
     default:              return "?";
   }
+}
+
+// The inverse, over the SLUG a fleet-map record carries. The two globes name nodes
+// differently and both are legitimate: the feelings globe writes `node: 0x10` (authored by
+// hand for the band overlay) while the fleet map writes `node: cardputer_1` (authored by
+// `companion.py fleetmap` from positions.md, where a node IS its slug). Resolving both
+// means a fleet-map record knows which live mesh member it depicts — which is what turns
+// "the record for cardputer_1" into "that node over there, ask it how it feels".
+static uint32_t nodeIdFromSlug(const char* s) {
+  if (!s) return 0;
+  if (!strncmp(s, "v4a_bridge", 10))   return NODE_V4A_BRIDGE;
+  if (!strncmp(s, "v4b_relay", 9))     return NODE_V4B_RELAY;
+  if (!strncmp(s, "v4c_edge", 8))      return NODE_V4C_EDGE;
+  if (!strncmp(s, "cardputer_1", 11))  return NODE_CARDPUTER_1;
+  if (!strncmp(s, "tdeck_1", 7))       return NODE_TDECK_1;
+  if (!strncmp(s, "k10_1", 5))         return NODE_K10_1;
+  return 0;
 }
 
 Ttdb gDb;                 // fleet globe — the network-facing TTDB (shared/synced/attested)
@@ -494,6 +526,17 @@ static void emitCmd(uint8_t op, const uint8_t* args, uint8_t argn) {
   emitCmdTo(op, gCmdTarget, args, argn);
 }
 
+// Ask a node for its body (CMD_GET_INTERO), QUIETLY. A poll is not an operator action: it
+// must not push a line into the console ring or bump the cmd counter every few seconds, or
+// the log the operator actually reads fills up with the screen refreshing itself.
+static const uint32_t INTERO_POLL_MS = 3000;
+static void pollIntero(uint32_t target) {
+  uint8_t body[5];
+  body[0] = toot::CMD_GET_INTERO;
+  toot::put_u32(body + 1, target);
+  emit(toot::CMD, body, 5, sendEspNow, nullptr);
+}
+
 #if USE_PULSE
 // Walk the hero's-arc story to a scene: broadcast CMD_SET_SCENE (only the conductor
 // applies a scene change, so at most one node acts — the operator needn't know who
@@ -527,12 +570,186 @@ static uint8_t buildGps(uint8_t* p) {
   return (uint8_t)toot::GPS_PERCEPT_PAYLOAD_LEN;
 }
 
+// --- INTEROCEPTION: this console's sense of its own body ----------------------
+// The T-Deck's half of "look inward", ported from the Cardputer's phase S4
+// (cardputer-sensorium.md §4.5). Four slow, cheap interior signals — how much ENERGY is
+// left, how HOT the die is, how much contiguous RAM is left to think in, and how fast it
+// is currently thinking — sampled HERE in loop context rather than in the renderer, for
+// the same two reasons that hold on the Cardputer: the number must exist whether or not
+// anyone is looking at the screen, and a renderer that reads a sensor is a renderer whose
+// frame cost depends on that sensor.
+//
+// It is also what makes the console's own record pane possible. Every other node's body
+// arrives as 21 bytes over the air; ours has to come from somewhere, and a screen that can
+// show four other nodes' vitals but not its own is a strange instrument to be holding.
+static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes
+
+static uint16_t gBatMv    = 0;      // pack millivolts (0 = never sampled)
+static float    gBatSlow  = 0.0f;   // slow EMA — the fill/drain reference
+static int8_t   gBatTrend = 0;      // +1 filling, -1 draining, 0 steady
+static uint8_t  gBatPct   = 0;
+static int16_t  gDieC10   = 0;      // ESP32-S3 die temperature, tenths of a degree
+static uint32_t gMaxAllocK = 0;     // largest CONTIGUOUS block, NOT free heap
+static uint32_t gWorstLoopMs = 0;   // worst loop pass in the current window (our own rtt)
+static uint32_t gLoopWorstRun = 0;  // accumulator for the window in progress
+
+// Above this, the number on the pin is NOT a 1S pack voltage — a Li-ion cell tops out at
+// 4.20 V, so a higher reading means we are measuring the charge rail with no pack on it (or
+// the divider ratio is wrong). Either way a state-of-charge percentage would be a fiction,
+// so the pane reports the volts and says EXT instead of claiming 100%. This board read
+// 4.716 V on its first sample with the cable in — found by reading it back from the laptop,
+// which is the only place a wrong assumption at a boundary shows up (see the units note on
+// buildStatus for the same lesson in the other direction).
+static const uint16_t BAT_LIION_CEILING_MV = 4250;
+
+// Voltage -> state of charge for a 1S Li-ion, linear between curve points. Deliberately
+// coarse: the flat middle of a Li-ion curve means any percentage between 3.7 and 3.9 V is
+// a guess, and more decimals would only dress that up.
+static uint8_t batPercent(uint16_t mv) {
+  static const uint16_t kV[] = {3300, 3500, 3680, 3730, 3760, 3790,
+                                3820, 3870, 3950, 4000, 4100, 4200};
+  static const uint8_t  kP[] = {   0,    5,   10,   20,   30,   40,
+                                  50,   60,   70,   80,   90,  100};
+  const int n = sizeof(kP) / sizeof(kP[0]);
+  if (mv <= kV[0]) return 0;
+  if (mv >= kV[n - 1]) return 100;
+  for (int i = 1; i < n; ++i)
+    if (mv < kV[i]) {
+      int span = kV[i] - kV[i - 1];
+      return (uint8_t)(kP[i - 1] + (int)(kP[i] - kP[i - 1]) * (mv - kV[i - 1]) / span);
+    }
+  return 100;
+}
+
+static void serviceIntero(uint32_t now) {
+  static uint32_t last = 0;
+  if (gBatMv && now - last < INTERO_PERIOD_MS) return;
+  last = now;
+
+  // Four reads averaged: one 12-bit sample of a divided pack behind a switching charger is
+  // noisy at exactly the millivolt scale the trend arrow reads, and the burst costs well
+  // under a millisecond once per 2 s.
+  uint32_t acc = 0;
+  for (int i = 0; i < 4; ++i) acc += analogReadMilliVolts(PIN_BAT_ADC);
+  uint32_t pin_mv = acc / 4;
+  uint16_t mv = (uint16_t)(pin_mv * BAT_DIVIDER);
+
+  bool first = (gBatMv == 0);
+  gBatMv = mv;
+  // 255 = "there is a voltage but it is not a pack" (see BAT_LIION_CEILING_MV). The
+  // measurement is still reported; only the percentage is withheld, because that is the
+  // part that would be made up.
+  gBatPct = (mv > BAT_LIION_CEILING_MV) ? 255 : batPercent(mv);
+  // Filling or draining? A ~2-minute EMA is the reference, so the arrow reports the
+  // direction of the PACK rather than of the last sample's noise. We have no VBUS sense
+  // pin, so no charge state is claimed — only which way the voltage is actually moving.
+  if (first) gBatSlow = (float)mv;
+  else       gBatSlow += ((float)mv - gBatSlow) * 0.03f;
+  float d = (float)mv - gBatSlow;
+  gBatTrend = (d > 12.0f) ? 1 : (d < -12.0f) ? -1 : 0;
+
+  // Die temperature, not ambient: there is no ambient sensor here either. It reads high
+  // (40-55 C is normal) with WiFi/BLE up millimetres away, so it measures how hard the
+  // node is working as much as it measures the room.
+  gDieC10 = (int16_t)lroundf(temperatureRead() * 10.0f);
+  gMaxAllocK = ESP.getMaxAllocHeap() / 1024;
+
+  if (first)
+    Serial.printf("[intero] pin %lumV x%.2f = pack %umV (%u%%) | die %.1fC | "
+                  "maxalloc %luK  <- CHECK THE PACK VOLTAGE AGAINST A METER\n",
+                  (unsigned long)pin_mv, BAT_DIVIDER, mv, gBatPct,
+                  gDieC10 / 10.0f, (unsigned long)gMaxAllocK);
+}
+
+// Build our own INTERO PERCEPT (Toot.h INTERO_PERCEPT_PAYLOAD_LEN) — the answer to a
+// CMD_GET_INTERO addressed at us, and also what renderIntero() draws for our own record.
+// Reads nothing: every field is the last sample serviceIntero() took.
+static uint8_t buildIntero(uint8_t* p) {
+  toot::put_u16(p + 0, gBatMv);
+  p[2] = gBatMv ? gBatPct : 255;   // 255 = unknown: never sampled, or not a pack voltage
+  p[3] = (uint8_t)(int8_t)gBatTrend;
+  toot::put_u16(p + 4, (uint16_t)gDieC10);
+  toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
+  toot::put_u32(p + 8, millis() / 1000);
+  toot::put_u16(p + 12, (uint16_t)(gWorstLoopMs > 65535 ? 65535 : gWorstLoopMs));
+#if USE_PULSE
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u16(p + 14, ch.beat_period_ms);
+  toot::put_u32(p + 16, ch.conductor_id);
+  p[20] = (gSynced ? toot::INTERO_SYNCED : 0) |
+          (gPulse.conductor() ? toot::INTERO_CONDUCTOR : 0) |
+          (gPulse.playing() ? toot::INTERO_PLAYING : 0);
+#else
+  toot::put_u16(p + 14, 0);
+  toot::put_u32(p + 16, 0);
+  p[20] = gSynced ? toot::INTERO_SYNCED : 0;
+#endif
+  return (uint8_t)toot::INTERO_PERCEPT_PAYLOAD_LEN;
+}
+
+// --- other nodes' bodies, as they told us ------------------------------------
+// One decoded INTERO PERCEPT per node we have asked. Small and fixed (the fleet is six
+// nodes); `rx_ms` is what makes the pane honest — a body we heard about 40 s ago is stale
+// data on the screen unless the screen says so, and a node that has stopped answering must
+// read as "no reply", never as its last-known vitals frozen in place and looking live.
+struct InteroSnapshot {
+  uint32_t node_id = 0;
+  uint32_t rx_ms = 0;           // millis() when this snapshot arrived (0 = never)
+  uint16_t bat_mv = 0;
+  uint8_t  bat_pct = 255;
+  int8_t   bat_trend = 0;
+  int16_t  die_c10 = 0;
+  uint16_t maxalloc_kb = 0;
+  uint32_t uptime_s = 0;
+  uint16_t worst_loop_ms = 0;
+  uint16_t beat_period_ms = 0;
+  uint32_t conductor_id = 0;
+  uint8_t  flags = 0;
+};
+#define INTERO_PEERS 6
+static InteroSnapshot gIntero[INTERO_PEERS];
+
+// Returns the slot INDEX rather than a pointer on purpose: the .ino preprocessor hoists
+// generated prototypes above every definition in the sketch, so a free function whose
+// signature names a sketch-local struct fails to compile ("does not name a type"). Ints
+// cross that boundary; struct pointers do not.
+static int interoSlot(uint32_t id) {
+  for (int i = 0; i < INTERO_PEERS; ++i)
+    if (gIntero[i].node_id == id) return i;
+  for (int i = 0; i < INTERO_PEERS; ++i)
+    if (gIntero[i].node_id == 0) { gIntero[i].node_id = id; return i; }
+  return 0;                       // full: overwrite the oldest slot we bothered to keep
+}
+
+// Decode a 21-byte INTERO PERCEPT into that node's slot. Called from the PERCEPT case,
+// which runs in the recv path — stores only, no I/O, no screen.
+static void noteIntero(uint32_t src, const uint8_t* p) {
+  InteroSnapshot* s = &gIntero[interoSlot(src)];
+  s->rx_ms = millis();
+  s->bat_mv = toot::get_u16(p + 0);
+  s->bat_pct = p[2];
+  s->bat_trend = (int8_t)p[3];
+  s->die_c10 = (int16_t)toot::get_u16(p + 4);
+  s->maxalloc_kb = toot::get_u16(p + 6);
+  s->uptime_s = toot::get_u32(p + 8);
+  s->worst_loop_ms = toot::get_u16(p + 12);
+  s->beat_period_ms = toot::get_u16(p + 14);
+  s->conductor_id = toot::get_u32(p + 16);
+  s->flags = p[20];
+}
+
 // STATUS telemetry for the `monitor` table. The console has no sensor cursor/temp, so
 // those fields are 0; report the synced state + epoch, plus the PULSE tail for `band`.
+// The temperature field is no longer 0 on this node either: it carries the die reading the
+// interoception sampler now takes, so `monitor` says "the T-Deck is warm" instead of
+// saying nothing. Toot.h calls the field "ambient" and a die reading is not that — but it
+// is a real measurement of a real body, and an empty field is not. ⚠ The field is
+// HUNDREDTHS of a degree and gDieC10 is TENTHS: the x10 is the whole reason the Cardputer's
+// first build printed 4.8C for a 48 C die (companion.md §6). Do not drop it.
 static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 0, 0);
   toot::put_u16(p + 2, 0);
-  toot::put_u16(p + 4, 0);
+  toot::put_u16(p + 4, (uint16_t)(gDieC10 * 10));
   p[6] = gSynced ? toot::STATUS_SYNCED : 0;
   toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
 #if USE_PULSE
@@ -615,6 +832,12 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             emit(toot::PERCEPT, body, glen, reply, ctx);  // GPS PERCEPT is the answer
             break;
           }
+          case toot::CMD_GET_INTERO: {
+            uint8_t body[toot::INTERO_PERCEPT_PAYLOAD_LEN];
+            uint8_t ilen = buildIntero(body);
+            emit(toot::PERCEPT, body, ilen, reply, ctx);  // INTERO PERCEPT is the answer
+            break;
+          }
           case toot::CMD_PLAY:                      // start the song (+ our harmony part)
             setLocalPlay(true);
 #if USE_PULSE
@@ -642,11 +865,17 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       }
       break;
     case toot::PERCEPT: {
-      // A collected reply from a node the console queried: stash it for the fleet
-      // view (temp is field 4, temp*100 — see buildStatus on the leaf nodes).
+      // A collected reply from a node the console queried. PERCEPT is a family of payload
+      // conventions distinguished by LENGTH (Toot.h): 15/43/45 = STATUS, 24 = GPS,
+      // 21 = INTERO. Decode the one we recognise and fall through to the STATUS-shaped
+      // stash for the rest, so an older node's reply still reads as it always did.
       gReplies++;
       gLastReplySrc = t.src_node_id;
-      if (t.payload_len >= 6) gLastReplyTemp = (int16_t)toot::get_u16(t.payload + 4);
+      if (t.payload_len == toot::INTERO_PERCEPT_PAYLOAD_LEN) {
+        noteIntero(t.src_node_id, t.payload);      // that node's body, as it reported it
+      } else if (t.payload_len >= 6) {
+        gLastReplyTemp = (int16_t)toot::get_u16(t.payload + 4);
+      }
       gScreenDirty = true;
       break;
     }
@@ -917,6 +1146,17 @@ static float gNodeSigmaM[TTDB_MAX_RECORDS];
 // Mesh node id parsed from a record's `node:` line (0 if none). Non-zero marks a live
 // fleet member on the feelings globe — drawn as an always-on eyeball with mesh status.
 static uint32_t gNodeMeshId[TTDB_MAX_RECORDS];
+// ...and the record's outgoing edges, cached the same way — ported from the Cardputer,
+// which measured the defect this fixes. `Ttdb::edgesAt()` re-OPENS the TTDB file on every
+// call, so drawing edges straight from it costs one LittleFS open per record per frame:
+// 321-767 ms for a single repaint of a 45-record globe, which surfaced on the mesh as a
+// 419 ms `verify` rtt (the toot link is serviced once per loop pass, so the slowest pass IS
+// the response time). parseNodeAttrs already reads each record's header line, so caching
+// the edges out of that same buffer costs no extra I/O whatsoever.
+#define NODE_EDGE_MAX 6
+struct CachedEdge { int16_t lat, lon; bool lora; };
+static CachedEdge gNodeEdges[TTDB_MAX_RECORDS][NODE_EDGE_MAX];
+static uint8_t    gNodeEdgeCount[TTDB_MAX_RECORDS];
 static const float DEG_PER_M = 1.0f;      // companion.py fleetmap metres->degrees scale
 static const float SIGMA_VIS_SCALE = 0.35f;  // shrink the (honestly huge) sigma rings
 
@@ -925,6 +1165,7 @@ static void parseNodeAttrs() {
     gNodeName[i][0] = 0;
     gNodeSigmaM[i] = 0.0f;
     gNodeMeshId[i] = 0;
+    gNodeEdgeCount[i] = 0;
     if (!isNodeRecord(gViewDb->record(i))) continue;
     size_t off, len;
     if (!gViewDb->recordSpan(i, off, len)) continue;
@@ -941,16 +1182,38 @@ static void parseNodeAttrs() {
     }
     const char* s = strstr(buf, "sigma_m:");
     if (s) gNodeSigmaM[i] = atof(s + 8);
-    const char* q = strstr(buf, "node:");           // e.g. `node: 0x10` -> live member
-    if (q) gNodeMeshId[i] = (uint32_t)strtoul(q + 5, nullptr, 0);  // base 0 = auto 0x hex
+    // `node:` marks the record as depicting a live mesh member, written either as a hex id
+    // (`node: 0x10`, the hand-authored feelings globe) or as a slug (`node: cardputer_1`,
+    // what companion.py fleetmap emits). Accept both — see nodeIdFromSlug.
+    const char* q = strstr(buf, "node:");
+    if (q) {
+      q += 5; while (*q == ' ') q++;
+      gNodeMeshId[i] = (*q >= '0' && *q <= '9') ? (uint32_t)strtoul(q, nullptr, 0)
+                                                : nodeIdFromSlug(q);
+    }
+
+    // The `relates:` edges live on the record's HEADER line, which is the start of the
+    // buffer just read — so parse them here instead of paying edgesAt()'s file open once
+    // per record per frame (see the cache note above).
+    char hdr[256];
+    size_t h = 0;
+    while (h < sizeof(hdr) - 1 && h < n && buf[h] != '\n') { hdr[h] = buf[h]; ++h; }
+    hdr[h] = 0;
+    TtdbEdge es[NODE_EDGE_MAX];
+    uint8_t ne = ttdbParseEdges(hdr, es, NODE_EDGE_MAX);
+    for (uint8_t e = 0; e < ne; ++e) {
+      gNodeEdges[i][e].lat  = es[e].target_lat;
+      gNodeEdges[i][e].lon  = es[e].target_lon;
+      gNodeEdges[i][e].lora = (strncmp(es[e].type, "lora", 4) == 0);
+    }
+    gNodeEdgeCount[i] = ne;
   }
 }
 
 // Colour a typed edge by its transport: the edge type IS the transport (gen-fleetmap.py
 // emits `espnow@...` / `lora@...`). Green = ESP-NOW, amber = LoRa; `hot` brightens the
 // selected node's incident links.
-static uint16_t edgeColor(const char* type, bool hot) {
-  bool lora = strncmp(type, "lora", 4) == 0;
+static uint16_t edgeColor(bool lora, bool hot) {
   if (lora) return hot ? rgb565(255, 190, 60) : rgb565(150, 110, 30);
   return hot ? rgb565(120, 230, 150) : rgb565(40, 110, 70);
 }
@@ -1044,16 +1307,14 @@ static void renderGlobe() {
     if (!isNodeRecord(r)) continue;
     int sx0, sy0; float sz0;
     projectLL(r.lat, r.lon, R, cx, cy, sLat, cLat, sLon, cLon, sx0, sy0, sz0);
-    TtdbEdge edges[8];
-    uint8_t ne = gViewDb->edgesAt(i, edges, 8);
-    for (uint8_t e = 0; e < ne; ++e) {
+    for (uint8_t e = 0; e < gNodeEdgeCount[i]; ++e) {
+      const CachedEdge& ed = gNodeEdges[i][e];      // cached at view load, not read here
       int tx, ty; float tz;
-      projectLL(edges[e].target_lat, edges[e].target_lon, R, cx, cy,
-                sLat, cLat, sLon, cLon, tx, ty, tz);
+      projectLL(ed.lat, ed.lon, R, cx, cy, sLat, cLat, sLon, cLon, tx, ty, tz);
       if (sz0 > 0 && tz > 0) {
         bool hot = (r.lat == selLat && r.lon == selLon) ||
-                   (edges[e].target_lat == selLat && edges[e].target_lon == selLon);
-        c.drawLine(sx0, sy0, tx, ty, edgeColor(edges[e].type, hot));
+                   (ed.lat == selLat && ed.lon == selLon);
+        c.drawLine(sx0, sy0, tx, ty, edgeColor(ed.lora, hot));
       }
     }
   }
@@ -1108,12 +1369,236 @@ static void renderGlobe() {
   }
 }
 
-// Bottom half — the selected record (title + first body lines), TTCP-RFC-0001 §5.
+// --- the record pane as an INTEROCEPTION view --------------------------------
+// When the selected record on the mesh map names a live node, the bottom half stops being
+// "the text of a belief record" and becomes that node's BODY: energy, heat, room to think,
+// its own slowness, the band it hears, its clock. For our own record the numbers come from
+// serviceIntero(); for anybody else they arrive as a 21-byte INTERO PERCEPT, so the console
+// draws a remote body in its own idiom — the same reading, not the same pixels.
+//
+// Rendering follows the Cardputer's §4.5 discipline, which exists because TEXT is the
+// expensive thing here: `Adafruit_GFX::drawChar` issues a write per glyph pixel, and a
+// full-width readout measured ~20 ms on that node. So chrome (the labels, the bar frames) is
+// painted once per entry, and every value is compared against WHAT IS ALREADY ON THE PANEL —
+// on its rendered STRING, not its number — and skipped when it matches. A pane whose
+// voltage still reads "4.02v" writes nothing for that row. Without this the pane would cost
+// tens of milliseconds on the 1 Hz heartbeat, and the slowest loop pass is what the mesh
+// feels as rtt (the edgesAt lesson, one screen up).
+static const int IN_ROW_Y[3] = {148, 168, 188};
+static const int IN_LBL_X  = 4;
+static const int IN_VAL_X  = 32;
+static const int IN_VAL_W  = 84;
+static const int IN_BAR_X  = 122, IN_BAR_W = 192, IN_BAR_H = 14;
+static const int IN_FILL_W = IN_BAR_W - 2, IN_FILL_H = IN_BAR_H - 2;
+static const int IN_FOOT_Y = 210, IN_FOOT2_Y = 224;
+
+static const uint16_t IN_COL_LBL   = rgb565(130, 145, 165);
+static const uint16_t IN_COL_FRAME = rgb565(48, 62, 80);
+static const uint16_t IN_COL_FOOT  = rgb565(140, 155, 175);
+static const uint16_t IN_COL_GOOD  = rgb565(40, 210, 120);
+static const uint16_t IN_COL_WARN  = rgb565(240, 175, 40);
+static const uint16_t IN_COL_BAD   = rgb565(235, 60, 50);
+static const uint16_t IN_COL_COOL  = rgb565(60, 190, 225);
+static const uint16_t IN_COL_MIND  = rgb565(130, 145, 245);
+static const uint16_t IN_COL_STALE = rgb565(120, 120, 130);
+
+// What is currently on the panel, so a frame can write only the difference.
+static char     gInVal[3][10] = {{0}, {0}, {0}};
+static uint16_t gInCol[3] = {0, 0, 0};
+static int      gInFill[3] = {-1, -1, -1};
+static char     gInHead[54] = {0};
+static char     gInFoot[54] = {0};
+static char     gInFoot2[54] = {0};
+
+// Forget the panel's contents: called on any pane/selection change, or the first frame
+// after re-entry skips every element that "hasn't changed" and leaves a blank pane.
+static void interoForget() {
+  for (int i = 0; i < 3; ++i) { gInVal[i][0] = 0; gInCol[i] = 0; gInFill[i] = -1; }
+  gInHead[0] = gInFoot[0] = gInFoot2[0] = 0;
+}
+
+// The chrome — labels and bar frames, everything that never changes.
+static void interoChrome() {
+  static const char* kLbl[3] = {"BAT", "DIE", "MEM"};
+  gTft.setTextSize(1);
+  gTft.setTextColor(IN_COL_LBL, ST77XX_BLACK);
+  for (int i = 0; i < 3; ++i) {
+    gTft.setCursor(IN_LBL_X, IN_ROW_Y[i] + 4);
+    gTft.print(kLbl[i]);
+    gTft.drawRect(IN_BAR_X, IN_ROW_Y[i], IN_BAR_W, IN_BAR_H, IN_COL_FRAME);
+  }
+}
+
+// Repaint one gauge row, but only the parts that differ from the panel.
+static void interoRow(int i, const char* val, uint16_t col, int pct) {
+  if (col != gInCol[i] || strcmp(val, gInVal[i]) != 0) {
+    gTft.fillRect(IN_VAL_X, IN_ROW_Y[i] - 1, IN_VAL_W, 17, ST77XX_BLACK);
+    gTft.setTextSize(2);
+    gTft.setTextColor(col);                    // transparent: the box is already black
+    gTft.setCursor(IN_VAL_X, IN_ROW_Y[i]);
+    gTft.print(val);
+    gTft.setTextSize(1);
+    snprintf(gInVal[i], sizeof(gInVal[i]), "%s", val);
+  }
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  int w = (IN_FILL_W * pct) / 100;
+  const int x = IN_BAR_X + 1, y = IN_ROW_Y[i] + 1;
+  if (col != gInCol[i]) {                      // banded across: repaint the whole fill
+    if (w) gTft.fillRect(x, y, w, IN_FILL_H, col);
+    if (w < IN_FILL_W) gTft.fillRect(x + w, y, IN_FILL_W - w, IN_FILL_H, ST77XX_BLACK);
+  } else if (w > gInFill[i]) {                 // grew: paint only the new part
+    gTft.fillRect(x + gInFill[i], y, w - gInFill[i], IN_FILL_H, col);
+  } else if (w < gInFill[i]) {                 // shrank: black out only what it lost
+    gTft.fillRect(x + w, y, gInFill[i] - w, IN_FILL_H, ST77XX_BLACK);
+  }
+  gInFill[i] = w;
+  gInCol[i] = col;
+}
+
+// Draw a line only when its text changed — and draw it the cheap way: one fillRect erase
+// (a single address window for the whole box) then TRANSPARENT text, rather than drawWide's
+// padded opaque print, which makes drawChar write a background pixel per glyph pixel too
+// and costs ~3x for the same result. This matters because the footer's uptime changes every
+// second, so this line is the one thing here that really does repaint on the heartbeat.
+static void interoLine(int y, uint16_t col, const char* s, char* cache, size_t cap) {
+  if (strcmp(s, cache) == 0) return;
+  gTft.fillRect(0, y, 320, 8, ST77XX_BLACK);
+  gTft.setTextSize(1);
+  gTft.setTextColor(col);
+  gTft.setCursor(IN_LBL_X, y);
+  gTft.print(s);
+  snprintf(cache, cap, "%s", s);
+}
+
+// The body of `id`, drawn in the record pane. `self` reads our own live sampler; anything
+// else reads the last INTERO PERCEPT that node sent, with its AGE on screen — a body we
+// heard about 40 s ago must not look live, and a node that never answered must say so
+// rather than showing three zeroed gauges that look like a flat battery and a cold die.
+static void renderIntero(int rec, uint32_t id) {
+  const bool self = (id == kNodeId);
+  const InteroSnapshot* s = nullptr;
+  uint32_t age_s = 0;
+  if (!self) {
+    for (int i = 0; i < INTERO_PEERS; ++i)
+      if (gIntero[i].node_id == id && gIntero[i].rx_ms) { s = &gIntero[i]; break; }
+    if (s) age_s = (millis() - s->rx_ms) / 1000;
+  }
+  const bool stale = (!self && (!s || age_s > 12));    // ~4 missed polls
+  char l[54], v[10];
+
+  uint16_t bat_mv       = self ? gBatMv        : (s ? s->bat_mv : 0);
+  uint8_t  bat_pct      = self ? (gBatMv ? gBatPct : 255) : (s ? s->bat_pct : 255);
+  int8_t   bat_trend    = self ? gBatTrend     : (s ? s->bat_trend : 0);
+  int16_t  die_c10      = self ? gDieC10       : (s ? s->die_c10 : 0);
+  uint16_t maxalloc_kb  = self ? (uint16_t)gMaxAllocK : (s ? s->maxalloc_kb : 0);
+  uint32_t uptime_s     = self ? millis() / 1000 : (s ? s->uptime_s : 0);
+  uint16_t worst_loop   = self ? (uint16_t)gWorstLoopMs : (s ? s->worst_loop_ms : 0);
+  uint16_t beat_ms      = 0;
+  uint32_t cond_id      = 0;
+  bool     synced = false, conductor = false, playing = false;
+  if (self) {
+#if USE_PULSE
+    beat_ms = gPulse.chart().beat_period_ms;
+    cond_id = gPulse.chart().conductor_id;
+    conductor = gPulse.conductor();
+    playing = gPulse.playing();
+#endif
+    synced = gSynced;
+  } else if (s) {
+    beat_ms = s->beat_period_ms;
+    cond_id = s->conductor_id;
+    synced    = (s->flags & toot::INTERO_SYNCED) != 0;
+    conductor = (s->flags & toot::INTERO_CONDUCTOR) != 0;
+    playing   = (s->flags & toot::INTERO_PLAYING) != 0;
+  }
+
+  // Header: whose body, and how fresh. Deliberately NOT a per-second age readout — that
+  // would repaint this line every frame for no information (we poll every few seconds, so
+  // it would just count 0,1,2,0,1,2). Fresh reads "live"; only a body that has gone stale
+  // states its age, and in 5 s buckets so even that line is mostly still.
+  if (self)       snprintf(l, sizeof(l), "%s INTEROCEPTION   self", nodeName(id));
+  else if (!s)    snprintf(l, sizeof(l), "%s INTEROCEPTION   asking...", nodeName(id));
+  else if (!stale) snprintf(l, sizeof(l), "%s INTEROCEPTION   live", nodeName(id));
+  else            snprintf(l, sizeof(l), "%s INTEROCEPTION   no reply %lus", nodeName(id),
+                           (unsigned long)(age_s / 5 * 5));
+  interoLine(BOTTOM_Y, stale ? IN_COL_STALE : nodeColor(gViewDb->record(rec).lat,
+                                                        gViewDb->record(rec).lon),
+             l, gInHead, sizeof(gInHead));
+
+  // --- energy: volts + a measured trend arrow, and % of a 1S Li-ion curve. A pct of 255
+  // means the node measured a voltage it refuses to call a state of charge (no pack on the
+  // rail, or a divider ratio that does not hold) — so the bar stays EMPTY and the colour
+  // goes neutral, rather than a 4.7 V charge rail reading as a beautifully full battery.
+  if (!bat_mv) snprintf(v, sizeof(v), "--");
+  else snprintf(v, sizeof(v), "%u.%02u%c", bat_mv / 1000, (bat_mv % 1000) / 10,
+                bat_trend > 0 ? '^' : bat_trend < 0 ? 'v' : ' ');
+  uint16_t bcol = (stale || !bat_mv || bat_pct == 255) ? IN_COL_STALE
+                : (bat_pct > 50) ? IN_COL_GOOD : (bat_pct > 20) ? IN_COL_WARN : IN_COL_BAD;
+  interoRow(0, v, bcol, bat_pct == 255 ? 0 : bat_pct);
+
+  // --- heat: 20-80 C across the bar. The die idles in the forties with the radios up,
+  // so a resting bar around a third is correct — a real climb then reads as one.
+  if (!s && !self) snprintf(v, sizeof(v), "--");
+  else snprintf(v, sizeof(v), "%d.%dC", die_c10 / 10, abs(die_c10 % 10));
+  uint16_t tcol = stale ? IN_COL_STALE
+                : (die_c10 < 450) ? IN_COL_COOL : (die_c10 < 600) ? IN_COL_WARN : IN_COL_BAD;
+  interoRow(1, v, tcol, (int)((die_c10 / 10 - 20) * 100 / 60));
+
+  // --- room to think: maxalloc, NOT free heap (which reads ~5x higher and refuses the
+  // allocation anyway — companion.md §6). 64 KB is full scale.
+  if (!s && !self) snprintf(v, sizeof(v), "--");
+  else snprintf(v, sizeof(v), "%uK", maxalloc_kb);
+  uint16_t mcol = stale ? IN_COL_STALE
+                : (maxalloc_kb > 32) ? IN_COL_MIND : (maxalloc_kb > 16) ? IN_COL_WARN
+                                                                        : IN_COL_BAD;
+  interoRow(2, v, mcol, (int)(maxalloc_kb * 100 / 64));
+
+  // Footer: uptime, the node's OWN slowness, and the band it hears. `lp` is the worst loop
+  // pass in that node's current window — exactly what the mesh feels as rtt, which is why
+  // it belongs on a body view rather than in a log nobody reads.
+  if (!s && !self) {
+    snprintf(l, sizeof(l), "no INTERO reply - node may predate CMD op 12");
+  } else if (uptime_s < 3600) {
+    snprintf(l, sizeof(l), "up %lum%02lus  lp%ums  %ubpm %s%s %s%s",
+             (unsigned long)(uptime_s / 60), (unsigned long)(uptime_s % 60), worst_loop,
+             beat_ms ? (unsigned)(60000UL / beat_ms) : 0,
+             cond_id ? nodeName(cond_id) : "-", conductor ? "*" : "",
+             synced ? "clk+" : "clk-", playing ? " play" : "");
+  } else {
+    snprintf(l, sizeof(l), "up %luh%02lum  lp%ums  %ubpm %s%s %s%s",
+             (unsigned long)(uptime_s / 3600), (unsigned long)((uptime_s % 3600) / 60),
+             worst_loop, beat_ms ? (unsigned)(60000UL / beat_ms) : 0,
+             cond_id ? nodeName(cond_id) : "-", conductor ? "*" : "",
+             synced ? "clk+" : "clk-", playing ? " play" : "");
+  }
+  interoLine(IN_FOOT_Y, stale ? IN_COL_STALE : IN_COL_FOOT, l, gInFoot, sizeof(gInFoot));
+
+  // ...and keep the TTCP context the pane replaced: which record this body belongs to, and
+  // how sure the map is of where it stands. The body view is still a view OF a record.
+  const TtdbRecord& r = gViewDb->record(rec);
+  snprintf(l, sizeof(l), "@LAT%dLON%d  sigma %.1fm   record %d/%d", r.lat, r.lon,
+           gNodeSigmaM[rec], rec + 1, gViewDb->recordCount());
+  interoLine(IN_FOOT2_Y, IN_COL_FRAME, l, gInFoot2, sizeof(gInFoot2));
+}
+
+// Bottom half — the selected record (title + first body lines), TTCP-RFC-0001 §5. On the
+// mesh map a record that names a live node renders as that node's BODY instead (see
+// renderIntero); the feelings and RFC globes keep showing record text, which is what those
+// globes are for.
 static void renderRecord() {
-  if (gBottomDirty) gTft.fillRect(0, BOTTOM_Y, 320, BOTTOM_H, ST77XX_BLACK);
+  if (gBottomDirty) {
+    gTft.fillRect(0, BOTTOM_Y, 320, BOTTOM_H, ST77XX_BLACK);
+    interoForget();
+  }
   char l[54];
   if (gSel < 0 || gSel >= gViewDb->recordCount()) {
     drawWide(BOTTOM_Y, ST77XX_YELLOW, "(no record selected)");
+    return;
+  }
+  if (gView == VIEW_FLEET && gNodeMeshId[gSel]) {
+    if (gBottomDirty) interoChrome();
+    renderIntero(gSel, gNodeMeshId[gSel]);
     return;
   }
   const TtdbRecord& r = gViewDb->record(gSel);
@@ -1386,9 +1871,18 @@ void setup() {
 }
 
 void loop() {
+  // Time this pass. The toot link is serviced once per loop pass, so the SLOWEST pass is
+  // what the mesh feels as rtt — which makes `lp` on the interoception pane this node's own
+  // sense of having gone sluggish, rather than something only the laptop can tell it.
+  const uint32_t loop_t0 = millis();
+
 #if USE_GPS
   gpsPoll();   // drain NMEA into the parser; the fix is read on CMD_GET_GPS (SP2)
 #endif
+
+  // Interior signals, on their own slow cadence (see serviceIntero: sampled here and not in
+  // the renderer, so the STATUS temperature exists whether or not anyone is looking).
+  serviceIntero(loop_t0);
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Un-deduped trusted link.
@@ -1659,6 +2153,38 @@ void loop() {
              gLastReplyTemp / 100.0f);
     logLine(lg);
   }
+  // Keep the selected node's BODY fresh while we are looking at it. Polled only while the
+  // mesh map's record pane is showing a REMOTE node, so a live interoception view costs one
+  // small toot each way every few seconds and stops the instant the operator navigates
+  // away, opens the console pane, or switches to a globe that isn't the mesh.
+  {
+    static uint32_t lastPoll = 0;
+    static int lastSel = -1;
+    uint32_t want = (gPane == PANE_MAIN && gView == VIEW_FLEET && gSel >= 0)
+                        ? gNodeMeshId[gSel] : 0;
+    if (want == kNodeId) want = 0;                          // our own body needs no toot
+    if (gSel != lastSel) { lastSel = gSel; lastPoll = 0; }   // ask a new selection at once
+    if (want && (lastPoll == 0 || millis() - lastPoll >= INTERO_POLL_MS)) {
+      lastPoll = millis();
+      pollIntero(want);
+    }
+    // Report each remote body ONCE per node, from loop context (never the recv callback —
+    // noteIntero only stores). Not for the operator, who can read the pane: this is so the
+    // over-the-air leg is checkable from a serial tail, since the pane itself is the one
+    // part of this feature that only eyes can confirm.
+    static uint32_t announced[INTERO_PEERS] = {0};
+    for (int i = 0; i < INTERO_PEERS; ++i) {
+      if (!gIntero[i].node_id || !gIntero[i].rx_ms) continue;
+      if (announced[i] == gIntero[i].node_id) continue;
+      announced[i] = gIntero[i].node_id;
+      Serial.printf("[intero] %s body: %umV %u%% | die %.1fC | maxalloc %uK | up %lus | "
+                    "lp %ums\n", nodeName(gIntero[i].node_id), gIntero[i].bat_mv,
+                    gIntero[i].bat_pct, gIntero[i].die_c10 / 10.0f,
+                    gIntero[i].maxalloc_kb, (unsigned long)gIntero[i].uptime_s,
+                    gIntero[i].worst_loop_ms);
+    }
+  }
+
   static uint32_t lastRender = 0;
   if (gScreenDirty || gGlobeDirty || millis() - lastRender >= 1000) {
     lastRender = millis();
@@ -1669,4 +2195,18 @@ void loop() {
     renderScreen();
   }
 #endif
+
+  // Close the profiler window. Published every 10 s so `lp` reports a recent worst case
+  // rather than a spike from boot that never clears — the same per-window discipline the
+  // Cardputer's profiler uses.
+  {
+    uint32_t dt = millis() - loop_t0;
+    if (dt > gLoopWorstRun) gLoopWorstRun = dt;
+    static uint32_t windowStart = 0;
+    if (millis() - windowStart >= 10000) {
+      windowStart = millis();
+      gWorstLoopMs = gLoopWorstRun;
+      gLoopWorstRun = 0;
+    }
+  }
 }

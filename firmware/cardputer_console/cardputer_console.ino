@@ -576,6 +576,40 @@ static uint8_t buildStatus(uint8_t* p) {
 #endif
 }
 
+// INTERO PERCEPT — the answer to CMD_GET_INTERO (Toot.h INTERO_PERCEPT_PAYLOAD_LEN).
+//
+// This is the interoception VIEW's data without the view: the same numbers §4.5 draws on
+// this node's own panel, shipped as 21 bytes so another console can draw the same body in
+// its own idiom. Nothing here is display-shaped — no colours, no bar widths, no strings —
+// because the receiver has a different panel, a different palette and a different amount
+// of room, and the thing worth sending across a mesh is the measurement, not the pixels.
+//
+// Reads NOTHING: every field is the last sample serviceIntero() already took on its own
+// 2 s cadence, so this is safe from the recv path and cheap enough for a remote console
+// to poll while it watches us — which is exactly the use case (the T-Deck's record pane).
+static uint8_t buildIntero(uint8_t* p) {
+  toot::put_u16(p + 0, gBatMv);
+  p[2] = gBatMv ? gBatPct : 255;                 // 255 = never sampled, not "0%"
+  p[3] = (uint8_t)(int8_t)gBatTrend;
+  toot::put_u16(p + 4, (uint16_t)gDieC10);
+  toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
+  toot::put_u32(p + 8, millis() / 1000);
+  toot::put_u16(p + 12, (uint16_t)(gWorstLoopMs > 65535 ? 65535 : gWorstLoopMs));
+#if USE_PULSE
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u16(p + 14, ch.beat_period_ms);
+  toot::put_u32(p + 16, ch.conductor_id);
+  p[20] = (gSynced ? toot::INTERO_SYNCED : 0) |
+          (gPulse.conductor() ? toot::INTERO_CONDUCTOR : 0) |
+          (gPulse.playing() ? toot::INTERO_PLAYING : 0);
+#else
+  toot::put_u16(p + 14, 0);
+  toot::put_u32(p + 16, 0);
+  p[20] = gSynced ? toot::INTERO_SYNCED : 0;
+#endif
+  return (uint8_t)toot::INTERO_PERCEPT_PAYLOAD_LEN;
+}
+
 // Serve a TTDB_REQ addressed to this node: belief mode streams the stored /belief.md
 // (TTN-RFC-0009 §3 readback); any other mode streams the live TTDB. Both stream a
 // burst, so radio callers must invoke this from loop().
@@ -677,6 +711,15 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
             uint8_t slen = buildStatus(body);
             emit(toot::PERCEPT, body, slen, reply, ctx);
+            break;
+          }
+          case toot::CMD_GET_INTERO: {
+            // "Show me your body." The T-Deck's record pane draws this node's
+            // interoception from these 21 bytes, so the fleet's sense organ is also the
+            // first node another console can look INSIDE (companion.md §6).
+            uint8_t body[toot::INTERO_PERCEPT_PAYLOAD_LEN];
+            uint8_t ilen = buildIntero(body);
+            emit(toot::PERCEPT, body, ilen, reply, ctx);
             break;
           }
           case toot::CMD_BEEP: {

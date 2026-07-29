@@ -87,7 +87,9 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > 0x290000). Its auto-reset works — **no BOOT/RST dance needed**, unlike the T-Deck. It is the
 > only node with an accelerometer and a microphone, hence the fleet's motion (`@LAT95`) and
 > acoustic (`@LAT94`) percept tiers. **Its BMI270 is at I2C 0x69**, not the 0x68 the published
-> pin map implies.
+> pin map implies. Since 2026-07-29 it is also the **first node another console can look
+> INSIDE** — it answers `CMD_GET_INTERO` with a 21-byte INTERO PERCEPT that the T-Deck's record
+> pane draws as a live body view — and it took the K10's place on the T-Deck's mesh map.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -1682,6 +1684,70 @@ If a fact lives in one of these, link to it from here — don't copy it.
   still owed, and both want the arbiter (S1) first, since "take the screen once" is a
   salience claim.
 
+- **The T-Deck can look INTO another node now — interoception became a mesh service, and the
+  mesh map lost the K10 and gained the Cardputer (2026-07-29, built + flashed + laptop-verified
+  end to end).** Four changes, one idea: a body is data, so a body can be sent.
+  - **`CMD_GET_INTERO` (op 12) → a 21-byte INTERO PERCEPT** (`Toot.h`): bat_mv · bat_pct ·
+    bat_trend · die_c_x10 · maxalloc_kb · uptime_s · worst_loop_ms · beat_period_ms ·
+    conductor_id · flags. **No new toot type and no new RFC** — a payload convention over
+    PERCEPT, distinguished by LENGTH (15/43/45 STATUS · 24 GPS · **21 INTERO**), exactly as
+    `TTDB_REQ_BELIEF` and the GPS percept are. So the V4-A bridge already forwards it.
+    It reads **nothing** in the reply path (every field is the last sample the node's own 2 s
+    interoception cadence took), which is what makes it cheap enough to *poll*.
+  - **The T-Deck's record pane is now a body view.** Select a node on the mesh map and the
+    bottom half stops being record text and becomes that node's BAT/DIE/MEM gauges + a footer
+    (uptime · `lp` worst loop pass · bpm · conductor · clk). Its OWN record draws from a new
+    local sampler; every other node's arrives over the air, polled every 3 s **only while its
+    record is selected and the main pane is showing** — one small toot each way, and it stops
+    the moment you navigate away. A peer body carries its freshness (`live` / `no reply Ns`) and
+    goes grey when stale: a body heard about 40 s ago must not look live.
+    **Semantic data only** — numbers, never pixels. The receiver has a different panel, palette
+    and amount of room, which is the whole reason this is a TTCP render and not a framebuffer copy.
+  - **Mesh map (`firmware/tdeck_console/data/ttdb.md`): K10 out, Cardputer in.** The K10 is on v1
+    firmware and off the band roster; the Cardputer took its place with radii from its own real
+    `@LAT97` window (rssi_max −34 T-Deck / −35 V4-B / −40 V4-A) through the SP1 calibration.
+    ⚠ **The record says outright that the resulting triangle is inconsistent** — its radii are
+    BENCH scale while the three static nodes still carry GARDEN coordinates (embedding_rev 4,
+    2026-07-13), and 3.7 + 5.0 cannot also be 41.8. **Owed: a fresh
+    `proximity`→`positions`→`fleetmap` with the whole fleet powered and the bridge cabled.**
+  - **The T-Deck also picked up the firmware it had been missing**, having sat unflashed since the
+    feelings-globe commit: the **`edgesAt` per-frame fix** (edges cached at view load — it was the
+    last node still paying one LittleFS open per record per frame, measured at 321–767 ms/repaint
+    elsewhere), TTDB's incremental append indexing, `NODE_CARDPUTER_1`, and a **non-zero STATUS
+    temperature** (die reading ×10 — the field is HUNDREDTHS and the sampler is TENTHS, the exact
+    trap that made the Cardputer print `4.8C` for a 48 °C die).
+  - **`companion.py intero --node <n> --port <p>`** reads any node's body from the laptop. Built
+    for verification, not convenience: a units error at a protocol boundary is invisible on the
+    node itself, and this is where it shows.
+  **Verified on hardware** (Cardputer COM14, T-Deck COM10; both compile ~40/41% flash):
+  `intero --node cardputer_1` → **4.106 V 90% · 47.6 C die · 29 KB maxalloc · 120 bpm**, every
+  field matching what that node draws for itself and no units error; `intero --node tdeck_1` →
+  **43.8 C · 71 KB · lp 105 ms steady**; the T-Deck's TTDB **pulls back with the new mesh map as a
+  byte-exact 3005-byte prefix** (4 node records: T-Deck/V4-A/V4-B/**Card**, K10 gone) with its own
+  `@LAT96`/`@LAT97` lanes appended on top — the floor survived the reflash.
+  ⚠ **First thing the new view found, and it is not about batteries: `lp` (worst loop pass) reads
+  ~2007 ms on the Cardputer and ~4221 ms on the T-Deck inside the FIRST 10 s window after boot**,
+  falling to 11 ms / 105 ms in steady state. Bracketed between 6 s and 29 s of uptime, repeatable.
+  Whatever it is (the async WiFi scan's first kick is the suspect, not confirmed) it is a
+  **pre-existing, fleet-wide** several-second stall that the mesh feels as rtt, and nothing could
+  see it before. Instrument it before theorising — [[verify-before-believing]].
+  ⚠ **The T-Deck's battery divider assumption does NOT hold: it reads 4.71 V**, above the 4.20 V
+  1S Li-ion ceiling. `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, not
+  from a meter on this unit, and with the cable in it may simply be measuring the charge rail with
+  no pack on it. Handled honestly rather than silently: above the ceiling the node **withholds the
+  percentage** (255) and the pane shows the volts with an empty bar and neutral colour, so a
+  charge rail cannot read as a beautifully full battery. **A meter on the JST lead settles it, and
+  it is one constant.** The Cardputer's 4.106 V is in range, so its own divider looks right.
+  ✅ **THE PANE ON THE GLASS IS CONFIRMED BY THE USER (2026-07-29)** — the mesh map's record area
+  draws the Cardputer's live body over the air *and* the T-Deck's own, so the whole chain
+  (poll → INTERO PERCEPT → decode → render) works on hardware. Only eyes prove a render, the way
+  only ears prove a speaker (@LAT90LON70), and now they have.
+  📎 **Gotcha found while trying to verify it without eyes: a no-reset serial tail reads NOTHING
+  from these native-USB S3 boards.** `open_serial_no_reset` deasserts DTR, and the ESP32-S3 USB
+  CDC only transmits when the host asserts it — so the sketch's `Serial` output is silently
+  dropped. `open_serial_no_reset` is still right for what it was built for (preserving a node's
+  RAM clock offset between `sync` and `verify`, which needs no console output), but it is **not** a
+  way to watch a node. To read a node's console you must accept the reset.
 - ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
   51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
@@ -1836,7 +1902,14 @@ adopt + `@LAT99` self-write). Console UI live (`USE_TDECK_HW 1`): boot "toot too
 duet** with the K10, song state persisted in NVS so it rejoins after a power-cycle.
 Carries an SX1262, so it can join the LoRa spine directly (`USE_LORA`) — the only
 screen+keyboard node that reaches long-haul. `GPIO10` gates the peripheral rail (drive
-HIGH first); native-USB flashing needs manual BOOT/RST (see §6).
+HIGH first); native-USB flashing needs manual BOOT/RST (see §6) — though it took a plain
+`--upload` three times running on 2026-07-29, so try without the dance first.
+**Interoception ✅ on-device verified (2026-07-29):** selecting a node on the mesh map draws
+that node's BODY in the record pane — its own from a local sampler (`PIN_BAT_ADC` 4, die
+temp, `maxalloc`, worst loop pass), anyone else's from a polled 21-byte INTERO PERCEPT
+(`CMD_GET_INTERO`). Both confirmed on the glass by the user, incl. the Cardputer's body
+drawn live over ESP-NOW. Its own battery divider is **unconfirmed** (reads 4.71 V, above the
+Li-ion ceiling), so it withholds the percentage rather than invent one.
 **SP6-T (2026-07-11):** repartitioned to **huge_app** (3 MB APP; FS at 0x310000, flashed
 with `scripts/Upload-Tdeck-FS.ps1`) and grown into a native **TTCP mini-renderer** — a
 trackball-navigable globe (nodes at believed `@LATxLONy`, sigma rings, transport-coloured

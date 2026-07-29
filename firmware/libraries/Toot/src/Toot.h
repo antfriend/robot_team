@@ -144,6 +144,17 @@ enum CmdOp : uint8_t {
                            // distance and gain (cardputer-sensorium.md §6).
                            // Safe to broadcast; a node with no mic or no chart declines.
                            // Read the result back with TTDB_REQ_RECORDING.
+  CMD_GET_INTERO = 12,     // no args — node replies an INTERO PERCEPT: its sense of its
+                           // OWN body (energy, heat, room to think, its own slowness,
+                           // the band it hears, its clock). The outward-facing twin of
+                           // CMD_GET_STATUS, which reports what a node perceives.
+                           // Deliberately cheap enough to POLL: the node reports the
+                           // last sample from its own slow interoception cadence and
+                           // reads no sensor and no flash in the reply path, so a
+                           // console watching one node costs one small toot each way.
+                           // A node with no body sense answers with zeroed fields
+                           // rather than staying silent (the same honesty as
+                           // CMD_GET_GPS answering quality:0 without a GPS).
 };
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
@@ -196,6 +207,41 @@ const size_t STATUS_PULSE_PAYLOAD_LEN = 45;
 //   [14..15] hdop_x10   u16   horizontal dilution of precision * 10
 //   [16..23] epoch_ms   u64   node nowEpochMs() at reply (0 if unsynced) — when, not where
 const size_t GPS_PERCEPT_PAYLOAD_LEN = 24;
+
+// INTERO PERCEPT payload — a node's INTEROCEPTION, returned as a PERCEPT toot in answer
+// to CMD_GET_INTERO (cardputer-sensorium.md §4.5). Same payload-convention discipline as
+// STATUS and GPS: an existing toot type (so the bridge already forwards it), and its
+// 21-byte length distinguishes it from a STATUS (15/43/45) or GPS (24) PERCEPT.
+//
+// This is the SEMANTIC data behind an interoception screen, not the screen: numbers a
+// receiver renders in its own idiom, at its own size, in its own colours. A remote
+// console draws the same body the node draws for itself — nothing pixel-shaped, nothing
+// display-specific, and nothing that assumes the two panels are the same shape. That is
+// what makes "show me another node's body" a TTCP render rather than a framebuffer copy.
+// All fields LE:
+//   [0..1]   bat_mv         u16   pack millivolts (0 = this node has no battery sense)
+//   [2]      bat_pct        u8    state of charge 0-100 (255 = unknown)
+//   [3]      bat_trend      i8    +1 filling · -1 draining · 0 steady (measured, NOT a
+//                                 charge-state claim — most boards have no VBUS sense)
+//   [4..5]   die_c_x10      i16   DIE temperature x10 (not ambient; -32768 = none)
+//   [6..7]   maxalloc_kb    u16   largest CONTIGUOUS heap block, KiB — never free heap,
+//                                 which reads ~5x higher and refuses the allocation
+//                                 anyway (companion.md §6)
+//   [8..11]  uptime_s       u32   seconds since boot
+//   [12..13] worst_loop_ms  u16   worst loop pass in the node's current profiler window.
+//                                 The node's own sense of its response time: the toot
+//                                 link is serviced once per pass, so this IS what the
+//                                 mesh feels as rtt.
+//   [14..15] beat_period_ms u16   tempo of the chart it is playing (0 = no chart)
+//   [16..19] conductor_id   u32   who it believes holds the baton (0 = nobody)
+//   [20]     flags          u8    bit0 synced · bit1 conductor · bit2 playing
+const size_t INTERO_PERCEPT_PAYLOAD_LEN = 21;
+enum InteroFlag : uint8_t {
+  INTERO_SYNCED = 1 << 0,
+  INTERO_CONDUCTOR = 1 << 1,
+  INTERO_PLAYING = 1 << 2,
+};
+const int16_t INTERO_NO_TEMP = -32768;   // this node cannot read its own temperature
 
 enum PulseStateFlag : uint8_t {
   PSTATE_PLAYING = 1 << 0,
