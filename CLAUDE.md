@@ -190,6 +190,13 @@ not widen it to the hero's-arc song, where the gate stops a self-appointed node 
 phase. Confirm a duet by the partner's **`INTERO_VOICING`** bit (pane footer shows `SINGING`),
 never by an ACK — a blocking tone call eats the ACK window.
 
+⚠ **`CMD_DUET` is NOT sent once — a live duet is re-asserted every 2 s and a dismissal repeated
+3×** (`serviceDuet`). A single ESP-NOW invitation gets dropped, and when it does the console sings
+the lead alone at a partner that never heard the ask (observed on hardware). Repeating idempotent
+state beats want_ack here: it also rejoins a partner that rebooted mid-duet and self-corrects a
+speed disagreement, which a retry would not. Receipt logging is change-only, so repeats are
+silent — don't "optimise" the repeat away.
+
 The duet plays in **double time**, and that is a *part* property, not a tempo change: `speed`
 rides on `CMD_DUET` (additive byte; absent = as written) and the pair covers the phrase in
 `steps/speed` slots, looking notes up at `sip*speed`. **The beat period is untouched**, so the

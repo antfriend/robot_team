@@ -806,11 +806,16 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               // The speed byte is additive: a sender that predates it means "as written",
               // the same discipline the STATUS and PULSE tails use.
               uint8_t speed = (t.payload_len >= 11) ? t.payload[10] : 1;
+              // The inviter RE-ASSERTS a live duet every couple of seconds (a single ESP-NOW
+              // invitation gets dropped), so log only when something actually changed — an
+              // otherwise-identical repeat is the mechanism working, not an event.
+              bool changed = (role != gDuetRole) || (gDuetSpeed != speed);
               setDuet(role, partner, speed);
-              Serial.printf("[duet] %s by %s (speed x%u)\n",
-                            role == toot::DUET_OFF ? "dismissed"
-                            : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
-                            nodeName(partner), gDuetSpeed);
+              if (changed)
+                Serial.printf("[duet] %s by %s (speed x%u)\n",
+                              role == toot::DUET_OFF ? "dismissed"
+                              : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
+                              nodeName(partner), gDuetSpeed);
             } else {
               ok = false;
             }

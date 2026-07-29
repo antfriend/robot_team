@@ -605,13 +605,49 @@ static void sendDuet(uint32_t peer, uint8_t peer_role, uint8_t speed) {
   emit(toot::CMD, body, sizeof(body), sendEspNow, nullptr);
 }
 
+// ONE invitation is not enough. ESP-NOW drops frames — that is why every other reliable path
+// in this fleet either wants an ACK or re-asserts itself — and a lost CMD_DUET leaves the
+// console singing the lead at a partner that never heard the ask. Observed exactly that on
+// hardware: the T-Deck logged `we LEAD, they HARMONISE` and played four clean phrases while the
+// Cardputer printed nothing at all.
+//
+// So the duet is re-asserted like the PULSE chart: cheap, idempotent state repeated on a slow
+// timer rather than an event delivered once. This costs one small toot every 2 s while a duet is
+// up, and it buys three things a want_ack retry would not: a partner that missed the invitation
+// joins on the next tick, a partner that REBOOTS mid-duet rejoins by itself, and any transient
+// disagreement about the SPEED corrects within one interval instead of lasting the whole song
+// (two voices on different speeds is precisely the half-time-ping-pong failure).
+static const uint32_t DUET_ASSERT_MS = 2000;
+static uint32_t gDuetAsserted = 0;
+static uint8_t  gDuetOffRepeats = 0;   // ending must be reliable too (see endDuet)
+
 // Leave any duet we are in and tell the partner. Idempotent; safe to call when not in one.
 static void endDuet() {
   if (!duetOn()) return;
-  if (gDuetPeer) sendDuet(gDuetPeer, toot::DUET_OFF, 1);
   Serial.printf("[duet] ended with %s\n", nodeName(gDuetPeer));
+  // A dropped OFF would leave the partner singing forever, so schedule a few repeats rather
+  // than sending once. gDuetPeer is kept for them; setDuet clears our own role immediately.
+  if (gDuetPeer) gDuetOffRepeats = 3;
+  uint32_t peer = gDuetPeer;
   setDuet(toot::DUET_OFF, 0, 1);
+  gDuetPeer = peer;                    // retained only to address the OFF repeats
   gScreenDirty = true;
+}
+
+// Called every loop pass: keep a live duet asserted, and drain any pending dismissals.
+static void serviceDuet(uint32_t now) {
+  if (gDuetOffRepeats && now - gDuetAsserted >= 150) {
+    gDuetAsserted = now;
+    if (gDuetPeer) sendDuet(gDuetPeer, toot::DUET_OFF, 1);
+    if (--gDuetOffRepeats == 0) gDuetPeer = 0;
+    return;
+  }
+  if (!duetOn() || now - gDuetAsserted < DUET_ASSERT_MS) return;
+  gDuetAsserted = now;
+  // Re-send the partner's role + speed. setDuet on their side is a plain state assignment with
+  // no phase reset, so repeating it is inaudible.
+  sendDuet(gDuetPeer, gDuetRole == toot::DUET_LEAD ? toot::DUET_HARM : toot::DUET_LEAD,
+           gDuetSpeed);
 }
 
 #if USE_PULSE
@@ -945,11 +981,15 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               // The speed byte is additive: a sender that predates it just means "as
               // written", the same discipline the STATUS and PULSE tails use.
               uint8_t speed = (t.payload_len >= 11) ? t.payload[10] : 1;
+              // An inviter re-asserts a live duet every couple of seconds, so log only real
+              // changes; an identical repeat is the delivery mechanism, not an event.
+              bool changed = (role != gDuetRole) || (gDuetSpeed != speed);
               setDuet(role, partner, speed);
-              Serial.printf("[duet] %s by %s (speed x%u)\n",
-                            role == toot::DUET_OFF ? "dismissed"
-                            : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
-                            nodeName(partner), gDuetSpeed);
+              if (changed)
+                Serial.printf("[duet] %s by %s (speed x%u)\n",
+                              role == toot::DUET_OFF ? "dismissed"
+                              : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
+                              nodeName(partner), gDuetSpeed);
             } else {
               ok = false;
             }
@@ -1996,6 +2036,9 @@ void loop() {
   // the renderer, so the STATUS temperature exists whether or not anyone is looking).
   serviceIntero(loop_t0);
 
+  // Keep a live duet asserted over a lossy radio, and drain pending dismissals.
+  serviceDuet(loop_t0);
+
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Un-deduped trusted link.
   uint8_t buf[toot::MAX_FRAME];
@@ -2169,6 +2212,7 @@ void loop() {
         }
         setDuet(toot::DUET_LEAD, peer, DUET_DEFAULT_SPEED);
         sendDuet(peer, toot::DUET_HARM, DUET_DEFAULT_SPEED);
+        gDuetAsserted = millis();       // the re-assert timer starts from this first ask
         char lg[40];
         snprintf(lg, sizeof(lg), "duet with %s (we lead, x%u)", nodeName(peer),
                  gDuetSpeed);

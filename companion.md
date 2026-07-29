@@ -1728,9 +1728,16 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ⚠ **First thing the new view found, and it is not about batteries: `lp` (worst loop pass) reads
   ~2007 ms on the Cardputer and ~4221 ms on the T-Deck inside the FIRST 10 s window after boot**,
   falling to 11 ms / 105 ms in steady state. Bracketed between 6 s and 29 s of uptime, repeatable.
-  Whatever it is (the async WiFi scan's first kick is the suspect, not confirmed) it is a
-  **pre-existing, fleet-wide** several-second stall that the mesh feels as rtt, and nothing could
-  see it before. Instrument it before theorising — [[verify-before-believing]].
+  It is a **pre-existing, fleet-wide** several-second stall that the mesh feels as rtt, and nothing
+  could see it before.
+  **LOCALISED 2026-07-29 — and NOT to the WiFi scan, which is what I had guessed here.** The
+  Cardputer's own section profiler named it while a duet capture happened to be listening:
+  `[loop] worst pass 4011ms (render 1ms, widest section pulse 2000ms)`. So it is inside the
+  **`pulse` section** — the band clock / voice block — for ~2000 ms of a ~4000 ms pass, with the
+  renderer innocent at 1 ms. Still unexplained (a 2 s figure in a section whose longest intended
+  block is a 180 ms tone is suspicious in itself), but the search space is now one section instead
+  of the whole loop. A reminder that the node's own instrumentation answers this and a plausible
+  story does not — [[verify-before-believing]].
   ⚠ **The T-Deck's battery divider assumption does NOT hold: it reads 4.71 V**, above the 4.20 V
   1S Li-ion ceiling. `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, not
   from a meter on this unit, and with the cable in it may simply be measuring the charge rail with
@@ -1815,6 +1822,41 @@ If a fact lives in one of these, link to it from here — don't copy it.
   defensive**: `stepTick` genuinely reports only the step it lands on, and the 60-220 ms percept
   flush genuinely exceeds a 125 ms step, so the hazard is real — it just was not what was
   happening. Its comment says so, rather than citing a measurement that was my arithmetic.
+- ⚠ **A SINGLE `CMD_DUET` GETS DROPPED — the invitation needs re-asserting, not acknowledging
+  (found + fixed 2026-07-29, on a user report of "half time ping pong").** The duet was
+  fire-and-forget by design, on the reasoning that a want_ack would false-negative because the
+  tone call blocks (@LAT90LON70). That reasoning was about the **reply** and quietly ignored the
+  **delivery**: ESP-NOW drops frames — the reason every other reliable path here either wants an
+  ACK or repeats itself — so a lost invitation leaves the console singing the lead at a partner
+  that never heard the ask. **Caught by listening to both consoles while the user pressed the
+  key** (`scratchpad/listen_both.py`, a pure listener that sends nothing): the T-Deck logged
+  `we LEAD, they HARMONISE, speed x2` and played four clean phrases, and the Cardputer printed
+  **nothing at all** — no `invited to HARM`, no `[part]`. The dismissal at the end *did* arrive,
+  which is what makes it obviously a drop rather than a decode bug.
+  **Fix — the PULSE chart's pattern, not a retry:** a live duet is **re-asserted every 2 s**
+  (`serviceDuet` / `DUET_ASSERT_MS`), and a dismissal is repeated 3× rather than sent once (a
+  dropped OFF would leave the partner singing forever). Idempotent state on a slow timer beats a
+  delivered event, and it buys three things a want_ack retry would not: a partner that missed the
+  invitation joins on the next tick, a partner that **reboots mid-duet rejoins by itself**, and
+  any transient disagreement about the SPEED self-corrects within one interval. Receipt logging is
+  change-only on both nodes, so a repeat is silent. Nice consequence: because the assert fires on
+  the first pass after a duet turns on, telling **either** node forms the pair — the invited node
+  propagates it to its partner.
+  **Verified by telling ONLY the T-Deck and never addressing the Cardputer at all:** it was
+  invited over the air at **116 ms**, and both then played **60 notes each on the identical step
+  set, in unison**, 4 phrases in 16 s (= the 4.0 s double-time period).
+  ✅ **DOUBLE-TIME DUET CONFIRMED RIGHT BY THE USER + measured over 85 s of continuous play**
+  (2026-07-29, both nodes captured together during a real `d` press): **320 notes each**, labels
+  `duet-lead` / `duet-harm`, speed x2, wrap 32, **identical step sets with zero node-only steps**
+  (true unison), and **21 consecutive phrase periods all within 3887-4093 ms** of the 4.0 s
+  target. The re-assert was the fix.
+  📎 **The two-voice "half time ping pong" was never reproduced directly, and one run after the
+  fix still sounded wrong before a reboot made it right.** So the residual suspicion is **stale
+  state, not the sequencer**: the T-Deck's song flag `gLocalPlay` **persists in NVS** and the chart
+  `era`/scene latch survives in a running fleet, and a Cardputer playing `kNewcomer`'s `kOdeHarm`
+  at the WRITTEN tempo against a `duet-lead` at DOUBLE is exactly half-rate on alternating slots.
+  Unproven — but **if the duet ever sounds wrong again, cold-start both handhelds first**; that is
+  the same first move the era latch already demands ([[pulse-tempo-lives-in-pulse-cpp]]).
 - ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
   51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
