@@ -122,7 +122,8 @@ CMD_GET_INTERO = 12  # node replies an INTERO PERCEPT — its sense of its OWN b
 # beat_period_ms u16 | conductor_id u32 | flags u8. 21 B distinguishes it from a STATUS
 # (15/43/45) or GPS (24) PERCEPT. Returned in answer to CMD_GET_INTERO.
 INTERO_PERCEPT_PAYLOAD_LEN = 21
-INTERO_SYNCED, INTERO_CONDUCTOR, INTERO_PLAYING = 1, 2, 4
+INTERO_SYNCED, INTERO_CONDUCTOR, INTERO_PLAYING, INTERO_VOICING = 1, 2, 4, 8
+CMD_DUET = 13        # args: partner_node_id u32 LE | role u8 (0 lead, 1 harm, 0xFF off)
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -2682,7 +2683,9 @@ def parse_intero(payload):
             "conductor_id": conductor_id, "flags": flags,
             "synced": bool(flags & INTERO_SYNCED),
             "conductor": bool(flags & INTERO_CONDUCTOR),
-            "playing": bool(flags & INTERO_PLAYING)}
+            "playing": bool(flags & INTERO_PLAYING),
+            # VOICING is "is it singing"; PLAYING only means it has a chart.
+            "voicing": bool(flags & INTERO_VOICING)}
 
 
 def intero_probe(ser, reader, target, probes=4, per_timeout=1.2):
@@ -2767,7 +2770,8 @@ def intero(port, baud, node, probes, settle):
     print(f"  self   : up {up_s}   worst loop pass {b['worst_loop_ms']} ms "
           f"(= what the mesh feels as rtt)")
     print(f"  band   : {bpm} bpm  conductor {cond}"
-          + ("*" if b["conductor"] else "") + ("  playing" if b["playing"] else "")
+          + ("*" if b["conductor"] else "") + ("  chart" if b["playing"] else "")
+          + ("  SINGING" if b["voicing"] else "")
           + ("  clk+" if b["synced"] else "  clk-"))
 
 

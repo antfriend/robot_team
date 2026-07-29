@@ -41,6 +41,37 @@ inline const Note* noteAt(const Phrase& ph, uint16_t step_in_phrase) {
   return nullptr;
 }
 
+// The note to sound for the steps a loop pass CROSSED, not just the one it landed on.
+//
+// DEFENSIVE, not a fix for an observed defect — worth being clear about, because it was added
+// on a wrong diagnosis and the honest version is more useful than the story that prompted it.
+// `Engine::stepTick` fires once for the step the clock is on now, so a pass longer than one
+// step (125 ms at 120 BPM) jumps the steps in between and their notes are never reported. On
+// the bench that has NOT been observed to lose a note: a double-time duet measured 4.0 s per
+// phrase with all 15 notes present in every cycle. But the hazard is real and the margin is
+// thin — the percept-window flash append alone takes 60-220 ms (companion.md §6), well over a
+// step, and a duet's notes are only 2 steps apart. So this closes it cheaply rather than
+// leaving the melody dependent on the loop never stalling.
+//
+// Returns the LAST note among the crossed steps rather than the first: the point is to sound
+// what should be sounding *now*, not to belatedly flam a note whose moment has passed. `speed`
+// is the duet time-scale (1 = as written, 2 = double time); `phrase_steps` is the already
+// scaled wrap length. The scan is bounded to one phrase so a long stall cannot spin.
+inline const Note* noteForCrossedSteps(const Phrase& ph, uint32_t from_exclusive,
+                                       uint32_t to_inclusive, uint8_t speed,
+                                       uint16_t phrase_steps) {
+  if (!phrase_steps) return nullptr;
+  if (speed < 1) speed = 1;
+  if (to_inclusive - from_exclusive > phrase_steps)
+    from_exclusive = to_inclusive - phrase_steps;   // never rescan more than one wrap
+  const Note* hit = nullptr;
+  for (uint32_t s = from_exclusive + 1; s <= to_inclusive; ++s) {
+    const Note* nt = noteAt(ph, (uint16_t)((s % phrase_steps) * speed));
+    if (nt) hit = nt;
+  }
+  return hit;
+}
+
 // --- Scenes: one node's line across a multi-part song -----------------------
 // The pulse chart carries a `scene_id` (Pulse.h), so the band shares not just a tempo
 // but a position in a song. A `Part` is this node's whole score: which Phrase it loops

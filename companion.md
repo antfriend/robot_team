@@ -1748,6 +1748,73 @@ If a fact lives in one of these, link to it from here — don't copy it.
   dropped. `open_serial_no_reset` is still right for what it was built for (preserving a node's
   RAM clock offset between `sync` and `verify`, which needs no console output), but it is **not** a
   way to watch a node. To read a node's console you must accept the reset.
+- **The two handhelds can play a DUET on a key press — `d` on the T-Deck, with whoever it is
+  looking at (2026-07-29, built + flashed + the partner's half verified from the laptop).**
+  The finale already scored this pair (T-Deck `kOdeLead` + Cardputer `kOdeHarm`, HeroArc.h), so
+  the music needed nothing new. Two things stood in the way, and both were worth fixing properly:
+  - **A duet must NOT be a chart scene.** A scene is the whole band's shared position in the
+    song, so putting the pair into `SCENE_FINALE` would pull in every powered member and produce
+    a *finale*, not a duet. So **`CMD_DUET` (op 13, args `partner_node_id u32 | role u8`)**
+    overrides only the two participants' **parts**, leaves the chart's scene exactly where it was,
+    and rides the pulse step clock the band already shares. It changes **what** each node plays,
+    never **when** — which is what makes the two voices land together. Roles ride on the wire
+    (`DUET_LEAD` / `DUET_HARM` / `DUET_OFF`), so who leads is data, not a rule in firmware, and
+    either node can be the inviter. `CMD_STOP` and a second `d` both end it. Not persisted in NVS
+    (unlike the song): a console that resumed a duet on boot would sing the lead at a partner that
+    may not be there.
+  - ⚠ **The `!gPulse.conductor()` play gate would have made the duet a SOLO, every time.** Both
+    voices are silent while conducting — a guard added so a just-rebooted, self-appointed node
+    can't play out of phase against a band it hasn't found yet. But with only the two handhelds
+    powered, one of them *necessarily* conducts, and it is the T-Deck (`0x200` is the lower live
+    id) — i.e. the lead. **A duet is now the documented exception**: a conductor *is* the phase
+    reference, and the operator asked for exactly these two voices, so the out-of-phase risk the
+    guard exists for cannot arise. The hero's-arc gate is untouched. **Measured, not assumed:**
+    the Cardputer reported `conductor=False` at rest, so the T-Deck did hold the baton.
+  - **New `INTERO_VOICING` flag (bit 3) — "am I singing", which `INTERO_PLAYING` never said**
+    (that only means the node has a chart, and most parts are silent in most scenes). This is how
+    a duet gets confirmed: **not by an ACK**, which a blocking tone call swallows (@LAT90LON70),
+    but by the partner's own body report — and the record pane is already polling it, so the
+    footer shows `SINGING` for the node you are looking at. Reported as the *state* that would
+    sound a note rather than the instant of one, so a poll can't fall between two notes and read
+    false. The interoception view built earlier the same day turns out to be the duet's
+    instrument; that composition was not planned.
+  **Verified from the laptop** (`scratchpad/duet_check.py`, driving the Cardputer over COM14 with
+  the same invitation `d` sends): voicing **False → True** on the invitation, and **back to
+  False** on `DUET_OFF`. Both sketches compile clean (40% / 41%) and are flashed.
+  ✅ **The duet is user-confirmed working on hardware.** `d` is contextual — mesh map (SemPos),
+  a remote node selected — and says why on screen when the precondition isn't met rather than
+  failing silently.
+- **The duet plays in DOUBLE TIME (2026-07-29) — a part property, not a tempo change.** `speed`
+  rides on `CMD_DUET` beside the roles (additive byte; an older sender means "as written"), and
+  the whole mechanism is two lines: wrap the phrase in `steps/speed` slots and look the note up
+  at `sip*speed`. **The band's beat period is untouched**, so the pair covers the written phrase
+  in half the steps and reads as twice as fast while staying locked to the pulse the rest of the
+  fleet counts. That is why this is a part property: a chart tempo change would drag the whole
+  band along and needs a fleet cold-start (`PULSE_DEFAULT_BEAT_MS`, [[pulse-tempo-lives-in-pulse-cpp]]).
+  Articulation scales with it (`tone_ms / speed`, floor 80 ms), which keeps double time staccato
+  and halves the blocking duty cycle of a tone call that would otherwise fill 72% of a note slot.
+  To go back to the written tempo set `DUET_DEFAULT_SPEED` to 1 in the T-Deck sketch — one line.
+  ⚠ **`score::noteAt` is an exact step match, so a speed must not land a note between slots.**
+  `kOdeLead`/`kOdeHarm` have a tied note at step **54**, which survives ÷2 and would be
+  **silently dropped at ÷4** — so participants validate the requested speed against their own
+  phrase (`validDuetSpeed`) and fall back to 1 rather than mangle the melody. `DUET_SPEED_MAX` 4.
+  **Verified by measuring the node's own sequencer, not by ear or by inference**
+  (`scratchpad/duet_speed.py`): step-0 → step-0 wall gaps **3947 / 4098 / 3997 ms** against the
+  predicted 32 steps × 125 ms = **4.0 s** (the written tempo measures 8.00 s), the scaled step
+  set is exactly `[0,2,4,6,8,10,12,14,16,18,20,22,24,27,28]` (the tied note at 27 = 54÷2 intact),
+  all five harmony pitches present, and **every phrase cycle complete at 15/15 notes**.
+  📎 **A wrong diagnosis worth remembering: dividing note-count by notes-per-phrase to infer a
+  period is invalid unless the capture window aligns to phrase boundaries.** Doing that read
+  "5.11 s instead of 4.0, notes being dropped", which sent me into the sequencer after a defect
+  that did not exist. Measuring the **step-0 → step-0 interval directly** — one number, immune to
+  window alignment and to serial-arrival jitter — settled it instantly. The per-note serial gaps
+  are *also* junk for this (median 217 ms, min 100 ms on a 125 ms grid — CDC buffering, not the
+  clock). Observe the mechanism ([[verify-before-believing]]); this is the same lesson as
+  @LAT90LON70, arrived at from the other direction.
+  The `score::noteForCrossedSteps` catch-up added during that chase was **kept but re-labelled
+  defensive**: `stepTick` genuinely reports only the step it lands on, and the 60-220 ms percept
+  flush genuinely exceeds a 125 ms step, so the hazard is real — it just was not what was
+  happening. Its comment says so, rather than citing a measurement that was my arithmetic.
 - ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
   51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the

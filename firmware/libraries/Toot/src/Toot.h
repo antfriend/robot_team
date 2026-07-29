@@ -155,7 +155,46 @@ enum CmdOp : uint8_t {
                            // A node with no body sense answers with zeroed fields
                            // rather than staying silent (the same honesty as
                            // CMD_GET_GPS answering quality:0 without a GPS).
+  CMD_DUET = 13,           // args: partner_node_id u32 LE | role u8 (DuetRole) |
+                           //       speed u8 (optional; 1 = as written, 2 = DOUBLE TIME).
+                           // "You and I, now, just the two of us." A PAIR performance
+                           // between exactly two nodes, deliberately NOT expressed as a
+                           // chart scene: a scene is shared by the whole band, so setting
+                           // one would drag every powered member in and the result would
+                           // be a finale, not a duet. Instead each participant overrides
+                           // its OWN part with the phrase its role names, while the
+                           // chart's scene stays wherever it was — so the rest of the
+                           // fleet is untouched and keeps doing whatever it was doing.
+                           // Both voices ride the shared pulse step clock, which is what
+                           // makes them in phase; the duet changes WHAT each plays, never
+                           // WHEN. role=DUET_OFF ends it, and so does CMD_STOP.
 };
+
+// Which line a node takes in a CMD_DUET. Roles are assigned by the initiator rather than
+// derived from node id, so who leads is data on the wire and not a rule in the firmware.
+enum DuetRole : uint8_t {
+  DUET_LEAD = 0,      // the melody
+  DUET_HARM = 1,      // the harmony under it
+  DUET_OFF = 0xFF,    // leave the duet, return to the song's own part
+};
+
+// Duet SPEED — how many times faster than written the pair takes the phrase. 1 = as scored,
+// 2 = double time. It rides on the wire beside the roles for the same reason: the initiator
+// decides how the pair plays, so this is data rather than a constant baked into two sketches
+// that could disagree. Both voices MUST use the same value or they traverse the phrase at
+// different rates and come apart, even though the underlying clock is still shared.
+//
+// It is NOT a tempo change. The band's beat period is untouched — the pair simply covers the
+// phrase in half as many steps, so a duet stays locked to the same pulse the rest of the
+// fleet is counting. That is the whole reason double time is a part property here and not a
+// chart edit (a chart tempo change would drag the band along and needs a fleet cold-start —
+// see PULSE_DEFAULT_BEAT_MS in Pulse.h).
+//
+// ⚠ A speed is only usable if EVERY note in the phrase still lands on a step the sequencer
+// visits (score::noteAt is an exact step match). `kOdeLead`'s tied note at step 54 survives
+// ÷2 and would be SILENTLY DROPPED at ÷4 — so participants validate the speed against their
+// own phrase and fall back to 1 rather than mangle the melody.
+const uint8_t DUET_SPEED_MAX = 4;
 
 // TTDB_PUT payload layout (TTN-RFC-0009 §2.1) — companion -> node, one slice of a
 // pushed belief object. All multi-byte fields little-endian:
@@ -234,12 +273,19 @@ const size_t GPS_PERCEPT_PAYLOAD_LEN = 24;
 //                                 mesh feels as rtt.
 //   [14..15] beat_period_ms u16   tempo of the chart it is playing (0 = no chart)
 //   [16..19] conductor_id   u32   who it believes holds the baton (0 = nobody)
-//   [20]     flags          u8    bit0 synced · bit1 conductor · bit2 playing
+//   [20]     flags          u8    bit0 synced · bit1 conductor · bit2 has-chart ·
+//                                 bit3 VOICING (its own voice is sounding a part)
 const size_t INTERO_PERCEPT_PAYLOAD_LEN = 21;
 enum InteroFlag : uint8_t {
   INTERO_SYNCED = 1 << 0,
   INTERO_CONDUCTOR = 1 << 1,
-  INTERO_PLAYING = 1 << 2,
+  INTERO_PLAYING = 1 << 2,   // has a chart — the band clock is running, NOT "is singing"
+  // Is this node's own voice actually sounding a part right now (song or duet)? Distinct
+  // from PLAYING on purpose: every locked node "has a chart" whether or not it makes a
+  // sound, and most parts are silent in most scenes. This is the bit that answers "did it
+  // join in?" — so a console can SEE a duet start from the partner's own body report,
+  // instead of trusting an ACK that a blocking tone call swallows anyway (@LAT90LON70).
+  INTERO_VOICING = 1 << 3,
 };
 const int16_t INTERO_NO_TEMP = -32768;   // this node cannot read its own temperature
 

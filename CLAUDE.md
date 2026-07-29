@@ -179,7 +179,28 @@ selected and the main pane is showing. INTERO PERCEPT is a payload convention ov
 PERCEPT type distinguished by **length** (15/43/45 STATUS · 24 GPS · **21 INTERO**) — no new toot
 type, so the bridge already forwards it. Transmit the numbers, never the pixels: the receiver has
 a different panel and palette, which is what makes this a TTCP render. Read it from the laptop
-with `companion.py intero --node <n> --port <p>`. The mesh map holds **V4-A, V4-B, T-Deck and the
+with `companion.py intero --node <n> --port <p>`. **`d` starts a DUET with the node the pane is
+showing** (`CMD_DUET` op 13, `partner u32 | role u8`): T-Deck leads, partner harmonises, both
+from HeroArc.h's finale pairing. A duet is **not** a chart scene — a scene is band-wide and would
+pull in every powered member — it overrides only the two participants' *parts* and leaves the
+scene alone. ⚠ It also **must** bypass the `!gPulse.conductor()` play gate, or it is always a
+solo: with just the two handhelds powered one of them conducts and it is the T-Deck (lower id),
+i.e. the lead. That exception is safe *only* for a duet (a conductor is the phase reference); do
+not widen it to the hero's-arc song, where the gate stops a self-appointed node playing out of
+phase. Confirm a duet by the partner's **`INTERO_VOICING`** bit (pane footer shows `SINGING`),
+never by an ACK — a blocking tone call eats the ACK window.
+
+The duet plays in **double time**, and that is a *part* property, not a tempo change: `speed`
+rides on `CMD_DUET` (additive byte; absent = as written) and the pair covers the phrase in
+`steps/speed` slots, looking notes up at `sip*speed`. **The beat period is untouched**, so the
+duet stays locked to the pulse the rest of the fleet counts — changing the chart tempo instead
+would drag the whole band along and needs a fleet cold-start. `DUET_DEFAULT_SPEED` (T-Deck) is
+the one line to change; ⚠ **`score::noteAt` is an exact step match**, so a speed that puts a note
+between slots would silently drop it — `kOdeLead`'s tied note at step 54 survives ÷2 but not ÷4 —
+hence `validDuetSpeed` refuses and falls back to 1. To verify a rate change, measure the
+**step-0 → step-0 interval** off the node's own `[part]` prints; do NOT divide note-count by
+notes-per-phrase (invalid unless the window aligns to phrase boundaries) and do not trust
+per-note serial gaps (CDC buffering shows 100 ms gaps on a 125 ms grid). The mesh map holds **V4-A, V4-B, T-Deck and the
 Cardputer as of 2026-07-29 — the K10 was removed** (v1 firmware, off the band roster). ⚠ The
 T-Deck's own `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, NOT a meter:
 it reads **4.71 V**, above the 4.20 V Li-ion ceiling, so above that ceiling the node withholds

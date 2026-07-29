@@ -236,6 +236,59 @@ static void setLocalPlay(bool on) {
   gPrefs.putBool("play", on);     // survive a reboot (screen refreshes within 1 s)
 }
 static const uint32_t PULSE_HARM_TONE_MS = 180;   // staccato note (blocks; keep short)
+
+// --- the duet: two nodes, by name, on the shared clock (CMD_DUET) --------------------
+// Deliberately NOT a chart scene. A scene is the whole band's shared position in the song,
+// so putting the pair into SCENE_FINALE would pull in every powered member and produce a
+// finale rather than a duet. A duet instead overrides only these two nodes' PARTS, leaves
+// the chart's scene exactly where it was, and rides the same pulse step clock the band
+// already shares — which is what makes the two voices land together. It changes what each
+// node plays, never when.
+//
+// Not persisted in NVS, unlike the song: `d` is a momentary thing an operator does while
+// looking at a particular node, and a console that resumed a duet on boot would start
+// singing the lead at a partner that may not be there.
+static uint8_t  gDuetRole = toot::DUET_OFF;
+static uint32_t gDuetPeer = 0;
+static uint8_t  gDuetSpeed = 1;                   // 1 = as written, 2 = double time
+static inline bool duetOn() { return gDuetRole != toot::DUET_OFF; }
+
+// The duet plays in DOUBLE TIME by default: the pair covers the phrase in half the steps, so
+// it reads as twice as fast while the band's beat period — and therefore everyone else's
+// timing — is completely untouched. To go back to the written tempo, make this 1.
+static const uint8_t DUET_DEFAULT_SPEED = 2;
+
+// Can this phrase be taken at `speed`? Double time works by traversing the SAME note table in
+// half as many steps, so every note's position must still fall on a step the sequencer
+// actually visits (score::noteAt is an exact match). If any note would land between slots we
+// refuse the speed instead of quietly dropping a note out of the melody — kOdeLead's tied note
+// at step 54 is exactly that case at ÷4. Cheap, and computed once when a duet is set up.
+static uint8_t validDuetSpeed(const score::Phrase& ph, uint8_t speed) {
+  if (speed < 1) return 1;
+  if (speed > toot::DUET_SPEED_MAX) speed = toot::DUET_SPEED_MAX;
+  if (ph.steps % speed) return 1;
+  for (uint16_t i = 0; i < ph.count; ++i)
+    if (ph.notes[i].step % speed) return 1;
+  return speed;
+}
+
+// Enter/leave a duet, validating the requested speed against the phrase our role names.
+static void setDuet(uint8_t role, uint32_t partner, uint8_t speed) {
+  if (role == toot::DUET_OFF) {
+    gDuetRole = toot::DUET_OFF;
+    gDuetPeer = 0;
+    gDuetSpeed = 1;
+    return;
+  }
+  gDuetRole = role;
+  gDuetPeer = partner;
+  const score::Phrase& ph =
+      (role == toot::DUET_LEAD) ? heroarc::kOdeLead : heroarc::kOdeHarm;
+  gDuetSpeed = validDuetSpeed(ph, speed);
+  if (gDuetSpeed != speed)
+    Serial.printf("[duet] speed x%u refused (a note would be dropped) -> x%u\n",
+                  speed, gDuetSpeed);
+}
 // The T-Deck's PART in the hero's-arc song (HeroArc.h, TTN-RFC-0010 §7): the RETURNING
 // ROAMER — silent through scenes 0-3, back with the Ode-to-Joy HARMONY in scene 4 (the
 // song's first pitched voice), then carrying the LEAD in the finale. Which scenes play
@@ -537,6 +590,30 @@ static void pollIntero(uint32_t target) {
   emit(toot::CMD, body, 5, sendEspNow, nullptr);
 }
 
+// Invite `peer` into a duet (or dismiss it): CMD_DUET carries who its partner is and which
+// line to take. Fire-and-forget, deliberately NOT want_ack — a node that starts playing
+// misses the ACK window because the tone call blocks, so an ACK here would report a false
+// negative on a duet that is audibly working (@LAT90LON70). The honest confirmation is the
+// partner's own body: its INTERO_VOICING bit, which the record pane is already polling.
+static void sendDuet(uint32_t peer, uint8_t peer_role, uint8_t speed) {
+  uint8_t body[11];
+  body[0] = toot::CMD_DUET;
+  toot::put_u32(body + 1, peer);
+  toot::put_u32(body + 5, kNodeId);      // partner = us
+  body[9] = peer_role;
+  body[10] = speed;                      // both voices must agree, or they come apart
+  emit(toot::CMD, body, sizeof(body), sendEspNow, nullptr);
+}
+
+// Leave any duet we are in and tell the partner. Idempotent; safe to call when not in one.
+static void endDuet() {
+  if (!duetOn()) return;
+  if (gDuetPeer) sendDuet(gDuetPeer, toot::DUET_OFF, 1);
+  Serial.printf("[duet] ended with %s\n", nodeName(gDuetPeer));
+  setDuet(toot::DUET_OFF, 0, 1);
+  gScreenDirty = true;
+}
+
 #if USE_PULSE
 // Walk the hero's-arc story to a scene: broadcast CMD_SET_SCENE (only the conductor
 // applies a scene change, so at most one node acts — the operator needn't know who
@@ -676,9 +753,17 @@ static uint8_t buildIntero(uint8_t* p) {
   const pulse::Chart& ch = gPulse.chart();
   toot::put_u16(p + 14, ch.beat_period_ms);
   toot::put_u32(p + 16, ch.conductor_id);
+  // VOICING answers "is it singing", which PLAYING does not: PLAYING only means the band
+  // clock is running, and most parts are silent in most scenes. Reported as the STATE that
+  // would sound a note (duet on, or the song on with a phrase for this scene) rather than
+  // as the instant of a note, so a 2 s poll can't fall between two notes and read false.
+  bool voicing = duetOn() ||
+                 (gLocalPlay && !gPulse.conductor() &&
+                  score::phraseForScene(kPart, gPulse.scene()) != nullptr);
   p[20] = (gSynced ? toot::INTERO_SYNCED : 0) |
           (gPulse.conductor() ? toot::INTERO_CONDUCTOR : 0) |
-          (gPulse.playing() ? toot::INTERO_PLAYING : 0);
+          (gPulse.playing() ? toot::INTERO_PLAYING : 0) |
+          (voicing ? toot::INTERO_VOICING : 0);
 #else
   toot::put_u16(p + 14, 0);
   toot::put_u32(p + 16, 0);
@@ -846,9 +931,28 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             break;
           case toot::CMD_STOP:
             setLocalPlay(false);
+            setDuet(toot::DUET_OFF, 0, 1);   // stop means stop; don't echo an OFF back
 #if USE_PULSE
             gPulse.disarmSong();
 #endif
+            break;
+          case toot::CMD_DUET:
+            // We can be the INVITED voice as well as the inviter — the roles ride on the
+            // wire, so nothing here assumes the console is the one that started it.
+            if (t.payload_len >= 10) {
+              uint32_t partner = toot::get_u32(t.payload + 5);
+              uint8_t role = t.payload[9];
+              // The speed byte is additive: a sender that predates it just means "as
+              // written", the same discipline the STATUS and PULSE tails use.
+              uint8_t speed = (t.payload_len >= 11) ? t.payload[10] : 1;
+              setDuet(role, partner, speed);
+              Serial.printf("[duet] %s by %s (speed x%u)\n",
+                            role == toot::DUET_OFF ? "dismissed"
+                            : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
+                            nodeName(partner), gDuetSpeed);
+            } else {
+              ok = false;
+            }
             break;
           case toot::CMD_CLEAR_PERCEPTS:
             // Flash rewrite: reaches here only from loop() (radio path defers).
@@ -1496,13 +1600,14 @@ static void renderIntero(int rec, uint32_t id) {
   uint16_t worst_loop   = self ? (uint16_t)gWorstLoopMs : (s ? s->worst_loop_ms : 0);
   uint16_t beat_ms      = 0;
   uint32_t cond_id      = 0;
-  bool     synced = false, conductor = false, playing = false;
+  bool     synced = false, conductor = false, voicing = false;
   if (self) {
 #if USE_PULSE
     beat_ms = gPulse.chart().beat_period_ms;
     cond_id = gPulse.chart().conductor_id;
     conductor = gPulse.conductor();
-    playing = gPulse.playing();
+    voicing = duetOn() || (gLocalPlay && !gPulse.conductor() &&
+                           score::phraseForScene(kPart, gPulse.scene()) != nullptr);
 #endif
     synced = gSynced;
   } else if (s) {
@@ -1510,7 +1615,7 @@ static void renderIntero(int rec, uint32_t id) {
     cond_id = s->conductor_id;
     synced    = (s->flags & toot::INTERO_SYNCED) != 0;
     conductor = (s->flags & toot::INTERO_CONDUCTOR) != 0;
-    playing   = (s->flags & toot::INTERO_PLAYING) != 0;
+    voicing   = (s->flags & toot::INTERO_VOICING) != 0;
   }
 
   // Header: whose body, and how fresh. Deliberately NOT a per-second age readout — that
@@ -1564,13 +1669,13 @@ static void renderIntero(int rec, uint32_t id) {
              (unsigned long)(uptime_s / 60), (unsigned long)(uptime_s % 60), worst_loop,
              beat_ms ? (unsigned)(60000UL / beat_ms) : 0,
              cond_id ? nodeName(cond_id) : "-", conductor ? "*" : "",
-             synced ? "clk+" : "clk-", playing ? " play" : "");
+             synced ? "clk+" : "clk-", voicing ? " SINGING" : "");
   } else {
     snprintf(l, sizeof(l), "up %luh%02lum  lp%ums  %ubpm %s%s %s%s",
              (unsigned long)(uptime_s / 3600), (unsigned long)((uptime_s % 3600) / 60),
              worst_loop, beat_ms ? (unsigned)(60000UL / beat_ms) : 0,
              cond_id ? nodeName(cond_id) : "-", conductor ? "*" : "",
-             synced ? "clk+" : "clk-", playing ? " play" : "");
+             synced ? "clk+" : "clk-", voicing ? " SINGING" : "");
   }
   interoLine(IN_FOOT_Y, stale ? IN_COL_STALE : IN_COL_FOOT, l, gInFoot, sizeof(gInFoot));
 
@@ -1652,9 +1757,16 @@ static void renderConsole() {
 // Frame dispatcher: thin status bar, globe (top), then the active bottom pane.
 static void renderScreen() {
   char l[54];
+  // While a duet is on it replaces the scene name in the status bar: the scene is not what
+  // this node is playing any more, and showing a scene it is ignoring would be a small lie.
+  char duet[20] = {0};
+  if (duetOn())
+    snprintf(duet, sizeof(duet), "DUET>%s%s x%u", nodeName(gDuetPeer),
+             gDuetRole == toot::DUET_LEAD ? "" : "(h)", gDuetSpeed);
   snprintf(l, sizeof(l), "T-DECK 0x%X %s sync%s drive>%s z%d %c %s", (unsigned)kNodeId,
            viewName(gView), gSynced ? "+" : "-", nodeName(gCmdTarget),
            gZoomIdx + 1, gPane == PANE_CONSOLE ? 'C' : 'M',
+           duetOn() ? duet :
 #if USE_PULSE
            heroarc::sceneName(gPulse.scene())
 #else
@@ -1995,7 +2107,9 @@ void loop() {
   // (no "enter"; every press sends immediately):
   //   t = next node (both globes; also cycles the comm target in Semantic Position view)
   //   s = get-status   p = ping   b = beep
-  //   g = play (start the band)  x = stop   SPACE = toggle console pane
+  //   g = play (start the band)  x = stop (band AND duet)   SPACE = toggle console pane
+  //   d = duet with the node currently selected on SemPos (we lead, they harmonise);
+  //       press again to end. Contextual, so there is no separate partner to choose.
   //   o = onward (next scene of the hero's-arc song)   r = restart the tale (scene 0)
   //   +/= = zoom in (closer)   -/_ = zoom out (further)
   // Any other key defaults to a status query. See the on-screen legend.
@@ -2032,10 +2146,38 @@ void loop() {
 #endif
                 emitCmdTo(toot::CMD_PLAY, NODE_BROADCAST, nullptr, 0); break;
       case 'x': setLocalPlay(false);
+                endDuet();                     // stop means stop, duet included
 #if USE_PULSE
                 gPulse.disarmSong();
 #endif
                 emitCmdTo(toot::CMD_STOP, NODE_BROADCAST, nullptr, 0); break;
+      // 'd' — DUET with whoever we are looking at. Contextual on purpose: the console is
+      // already showing that node's body in the record pane, so "the node I am examining"
+      // is an unambiguous referent and needs no target selection of its own. We take the
+      // lead, the partner takes the harmony (both from HeroArc.h — the finale's pairing,
+      // which is where this duet's two lines already live). Press again to end it.
+      case 'd': {
+        if (duetOn()) { endDuet(); break; }
+        uint32_t peer = (gView == VIEW_FLEET && gSel >= 0) ? gNodeMeshId[gSel] : 0;
+        if (!peer || peer == kNodeId) {
+          // Say why nothing happened rather than sit silent: on the mesh map with a REMOTE
+          // node selected is the whole precondition, and our own record is not a partner.
+          logLine(peer == kNodeId ? "duet: that's us - pick another node"
+                                  : "duet: select a node on SemPos first");
+          gScreenDirty = true;
+          break;
+        }
+        setDuet(toot::DUET_LEAD, peer, DUET_DEFAULT_SPEED);
+        sendDuet(peer, toot::DUET_HARM, DUET_DEFAULT_SPEED);
+        char lg[40];
+        snprintf(lg, sizeof(lg), "duet with %s (we lead, x%u)", nodeName(peer),
+                 gDuetSpeed);
+        logLine(lg);
+        Serial.printf("[duet] with %s 0x%08X: we LEAD, they HARMONISE, speed x%u\n",
+                      nodeName(peer), (unsigned)peer, gDuetSpeed);
+        gScreenDirty = true;
+        break;
+      }
 #if USE_PULSE
       // Walk the hero's-arc story from the handheld: o = onward one scene (capped at
       // the finale — re-issuing the current scene is idempotent), r = back to the top.
@@ -2120,18 +2262,60 @@ void loop() {
     // we stay silent so the voice never plays out of phase; it resumes the moment we
     // adopt the conductor's chart. This is what makes a power-cycled T-Deck rejoin
     // cleanly. The step clock runs in silent scenes too, so entrances land on the grid.
-    const score::Phrase* ph = score::phraseForScene(kPart, gPulse.scene());
+    // A DUET overrides the phrase (and only the phrase): our role names the line, the scene
+    // is ignored, and — unlike the song — we sound it even while holding the baton. The
+    // conductor-silence guard exists so a just-rebooted, self-appointed node cannot play
+    // out of phase against a band it hasn't found yet; that risk does not exist here,
+    // because a conductor IS the phase reference and because an operator explicitly asked
+    // for these two voices. Without this exception the duet would be a solo whenever the
+    // console holds the baton — which, with the two handhelds alone on the bench, is
+    // exactly what happens (0x200 is the lowest live id, so it conducts).
+    const score::Phrase* ph;
+    bool voice;
+    uint8_t speed = 1;
+    if (duetOn()) {
+      ph = (gDuetRole == toot::DUET_LEAD) ? &heroarc::kOdeLead : &heroarc::kOdeHarm;
+      voice = true;
+      speed = gDuetSpeed;             // already validated against this phrase by setDuet
+    } else {
+      ph = score::phraseForScene(kPart, gPulse.scene());
+      voice = gLocalPlay && !gPulse.conductor();
+    }
+    // DOUBLE TIME lives entirely in these two lines: wrap the phrase in `steps/speed` slots
+    // and look the note up at `sip*speed`. The pulse clock and the beat period are untouched
+    // — the pair just covers the written phrase in half the steps, so it plays twice as fast
+    // while staying locked to the beat the rest of the fleet is counting.
+    // ONE stepTick per pass, whichever phrase is live: the call consumes the tick, so asking
+    // twice would silently eat half the steps.
+    const uint16_t steps = ph ? (uint16_t)(ph->steps / speed) : 16;
     uint16_t sip;
     uint32_t sc;
-    if (gPulse.stepTick(pnow, ph ? ph->steps : 16, sip, sc) && ph &&
-        gLocalPlay && !gPulse.conductor()) {
-      const score::Note* nt = score::noteAt(*ph, sip);
-      if (nt && nt->freq != score::REST) {
+    static uint32_t prev_step = 0;
+    static bool have_prev = false;
+    if (gPulse.stepTick(pnow, steps, sip, sc)) {
+      // Catch up over any steps this pass jumped so a stalled pass cannot swallow the note
+      // that fell in the gap. Defensive: no dropped note has actually been observed at double
+      // time (4.0 s/phrase, all 15 notes every cycle), but a duet's notes are 2 steps apart
+      // and a percept flush runs 60-220 ms. See score::noteForCrossedSteps.
+      const score::Note* nt = nullptr;
+      if (ph)
+        nt = (have_prev && sc > prev_step + 1)
+                 ? score::noteForCrossedSteps(*ph, prev_step, sc, speed, steps)
+                 : score::noteAt(*ph, (uint16_t)(sip * speed));
+      prev_step = sc;
+      have_prev = true;
+      if (nt && voice && nt->freq != score::REST) {
+        // Articulation scales with the speed, so double time is staccato rather than a
+        // slur — and it halves the blocking duty cycle of a tone call that would otherwise
+        // occupy 72% of every note slot (the loop carries the mesh; see `lp`).
+        uint32_t ms = PULSE_HARM_TONE_MS / speed;
+        if (ms < 80) ms = 80;
 #if USE_TDECK_HW
-        toneI2S((float)nt->freq, PULSE_HARM_TONE_MS);
+        toneI2S((float)nt->freq, ms);
 #endif
-        Serial.printf("[part] step %2u/%u  %4uHz (%s)\n", sip, ph->steps, nt->freq,
-                      heroarc::sceneName(gPulse.scene()));
+        Serial.printf("[part] step %2u/%u  %4uHz (%s x%u)\n", sip, steps, nt->freq,
+                      duetOn() ? (gDuetRole == toot::DUET_LEAD ? "duet-lead" : "duet-harm")
+                               : heroarc::sceneName(gPulse.scene()), speed);
       }
     }
   }
