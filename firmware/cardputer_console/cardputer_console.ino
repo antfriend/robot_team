@@ -517,7 +517,15 @@ static void emitSetScene(uint16_t scene) {
 static const float BAT_DIVIDER = 2.0f;
 static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes
 
-static uint16_t gBatMv    = 0;      // pack millivolts (0 = never sampled)
+// ⚠ Have-we-sampled is its OWN flag, never `gBatMv != 0`. A measurement must not double as
+// its own validity flag: 0 mV is a perfectly legitimate reading (no pack on the lead, or a
+// divider left disconnected), and using the value as the sentinel makes the sampler re-run
+// AND re-print its one-time boot line on every loop pass. On a V4 that serial flood reported
+// as a 2-4 s worst loop pass — a fake performance number sitting right on top of a real and
+// still-unexplained one (companion.md §6). Latent rather than active here, because this
+// board has never read 0 — which is exactly why it survived this long.
+static bool     gBatSampled = false;
+static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / divider open)
 static float    gBatSlow  = 0.0f;   // slow EMA of the above — the fill/drain reference
 static int8_t   gBatTrend = 0;      // +1 filling, -1 draining, 0 steady
 static uint8_t  gBatPct   = 0;
@@ -547,7 +555,7 @@ static uint8_t batPercent(uint16_t mv) {
 
 static void serviceIntero(uint32_t now) {
   static uint32_t last = 0;
-  if (gBatMv && now - last < INTERO_PERIOD_MS) return;
+  if (gBatSampled && now - last < INTERO_PERIOD_MS) return;
   last = now;
 
   // Four reads averaged. One 12-bit sample of a divided pack sitting behind a switching
@@ -558,7 +566,8 @@ static void serviceIntero(uint32_t now) {
   uint32_t pin_mv = acc / 4;
   uint16_t mv = (uint16_t)(pin_mv * BAT_DIVIDER);
 
-  bool first = (gBatMv == 0);
+  bool first = !gBatSampled;
+  gBatSampled = true;
   gBatMv = mv;
   gBatPct = batPercent(mv);
   // Am I filling or draining? A ~2-minute EMA is the reference, so the arrow reports the
@@ -632,7 +641,7 @@ static uint8_t buildStatus(uint8_t* p) {
 // to poll while it watches us — which is exactly the use case (the T-Deck's record pane).
 static uint8_t buildIntero(uint8_t* p) {
   toot::put_u16(p + 0, gBatMv);
-  p[2] = gBatMv ? gBatPct : 255;                 // 255 = never sampled, not "0%"
+  p[2] = gBatSampled ? gBatPct : 255;            // 255 = never sampled, not "0%"
   p[3] = (uint8_t)(int8_t)gBatTrend;
   toot::put_u16(p + 4, (uint16_t)gDieC10);
   toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
@@ -780,7 +789,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             uint16_t f = t.payload_len >= 7 ? toot::get_u16(t.payload + 5) : 880;
             uint16_t d = t.payload_len >= 9 ? toot::get_u16(t.payload + 7) : 200;
             if (d > 1000) d = 1000;          // never block the loop for a whole second+
-            if (gCodecOk) toneI2S((float)f, d, 12000.0f);
+            if (gCodecOk) toneI2S((float)f, d, 22000.0f);   // scaled with the new default
 #endif
             break;
           }
@@ -1071,7 +1080,15 @@ static uint32_t gToneUntilMs = 0;
 // not sine, to match the rest of the band: the V4s' hand-wired amps only reproduce
 // squares, so the whole fleet plays one timbre on purpose. Blocks ~ms, so it runs from
 // setup()/loop() only — never a callback.
-static void toneI2S(float freq, uint32_t ms, float amp = 16000.0f) {
+//
+// The default amplitude is deliberately just under full scale, NOT at it. A square wave
+// through the DAC's reconstruction filter overshoots its own edges by roughly 9%
+// (Gibbs), so a nominal 32767 would clip on every transition and buzz; 30000 puts those
+// overshoots at the rail instead of through it. That is 1 dB given away to get a clean
+// edge, against the 5.5 dB this default gained when it went up from 16000 — this node
+// is the quietest voice in the fleet (8 ohm 1 W speaker) and was sitting 6 dB down for
+// no reason. The other 6.5 dB came from the codec (Es8311.h, DAC_VOL_0DB).
+static void toneI2S(float freq, uint32_t ms, float amp = 30000.0f) {
   if (!gCodecOk) return;
   const int N = 256;
   int16_t buf[N * 2];
@@ -1093,8 +1110,10 @@ static void toneI2S(float freq, uint32_t ms, float amp = 16000.0f) {
   gToneUntilMs = millis() + ms / 4 + 50;
 }
 
-// The fleet's shared boot voice: two rising toots, C4 -> G4.
-static const float STARTUP_TOOT_AMP = 6000.0f;
+// The fleet's shared boot voice: two rising toots, C4 -> G4. Scaled with the new default
+// so the boot toot keeps its intended place in the mix — it is meant to be noticeably
+// softer than a band note, not softer by an accident of absolute numbers.
+static const float STARTUP_TOOT_AMP = 11000.0f;
 static void playStartupToot() {
   toneI2S(262.0f, 220, STARTUP_TOOT_AMP);
   delay(40);
@@ -2824,6 +2843,13 @@ void setup() {
   // codec must be configured BEFORE I2S starts clocking, or the DAC never un-mutes.
   gCodecOk = es8311::begin(Wire, I2S_RATE);
   if (gCodecOk) {
+    // Read the DAC volume back rather than trusting the write. 0xBF is unity; anything
+    // lower is attenuation this node cannot afford (it is the fleet's quietest voice)
+    // and anything higher is digital gain that clips a full-scale square (Es8311.h).
+    // Printed because a volume that silently failed to take looks exactly like a speaker
+    // that is just small.
+    Serial.printf("[codec] DAC vol reg 0x32 = 0x%02X (0xBF = unity/0dB), tone amp %u/32767\n",
+                  (unsigned)es8311::readReg(0x32), 30000u);
     gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT, PIN_I2S_DIN, -1);
     if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT,
                    I2S_SLOT_MODE_STEREO)) {

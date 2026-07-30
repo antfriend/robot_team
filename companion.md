@@ -56,9 +56,9 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 
 | Agent | Board | Role | Spine pos | Links | Power | Sketch | Status |
 |-------|-------|------|-----------|-------|-------|--------|--------|
-| **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off) |
-| **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off |
-| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), compile-verified 93% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
+| **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off). **2026-07-30: answers `CMD_GET_INTERO` (21 B body, die temp now in STATUS too) and `CMD_DUET` — it led a verified double-time duet with V4-B.** **reads its own pack: 4.096 V / 89% / rising** (GPIO1 behind an ACTIVE-HIGH GPIO37, measured); ⚠ pull it over its own cable, the bridged path is broken |
+| **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off. **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` — harmonised a double-time duet after being invited entirely over the air.** **reads its own pack: 3.831 V / 52% / rising** — the solar+battery node can finally report its state of charge; ⚠ its 54 KB TTDB no longer pulls through the bridge — use COM9 direct |
+| **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` too — the whole LoRa spine is now at parity, and its pack read 3.841 V / 54% on the FIRST flash because it was built with the measured GPIO37 polarity instead of the published one**; compile-verified 94% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor) |
@@ -1738,6 +1738,44 @@ If a fact lives in one of these, link to it from here — don't copy it.
   block is a 180 ms tone is suspicious in itself), but the search space is now one section instead
   of the whole loop. A reminder that the node's own instrumentation answers this and a plausible
   story does not — [[verify-before-believing]].
+  ⚠ **SUPERSEDED 2026-07-30 — "it is inside the `pulse` section" does NOT hold up, and the WiFi
+  scan is now positively EXONERATED rather than merely doubted.** A 12-minute Cardputer console
+  capture (`scratchpad/console_tail.py` on COM14, pure listener) caught the stall with a shape
+  the earlier single observation did not have:
+  `[loop] worst pass 2009ms (render 0ms, widest section render 6ms)`.
+  **A 2009 ms pass whose widest instrumented section is 6 ms.** The nine sections do not account
+  for the time at all — so it is not *in* any of them, and the one reading that put it in `pulse`
+  cannot be generalised from. That is the signature of the loop task being **descheduled between
+  iterations**, not of slow code: the pass is measured wall-clock end-to-end, so a preemption that
+  lands outside the marked region inflates the pass while every section still measures only its
+  own few milliseconds. Which also explains why the two V4s show the same ~2000 ms with a
+  completely different, far simpler loop — it is not anybody's loop body.
+  ✅ **WiFi scan cleared, by direct observation rather than by argument:** the capture caught
+  `[wifi] scan: 11 AP(s) folded into @LAT96 window` at 15:42:37 with the loop reporting **10 ms
+  in the windows on BOTH sides of it**. The async scan costs the loop nothing. That retires the
+  suspect this entry has carried since it was written.
+  📎 **Not periodic, on the evidence so far.** It is reliable at boot on every node. One
+  occurrence was measured at **539 s** of uptime, which looked like it might imply a ~600 s
+  period (the WiFi scan interval) — but the very next run read **9 ms at 540 s**, and 8.5 minutes
+  after boot were clean throughout. So: reliable at boot, occasional afterwards, no established
+  period.
+  🔎 **BEST REMAINING HYPOTHESIS — the USB CDC host attaching, not anything on the node.** Every
+  observation fits it and none contradicts it:
+  - During the 12-minute capture the port was **held open the whole time**: one stall at the very
+    start (the moment the listener attached) and **none for the following 8.5 minutes**.
+  - The "at boot" stalls are really "just after a host attached" — `companion.py` opens the port
+    and resets the node, so boot and attach are the same instant and have never been separated.
+  - Later stalls cluster around times a laptop command ran, each of which opens and closes the
+    port. The Cardputer read `lp 2030 ms` immediately after a run of `intero` calls.
+  - The magnitude is ~2000 ms on **all four nodes across two very different sketches**, which
+    suits a shared stack far better than any application code. `Serial` on S3 native USB is known
+    to behave badly around host attach/detach ([[usb-uart-chip-reset-not-a-crash]]).
+  ⚠ **Unproven, and the fleet has never once been measured without a USB host attached** — which
+  is precisely the blind spot, because the measuring instrument is the suspect. **The decisive
+  test needs one cable move:** power a V4 bridge on USB, run the **Cardputer on battery only with
+  no USB host**, and poll its `lp` over the mesh through the bridge. If it stays in single digits
+  with nobody attached, this is the answer and the "fleet-wide stall" is an artefact of being
+  watched. If it still stalls, the hypothesis dies cleanly and FreeRTOS-level tracing is next.
   ⚠ **The T-Deck's battery divider assumption does NOT hold: it reads 4.71 V**, above the 4.20 V
   1S Li-ion ceiling. `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, not
   from a meter on this unit, and with the cable in it may simply be measuring the charge rail with
@@ -1788,6 +1826,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
   **Verified from the laptop** (`scratchpad/duet_check.py`, driving the Cardputer over COM14 with
   the same invitation `d` sends): voicing **False → True** on the invitation, and **back to
   False** on `DUET_OFF`. Both sketches compile clean (40% / 41%) and are flashed.
+  ✅ **2026-07-30: user-confirmed working from the T-Deck against BOTH V4s.** That closes the two
+  things the laptop could not check — the real `d` key path (not just the same wire protocol
+  driven from COM6) and audibility on the hand-wired MAX98357A amps. The duet is now a
+  four-node capability: either console can pair with either V4.
   ✅ **The duet is user-confirmed working on hardware.** `d` is contextual — mesh map (SemPos),
   a remote node selected — and says why on screen when the precondition isn't met rather than
   failing silently.
@@ -1857,10 +1899,173 @@ If a fact lives in one of these, link to it from here — don't copy it.
   at the WRITTEN tempo against a `duet-lead` at DOUBLE is exactly half-rate on alternating slots.
   Unproven — but **if the duet ever sounds wrong again, cold-start both handhelds first**; that is
   the same first move the era latch already demands ([[pulse-tempo-lives-in-pulse-cpp]]).
+- **The LoRa spine can be looked inside and can SING — V4-A and V4-B answer `CMD_GET_INTERO`
+  and `CMD_DUET` (built + flashed + verified on hardware 2026-07-30, COM6/COM9).** Both mesh
+  services had been console-only, which made the T-Deck's record pane a view that worked for two
+  of the four nodes on its own mesh map, and `d` an offer it could only make to one partner. The
+  V4s now carry the same 21-byte INTERO PERCEPT and the same duet part-override as both consoles
+  — deliberately line-for-line, so the four copies stay comparable rather than drifting.
+  **Verified end to end from the laptop:** `companion.py intero` reads both bodies (V4-B *through
+  the V4-A bridge*), and a scripted duet — V4-A leading `kOdeLead`, V4-B harmonising `kOdeHarm`,
+  double time, the invitation re-asserted every 2 s exactly as `serviceDuet` does — brought
+  both `INTERO_VOICING` bits True and both back False on the 3× dismissal. Confirmed by the
+  voicing bit, never an ACK (@LAT90LON70). The band floor is unharmed: `band` across
+  V4-A/V4-B/Cardputer is **±0.7 ms**, era 2, all on one chart.
+  ✅ **The load-bearing evidence is V4-B's OWN SEQUENCER, captured on COM9 by a pure listener
+  while the duet was driven from COM6** (`scratchpad/console_tail.py`) — because the polled flag
+  turned out to be the noisier instrument (below). V4-B printed `[duet] invited to HARM by
+  0x00000010 (speed x2)`, then **108 notes** on exactly the 15-note `kOdeHarm` step set
+  `[0,2,4,6,8,10,12,14,16,18,20,22,24,27,28]` — **the tied note at 27 (= 54÷2) intact**, which is
+  the thing `validDuetSpeed` exists to protect — over **8 consecutive step-0 → step-0 phrase
+  periods, every one 4 s** against the predicted 32 steps × 125 ms, and closed with
+  `[duet] dismissed`. Measured step-0 to step-0, never by dividing note-count by phrase length,
+  which is the arithmetic that sent the original duet work chasing a defect that did not exist.
+  📎 **`INTERO_VOICING` polling is the weaker witness of the two, and it should not be the last
+  word again.** Across three runs it produced several `no reply` misses and, once, a decoded
+  `False` for V4-A in the middle of a duet the sequencer shows never stopped. Both are consistent
+  with a mesh that is currently lossy enough to break a bridged pull outright (below) — a probe
+  is two frames over that same air. **Poll the flag to see a duet START; read the node's `[part]`
+  prints to know what it actually played.** The one unexplained decoded `False` is recorded here
+  rather than smoothed over: it has no mechanism yet.
+  ✅ **V4-C joined them the same day, and it is the cheap one — the whole LoRa spine is now at
+  parity.** Ported from V4-B (its structure is V4-B's), flashed to COM13 at 94% flash, and
+  verified the same way: `[duet] invited to HARM ... (speed x2)` followed by the exact 15-note
+  `kOdeHarm` step set `[0,2,4,6,8,10,12,14,16,18,20,22,24,27,28]` — tied note at 27 intact — over
+  **step-0 → step-0 phrase periods of 4 s**, the double-time target. It then re-locked to V4-B's
+  chart over the air (**conductor 0x11, era 17, skew +0.0 ms**) with V4-B running on battery.
+  📎 **Its battery read 3.841 V / 54% on the FIRST flash**, because it was built with the
+  *measured* GPIO37 polarity rather than the published one. That is the whole return on having
+  swept the board instead of guessing: the second and third nodes cost nothing.
+  ⚠ **One thing did NOT port verbatim, and copying it would have been a silent regression.**
+  V4-A and V4-B derive the duet's note length from `PULSE_PART_TONE_MS / speed` with an 80 ms
+  floor, which is harmless there (130 ms and 120 ms are both already above the floor). V4-C's
+  part is a **60 ms hi-hat tick**, so the same line would have hit the floor in the ordinary
+  non-duet case and **tripled the hi-hat to 80 ms** — changing the groove of a node nobody was
+  listening to at the time. It carries its own `DUET_TONE_MS` (160) instead, and the tick is
+  untouched. A duet note is melodic and a 60 ms blip cannot carry a pitch, so the two lengths
+  genuinely want to be different numbers. (Verified by construction, not by measurement — the
+  serial log cannot show tone duration.)
+  Two V4-specific judgements worth keeping:
+  - **No `!conductor()` term in their VOICING, and no duet exception needed** — unlike the
+    consoles, a V4's voice has never been gated on holding the baton, so the guard the duet has
+    to bypass on the T-Deck simply does not exist here. Fewer special cases, not more.
+  - **`STATUS`'s temperature field is no longer 0 on either V4**: it carries the die reading, the
+    same fill the Cardputer made. `monitor` showing 54 C for `v4a_bridge` is true and was
+    previously unsayable.
+- ⚠ **A MEASUREMENT IS NOT ITS OWN VALIDITY FLAG — and this one is still live in both consoles.**
+  Ported straight from the console sketches, `serviceIntero` used `gBatMv != 0` to mean "have I
+  sampled yet". On a V4 with no pack on the JST lead the ADC reads a perfectly legitimate **0 mV**,
+  so the sampler re-ran *and re-printed its one-time boot line* on **every loop pass**. The
+  resulting serial flood showed up as the node's own **worst loop pass: 4035 ms on V4-A, 2041 ms
+  on V4-B**. Fixed with a separate `gBatSampled` flag; both V4s then measured a **steady 34–40 ms
+  over n=12 and n=10 samples spanning ~90 s and ~73 s**.
+  📎 **The number nearly lied twice.** Those 2 s / 4 s readings sit right on top of the
+  unexplained multi-second stall recorded above for the two consoles, and it would have been very
+  easy to file them as "confirmed fleet-wide". They were self-inflicted and had nothing to do with
+  it. Separately, **`companion.py intero` resets the node on port open**, so invoking it in a loop
+  can never observe a profiler window past the ~8 s settle — six consecutive calls all read
+  `up 8s, lp 0 ms`. Watching a windowed number needs ONE open connection and many probes
+  (`scratchpad/intero_watch.py`); the instrument has to outlive the thing it measures
+  ([[verify-before-believing]]).
+  ✅ **The latent half is now closed too — all four nodes carry `gBatSampled` (2026-07-30).** The
+  T-Deck and Cardputer were flashed the same day and **behaved identically before and after**,
+  which is the correct result for a defensive fix and is why it was worth stating plainly rather
+  than dressing up as an improvement: neither console has ever read 0 mV, so neither was flooding.
+  They were one unplugged pack or one wrong ADC pin away from it — which is exactly what the V4
+  turned out to be, so this was not a hypothetical.
+  ⚠ **CORRECTION to what this entry first claimed.** It read: "two V4s hold 34–40 ms, which argues
+  the ~2000 ms stall is not in the shared Pulse engine." **That was wrong, and wrong in the
+  dangerous direction** — it would have sent the next session hunting in console-only code. The
+  V4 samples that supported it began at uptime **77 s and 315 s**, i.e. entirely *after* the
+  window the stall lives in. Watching V4-A from **55 s** instead caught it: `lp 2034 ms` in one
+  window, then **35 ms in all 13 following samples** out to 159 s.
+  **So the V4s REPRODUCE the phenomenon, they do not clear anything.** It is now seen on **4/4
+  powered nodes** — Cardputer ~2007 ms, T-Deck ~4221 ms, V4-A 2034/4035 ms, V4-B 2041 ms — across
+  two very different loop structures (a 3400-line console with a screen, and a 900-line headless
+  bridge), always **once, early**, then gone. That it survives that much structural difference
+  makes the shared floor (Pulse engine, ESP-NOW/WiFi bring-up, BLE scan start) a *better* suspect
+  than before, not a worse one. The recurring ~2 s figure across four nodes is the strongest clue
+  on the table.
+  📎 The methodological trap is the same one twice in one session: **a windowed number sampled
+  late reads clean**, and clean is indistinguishable from fixed unless you know when to look. Any
+  future claim about this stall must state the uptime range it sampled.
+- ⚠ **BRIDGED PULL OF V4-B IS BROKEN, AND IT IS PRE-EXISTING — control-tested, not assumed
+  (2026-07-30).** `pull --port COM6 --node v4b_relay` (laptop → V4-A → air → V4-B and back)
+  returned, across six attempts, *no data* / *4848 B* / *54290 B with a 202 B gap after 4 rounds*
+  / *no data*. The same pull **direct over V4-B's own USB (COM9) is 54290 B, twice, identical**,
+  so the node and its TTDB are fine — the loss is entirely in the bridged path.
+  **It is not the intero/duet work.** I stashed both sketches, reflashed **both V4s from HEAD**,
+  and re-ran the identical pull: *no data* / *5252 B* / *no data* — the same failure, if anything
+  slightly worse. Doing the control cost two flashes and bought the only thing that could have
+  been claimed honestly either way.
+  **The likely cause is size, and it indicts the lane-growth problem below.** The byte-exact
+  bridged pull recorded on 2026-06-25 was of an **858 B** TTDB. V4-B's is now **54290 B — 63×
+  bigger**, ~270 ESP-NOW frames, against a mesh that now also carries a Cardputer and a T-Deck.
+  Unverified, and the next thing to instrument here (per-round gap counts against file size, and
+  against a pruned lane). **Until then: pull a V4 over its own cable, not through the bridge**,
+  which is also the lesson the 2026-07-13 field re-run reached from the other direction
+  ([[multitier-field-rerun-jul13]]).
+- ✅ **THE V4s CAN READ THEIR OWN PACKS — the bug was ONE INVERTED BIT, found by sweeping the
+  board rather than guessing (2026-07-30). `PIN_ADC_CTRL` (GPIO37) is ACTIVE HIGH on the V4, not
+  active LOW as on the V3.** Both V4s first reported `energy: 0.000 V`, and the appealing story
+  was "no pack on the lead, so 0 mV is correct". The operator's bench test killed that: both had
+  been run **disconnected on their battery packs**, so the packs were present and functional and
+  0 mV was simply wrong.
+  **The fix came from a measurement, not a second guess.** Having already been wrong once by
+  trusting Heltec's V3 map, guessing a different pin from the same source would likely just be
+  wrong again — so a throwaway sketch (`scratchpad/v4_adc_probe/`) swept **every ADC1 pin
+  (GPIO1–10)** against **each candidate divider-enable in LOW / HIGH / floating**, with WiFi,
+  LoRa, I2S and the OLED all left uninitialised so every pin was free to read. The tell is not
+  the absolute number, it is **which pin MOVES with a control line**: GPIO1 read **827 mV with
+  GPIO37 HIGH and a flat 0 mV in all four other states**, repeatably. So the *pin* was right all
+  along (the operator independently found an online sample also naming GPIO1) — **only the
+  polarity was inverted, and driving it LOW is exactly the state that disconnects the divider.**
+  ✅ **Verified on both boards after the fix, and this is what makes it convincing: they disagree,
+  plausibly. V4-A reads 4.096 V (89%), V4-B reads 3.831 V (52%), both "rising" on USB charge.**
+  Two independent boards giving two *different* sensible numbers moving in the expected direction
+  is much stronger evidence than one board reading something believable.
+  ⚠ **`BAT_DIVIDER 4.9` is still inherited and unmetered.** It turns 827 mV into 4.05 V, a
+  textbook 1S pack on charge, so it is at worst close — but plausible is not checked, and the raw
+  pin millivolts still print on the first `[intero]` line for whenever a meter is handy. The
+  withhold-the-percentage guard (255 above the 4.20 V ceiling) stays regardless.
+  📎 The general lesson, which cost two hours the hard way: **a datasheet-derived constant that
+  produces a plausible-looking wrong answer is worse than one that produces an obvious one.**
+  0 mV was obvious. The polarity was not — and the same source supplied both.
+- **The Cardputer was ~12 dB quieter than its hardware allows, in TWO places at once, and the
+  codec half was a misread register (2026-07-30, on the operator's report that it is very quiet
+  next to the rest of the band).** It is the fleet's smallest voice — an 8 Ω 1 W speaker behind
+  an NS4150B — so it had the least level to spare and was giving away the most:
+  - **ES8311 DAC volume (reg 0x32) sat at 178, which is −6.5 dB, not "70%".** The register is
+    **0.5 dB per step with unity at 0xBF**, not a linear 0..255 loudness control — so the old
+    `setVolume()` mapping was wrong at both ends: `70` meant −6.5 dB, and `100` would have
+    meant **+32 dB of digital gain**, i.e. pure clipping, not loudness. `setVolume()` now scales
+    to **unity (0xBF)** and `begin()` asks for 100; `setVolumeRaw()` exists for anyone who
+    deliberately wants to push past unity with a source that is well below full scale.
+  - **The synthesized square sat at 16000/32767 (−6.2 dB).** Now **30000**, and deliberately not
+    32767: a square through the DAC reconstruction filter overshoots its edges ~9% (Gibbs), so
+    nominal full scale would clip on every transition and buzz. 30000 puts the overshoot at the
+    rail instead of through it — 1 dB given away to buy a clean edge.
+  The beep and boot toot were scaled with it (12000→22000, 6000→11000) so the intended mix
+  survives: the boot toot is *meant* to be softer than a band note.
+  ✅ **Verified the register rather than the write:** the codec is read back at boot and prints
+  `[codec] DAC vol reg 0x32 = 0xBF (0xBF = unity/0dB), tone amp 30000/32767`. That line exists
+  because **a volume that silently failed to take looks exactly like a speaker that is just
+  small** — which is the whole reason this went unnoticed.
+  ⚠ **The amplitude half (+5.5 dB) is arithmetic and certain; the codec half (+6.5 dB) depends on
+  the 0.5 dB/step reading of reg 0x32 being right.** Under a linear reading, 178→191 would be
+  worth only +0.6 dB. Ears arbitrate, and the operator's do: if it is now loud but *buzzy*, the
+  source is too hot; if it is louder but still modest, the register is linear and there is
+  another ~2.5 dB at 0xFF. **The definitive test is available on this node and nobody else:** it
+  has a mic, so it can measure its own output at two volume settings and report the actual ratio.
+  📎 Side effect worth knowing before it surprises someone: a 4× louder speaker feeds 4× more of
+  its own voice into `gSndAmb`, the acoustic tier's slow room baseline. The time-based self-noise
+  gate (`gToneUntilMs`) still suppresses `gSndHot` while a note sounds, so transient detection is
+  protected — but the @LAT94 baseline now sits higher whenever the band is playing.
 - ⚠ **The Cardputer's TTDB is growing ~1 record/min and `TTDB_MAX_RECORDS` is 256.** It went
   51 → 181 records (63 KB) in a single session. Nothing has overflowed yet, but there is no prune
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
-  file. This is the next thing that will bite, on every node.
+  file. This is the next thing that will bite, on every node. **It already has**: the broken
+  bridged pull above is the first capability this growth has actually cost the fleet.
 
 Keep this section current. It is the first thing the next session reads.
 

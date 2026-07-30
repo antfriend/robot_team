@@ -118,7 +118,49 @@ powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
 The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4.
+so no PA-variant flag is needed until Phase 4. Both V4 sketches are at **93–94% of the
+default app partition** — near the ceiling the T-Deck hit, so the next feature added to
+them probably needs `huge_app` first.
+
+⚠ **`pull` a V4 over its OWN cable, not through the V4-A bridge.** The bridged path
+(laptop → V4-A → air → V4-B) now fails on a full TTDB: no data, or a truncated/gappy
+file. It is **not** a firmware regression — control-tested by reflashing both V4s from
+HEAD, which failed identically. V4-B's TTDB has grown 858 B → 54 KB on unpruned percept
+lanes, and ~270 ESP-NOW frames across a busy mesh is a different job from ~5. The direct
+pull on the node's own port is byte-exact and repeatable (companion.md §6).
+
+As of 2026-07-30 both V4s answer **`CMD_GET_INTERO` (op 12)** and **`CMD_DUET` (op 13)**,
+so the T-Deck's record pane and its `d` key work against the spine, not just the two
+consoles (user-confirmed from the T-Deck against both V4s, audibly). Note the V4s need
+**no conductor-gate exception for the duet** — their voice was never gated on the baton
+the way a console's is.
+
+⚠ **The V4's battery divider enable `GPIO37` is ACTIVE HIGH — the opposite of the V3's
+documented active-LOW `ADC_Ctrl`.** Vbat is `GPIO1` (as published) behind it, `BAT_DIVIDER
+4.9`. Driving GPIO37 **LOW disconnects the divider** and the node reads a flat **0.000 V**
+with a perfectly good pack attached — which is what the first build of this did. Found by
+sweeping every ADC1 pin (GPIO1–10) against each candidate control pin in LOW/HIGH/floating
+with WiFi/LoRa/I2S/OLED left uninitialised (`scratchpad/v4_adc_probe/`); GPIO1 read 827 mV
+only with GPIO37 HIGH. Verified: V4-A 4.096 V/89%, V4-B 3.831 V/52%, both rising on charge.
+`BAT_DIVIDER` itself is still unmetered — the first `[intero]` line prints raw pin mV.
+
+⚠ **Do not use `gBatMv != 0` as the "have I sampled" flag** (use `gBatSampled`): 0 mV is a
+legitimate reading, and using a measurement as its own validity flag made the sampler
+re-run and re-print every loop pass — a serial flood that reported as a 2–4 s worst loop
+pass. All four nodes carry `gBatSampled` as of 2026-07-30.
+
+⚠ **`lp` (worst loop pass) is a 10-second-window number, so sampling it late reads clean.**
+Every node shows a multi-second stall reliably at boot and occasionally later, then single-
+or double-digit ms; a series started at 77 s of uptime misses it entirely and looks like a
+fix. State the uptime range with any claim about it. `companion.py intero` also **resets the
+node on port open**, so looping it can never see past the ~8 s settle — watch windowed
+numbers over one held connection (`scratchpad/intero_watch.py`).
+
+⚠ **That stall is NOT in any sketch's loop body — stop looking there.** The Cardputer's
+section profiler caught `worst pass 2009ms (widest section render 6ms)`: the nine sections
+do not account for the time, so the loop task is being **descheduled between iterations**.
+The **async WiFi scan is exonerated** by direct observation (a scan completed with the loop
+at 10 ms on both sides). Next instrument is FreeRTOS-level, not another section.
 
 The **LilyGo T-Deck** (`firmware/tdeck_console`) builds like the V4
 (`esp32:esp32:esp32s3:CDCOnBoot=cdc`) **but on the `huge_app` partition scheme**, so
@@ -158,7 +200,13 @@ no BOOT/RST dance. Board-specific rules:
    mic are dead until its registers are written. The board routes **no MCLK**, so the codec is
    configured to derive MCLK from BCLK — which only holds while the I2S bus runs **16-bit
    stereo** (BCLK = 32·fs). Don't switch it to mono or another bit width without revisiting
-   `Es8311.cpp`.
+   `Es8311.cpp`. ⚠ **DAC volume (reg 0x32) is 0.5 dB/step with unity at `0xBF`, NOT a linear
+   0..255 loudness control** — above 0xBF is digital gain (to +32 dB at 0xFF) that clips a
+   full-scale source rather than raising it. `setVolume(100)` therefore scales to 0xBF, not
+   0xFF. Tone amplitude is **30000/32767**, deliberately just under full scale because a square
+   overshoots its edges ~9% through the reconstruction filter. The boot line
+   `[codec] DAC vol reg 0x32 = 0x..` reads the register back — **a volume that silently failed
+   to take looks exactly like a speaker that is just small.**
 4. The display is an **ST7789V2 240×135 on its own SPI** (SCLK 36 / MOSI 35 / CS 37 / DC 34 /
    RST 33 / BL 38), driven by Adafruit_ST7789 with runtime pins — same reasoning as the T-Deck,
    so it never touches the K10's shared `User_Setup.h`. Use `init(135,240)` +

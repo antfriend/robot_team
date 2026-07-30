@@ -105,12 +105,25 @@ Heltec node (or the orchestrator's AP) to reach anything LoRa.
 | LoRa DIO1 | 14 |
 | PRG / BOOT button | 0 |
 | Vbat ADC (read) | 1 |
+| Vbat divider enable (**ACTIVE HIGH** — see below) | 37 |
 | Vext control (peripheral power) | 36 |
 
 > The OLED pins above are confirmed from Heltec's V4 example code. The SX1262
 > SPI pins follow the V3 mapping, which Heltec states the V4 retains — verify
 > against the official V4 pinmap PNG and datasheet (links below) before
 > committing board pins, especially since FEM/PA selection differs by revision.
+
+> ⚠ **The battery read needs GPIO37 driven HIGH, and this is a case where "the V4
+> retains the V3 mapping" is actively misleading.** The V3's `ADC_Ctrl` is
+> documented **active LOW**; on this V4 the divider is connected when GPIO37 is
+> **HIGH** and disconnected when LOW, so following the V3 note gives a flat
+> **0.000 V from a perfectly good pack** — a wrong answer that looks like an
+> absent battery rather than like a bug. Measured 2026-07-30 by sweeping every
+> ADC1 pin (GPIO1–10) against each candidate control pin in LOW/HIGH/floating
+> (`scratchpad/v4_adc_probe/`): GPIO1 read 827 mV only with GPIO37 HIGH, flat 0 mV
+> in all four other states. Confirmed on both boards (V4-A 4.096 V, V4-B 3.831 V).
+> The **divider ratio 4.9** (V3's 390k/100k) is still inherited and unmetered — it
+> yields plausible pack voltages, but no meter has confirmed it.
 
 ### Arduino board-revision gotcha
 The V4 needs the correct **LoRa FEM/PA option** selected in the Arduino Tools menu:

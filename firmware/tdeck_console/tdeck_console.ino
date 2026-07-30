@@ -697,7 +697,15 @@ static uint8_t buildGps(uint8_t* p) {
 // show four other nodes' vitals but not its own is a strange instrument to be holding.
 static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes
 
-static uint16_t gBatMv    = 0;      // pack millivolts (0 = never sampled)
+// ⚠ Have-we-sampled is its OWN flag, never `gBatMv != 0`. A measurement must not double as
+// its own validity flag: 0 mV is a perfectly legitimate reading (no pack on the lead, or a
+// divider left disconnected), and using the value as the sentinel makes the sampler re-run
+// AND re-print its one-time boot line on every loop pass. On a V4 that serial flood reported
+// as a 2-4 s worst loop pass — a fake performance number sitting right on top of a real and
+// still-unexplained one (companion.md §6). Latent rather than active here, because this
+// board has never read 0 — which is exactly why it survived this long.
+static bool     gBatSampled = false;
+static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / divider open)
 static float    gBatSlow  = 0.0f;   // slow EMA — the fill/drain reference
 static int8_t   gBatTrend = 0;      // +1 filling, -1 draining, 0 steady
 static uint8_t  gBatPct   = 0;
@@ -736,7 +744,7 @@ static uint8_t batPercent(uint16_t mv) {
 
 static void serviceIntero(uint32_t now) {
   static uint32_t last = 0;
-  if (gBatMv && now - last < INTERO_PERIOD_MS) return;
+  if (gBatSampled && now - last < INTERO_PERIOD_MS) return;
   last = now;
 
   // Four reads averaged: one 12-bit sample of a divided pack behind a switching charger is
@@ -747,7 +755,8 @@ static void serviceIntero(uint32_t now) {
   uint32_t pin_mv = acc / 4;
   uint16_t mv = (uint16_t)(pin_mv * BAT_DIVIDER);
 
-  bool first = (gBatMv == 0);
+  bool first = !gBatSampled;
+  gBatSampled = true;
   gBatMv = mv;
   // 255 = "there is a voltage but it is not a pack" (see BAT_LIION_CEILING_MV). The
   // measurement is still reported; only the percentage is withheld, because that is the
@@ -779,7 +788,7 @@ static void serviceIntero(uint32_t now) {
 // Reads nothing: every field is the last sample serviceIntero() took.
 static uint8_t buildIntero(uint8_t* p) {
   toot::put_u16(p + 0, gBatMv);
-  p[2] = gBatMv ? gBatPct : 255;   // 255 = unknown: never sampled, or not a pack voltage
+  p[2] = gBatSampled ? gBatPct : 255;   // 255 = unknown (never sampled / above the ceiling)
   p[3] = (uint8_t)(int8_t)gBatTrend;
   toot::put_u16(p + 4, (uint16_t)gDieC10);
   toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
@@ -1632,7 +1641,7 @@ static void renderIntero(int rec, uint32_t id) {
   char l[54], v[10];
 
   uint16_t bat_mv       = self ? gBatMv        : (s ? s->bat_mv : 0);
-  uint8_t  bat_pct      = self ? (gBatMv ? gBatPct : 255) : (s ? s->bat_pct : 255);
+  uint8_t  bat_pct      = self ? (gBatSampled ? gBatPct : 255) : (s ? s->bat_pct : 255);
   int8_t   bat_trend    = self ? gBatTrend     : (s ? s->bat_trend : 0);
   int16_t  die_c10      = self ? gDieC10       : (s ? s->die_c10 : 0);
   uint16_t maxalloc_kb  = self ? (uint16_t)gMaxAllocK : (s ? s->maxalloc_kb : 0);

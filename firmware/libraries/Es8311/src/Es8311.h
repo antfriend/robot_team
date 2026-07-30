@@ -43,8 +43,21 @@ bool present(TwoWire& bus, uint8_t addr = I2C_ADDR);
 // answer. `Wire.begin(sda, scl)` must already have run.
 bool begin(TwoWire& bus, uint32_t sample_rate, uint8_t addr = I2C_ADDR);
 
-// Speaker volume, 0..100 (0 = mute). Maps onto DAC volume register 0x32.
+// Speaker volume, 0..100, where **100 = 0 dB = as loud as this codec goes WITHOUT
+// adding digital gain**. 0 is mute.
+//
+// ⚠ Register 0x32 is NOT a linear 0..255 loudness control, which is what it looks like
+// and what this used to treat it as. It is a **0.5 dB per step** scale: 0x00 mutes,
+// **0xBF is unity (0 dB)**, and it keeps going to 0xFF = **+32 dB**. So the top quarter
+// of the register is digital gain applied to an already full-scale signal — it does not
+// make the speaker louder, it clips the waveform and makes it buzz. Mapping 0..100
+// linearly onto 0..255 (the old behaviour) therefore had two faults at once: "70" was
+// really -6.5 dB, and "100" would have been +32 dB of pure distortion.
 void setVolume(uint8_t percent);
+
+// The raw 0x32 value, for deliberately going past unity (see above). Use only with a
+// source that is well below full scale; on a full-scale square wave this only clips.
+void setVolumeRaw(uint8_t reg);
 
 // Microphone analog PGA gain, 0..7 (register 0x16; ~0 to +42 dB in 6 dB steps).
 // The MEMS mic wants a healthy amount — 6 is a sane starting point.

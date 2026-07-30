@@ -39,6 +39,11 @@ const uint8_t REG_GP45       = 0x45;  // general purpose (PA/mute control)
 const uint8_t REG_CHIPID1    = 0xFD;
 const uint8_t REG_CHIPID2    = 0xFE;
 
+// DAC volume (0x32) is 0.5 dB/step; this is the 0 dB point. Above it the codec applies
+// digital gain (up to +32 dB at 0xFF), which clips a full-scale source instead of
+// raising it — so this, not 0xFF, is the top of the usable range.
+const uint8_t DAC_VOL_0DB    = 0xBF;
+
 // Clock coefficients for MCLK = 256 * fs (see the header: constant across rates).
 const uint8_t PRE_DIV = 1, ADC_DIV = 1, DAC_DIV = 1;
 const uint8_t FS_MODE = 0, LRCK_H = 0x00, LRCK_L = 0xFF, BCLK_DIV = 4;
@@ -136,17 +141,24 @@ bool begin(TwoWire& bus, uint32_t sample_rate, uint8_t addr) {
   writeReg(REG_GP45, 0x00);
   writeReg(REG_DAC31, 0x00);           // DAC un-muted
 
-  setVolume(70);
+  // Full unity gain. The speaker is an 8 ohm 1 W part behind an NS4150B and is the
+  // quietest voice in the fleet by a wide margin, so there is no reason to sit 6.5 dB
+  // below what the codec will cleanly deliver.
+  setVolume(100);
   setMicGain(6);
   return true;
 }
 
 void setVolume(uint8_t percent) {
   if (percent > 100) percent = 100;
-  // Register 0x32 is 0..255 over the codec's full digital range; 0 is mute.
-  uint8_t v = percent == 0 ? 0 : (uint8_t)((uint16_t)percent * 255 / 100);
+  // 0.5 dB per step with unity at 0xBF (see the header). Scale to UNITY, not to 0xFF:
+  // everything above 0xBF is digital gain into a signal that is already full scale, so
+  // it buys distortion rather than level.
+  uint8_t v = percent == 0 ? 0 : (uint8_t)((uint16_t)percent * DAC_VOL_0DB / 100);
   writeReg(REG_DAC32, v);
 }
+
+void setVolumeRaw(uint8_t reg) { writeReg(REG_DAC32, reg); }
 
 void setMicGain(uint8_t gain) {
   if (gain > 7) gain = 7;

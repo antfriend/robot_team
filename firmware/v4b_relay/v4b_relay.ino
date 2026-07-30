@@ -114,6 +114,72 @@ static bool     gPlayEnabled = false;
 // HEARTBEAT that alone carries the ordeal (scene 3). Which scenes play what is
 // authored in the score table, not here.
 static const score::Part& kPart = heroarc::kBackbeat;
+
+// --- the duet (CMD_DUET) -----------------------------------------------------
+// Being invited into a duet overrides this node's PART for as long as it lasts: the
+// backbeat's job is to answer the floor, and a duet is somebody asking it to carry a
+// melody instead. Not a chart scene (a scene is band-wide and would pull in every powered
+// member; see Toot.h) and not persisted — the invitation belongs to the moment the console
+// asked. Same shape as both consoles' copy, deliberately: the four should stay comparable.
+static uint8_t  gDuetRole = toot::DUET_OFF;
+static uint32_t gDuetPeer = 0;
+static uint8_t  gDuetSpeed = 1;      // 1 = as written, 2 = double time (set by the inviter)
+static inline bool duetOn() { return gDuetRole != toot::DUET_OFF; }
+
+// Can this phrase be taken at `speed`? Double time traverses the SAME note table in half
+// as many steps, so every note must still land on a step the sequencer visits (noteAt is
+// an exact match). Refuse rather than silently drop a note — kOdeLead's tied note at step
+// 54 is exactly that case at ÷4. Computed once when a duet is set up, not per step.
+static uint8_t validDuetSpeed(const score::Phrase& ph, uint8_t speed) {
+  if (speed < 1) return 1;
+  if (speed > toot::DUET_SPEED_MAX) speed = toot::DUET_SPEED_MAX;
+  if (ph.steps % speed) return 1;
+  for (uint16_t i = 0; i < ph.count; ++i)
+    if (ph.notes[i].step % speed) return 1;
+  return speed;
+}
+
+// Enter/leave a duet, validating the inviter's speed against the phrase our role names.
+// Both voices must land on the same speed or they cover the phrase at different rates and
+// come apart — which is why the inviter sends it rather than each side deciding.
+static void setDuet(uint8_t role, uint32_t partner, uint8_t speed) {
+  if (role == toot::DUET_OFF) {
+    gDuetRole = toot::DUET_OFF;
+    gDuetPeer = 0;
+    gDuetSpeed = 1;
+    return;
+  }
+  gDuetRole = role;
+  gDuetPeer = partner;
+  const score::Phrase& ph =
+      (role == toot::DUET_LEAD) ? heroarc::kOdeLead : heroarc::kOdeHarm;
+  gDuetSpeed = validDuetSpeed(ph, speed);
+  if (gDuetSpeed != speed)
+    Serial.printf("[duet] speed x%u refused (a note would be dropped) -> x%u\n",
+                  speed, gDuetSpeed);
+}
+
+// Apply a CMD_DUET payload. Roles ride on the wire, so nothing here assumes who invited
+// whom — the relay can lead a duet as readily as harmonise one. The inviter RE-ASSERTS a
+// live duet every couple of seconds (a single ESP-NOW invitation gets dropped), so log
+// only on a real change: an otherwise-identical repeat is the mechanism working.
+static bool applyDuetCmd(const toot::Toot& t) {
+  if (t.payload_len < 10) return false;
+  uint32_t partner = toot::get_u32(t.payload + 5);
+  uint8_t role = t.payload[9];
+  // The speed byte is additive: a sender that predates it means "as written", the same
+  // discipline the STATUS and PULSE tails use.
+  uint8_t speed = (t.payload_len >= 11) ? t.payload[10] : 1;
+  bool changed = (role != gDuetRole) || (gDuetSpeed != speed);
+  setDuet(role, partner, speed);
+  if (changed)
+    Serial.printf("[duet] %s by 0x%08X (speed x%u)\n",
+                  role == toot::DUET_OFF ? "dismissed"
+                  : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
+                  (unsigned)partner, gDuetSpeed);
+  return true;
+}
+
 // Conductor fast-lock (§4.2): only beacon when a neighbor actually needs locking, not on
 // every HELLO.
 static uint32_t gNeighbors[8] = {0};
@@ -355,12 +421,120 @@ static void emitAck(const toot::Toot& orig, uint8_t status,
   if (flen) reply(frame, flen, ctx);
 }
 
-// STATUS telemetry for the `monitor` table. No agent cursor or temp sensor, so those
-// fields are 0; report the synced state + epoch.
+// --- interoception (CMD_GET_INTERO) ------------------------------------------
+// What the relay can say about its own body, so the T-Deck's record pane can draw it the
+// same way it draws the consoles'. Nothing here is display-shaped — the receiver has a
+// different panel and palette, and the thing worth sending across a mesh is the
+// measurement, not the pixels.
+//
+// The two PIN constants are MEASURED on this very board, not inherited: an ADC sweep of
+// every ADC1 pin (GPIO1-10) against each candidate divider-enable found GPIO1 reading 827 mV
+// with GPIO37 driven HIGH and a flat 0 mV in every other state, repeatably. ⚠ Note the
+// polarity — the V3's ADC_Ctrl is documented active-LOW and this board is the opposite way
+// round. Driving it LOW is exactly the state that DISCONNECTS the divider, which is why the
+// first build of this reported 0.000 V with a known-good pack attached.
+// ⚠ BAT_DIVIDER is still inherited and unmetered. 4.9 turns the measured 827 mV into 4.05 V,
+// a textbook 1S pack on charge, so it is at worst close — but "plausible" is not "checked",
+// so the RAW pin millivolts still print beside the derived voltage on the first sample. That
+// matters more here than on the bridge: V4-B is the solar+battery node, so its pack voltage
+// is the one number that will eventually mean something operationally.
+static const int   PIN_BAT_ADC  = 1;      // measured; matches hardware_specs.md §2
+static const int   PIN_ADC_CTRL = 37;     // measured: HIGH connects the divider, LOW opens it
+static const float BAT_DIVIDER  = 4.9f;   // V3 divider 390k/100k -> (390+100)/100
+static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes
+
+// ⚠ 0 mV is a REAL, EXPECTED reading here, not a "not yet sampled" one: with no pack on
+// the JST lead the divider has nothing to divide. So the have-we-sampled sentinel is its
+// own flag rather than `gBatMv != 0` the way it is on the two consoles — using the
+// measurement as its own validity flag made the sampler re-run and re-print the boot line
+// on EVERY loop pass, a serial flood that shows up as this node's worst-loop-pass number.
+static bool     gBatSampled = false;
+static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / no divider)
+static float    gBatSlow  = 0.0f;   // slow EMA — the fill/drain reference
+static int8_t   gBatTrend = 0;      // +1 filling, -1 draining, 0 steady
+static uint8_t  gBatPct   = 0;
+static int16_t  gDieC10   = 0;      // ESP32-S3 die temperature, tenths of a degree
+static uint32_t gMaxAllocK = 0;     // largest CONTIGUOUS block, NOT free heap
+static uint32_t gWorstLoopMs = 0;   // worst loop pass in the last window (our own slowness)
+static uint32_t gLoopWorstRun = 0;  // accumulator for the window in progress
+
+// Above this the number on the pin is NOT a 1S pack voltage — a Li-ion cell tops out at
+// 4.20 V, so more than this means we are reading the USB rail with no pack on it, or the
+// divider ratio above is wrong. Either way a state-of-charge percentage would be fiction,
+// so the volts are still reported and only the PERCENTAGE is withheld (255 = unknown).
+static const uint16_t BAT_LIION_CEILING_MV = 4250;
+
+// Voltage -> state of charge for a 1S Li-ion, linear between curve points. Deliberately
+// coarse: the flat middle of a Li-ion curve means any percentage between 3.7 and 3.9 V is
+// a guess, and more decimals would only dress that up.
+static uint8_t batPercent(uint16_t mv) {
+  static const uint16_t kV[] = {3300, 3500, 3680, 3730, 3760, 3790,
+                                3820, 3870, 3950, 4000, 4100, 4200};
+  static const uint8_t  kP[] = {   0,    5,   10,   20,   30,   40,
+                                  50,   60,   70,   80,   90,  100};
+  const int n = sizeof(kP) / sizeof(kP[0]);
+  if (mv <= kV[0]) return 0;
+  if (mv >= kV[n - 1]) return 100;
+  for (int i = 1; i < n; ++i)
+    if (mv < kV[i]) {
+      int span = kV[i] - kV[i - 1];
+      return (uint8_t)(kP[i - 1] + (int)(kP[i] - kP[i - 1]) * (mv - kV[i - 1]) / span);
+    }
+  return 100;
+}
+
+static void serviceIntero(uint32_t now) {
+  static uint32_t last = 0;
+  if (gBatSampled && now - last < INTERO_PERIOD_MS) return;
+  last = now;
+
+  // Four reads averaged: one 12-bit sample of a divided pack is noisy at exactly the
+  // millivolt scale the trend arrow reads, and the burst costs well under a millisecond
+  // once per 2 s. No settle delay here because PIN_ADC_CTRL is held LOW for good (setup)
+  // rather than pulsed per read — ~7 uA through a 490k divider is not worth stalling a
+  // loop that has a band clock to keep.
+  uint32_t acc = 0;
+  for (int i = 0; i < 4; ++i) acc += analogReadMilliVolts(PIN_BAT_ADC);
+  uint32_t pin_mv = acc / 4;
+  uint16_t mv = (uint16_t)(pin_mv * BAT_DIVIDER);
+
+  bool first = !gBatSampled;
+  gBatSampled = true;
+  gBatMv = mv;
+  // 255 = "there is no pack voltage to turn into a percentage" — either nothing is
+  // connected (0 mV) or the number is above a cell's ceiling. The volts are still
+  // reported; only the percentage, the part that would be invented, is withheld.
+  gBatPct = (mv == 0 || mv > BAT_LIION_CEILING_MV) ? 255 : batPercent(mv);
+  // Filling or draining? A ~2-minute EMA is the reference, so the arrow reports the
+  // direction of the PACK rather than of the last sample's noise. There is no VBUS sense
+  // pin, so no charge state is claimed — only which way the voltage is actually moving.
+  // On the solar node that arrow is the closest thing the fleet has to "the sun is out".
+  if (first) gBatSlow = (float)mv;
+  else       gBatSlow += ((float)mv - gBatSlow) * 0.03f;
+  float d = (float)mv - gBatSlow;
+  gBatTrend = (d > 12.0f) ? 1 : (d < -12.0f) ? -1 : 0;
+
+  // Die temperature, not ambient: there is no ambient sensor on this board. It reads high
+  // (40-55 C is normal) with WiFi and BLE up millimetres away, so it measures how hard the
+  // node is working as much as it measures the room.
+  gDieC10 = (int16_t)lroundf(temperatureRead() * 10.0f);
+  gMaxAllocK = ESP.getMaxAllocHeap() / 1024;
+
+  if (first)
+    Serial.printf("[intero] pin %lumV x%.2f = pack %umV (%u%%) | die %.1fC | "
+                  "maxalloc %luK  <- CHECK THE PACK VOLTAGE AGAINST A METER\n",
+                  (unsigned long)pin_mv, BAT_DIVIDER, mv, gBatPct,
+                  gDieC10 / 10.0f, (unsigned long)gMaxAllocK);
+}
+
+// STATUS telemetry for the `monitor` table. No agent cursor, so those fields are 0; report
+// the synced state + epoch. The temperature field is no longer 0: it carries the die
+// reading. Toot.h calls the field "ambient" and this is not that — but a die reading is a
+// real measurement of a real body, and an empty field is not.
 static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 0, 0);
   toot::put_u16(p + 2, 0);
-  toot::put_u16(p + 4, 0);
+  toot::put_u16(p + 4, (uint16_t)(gDieC10 * 10));   // tenths here, HUNDREDTHS on the wire
   p[6] = gSynced ? toot::STATUS_SYNCED : 0;
   toot::put_u64(p + 7, gSynced ? (uint64_t)nowEpochMs() : 0);
 #if USE_PULSE
@@ -382,6 +556,41 @@ static uint8_t buildStatus(uint8_t* p) {
 #else
   return (uint8_t)toot::STATUS_PAYLOAD_LEN;
 #endif
+}
+
+// INTERO PERCEPT — the answer to CMD_GET_INTERO (Toot.h INTERO_PERCEPT_PAYLOAD_LEN).
+// Reads NOTHING: every field is the last sample serviceIntero() took on its own 2 s
+// cadence, so this is safe from the recv callback and cheap enough for a remote console
+// to poll while it watches us — which is exactly the use case (the T-Deck's record pane).
+static uint8_t buildIntero(uint8_t* p) {
+  toot::put_u16(p + 0, gBatMv);
+  p[2] = gBatSampled ? gBatPct : 255;   // 255 = unknown (never sampled / no pack / not a pack)
+  p[3] = (uint8_t)(int8_t)gBatTrend;
+  toot::put_u16(p + 4, (uint16_t)gDieC10);
+  toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
+  toot::put_u32(p + 8, millis() / 1000);
+  toot::put_u16(p + 12, (uint16_t)(gWorstLoopMs > 65535 ? 65535 : gWorstLoopMs));
+#if USE_PULSE
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u16(p + 14, ch.beat_period_ms);
+  toot::put_u32(p + 16, ch.conductor_id);
+  // VOICING answers "is it singing", which PLAYING does not: PLAYING only means the band
+  // clock is running, and the backbeat is silent in the scenes it has no row for. Reported
+  // as the STATE that would sound a note rather than the instant of one, so a 2 s poll
+  // cannot fall between two beats and read false. Unlike the consoles there is no
+  // `!conductor()` term: this node's voice has never been gated on the baton (see loop()).
+  bool voicing = duetOn() ||
+                 (gPlayEnabled && score::phraseForScene(kPart, gPulse.scene()) != nullptr);
+  p[20] = (gSynced ? toot::INTERO_SYNCED : 0) |
+          (gPulse.conductor() ? toot::INTERO_CONDUCTOR : 0) |
+          (gPulse.playing() ? toot::INTERO_PLAYING : 0) |
+          (voicing ? toot::INTERO_VOICING : 0);
+#else
+  toot::put_u16(p + 14, 0);
+  toot::put_u32(p + 16, 0);
+  p[20] = gSynced ? toot::INTERO_SYNCED : 0;
+#endif
+  return (uint8_t)toot::INTERO_PERCEPT_PAYLOAD_LEN;
 }
 
 // Serve a TTDB_REQ addressed to this node: belief mode streams the stored /belief.md
@@ -422,6 +631,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       if ((toot::cmdOp(t) == toot::CMD_PLAY || toot::cmdOp(t) == toot::CMD_STOP) &&
           (toot::cmdTarget(t) == kNodeId || toot::cmdTarget(t) == NODE_BROADCAST)) {
         gPlayEnabled = (toot::cmdOp(t) == toot::CMD_PLAY);
+        if (!gPlayEnabled) setDuet(toot::DUET_OFF, 0, 1);   // stop means stop, duet included
 #if USE_PULSE
         // CMD_PLAY arms the story to walk itself: as conductor we auto-advance the early
         // scenes and hold at the grief (ORDEAL) for the returning roamer (see serviceSong).
@@ -452,6 +662,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           uint8_t slen = buildStatus(body);
           emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
         }
+        if (toot::cmdOp(t) == toot::CMD_GET_INTERO) {
+          // "Show me your body", from the T-Deck's record pane or `companion.py intero`.
+          // buildIntero reads nothing (all cached by serviceIntero) and the reply is ONE
+          // frame, so unlike a TTDB burst this is safe to answer from the recv callback.
+          uint8_t body[toot::INTERO_PERCEPT_PAYLOAD_LEN];
+          uint8_t ilen = buildIntero(body);
+          emit(toot::PERCEPT, body, ilen, reply, ctx);
+        }
 #if USE_SPEAKER
         if (toot::cmdOp(t) == toot::CMD_BEEP) {
           uint16_t freq = 880, ms = 200;      // defaults (match the T-Deck)
@@ -470,6 +688,10 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           if (accepted)
             Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
                           (unsigned)gDb.fileSize(), gDb.recordCount());
+        } else if (toot::cmdOp(t) == toot::CMD_DUET) {
+          // A console asking the relay to sing with it. Flags + a phrase pointer only —
+          // no flash, no tone (the note sounds from loop() like every other part).
+          accepted = applyDuetCmd(t);
         } else {
           accepted = true;  // ping / set-* (no-op on V4-B) / get-status all ACK
         }
@@ -683,6 +905,13 @@ void setup() {
   digitalWrite(kLedPin, LOW);
 #endif
 
+  // Connect the Vbat divider (HIGH — measured, see PIN_ADC_CTRL) and leave it connected:
+  // the alternative is pulsing it per read with a settle delay, and ~8 uA through a 490k
+  // divider is cheaper than stalling a loop that has a band clock to keep. If that current
+  // ever matters on solar, pulse it across two loop passes rather than blocking on a settle.
+  pinMode(PIN_ADC_CTRL, OUTPUT);
+  digitalWrite(PIN_ADC_CTRL, HIGH);
+
   pinMode(kVextCtrl, OUTPUT);
   digitalWrite(kVextCtrl, LOW);      // LOW = OLED power on (Heltec Vext)
   delay(50);
@@ -724,6 +953,13 @@ void setup() {
 }
 
 void loop() {
+  const uint32_t loop_t0 = millis();
+
+  // The body's own senses. Cheap and rare (four ADC reads + a die-temperature read once
+  // per 2 s), and it must run from loop() rather than from a CMD_GET_INTERO so a remote
+  // poll costs the same whether or not anyone is watching.
+  serviceIntero(loop_t0);
+
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Un-deduped trusted link.
   uint8_t buf[toot::MAX_FRAME];
@@ -845,24 +1081,60 @@ void loop() {
                     (unsigned)gPulse.chart().conductor_id);
     // Backbeat part: the scene selects the phrase (snare / heartbeat / no row = SILENT);
     // the step clock runs regardless, so a silent scene stays in phase.
-    const score::Phrase* ph = score::phraseForScene(kPart, gPulse.scene());
+    // A DUET overrides the phrase (and the scene's silence) for as long as it lasts — the
+    // pair was asked for by name, and the step clock underneath is the same one.
+    const score::Phrase* ph;
+    bool voice;
+    uint8_t speed = 1;
+    if (duetOn()) {
+      ph = (gDuetRole == toot::DUET_LEAD) ? &heroarc::kOdeLead : &heroarc::kOdeHarm;
+      voice = true;
+      speed = gDuetSpeed;             // already validated against this phrase by setDuet
+    } else {
+      ph = score::phraseForScene(kPart, gPulse.scene());
+      voice = gPlayEnabled;           // boots silent; only between CMD_PLAY and CMD_STOP
+    }
+    // DOUBLE TIME is these two lines: wrap the phrase in `steps/speed` slots and look the
+    // note up at `sip*speed`. The pulse clock and beat period are untouched, so the pair
+    // covers the written phrase in half the steps while staying locked to the beat the
+    // rest of the fleet counts. ONE stepTick per pass — the call consumes the tick.
+    const uint16_t steps = ph ? (uint16_t)(ph->steps / speed) : 16;
     uint16_t sip;
     uint32_t sc;
-    const score::Note* nt = nullptr;
-    if (gPulse.stepTick(pnow, ph ? ph->steps : 16, sip, sc) && ph &&
-        (nt = score::noteAt(*ph, sip))) {
-      if (gPlayEnabled) {             // boots silent; only between CMD_PLAY and CMD_STOP
+    static uint32_t prev_step = 0;
+    static bool have_prev = false;
+    if (gPulse.stepTick(pnow, steps, sip, sc)) {
+      // Catch up over any steps this pass jumped, so a stalled pass cannot swallow the
+      // note that fell in the gap. Defensive: the percept flush and a blocking tone both
+      // exceed a step, and a duet's notes are only 2 steps apart.
+      const score::Note* nt = nullptr;
+      if (ph)
+        nt = (have_prev && sc > prev_step + 1)
+                 ? score::noteForCrossedSteps(*ph, prev_step, sc, speed, steps)
+                 : score::noteAt(*ph, (uint16_t)(sip * speed));
+      prev_step = sc;
+      have_prev = true;
+      if (nt && voice) {
         digitalWrite(kLedPin, HIGH);
         gLedClearMs = pnow + PULSE_LED_MS;
         gBeatFlash = true;
         gOledDirty = true;
 #if USE_SPEAKER
-        // Sound the backbeat on the amp. Blocks ~PULSE_PART_TONE_MS; beats are >=500ms apart
-        // (deferred-tone discipline, safe in loop()).
-        if (nt->freq != score::REST) toneI2S((float)nt->freq, PULSE_PART_TONE_MS);
+        // Sound the note on the amp. Blocks; beats are >=500ms apart (deferred-tone
+        // discipline, safe in loop()). Articulation scales with speed so double time stays
+        // staccato instead of slurring into the next slot.
+        if (nt->freq != score::REST) {
+          uint32_t ms = PULSE_PART_TONE_MS / speed;
+          if (ms < 80) ms = 80;
+          toneI2S((float)nt->freq, ms);
+        }
 #endif
-        Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip, (sip / 4) % 4 + 1,
-                      (unsigned long)gPulse.chart().era);
+        if (duetOn())
+          Serial.printf("[part] step %2u/%u  %4uHz (%s x%u)\n", sip, steps, nt->freq,
+                        gDuetRole == toot::DUET_LEAD ? "duet-lead" : "duet-harm", speed);
+        else
+          Serial.printf("[part] step %u BACKBEAT (beat %u) era=%lu\n", sip,
+                        (sip / 4) % 4 + 1, (unsigned long)gPulse.chart().era);
       }
     }
     if (gLedClearMs && (int32_t)(pnow - gLedClearMs) >= 0) {
@@ -885,5 +1157,19 @@ void loop() {
     lastRender = millis();
     gOledDirty = false;
     renderOled();
+  }
+
+  // Close the profiler window. Published every 10 s so `lp` reports a RECENT worst case
+  // rather than a boot spike that never clears — the same per-window discipline the two
+  // consoles use, which is what makes the four nodes' `lp` numbers comparable.
+  {
+    uint32_t dt = millis() - loop_t0;
+    if (dt > gLoopWorstRun) gLoopWorstRun = dt;
+    static uint32_t windowStart = 0;
+    if (millis() - windowStart >= 10000) {
+      windowStart = millis();
+      gWorstLoopMs = gLoopWorstRun;
+      gLoopWorstRun = 0;
+    }
   }
 }
