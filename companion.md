@@ -59,7 +59,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off). **2026-07-30: answers `CMD_GET_INTERO` (21 B body, die temp now in STATUS too) and `CMD_DUET` — it led a verified double-time duet with V4-B.** **reads its own pack: 4.096 V / 89% / rising** (GPIO1 behind an ACTIVE-HIGH GPIO37, measured); ⚠ pull it over its own cable, the bridged path is broken |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off. **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` — harmonised a double-time duet after being invited entirely over the air.** **reads its own pack: 3.831 V / 52% / rising** — the solar+battery node can finally report its state of charge; ⚠ its 54 KB TTDB no longer pulls through the bridge — use COM9 direct |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` too — the whole LoRa spine is now at parity, and its pack read 3.841 V / 54% on the FIRST flash because it was built with the measured GPIO37 polarity instead of the published one**; compile-verified 94% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
-| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
+| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ⏸ **PARKED 2026-07-31 — temporarily excluded from the fleet; depend on nothing here.** Code kept and unmodified (`firmware/k10_percept`, `NODE_K10_1`, the `.vscode` K10 tasks); it is only out of the *defaults* — `--node k10_1` still works the moment it is plugged back in. Was already off the band roster and off the T-Deck's mesh map (2026-07-29) on v1 firmware; this finishes that. Previously ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor) |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -2066,6 +2066,134 @@ If a fact lives in one of these, link to it from here — don't copy it.
   policy and the percept-window flash append already spikes the loop 60–220 ms, growing with the
   file. This is the next thing that will bite, on every node. **It already has**: the broken
   bridged pull above is the first capability this growth has actually cost the fleet.
+
+- **REPO RESHAPED FOR PUBLICATION (2026-07-31) — `RFCs/` now lives at `replicate/RFCs/`.**
+  The specs moved under a new **`replicate/`** folder that is the open-source front door
+  (`replicate/README.md` — "Universal Agent Memory & Learning System", a recipe per use case;
+  `replicate/agent-memory-system_ttdb.md` — the semantically-compressed spec store that is *an
+  instance of the thing it specifies*). New spec: **`TTDB-RFC-0009 Counter-Story and Narrative
+  Morphospace`** (479 lines), which argues the fleet's *heterogeneity* — mic+IMU only on the
+  Cardputer, GNSS only on the T-Deck, long-haul only on the V4s — is the thing that lets the
+  collection know something no member could; it is also aimed squarely at the spec's own
+  highest-EPS gap, **Learning from Action** (`@LAT20LON3`), which is deliberately unimplemented.
+  (`TTX-0004-counter-story.md` was folded into that RFC and deleted.)
+  ⚠ **32 `RFCs/…` links across 12 files are now stale** — `companion.md` §5 (14), `PLAN.md` (5),
+  `CLAUDE.md`, `README.md`, `ttn-semantic-positioning.md`, `cardputer-sensorium.md`,
+  `tests/Makefile`, `tests/test_rfc_ttdb.cpp`, `firmware/libraries/Pulse/src/Pulse.h`,
+  `firmware/tdeck_console/tdeck_console.ino`. Docs degrade quietly; **`tests/Makefile` +
+  `test_rfc_ttdb.cpp` will actually break** on the next `make`.
+  ⚠ **Both handhelds' RFC globe is 2 records behind:** `replicate/RFCs/rfc.ttdb.md` is **36
+  records / 38014 B**, while `firmware/{tdeck,cardputer}_console/data/rfc.ttdb.md` are both
+  **34 / 34047 B** — TTDB-RFC-0009 is not on the glass. Re-copy + re-flash the FS to catch up.
+- **K10 PARKED — temporarily excluded from the fleet (2026-07-31, operator's call).** It runs v1
+  firmware and was already off the band roster and off the T-Deck's mesh map (2026-07-29); this
+  finishes the job so **nothing depends on it**. Changed: `companion.py` gained `DEFAULT_FLEET`
+  (`v4a_bridge,v4b_relay,v4c_edge,tdeck_1,cardputer_1`) and `sync --expect` / `verify --nodes` /
+  `monitor --nodes` / `reconcile --nodes` now default to it instead of `…,k10_1` (`reconcile` had
+  defaulted to **`k10_1` alone**, so it was reconciling a node that isn't there); the Cardputer's
+  `kTargets` no longer cycles `t` onto it (source edit — **takes effect on its next flash**).
+  **Kept, untouched:** `firmware/k10_percept`, `NODE_K10_1`/`NODE_IDS["k10_1"]`, the display-name
+  map, the `.vscode` K10 tasks, and the K10 `User_Setup.h` note in CLAUDE.md. It is out of the
+  *defaults*, not out of the repo — `--node k10_1` works the moment it is plugged back in.
+- **Bench geometry as of 2026-07-31 (operator-stated ground truth, one room + hallway):**
+  **V4-A and the T-Deck cabled and ~2 ft apart**, **Cardputer across the room**, **V4-B by the
+  front door**, **V4-C on the dining table**. V4-A holds USB as the bridge, so the whole fleet is
+  reachable without moving a cable. This is a *stated* layout spanning ~0.6 m to ~10 m in four
+  distinct distance classes — the discriminating test it affords is **rank ordering**
+  (V4-A↔T-Deck must come out nearest by a wide margin), not absolute metres, which is the honest
+  claim indoor RSSI can carry ([[rssi-ranging-shadowing-limited]]).
+
+- ⚠⚠ **A BRIDGED PULL CAN REPORT SUCCESS AND RETURN A FILE MIXED FROM TWO GENERATIONS — the
+  gap detector cannot see it (found 2026-07-31, and this is worse than the known gappy failure).**
+  Chasing the TTDB-growth blocker produced the size confirmation *and* a silent-corruption mode
+  nobody had looked for. **The dose-response is clean and confirms size is the mechanism** for the
+  bridged-pull failure recorded on 2026-07-30: V4-B at **54290 B** needed 4 self-heal rounds and
+  still ended with **5, then 4, ranges missing**, twice; after its `@LAT97` lane was pruned to
+  **30637 B** the same bridged pull completed **first pass, zero gaps, zero re-request rounds**.
+  ⚠ **But that "clean" 30637 B pull is not a valid TTDB.** Its last record, `@LAT96LON46`, carries
+  an `ENTITY`/`ENTWIN` body **with `LINKWIN`/`LINK` content appended after it** — stale `@LAT97`
+  bytes from the *pre-compaction* file, at exactly the offset a stale tail would land. The other
+  three files pulled this session (V4-B before, T-Deck before/after) are internally consistent, so
+  this is not an analysis artefact: `@LAT96` is `EntityPercept`'s lane and `LINK*` is
+  `LinkPercept`'s format — one record can never hold both.
+  **Mechanism: the pull is offset-addressed, and nothing pins the file's generation.** `removeLane`
+  rewrites and shortens the file; the percept lanes also append a window every ~60 s. A bridged
+  pull takes minutes. So the reassembled object can be stitched from slices that referred to
+  different generations of the file, and **`missing_ranges` only checks offset *coverage*, not that
+  the covered bytes came from one version** — full coverage of a moving target reads as success.
+  📎 **This retroactively weakens every "byte-exact bridged pull" claim taken while a node was
+  mutating its TTDB.** Direct-cable pulls are much less exposed (one shot, seconds — the T-Deck's
+  39789 B came back in a single pass), which is probably why this went unseen: the 2026-06-25
+  byte-exact result was an 858 B file that took no time to move. **Do not trust a bridged pull as
+  a source of truth until the object is generation-stamped** (a version/CRC in the EOF marker that
+  the reassembler checks, or a serve-time snapshot) — that is the fix, and it is a real one, not a
+  retry.
+- ⚠ **LOOPING `companion.py` POWER-CYCLES THE BRIDGE ONCE PER PROBE — and that fabricated a
+  two-node outage that did not exist (2026-07-31).** A shell loop of `ping --port COM6` over the
+  five nodes reported **V4-C and the Cardputer UNDELIVERED** after 4 attempts each, twice, and
+  was written up here as "only three nodes are on the mesh, probably flat batteries". **Wrong.**
+  Every invocation opens the port with DTR/RTS asserted, so **each probe rebooted V4-A and then
+  measured the mesh through a bridge that was still settling.** The operator saw it directly —
+  *"V4-A is power cycling"* — which is the only reason it was caught.
+  ✅ **One held connection, opened with `open_serial_no_reset`, reaches everything: 15/15 over 3
+  rounds** (`scratchpad/reach.py`) — V4-A 1,1,1 · V4-B 1,2,1 · V4-C 1,2,1 · T-Deck 2,1,1 ·
+  Cardputer 2,1,1 attempts, 100–650 ms. **The full five-node fleet is up and the stated bench
+  geometry IS collectable.**
+  ⚠ **This also retracts the "over-air CMDs are marginal, 4 attempts is sometimes not enough"
+  claim** made from the same runs: on a held connection nothing ever needed more than 2. The
+  `clear-percepts` no-ACKs that looked like radio loss were mostly self-inflicted for the same
+  reason. What *does* survive: an already-empty-lane clear still ACKs `APPLIED` over USB, so
+  **`removeLane` is genuinely idempotent** and a no-ACK never meant a rejected command.
+  📎 This is [[verify-before-believing]] and the `intero`-resets-the-node note generalised:
+  **any looped `companion.py` invocation measures a freshly-rebooted bridge.** The instrument has
+  to outlive the thing it measures — hold ONE connection and probe many times. The dose-response
+  result above is unaffected (single invocation on both sides, internally controlled), and so is
+  the two-generation corruption finding (a content check on a file, not a timing claim).
+- **Prune done where it could be, and `@LAT96` is now the lane that matters.** `@LAT97` cleared on
+  **V4-A** (USB), **V4-B** (over air), **T-Deck** (USB — verified by pull, 39789 → **26301 B**,
+  48 records gone). **V4-C and the Cardputer are still unpruned** — not because they were
+  unreachable (they were not; see the retraction above) but because the probe that said so was
+  broken, and the clear was never re-attempted against them. Do that first next session. ⚠ **`CMD_CLEAR_PERCEPTS`
+  drops `@LAT97` ONLY** — the `@LAT96` entity lane has **no prune command at all** and is now the
+  dominant consumer on every node (T-Deck 48 records ≈ 26 KB after the `@LAT97` clear; V4-B 29).
+  Both nodes were sitting at the **48-record lane cap on both lanes**, i.e. saturated and silently
+  dropping new evidence. A lane argument on op 8 is the obvious next increment.
+
+- **SP1/SP2 RUN IN A STATED INDOOR GEOMETRY (2026-07-31) — ORDERING PASSES, METRIC FAILS, AND
+  THE EMBEDDING DEGENERATES.** First positioning collect since the lanes were pruned, against an
+  operator-stated layout (V4-A + T-Deck ~2 ft apart and cabled, Cardputer across the room, V4-B at
+  the front door, V4-C on the dining table). Collected with `scratchpad/collect.py`, which pulls
+  the two cabled nodes over **their own cables** and only bridges the rest, then checks each file
+  for the two-generation stitch before `proximity --no-pull` consumes it.
+  ✅ **The rank ordering is CORRECT on both tiers, and that is the honest claim.** espnow:
+  V4-A↔T-Deck **3.83 m** (nearest, and by ~2× over the next pair), T-Deck↔Cardputer 7.27,
+  V4-A↔Cardputer 7.62, V4-C↔T-Deck 7.62, V4-A↔V4-C 14.15, V4-A↔V4-B 23.88, V4-B↔T-Deck **27.55 m**
+  (farthest). BLE ranks identically (0.33 → 25.12 m). **The 2 ft pair is picked out as nearest and
+  the front-door node as farthest, from umwelt overlap alone.**
+  ⚠ **The metric is badly wrong, exactly where the model says it should be.** ~0.6 m of true
+  separation reads **3.83 m on espnow — 6× over** — that pair sits far below the calibration fit's
+  **3.75 m valid floor**, so it is pure extrapolation. **BLE is much better near (0.33 m vs a true
+  ~0.6 m) and much worse far** (1.0 m for a room crossing of ~4–5 m), which is precisely the
+  "near-range approximation tier" role it was given. The two tiers disagree by **2–7× on the same
+  pair**.
+  ⚠ **Triangle inequality violated beyond what sigma absorbs:** V4-A and T-Deck are ~0.6 m apart
+  yet their distances to V4-C differ 2× (14.15 vs 7.62 m, sigma 4.09 / 2.46).
+  ⚠ **`positions` collapsed to ~1D — 32.6 m wide × 1.5 m tall, every y ≈ 0.** Under-determined:
+  only **7 pairs from 3 observers**, all the V4-B/Cardputer pairs **one-directional** (their own
+  windows were unreachable, so `asym_db` reads 0.0 and understates the real uncertainty), and 3
+  pairs — V4-B↔V4-C, V4-B↔Cardputer, V4-C↔Cardputer — **missing entirely**. The solver is also
+  fed **both tiers as separate constraints per pair** with 2–7× disagreement, so it splits the
+  difference and cannot recover lateral structure. **Do not read `master/positions.md` from this
+  run as a map**; the pair table is the result, the embedding is not.
+  **The blocker is now specific and mechanical:** a bidirectional 5-node run needs V4-B's and the
+  Cardputer's own `@LAT97` windows, which needs their TTDBs to pull, which needs the **`@LAT96`
+  lane pruned** — and op 8 cannot do it. **A lane argument on `CMD_CLEAR_PERCEPTS` is the single
+  next increment**, and it costs a reflash of all five nodes.
+  📎 Two collection hazards worth keeping: `master/v4b_relay.md` and `master/cardputer_1.md` on
+  disk were from **2026-07-13 (the garden run) and 07-27** — feeding those to `--no-pull` would
+  have silently mixed a different field layout into today's map (moved to
+  `scratchpad/stale_master/`). And `proximity --nodes` had been defaulting to a **stale 3-node
+  list**; it now uses `DEFAULT_FLEET`.
 
 Keep this section current. It is the first thing the next session reads.
 

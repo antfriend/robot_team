@@ -9,31 +9,31 @@ each node's incident edge residuals + pair sigmas; stress is the fit's honesty.
 
 ---
 
-@BELIEF:POSITION @node(k10_1)
+@BELIEF:POSITION @node(cardputer_1)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 21.23
+x_m: 2.12
 y_m: 0.00
-sigma_m: 3.37
+sigma_m: 4.04
 anchor_chain: [v4a_bridge]
-embedding_rev: 4
+embedding_rev: 5
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.48
-conf: 0.68
-touched: 2026-07-13T22:32:17Z
+stress_m: 2.04
+conf: 0.45
+touched: 2026-07-31T23:01:04Z
 
 ---
 
 @BELIEF:POSITION @node(tdeck_1)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 16.05
-y_m: 0.67
-sigma_m: 18.42
+x_m: -0.87
+y_m: 0.02
+sigma_m: 7.53
 anchor_chain: [v4a_bridge]
-embedding_rev: 4
+embedding_rev: 5
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.48
-conf: 0.52
-touched: 2026-07-13T22:32:17Z
+stress_m: 2.04
+conf: 0.44
+touched: 2026-07-31T23:01:04Z
 
 ---
 
@@ -41,24 +41,38 @@ touched: 2026-07-13T22:32:17Z
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
 x_m: 0.00
 y_m: 0.00
-sigma_m: 253.45
+sigma_m: 8.87
 anchor_chain: [v4a_bridge]
-embedding_rev: 4
+embedding_rev: 5
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.48
-conf: 0.58
-touched: 2026-07-13T22:32:17Z
+stress_m: 2.04
+conf: 0.44
+touched: 2026-07-31T23:01:04Z
 
 ---
 
 @BELIEF:POSITION @node(v4b_relay)
 frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
-x_m: 17.30
-y_m: 8.43
-sigma_m: 283.04
+x_m: 22.99
+y_m: -0.14
+sigma_m: 12.99
 anchor_chain: [v4a_bridge]
-embedding_rev: 4
+embedding_rev: 5
 flip_resolved: false   # one anchor; T-Deck GPS resolves
-stress_m: 0.48
-conf: 0.55
-touched: 2026-07-13T22:32:17Z
+stress_m: 2.04
+conf: 0.45
+touched: 2026-07-31T23:01:04Z
+
+---
+
+@BELIEF:POSITION @node(v4c_edge)
+frame: relative   # anchor v4a_bridge at origin, 2nd node on +x, 3rd at +y
+x_m: -8.60
+y_m: 0.35
+sigma_m: 8.96
+anchor_chain: [v4a_bridge]
+embedding_rev: 5
+flip_resolved: false   # one anchor; T-Deck GPS resolves
+stress_m: 2.04
+conf: 0.45
+touched: 2026-07-31T23:01:04Z

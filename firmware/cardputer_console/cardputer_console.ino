@@ -166,7 +166,9 @@ static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 // Which node the keyboard drives, cycled with 't'. Default the T-Deck: two handhelds
 // side by side is the pair an operator most wants to compare, and the T-Deck answers
 // over the air (the V4-A bridge answers CMDs only over USB).
-static const uint32_t kTargets[] = {NODE_TDECK_1, NODE_K10_1, NODE_V4B_RELAY,
+// (The K10 is parked as of 2026-07-31 — v1 firmware, off the band roster and off the
+// T-Deck's mesh map. Cycling onto it only sent CMDs at a node that never answers.)
+static const uint32_t kTargets[] = {NODE_TDECK_1, NODE_V4B_RELAY,
                                     NODE_V4C_EDGE, NODE_V4A_BRIDGE};
 static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
 static int gTargetIdx = 0;

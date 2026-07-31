@@ -54,6 +54,12 @@ NODE_IDS = {
     "cardputer_1": 0x00000300,
 }
 
+# The nodes a fleet-wide command talks to by default. The K10 is PARKED (2026-07-31):
+# it runs v1 firmware, is off the band roster and off the T-Deck's mesh map, so leaving
+# it in these defaults only bought silent timeouts. Its id above is deliberately kept —
+# `--node k10_1` / `--nodes ...,k10_1` still work the moment it is plugged back in.
+DEFAULT_FLEET = "v4a_bridge,v4b_relay,v4c_edge,tdeck_1,cardputer_1"
+
 # Toot types.
 PERCEPT = 2
 BELIEF = 3
@@ -3173,7 +3179,7 @@ def main():
     sy = sub.add_parser("sync", help="push a timestamp to the fleet (TTN-RFC-0008)")
     sy.add_argument("--port", required=True, help="bridge serial port (COM6, ...)")
     sy.add_argument("--baud", type=int, default=115200)
-    sy.add_argument("--expect", default="v4a_bridge,k10_1",
+    sy.add_argument("--expect", default=DEFAULT_FLEET,
                     help="comma-separated nodes expected to ACK the sync")
     sy.add_argument("--master", default=DEFAULT_MASTER_SYNC,
                     help="laptop master sync log to append")
@@ -3188,7 +3194,7 @@ def main():
     vf.add_argument("--baud", type=int, default=115200)
     vf.add_argument("--sync-id", type=int, required=True, dest="sync_id",
                     help="the sync_id to verify (printed by `sync`)")
-    vf.add_argument("--nodes", default="v4a_bridge,k10_1",
+    vf.add_argument("--nodes", default=DEFAULT_FLEET,
                     help="comma-separated nodes to check")
     vf.add_argument("--bound-ms", type=float, default=50.0, dest="bound_ms")
     vf.add_argument("--master", default=DEFAULT_MASTER_SYNC)
@@ -3273,7 +3279,7 @@ def main():
     px.add_argument("--port", default=None,
                     help="port to pull nodes from (omit / --no-pull to use files)")
     px.add_argument("--baud", type=int, default=115200)
-    px.add_argument("--nodes", default="v4a_bridge,v4b_relay,tdeck_1")
+    px.add_argument("--nodes", default=DEFAULT_FLEET)
     px.add_argument("--out", default=DEFAULT_PROXIMITY_OUT)
     px.add_argument("--no-pull", action="store_true", dest="no_pull",
                     help="don't pull; read existing master/<node>.md")
@@ -3349,7 +3355,7 @@ def main():
     mo = sub.add_parser("monitor", help="live fleet telemetry table (poll GET_STATUS)")
     mo.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
     mo.add_argument("--baud", type=int, default=115200)
-    mo.add_argument("--nodes", default="v4a_bridge,k10_1")
+    mo.add_argument("--nodes", default=DEFAULT_FLEET)
     mo.add_argument("--interval", type=float, default=1.0,
                     help="seconds per poll round")
     mo.add_argument("--rounds", type=int, default=0, help="0 = until Ctrl-C")
@@ -3361,7 +3367,7 @@ def main():
     rc.add_argument("--port", default=None,
                     help="port to pull nodes from (omit / --no-pull to use files)")
     rc.add_argument("--baud", type=int, default=115200)
-    rc.add_argument("--nodes", default="k10_1")
+    rc.add_argument("--nodes", default=DEFAULT_FLEET)
     rc.add_argument("--master", default=DEFAULT_MASTER_SYNC,
                     help="laptop master sync log")
     rc.add_argument("--out", default=os.path.join("master", "consolidated.md"))

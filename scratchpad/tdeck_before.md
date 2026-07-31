@@ -92,6 +92,14 @@ not the dot.
 
 ---
 
+@LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60000 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:16 rssi_min:-40 rssi_med:-26 rssi_max:-25
+**LINK** peer:0x00000300 proto:ble n:61 rssi_min:-81 rssi_med:-43 rssi_max:-37
+
+---
+
 @LAT96LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **ENTWIN** t_ms:62068 synced:0 window_ms:62068 entities:7
@@ -102,6 +110,22 @@ not the dot.
 **ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
 **ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
 **ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-93
+
+---
+
+@LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120000 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-81 rssi_med:-53 rssi_max:-45
+**LINK** peer:0x00000300 proto:espnow n:22 rssi_min:-40 rssi_med:-34 rssi_max:-31
+
+---
+
+@LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60020 synced:0 window_ms:60020
+**LINK** peer:0x00000300 proto:espnow n:37 rssi_min:-35 rssi_med:-30 rssi_max:-26
+**LINK** peer:0x00000300 proto:ble n:53 rssi_min:-80 rssi_med:-44 rssi_max:-40
 
 ---
 
@@ -120,6 +144,78 @@ not the dot.
 
 ---
 
+@LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120020 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:62 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:32 rssi_min:-30 rssi_med:-30 rssi_max:-29
+
+---
+
+@LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:180020 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-79 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:31 rssi_min:-30 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:240040 synced:0 window_ms:60020
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:33 rssi_min:-30 rssi_med:-30 rssi_max:-29
+
+---
+
+@LAT97LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:300040 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:70 rssi_min:-80 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:26 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON7 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:360117 synced:0 window_ms:60077
+**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-30 rssi_med:-30 rssi_max:-29
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-81 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:420117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:55 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:20 rssi_min:-30 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON9 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:480117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:38 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-53 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON10 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:540117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-82 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:28 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON11 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:600117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-82 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:31 rssi_min:-30 rssi_med:-30 rssi_max:-30
+
+---
+
 @LAT96LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **ENTWIN** t_ms:615182 synced:0 window_ms:553121 entities:8
@@ -131,6 +227,86 @@ not the dot.
 **ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-93
 **ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-93
 **ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-95
+
+---
+
+@LAT97LON12 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:660117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:34 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-79 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON13 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:720117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:59 rssi_min:-79 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:24 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON14 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:780117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-53 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:37 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON15 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:840117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:58 rssi_min:-68 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:28 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON16 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:900117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-79 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:33 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON17 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:960117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-79 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:31 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON18 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1020117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-79 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:30 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON19 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1080117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:65 rssi_min:-80 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON20 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1140117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:67 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:28 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON21 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1200117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:61 rssi_min:-82 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:34 rssi_min:-30 rssi_med:-30 rssi_max:-30
 
 ---
 
@@ -146,6 +322,86 @@ not the dot.
 
 ---
 
+@LAT97LON22 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1260117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:27 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:58 rssi_min:-80 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON23 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1320117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-80 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:29 rssi_min:-30 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON24 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1380117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:70 rssi_min:-80 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-30 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON25 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1440117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:53 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:21 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON26 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1500117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:66 rssi_min:-81 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:38 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON27 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1560117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:26 rssi_min:-30 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:67 rssi_min:-80 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON28 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1620117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:30 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:62 rssi_min:-82 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON29 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1680117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-81 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON30 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1740117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:58 rssi_min:-53 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:27 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON31 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1800117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-53 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:36 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
 @LAT96LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **ENTWIN** t_ms:1815182 synced:0 window_ms:600000 entities:5
@@ -154,6 +410,30 @@ not the dot.
 **ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
 **ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-84
 **ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
+
+---
+
+@LAT97LON32 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1860117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:23 rssi_min:-31 rssi_med:-30 rssi_max:-30
+**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-79 rssi_med:-44 rssi_max:-44
+
+---
+
+@LAT97LON33 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:1920117 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-80 rssi_med:-44 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:24 rssi_min:-31 rssi_med:-30 rssi_max:-30
+
+---
+
+@LAT97LON34 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60067 synced:0 window_ms:60067
+**LINK** peer:0x00000300 proto:espnow n:17 rssi_min:-30 rssi_med:-30 rssi_max:-29
+**LINK** peer:0x00000300 proto:ble n:52 rssi_min:-80 rssi_med:-44 rssi_max:-42
 
 ---
 
@@ -170,6 +450,78 @@ not the dot.
 
 ---
 
+@LAT97LON35 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120067 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:58 rssi_min:-79 rssi_med:-50 rssi_max:-43
+**LINK** peer:0x00000300 proto:espnow n:36 rssi_min:-37 rssi_med:-32 rssi_max:-29
+
+---
+
+@LAT97LON36 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:180159 synced:0 window_ms:60092
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-81 rssi_med:-51 rssi_max:-50
+**LINK** peer:0x00000300 proto:espnow n:23 rssi_min:-36 rssi_med:-32 rssi_max:-32
+
+---
+
+@LAT97LON37 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:240159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-82 rssi_med:-51 rssi_max:-50
+**LINK** peer:0x00000300 proto:espnow n:20 rssi_min:-36 rssi_med:-32 rssi_max:-32
+
+---
+
+@LAT97LON38 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:300159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-80 rssi_med:-51 rssi_max:-50
+**LINK** peer:0x00000300 proto:espnow n:28 rssi_min:-37 rssi_med:-32 rssi_max:-32
+
+---
+
+@LAT97LON39 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:360159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:19 rssi_min:-36 rssi_med:-32 rssi_max:-28
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-59 rssi_med:-50 rssi_max:-41
+
+---
+
+@LAT97LON40 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:420159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:30 rssi_min:-33 rssi_med:-29 rssi_max:-27
+**LINK** peer:0x00000300 proto:ble n:67 rssi_min:-81 rssi_med:-45 rssi_max:-40
+
+---
+
+@LAT97LON41 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:480159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-55 rssi_med:-45 rssi_max:-42
+**LINK** peer:0x00000300 proto:espnow n:20 rssi_min:-34 rssi_med:-30 rssi_max:-28
+
+---
+
+@LAT97LON42 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:540159 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-79 rssi_med:-47 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:30 rssi_min:-35 rssi_med:-33 rssi_max:-30
+
+---
+
+@LAT97LON43 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60000 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:58 rssi_min:-81 rssi_med:-47 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:18 rssi_min:-34 rssi_med:-33 rssi_max:-30
+
+---
+
 @LAT96LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **ENTWIN** t_ms:62017 synced:0 window_ms:62017 entities:7
@@ -180,6 +532,14 @@ not the dot.
 **ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
 **ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
 **ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-96
+
+---
+
+@LAT97LON44 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60000 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:53 rssi_min:-52 rssi_med:-47 rssi_max:-44
+**LINK** peer:0x00000300 proto:espnow n:19 rssi_min:-34 rssi_med:-32 rssi_max:-30
 
 ---
 
@@ -196,6 +556,22 @@ not the dot.
 
 ---
 
+@LAT97LON45 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120000 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:espnow n:25 rssi_min:-35 rssi_med:-33 rssi_max:-31
+**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-81 rssi_med:-48 rssi_max:-45
+
+---
+
+@LAT97LON46 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60054 synced:0 window_ms:60054
+**LINK** peer:0x00000300 proto:espnow n:23 rssi_min:-30 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-81 rssi_med:-44 rssi_max:-41
+
+---
+
 @LAT96LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
 
 **ENTWIN** t_ms:62096 synced:0 window_ms:62096 entities:8
@@ -207,6 +583,14 @@ not the dot.
 **ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
 **ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-94
 **ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-95
+
+---
+
+@LAT97LON47 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120054 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:54 rssi_min:-56 rssi_med:-44 rssi_max:-41
+**LINK** peer:0x00000300 proto:espnow n:19 rssi_min:-32 rssi_med:-30 rssi_max:-28
 
 ---
 
@@ -699,188 +1083,3 @@ not the dot.
 **ENTITY** kind:wifi_ap id:9418651af894 n:1 rssi:-94
 **ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-98
 **ENTITY** kind:wifi_ap id:7236bc441422 n:1 rssi:-98
-
----
-
-
----
-
-@LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:60000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:12 rssi_min:-45 rssi_med:-40 rssi_max:-38
-**LINK** peer:0x00000300 proto:espnow n:38 rssi_min:-55 rssi_med:-49 rssi_max:-45
-**LINK** peer:0x00000300 proto:ble n:53 rssi_min:-81 rssi_med:-61 rssi_max:-57
-**LINK** peer:0x00000011 proto:ble n:39 rssi_min:-96 rssi_med:-90 rssi_max:-85
-**LINK** peer:0x00000011 proto:espnow n:136 rssi_min:-80 rssi_med:-74 rssi_max:-69
-**LINK** peer:0x00000012 proto:ble n:48 rssi_min:-94 rssi_med:-77 rssi_max:-72
-**LINK** peer:0x00000010 proto:ble n:48 rssi_min:-79 rssi_med:-55 rssi_max:-51
-**LINK** peer:0x00000012 proto:espnow n:19 rssi_min:-76 rssi_med:-71 rssi_max:-63
-
----
-
-@LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:120000 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:57 rssi_min:-92 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000010 proto:ble n:63 rssi_min:-81 rssi_med:-55 rssi_max:-52
-**LINK** peer:0x00000011 proto:espnow n:19 rssi_min:-78 rssi_med:-73 rssi_max:-70
-**LINK** peer:0x00000011 proto:ble n:38 rssi_min:-97 rssi_med:-90 rssi_max:-84
-**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-80 rssi_med:-64 rssi_max:-59
-**LINK** peer:0x00000300 proto:espnow n:42 rssi_min:-55 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-75 rssi_med:-67 rssi_max:-62
-**LINK** peer:0x00000010 proto:espnow n:15 rssi_min:-45 rssi_med:-41 rssi_max:-36
-
----
-
-@LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:180000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:21 rssi_min:-45 rssi_med:-41 rssi_max:-37
-**LINK** peer:0x00000300 proto:espnow n:47 rssi_min:-54 rssi_med:-49 rssi_max:-45
-**LINK** peer:0x00000012 proto:ble n:56 rssi_min:-98 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-80 rssi_med:-63 rssi_max:-57
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-77 rssi_med:-72 rssi_max:-71
-**LINK** peer:0x00000012 proto:espnow n:21 rssi_min:-75 rssi_med:-65 rssi_max:-62
-**LINK** peer:0x00000010 proto:ble n:64 rssi_min:-81 rssi_med:-55 rssi_max:-52
-**LINK** peer:0x00000011 proto:ble n:43 rssi_min:-98 rssi_med:-90 rssi_max:-84
-
----
-
-@LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:240000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:ble n:59 rssi_min:-64 rssi_med:-55 rssi_max:-51
-**LINK** peer:0x00000300 proto:espnow n:34 rssi_min:-52 rssi_med:-50 rssi_max:-48
-**LINK** peer:0x00000011 proto:espnow n:20 rssi_min:-75 rssi_med:-71 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:44 rssi_min:-97 rssi_med:-87 rssi_max:-84
-**LINK** peer:0x00000300 proto:ble n:55 rssi_min:-81 rssi_med:-63 rssi_max:-59
-**LINK** peer:0x00000010 proto:espnow n:18 rssi_min:-45 rssi_med:-43 rssi_max:-41
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-86 rssi_med:-77 rssi_max:-73
-**LINK** peer:0x00000012 proto:espnow n:23 rssi_min:-70 rssi_med:-63 rssi_max:-61
-
----
-
-@LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:300642 synced:0 window_ms:60642
-**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-51 rssi_med:-44 rssi_max:-33
-**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-81 rssi_med:-66 rssi_max:-60
-**LINK** peer:0x00000300 proto:espnow n:42 rssi_min:-78 rssi_med:-54 rssi_max:-49
-**LINK** peer:0x00000010 proto:ble n:61 rssi_min:-81 rssi_med:-57 rssi_max:-51
-**LINK** peer:0x00000012 proto:espnow n:24 rssi_min:-70 rssi_med:-66 rssi_max:-63
-**LINK** peer:0x00000012 proto:ble n:61 rssi_min:-84 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-86 rssi_med:-81 rssi_max:-71
-**LINK** peer:0x00000011 proto:ble n:35 rssi_min:-98 rssi_med:-93 rssi_max:-86
-
----
-
-@LAT97LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:360642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:22 rssi_min:-82 rssi_med:-78 rssi_max:-74
-**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-83 rssi_med:-63 rssi_max:-61
-**LINK** peer:0x00000010 proto:ble n:63 rssi_min:-81 rssi_med:-54 rssi_max:-50
-**LINK** peer:0x00000012 proto:ble n:64 rssi_min:-87 rssi_med:-77 rssi_max:-72
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-71 rssi_med:-62 rssi_max:-60
-**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-68 rssi_med:-51 rssi_max:-46
-**LINK** peer:0x00000010 proto:espnow n:31 rssi_min:-43 rssi_med:-35 rssi_max:-33
-**LINK** peer:0x00000011 proto:ble n:46 rssi_min:-97 rssi_med:-92 rssi_max:-89
-
----
-
-@LAT97LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:420642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:18 rssi_min:-88 rssi_med:-78 rssi_max:-77
-**LINK** peer:0x00000300 proto:ble n:54 rssi_min:-68 rssi_med:-61 rssi_max:-59
-**LINK** peer:0x00000012 proto:ble n:54 rssi_min:-91 rssi_med:-78 rssi_max:-72
-**LINK** peer:0x00000010 proto:ble n:60 rssi_min:-56 rssi_med:-54 rssi_max:-50
-**LINK** peer:0x00000012 proto:espnow n:18 rssi_min:-75 rssi_med:-64 rssi_max:-59
-**LINK** peer:0x00000010 proto:espnow n:31 rssi_min:-36 rssi_med:-34 rssi_max:-34
-**LINK** peer:0x00000300 proto:espnow n:45 rssi_min:-55 rssi_med:-50 rssi_max:-48
-**LINK** peer:0x00000011 proto:ble n:48 rssi_min:-97 rssi_med:-92 rssi_max:-89
-
----
-
-@LAT97LON7 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:480642 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-91 rssi_med:-78 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:48 rssi_min:-96 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000010 proto:ble n:54 rssi_min:-81 rssi_med:-54 rssi_max:-47
-**LINK** peer:0x00000300 proto:ble n:66 rssi_min:-71 rssi_med:-63 rssi_max:-58
-**LINK** peer:0x00000010 proto:espnow n:13 rssi_min:-37 rssi_med:-34 rssi_max:-32
-**LINK** peer:0x00000300 proto:espnow n:43 rssi_min:-53 rssi_med:-49 rssi_max:-47
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-87 rssi_med:-79 rssi_max:-76
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-67 rssi_med:-62 rssi_max:-60
-
----
-
-@LAT97LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:540642 synced:0 window_ms:60000
-**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-74 rssi_med:-64 rssi_max:-61
-**LINK** peer:0x00000012 proto:ble n:52 rssi_min:-81 rssi_med:-73 rssi_max:-69
-**LINK** peer:0x00000011 proto:espnow n:19 rssi_min:-88 rssi_med:-82 rssi_max:-78
-**LINK** peer:0x00000300 proto:espnow n:41 rssi_min:-60 rssi_med:-51 rssi_max:-49
-**LINK** peer:0x00000011 proto:ble n:55 rssi_min:-98 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000010 proto:ble n:61 rssi_min:-60 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000012 proto:espnow n:22 rssi_min:-63 rssi_med:-60 rssi_max:-58
-**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-36 rssi_med:-32 rssi_max:-31
-
----
-
-@LAT97LON9 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:600642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:21 rssi_min:-83 rssi_med:-81 rssi_max:-79
-**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-80 rssi_med:-65 rssi_max:-62
-**LINK** peer:0x00000300 proto:espnow n:56 rssi_min:-59 rssi_med:-55 rssi_max:-49
-**LINK** peer:0x00000011 proto:ble n:62 rssi_min:-94 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000012 proto:espnow n:27 rssi_min:-66 rssi_med:-63 rssi_max:-60
-**LINK** peer:0x00000010 proto:espnow n:26 rssi_min:-35 rssi_med:-32 rssi_max:-31
-**LINK** peer:0x00000010 proto:ble n:66 rssi_min:-57 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000012 proto:ble n:66 rssi_min:-83 rssi_med:-73 rssi_max:-70
-
----
-
-@LAT97LON10 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:660642 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-81 rssi_med:-74 rssi_max:-69
-**LINK** peer:0x00000010 proto:ble n:57 rssi_min:-70 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000300 proto:espnow n:36 rssi_min:-58 rssi_med:-51 rssi_max:-48
-**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-72 rssi_med:-64 rssi_max:-60
-**LINK** peer:0x00000012 proto:espnow n:26 rssi_min:-62 rssi_med:-60 rssi_max:-58
-**LINK** peer:0x00000011 proto:ble n:53 rssi_min:-98 rssi_med:-91 rssi_max:-87
-**LINK** peer:0x00000011 proto:espnow n:15 rssi_min:-86 rssi_med:-80 rssi_max:-77
-**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-33 rssi_med:-32 rssi_max:-31
-
----
-
-@LAT97LON11 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:720642 synced:0 window_ms:60000
-**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-64 rssi_med:-61 rssi_max:-60
-**LINK** peer:0x00000010 proto:ble n:55 rssi_min:-79 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000012 proto:ble n:57 rssi_min:-84 rssi_med:-75 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:52 rssi_min:-98 rssi_med:-91 rssi_max:-87
-**LINK** peer:0x00000300 proto:espnow n:54 rssi_min:-54 rssi_med:-49 rssi_max:-48
-**LINK** peer:0x00000011 proto:espnow n:24 rssi_min:-88 rssi_med:-83 rssi_max:-77
-**LINK** peer:0x00000012 proto:espnow n:20 rssi_min:-65 rssi_med:-62 rssi_max:-56
-**LINK** peer:0x00000010 proto:espnow n:20 rssi_min:-38 rssi_med:-34 rssi_max:-32
-
----
-
-@LAT97LON12 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:780642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:13 rssi_min:-88 rssi_med:-83 rssi_max:-81
-**LINK** peer:0x00000300 proto:espnow n:46 rssi_min:-54 rssi_med:-52 rssi_max:-48
-**LINK** peer:0x00000012 proto:ble n:60 rssi_min:-83 rssi_med:-75 rssi_max:-71
-**LINK** peer:0x00000300 proto:ble n:62 rssi_min:-66 rssi_med:-63 rssi_max:-59
-**LINK** peer:0x00000010 proto:ble n:68 rssi_min:-80 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-40 rssi_med:-32 rssi_max:-32
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-64 rssi_med:-62 rssi_max:-55
-**LINK** peer:0x00000011 proto:ble n:43 rssi_min:-99 rssi_med:-92 rssi_max:-88
