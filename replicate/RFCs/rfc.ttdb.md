@@ -211,7 +211,7 @@ to conf 0 as an explicit open problem.
 
 ---
 
-@LAT10LON8 | created:1780704000 | updated:1780704000 | relates:depends_on@LAT10LON7,depends_on@LAT10LON6,depends_on@LAT10LON5,depends_on@LAT10LON1,applied_by@LAT50LON1
+@LAT10LON8 | created:1780704000 | updated:1785456000 | relates:depends_on@LAT10LON7,depends_on@LAT10LON6,depends_on@LAT10LON5,depends_on@LAT10LON1,applied_by@LAT50LON1,generalized_by@LAT10LON9
 [ew]
 conf:140
 rev:0
@@ -234,6 +234,46 @@ complete|aborted), seeding_complete, timestamps. Scene records enact instars, ea
 gated by a post-state verifier; an incomplete instar MUST NOT advance the pointer.
 Triggers: operator `[trigger:metamorphosis]` token (required support) or autonomous
 belief-stability threshold (optional). Eclosion predicate activates the conductor.
+
+---
+
+@LAT10LON9 | created:1785456000 | updated:1785456000 | relates:generalizes@LAT10LON8,depends_on@LAT10LON7,depends_on@LAT10LON6,depends_on@LAT10LON5,depends_on@LAT10LON1,supports@LAT20LON11
+[ew]
+conf:120
+rev:0
+sal:120
+touched:1785456000
+[/ew]
+
+**TTDB-RFC-0009 — Counter-Story and Narrative Morphospace** (Proposed; nothing run on hardware)
+src: TTDB-RFC-0009-Counter-Story-and-Narrative-Morphospace.md
+
+Generalizes scene-as-instar (@LAT10LON8) from an agent life-stage device to the claimed
+storage format for *all* pattern targets: **C-4 — morphospace targets are stored as
+traversal order, not as state tables, and the ending is where the stopping condition
+lives.** C-5, the sharper claim: **a counter-story changes the topology of a store's
+ignorance; a corroborating story only changes its volume.** Governing rule — more nodes
+add capability only when the nodes differ; N identical co-located sensors are one node
+with √N confidence, so skepticism cannot change the shape of ignorance but a different
+sensor can. Instrument (MUST NOT be a dashboard): the **residual high-EPS coordinate set**
+`R(S,θ) = { c : EPS(c) ≥ θ }` with EPS per @LAT10LON5, compared by **Jaccard distance**
+pre/post injection; `θ` fixed before the run; Δ mean `conf` reported but never as the
+headline; newly-high-EPS coordinates reported by coordinate, not count; failure to halt
+reported `∞`, never a large number. Construction: paired narrative (ordered traversal)
+vs. assertional (order removed) stores at **matched toot-bits, not record count**, both on
+paired `@PERCEPT:before`/`after` (@LAT10LON6); order smuggled back as `depends_on` chains
+invalidates the run. Procedure: excise + Dream Cycle (@LAT10LON7) ≥5 sites — byte-identical
+restoration is a backup, so **low path divergence is a negative result** — then two
+*separate* injection sessions, corroborating (duplicate modality) vs. counter-story
+(divergent modality that disagrees), matched in toot-bits. Precondition: the heterogeneity
+gate (EXP-01); on a homogeneous mesh the experiment silently becomes its own control.
+Fleet modality classes, ablated per class and never per node: acoustic/motion (Cardputer
+ADV `0x300` — ES8311 mic @LAT94, BMI270 accel+gyro @LAT95), link (Heltec V4 RSSI/LoRa),
+gnss (T-Deck), entity, interoceptive. Normative: **die temperature MUST NOT stand in for
+ambient** — it is interoceptive and would look like a faithful port of the K10-era design
+while injecting a node-internal confound. Expected to be partly blocked by Learning from
+Action; a blockage MUST be logged as a result at the coordinate that blocked, not
+engineered around. Companion: `replicate/TTX-0004-counter-story.md`.
 
 ---
 
@@ -770,3 +810,22 @@ multi-frame bursts are paced on the TX-complete callback or ESP-NOW drops frames
 Established in PLAN.md Phase 1b, then required by TTN-RFC-0007 §4, TTN-RFC-0008 §3,
 TTN-RFC-0009 (bridge-relayed put), and TTN-RFC-0010 §4.1. Any new toot handler
 should be written against this rule first.
+
+---
+
+@LAT98LON5 | created:1785456000 | updated:1785456000 | relates:refines@LAT20LON7,refines@LAT20LON8,refines@LAT20LON10,supports@LAT10LON9
+
+**BELIEF — Every K10 reference in this corpus is history, not roster. Read the fleet as V4-A/V4-B/T-Deck/Cardputer.**
+
+The UNIHIKER K10 left the fleet on 2026-07-29 (v1 firmware, off the band roster,
+removed from the T-Deck's mesh map); the M5Stack Cardputer ADV (`0x300`) joined
+2026-07-27 as the second handheld and the fleet's acoustic (`@LAT94`) and motion
+(`@LAT95`) senses. TTN-RFC-0007/-0008/-0010 name the K10 as the node their
+acceptance tests ran on, and TTN-RFC-0010 §7.1 assigns it the downbeat toot. Those
+passages are **correct as records of runs that happened** and must not be rewritten
+to name the Cardputer — doing so would falsify a verification history. What is stale
+is only the implied roster: any *forward-looking* statement about which nodes are on
+hand should read V4-A, V4-B, T-Deck, Cardputer. The substitution matters most where
+sensors are concerned, and it is not one-for-one: the K10 carried an AHT20 **ambient**
+thermometer, while the Cardputer's only thermal channel is die temperature — an
+interoceptive signal that TTDB-RFC-0009 §5.5 forbids substituting for it.

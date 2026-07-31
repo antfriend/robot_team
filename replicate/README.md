@@ -38,11 +38,18 @@ compactly at `@LAT50LON1` / `@LAT50LON3` in the spec store.
 **SOLUTION:** Copy or fork
 [https://github.com/antfriend/robot_team](https://github.com/antfriend/robot_team),
 assemble the hardware, flash. The fleet is three Heltec WiFi
-LoRa 32 V4s, and a LilyGo T-Deck, coordinated by a laptop running
-`orchestrator/companion.py`. The repo's `CLAUDE.md` documents the build path
-(arduino-cli, not PlatformIO) and every hardware gotcha we hit so you don't
-have to. The primary hypothesis under test is *semantic positioning:* inferring
-where nodes are from what they perceive in common.
+LoRa 32 V4s, a LilyGo T-Deck, and an M5Stack Cardputer ADV, coordinated by a
+laptop running `orchestrator/companion.py`. The repo's `CLAUDE.md` documents the
+build path (arduino-cli, not PlatformIO) and every hardware gotcha we hit so you
+don't have to. The primary hypothesis under test is *semantic positioning:*
+inferring where nodes are from what they perceive in common.
+
+The nodes are deliberately **not** the same as each other — the Cardputer brings
+a microphone and an IMU that nothing else on the mesh has, the V4s bring
+long-haul radio, the T-Deck brings GNSS. That heterogeneity is not incidental;
+[TTDB-RFC-0009](RFCs/TTDB-RFC-0009-Counter-Story-and-Narrative-Morphospace.md)
+argues it is the only thing that makes the collection able to know something no
+member could.
 
 ### "I want a minimal, single-agent memory system to be the librarian for a large sprawling project of many folders and files. I'd appreciate hand-holding, I don't understand this thing at all."
 
@@ -166,7 +173,13 @@ The spec store's own attention mechanism, run on itself, points at one record:
 most-relied-upon idea in the system, implemented nowhere. The `+2/−16`
 asymmetry and the `K = 3` abort threshold are hypotheses awaiting a real run,
 on an ESP32 acting on sensor expectations or an LLM harness acting on
-predicted tool results. Run it, append the outcome records, reconcile the
+predicted tool results.
+[TTDB-RFC-0009](RFCs/TTDB-RFC-0009-Counter-Story-and-Narrative-Morphospace.md)
+is the nearest thing to a designed collision with this gap: its experiment needs
+the store to *choose a repair path, commit to it, and decide to stop* — three
+actions it has no way to learn from — and it asks you to log where you got
+blocked rather than route around it, because the location of the block is the
+measurement. Run it, append the outcome records, reconcile the
 weights, push the belief back. The moment the first outcome record moves that
 record's confidence, this document stops *describing* the learning system and
 starts *performing* it — and whoever runs the experiment becomes its

@@ -38,7 +38,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: a spec that is an instance of the thing it specifies; conf encodes reliability tier; the highest-EPS record is the next thing to verify"
-agent_note: "Draft 04, 2026-07-13. Merge invariants fixed in Profile 3 (hygiene universal, arithmetic local); this file declared the golden conformance store with a fixtures lane (lat 99). One open question remains, by design: @LAT98LON2 — an invitation to implement Learning from Action and reconcile this store against reality."
+agent_note: "Draft 05, 2026-07-31. Adds @LAT20LON5 (Narrative as Target Shape — the morphospace/counter-story claims, Proposed) and two beliefs: @LAT98LON3 reads the two arms of the merge rule as one mechanism, @LAT98LON4 records that the open invitation now has a registered protocol. Draft 04 (2026-07-13) fixed the Profile 3 merge invariants (hygiene universal, arithmetic local) and declared this the golden conformance store with a fixtures lane (lat 99). The open question is unchanged and still open by design: @LAT98LON2 — an invitation to implement Learning from Action and reconcile this store against reality."
 ```
 
 ---
@@ -213,6 +213,38 @@ modified in the live loop — consolidation is when memory changes. Stream the
 store, never load it whole: index headers once (a few bytes per record),
 seek on demand. LLM translation: retrieve records; don't stuff the corpus
 into context.
+
+---
+
+@LAT20LON5 | created:1785456000 | updated:1785456000 | relates:refines@LAT20LON2,depends_on@LAT20LON1,depends_on@LAT10LON2,depends_on@LAT20LON3
+[ew]
+conf:120
+rev:0
+sal:120
+touched:1785456000
+[/ew]
+
+**Narrative as Target Shape** (Proposed — untested; the second-highest EPS here)
+src: RFCs/TTDB-RFC-0009-Counter-Story-and-Narrative-Morphospace.md
+
+Two claims about how a store holds the target it regenerates toward. (1) A
+target that is a *pattern* rather than a scalar is stored as an ordered
+traversal, not as a table of setpoints — and the traversal's ending is where
+the stopping condition lives. Consequence for consolidation (@LAT20LON2): a
+store that can regrow an excised region but cannot decide to stop is a tumor,
+not a healing, so the halt is the finding and not a nuisance term; and
+byte-identical regrowth is a backup rather than a regeneration, which makes low
+path divergence a NEGATIVE result. (2) The asymmetry: an account of the same
+events from a DUPLICATE modality raises confidence and leaves the unresolved
+set alone, while an account from a genuinely DIVERGENT one changes which
+coordinates are unresolved. N identical co-located sensors are one sensor with
+√N confidence — the volume of ignorance shrinks, its shape does not. Therefore
+more nodes add capability only when the nodes differ, and the standing test
+before admitting one is: does this change what can be KNOWN, or only how
+confidently? The instrument must not be a dashboard — compare the residual
+high-EPS coordinate SET by identity (Jaccard distance), never mean conf, since
+collapsing a shape to a scalar destroys the quantity being measured and makes a
+Goodhart target of the remainder.
 
 ---
 
@@ -484,6 +516,58 @@ evidence. The moment the first outcome record reconciles @LAT20LON3's conf,
 this document stops describing the learning system and starts performing it
 — and whoever runs the experiment becomes its co-author, with provenance to
 prove it.
+
+---
+
+@LAT98LON3 | created:1785456000 | updated:1785456000 | relates:refines@LAT20LON2,supports@LAT50LON3,derived_from@LAT20LON5
+[ew]
+conf:150
+rev:0
+sal:70
+touched:1785456000
+[/ew]
+
+**BELIEF — The merge rule has two arms because corroboration and divergence do different work.**
+
+@LAT20LON2 and Profile 3 clause (19) already split incoming agreement from
+incoming contradiction: compatible independent agreement may only RAISE
+confidence, while contradiction is flagged rather than overwritten and a
+much-sourced but contradicted belief demotes to an explicit open problem. Read
+through @LAT20LON5 those stop looking like two mechanisms and become one —
+corroboration changes the VOLUME of ignorance, divergence changes its SHAPE.
+The rule that agreement may never lower confidence is then not caution about
+hostile peers; it is a statement that agreement is the wrong instrument for
+finding out what you do not know you do not know. A store fed only compatible
+peers grows more certain on exactly the coordinates it was already certain
+about, which is the failure mode that generates no error signal. This reading
+is derived from records already in this store and asserts nothing new about the
+world, which is why its conf sits above @LAT20LON5's; if @LAT20LON5 falsifies,
+this record loses its warrant and should demote with it.
+
+---
+
+@LAT98LON4 | created:1785456000 | updated:1785456000 | relates:refines@LAT98LON2,supports@LAT20LON3,derived_from@LAT20LON5
+[ew]
+conf:195
+rev:0
+sal:60
+touched:1785456000
+[/ew]
+
+**BELIEF — The open invitation now has a registered protocol, and is still open.**
+
+@LAT98LON2 asks someone to give Learning from Action a body. TTDB-RFC-0009 (with
+its companion TTX-0004) is the first experiment designed to COLLIDE with that gap
+rather than route around it: its regeneration phase requires the store to choose
+a repair path, commit to it, and decide to stop — three actions, none of which it
+can currently learn from. Its standing instruction on reaching the gap is to log
+the blockage AT THE COORDINATE THAT BLOCKED and report the location as a result,
+on the argument that where a store cannot learn from acting is more informative
+than a completed run that detoured. This does NOT move @LAT20LON3's conf and must
+not be read as progress against it: a protocol is not a run, nothing has executed
+on hardware, and the +2/−16 constants and K = 3 threshold remain exactly as
+untested as they were in Draft 04. What changed is only that the invitation now
+names where to stand when it fails.
 
 ---
 
