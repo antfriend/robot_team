@@ -625,7 +625,7 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
 
 
 def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
-             settle, rto0, attempts, scene=None):
+             settle, rto0, attempts, scene=None, lane=0):
     """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
     it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval,
     set-scene. `node` may be "broadcast" for the band-wide ops (play/stop/set-scene)."""
@@ -668,6 +668,15 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
             sys.exit("set-scene needs --scene N (e.g. --scene 1)")
         args = struct.pack("<H", scene & 0xFFFF)
         detail = f" scene {scene}"
+    elif opcode == CMD_CLEAR_PERCEPTS:
+        # Optional lane byte: 0 = every percept lane (the default, and what an older
+        # sender that omits the byte gets). A node refuses anything outside 94..97,
+        # so this can never reach the identity / belief / sync lanes. Check it here
+        # too — a doomed CMD would otherwise cost 4 attempts to learn nothing.
+        if lane != 0 and not (94 <= lane <= 97):
+            sys.exit(f"--lane must be 0 (all) or 94..97, got {lane}")
+        args = bytes([lane])
+        detail = f" lane {lane if lane else 'ALL (94-97)'}"
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
@@ -2386,19 +2395,23 @@ def proximity(port, baud, nodes, out, do_pull, settle,
               f"magnitude until the calibration walk)")
 
     # The Dream-Cycle prune (SP1): the consumed raw percepts are consolidated
-    # into beliefs above, so tell each node to drop its @LAT97 lane (also
-    # un-wedges a node that hit LINKPERCEPT_MAX_LANE). Fresh serial session;
-    # want_ack so an unacked clear is loud, not silent.
+    # into beliefs above, so tell each node to drop them (also un-wedges a node
+    # that hit LINKPERCEPT_MAX_LANE). Fresh serial session; want_ack so an
+    # unacked clear is loud, not silent.
+    # Lane 0 = ALL percept lanes. This consolidation consumes @LAT96 entity
+    # co-occurrence as well as @LAT97 link windows, so clearing only 97 left the
+    # lane that actually grew a TTDB past what its own bridged pull can carry.
     if clear and port:
         import serial
-        print("clearing consumed @LAT97 lanes (CMD clear-percepts)...")
+        print("clearing consumed percept lanes 94-97 (CMD clear-percepts)...")
         reader = SerialFrameReader()
         with serial.Serial(port, baud, timeout=0.1) as ser:
             time.sleep(settle)
             ser.reset_input_buffer()
             for n in nodes:
                 target = NODE_IDS[n]
-                payload = bytes([CMD_CLEAR_PERCEPTS]) + struct.pack("<I", target)
+                payload = (bytes([CMD_CLEAR_PERCEPTS])
+                           + struct.pack("<I", target) + bytes([0]))
                 seq = int(time.time() * 1000) & 0x7FFFFFFF
                 frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload,
                                     flags=FLAG_WANT_ACK)
@@ -3251,6 +3264,9 @@ def main():
                     help="agent sense/act cadence ms (set-interval)")
     cm.add_argument("--scene", type=int, default=None,
                     help="scene id for set-scene (only the conductor applies it)")
+    cm.add_argument("--lane", type=int, default=0,
+                    help="clear-percepts: percept lane to drop (94 acoustic, 95 motion, "
+                         "96 entity, 97 link); 0 = ALL of them (default)")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
@@ -3429,7 +3445,7 @@ def main():
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts,
-                 scene=args.scene)
+                 scene=args.scene, lane=args.lane)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "entities":

@@ -92,613 +92,9 @@ not the dot.
 
 ---
 
-@LAT96LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:62068 synced:0 window_ms:62068 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-41
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-93
 
 ---
 
-@LAT96LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:62061 synced:0 window_ms:62061 entities:9
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-46
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:7236bc441422 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-98
-
----
-
-@LAT96LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:615182 synced:0 window_ms:553121 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-76
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-95
-
----
-
-@LAT96LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1215182 synced:0 window_ms:600000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-76
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-92
-
----
-
-@LAT96LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1815182 synced:0 window_ms:600000 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-76
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
-
----
-
-@LAT96LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60102 synced:0 window_ms:60102 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-41
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-
----
-
-@LAT96LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:62017 synced:0 window_ms:62017 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-33
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-96
-
----
-
-@LAT96LON7 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:62020 synced:0 window_ms:62020 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-35
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-99
-
----
-
-@LAT96LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:62096 synced:0 window_ms:62096 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-38
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-95
-
----
-
-@LAT96LON9 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-33
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-70
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-
----
-
-@LAT96LON10 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:614916 synced:0 window_ms:554916 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-51
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-95
-
----
-
-@LAT96LON11 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1216916 synced:0 window_ms:602000 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-47
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-
----
-
-@LAT96LON12 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-41
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-96
-
----
-
-@LAT96LON13 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:617066 synced:0 window_ms:557066 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-41
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-71
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-95
-
----
-
-@LAT96LON14 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-42
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-
----
-
-@LAT96LON15 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:617142 synced:0 window_ms:557142 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-44
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-74
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:18a5ffbae2d6 n:1 rssi:-94
-
----
-
-@LAT96LON16 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60003 synced:0 window_ms:60003 entities:9
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-50
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-96
-
----
-
-@LAT96LON17 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:617168 synced:0 window_ms:557165 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-44
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-76
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-
----
-
-@LAT96LON18 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-96
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-97
-
----
-
-@LAT96LON19 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-38
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-95
-
----
-
-@LAT96LON20 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:61116 synced:0 window_ms:61116 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-37
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-74
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-96
-
----
-
-@LAT96LON21 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-93
-
----
-
-@LAT96LON22 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-73
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-78
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-95
-
----
-
-@LAT96LON23 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-45
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-
----
-
-@LAT96LON24 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-54
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-73
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-78
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-
----
-
-@LAT96LON25 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:610959 synced:0 window_ms:550959 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-33
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:7236bc441422 n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-96
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-96
-
----
-
-@LAT96LON26 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1210958 synced:0 window_ms:599999 entities:9
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-43
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-96
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-97
-
----
-
-@LAT96LON27 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-41
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-
----
-
-@LAT96LON28 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-45
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-93
-
----
-
-@LAT96LON29 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:611045 synced:0 window_ms:551045 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-38
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-91
-
----
-
-@LAT96LON30 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1211045 synced:0 window_ms:600000 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-31
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-97
-
----
-
-@LAT96LON31 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1811045 synced:0 window_ms:600000 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-42
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-
----
-
-@LAT96LON32 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-
----
-
-@LAT96LON33 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-37
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-72
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-
----
-
-@LAT96LON34 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:617031 synced:0 window_ms:557031 entities:5
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-37
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-78
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-
----
-
-@LAT96LON35 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1217010 synced:0 window_ms:599979 entities:9
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-73
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:18a5ffbae2d6 n:1 rssi:-96
-
----
-
-@LAT96LON36 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-73
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-95
-
----
-
-@LAT96LON37 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:615279 synced:0 window_ms:555279 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:18a5ffbae2d6 n:1 rssi:-95
-
----
-
-@LAT96LON38 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-67
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-86
-**ENTITY** kind:wifi_ap id:980d67f79619 n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:9418651af894 n:1 rssi:-95
-
----
-
-@LAT96LON39 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:610956 synced:0 window_ms:550956 entities:6
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:5203cfd1b904 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-83
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-88
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-94
-
----
-
-@LAT96LON40 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:6
-**ENTITY** kind:wifi_ap id:7cb68d59f777 n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:7cb68d59f776 n:1 rssi:-89
-**ENTITY** kind:wifi_ap id:c2c4f9dfa71b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:7cb68d59f771 n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:aa7c616e3b1a n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:84eb3e439c15 n:1 rssi:-94
-
----
-
-@LAT96LON41 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:8
-**ENTITY** kind:wifi_ap id:cc5830efdbe7 n:1 rssi:-68
-**ENTITY** kind:wifi_ap id:60b76e80dbdc n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:60b76e6c8f17 n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:026ae3f1361d n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:026ae3f1361f n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:9009d031a7ed n:1 rssi:-95
-**ENTITY** kind:wifi_ap id:026ae3f13617 n:1 rssi:-96
-**ENTITY** kind:wifi_ap id:70f220e36233 n:1 rssi:-98
-
----
-
-@LAT96LON42 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:7
-**ENTITY** kind:wifi_ap id:cc5830efdbe7 n:1 rssi:-75
-**ENTITY** kind:wifi_ap id:78d6d67da8a5 n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:026ae3f13617 n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:60b76e80dbdc n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:026ae3f1361d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:60b76e80e201 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:60b76e6c8f17 n:1 rssi:-95
-
----
-
-@LAT96LON43 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-50
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-77
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-82
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-92
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:7236bc441422 n:1 rssi:-96
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-97
-
----
-
-@LAT96LON44 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:611035 synced:0 window_ms:551035 entities:8
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-38
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-87
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-90
-**ENTITY** kind:wifi_ap id:84a329c78fec n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:5ce28c488e0c n:1 rssi:-93
-**ENTITY** kind:wifi_ap id:64677217947d n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:18a5ffbae2d6 n:1 rssi:-94
-
----
-
-@LAT96LON45 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:60000 synced:0 window_ms:60000 entities:4
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-40
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-79
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-92
-
----
-
-@LAT96LON46 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:611959 synced:0 window_ms:551959 entities:4
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-39
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-84
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-85
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-93
-
----
-
-@LAT96LON47 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**ENTWIN** t_ms:1211959 synced:0 window_ms:600000 entities:7
-**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-33
-**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-80
-**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-81
-**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
-**ENTITY** kind:wifi_ap id:9418651af894 n:1 rssi:-94
-**ENTITY** kind:wifi_ap id:0283cce0e689 n:1 rssi:-98
-**ENTITY** kind:wifi_ap id:7236bc441422 n:1 rssi:-98
 
 ---
 
@@ -707,180 +103,134 @@ not the dot.
 
 @LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:60000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:12 rssi_min:-45 rssi_med:-40 rssi_max:-38
-**LINK** peer:0x00000300 proto:espnow n:38 rssi_min:-55 rssi_med:-49 rssi_max:-45
-**LINK** peer:0x00000300 proto:ble n:53 rssi_min:-81 rssi_med:-61 rssi_max:-57
-**LINK** peer:0x00000011 proto:ble n:39 rssi_min:-96 rssi_med:-90 rssi_max:-85
-**LINK** peer:0x00000011 proto:espnow n:136 rssi_min:-80 rssi_med:-74 rssi_max:-69
-**LINK** peer:0x00000012 proto:ble n:48 rssi_min:-94 rssi_med:-77 rssi_max:-72
-**LINK** peer:0x00000010 proto:ble n:48 rssi_min:-79 rssi_med:-55 rssi_max:-51
-**LINK** peer:0x00000012 proto:espnow n:19 rssi_min:-76 rssi_med:-71 rssi_max:-63
+**LINKWIN** t_ms:180070 synced:0 window_ms:60000
+**LINK** peer:0x00000010 proto:ble n:56 rssi_min:-81 rssi_med:-45 rssi_max:-42
+**LINK** peer:0x00000012 proto:ble n:63 rssi_min:-81 rssi_med:-71 rssi_max:-67
+**LINK** peer:0x00000011 proto:ble n:47 rssi_min:-96 rssi_med:-86 rssi_max:-77
+**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-81 rssi_med:-62 rssi_max:-57
+**LINK** peer:0x00000010 proto:espnow n:23 rssi_min:-30 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000011 proto:espnow n:31 rssi_min:-90 rssi_med:-83 rssi_max:-78
+**LINK** peer:0x00000012 proto:espnow n:28 rssi_min:-56 rssi_med:-56 rssi_max:-54
+**LINK** peer:0x00000300 proto:espnow n:26 rssi_min:-47 rssi_med:-45 rssi_max:-44
 
 ---
 
 @LAT97LON1 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:120000 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:57 rssi_min:-92 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000010 proto:ble n:63 rssi_min:-81 rssi_med:-55 rssi_max:-52
-**LINK** peer:0x00000011 proto:espnow n:19 rssi_min:-78 rssi_med:-73 rssi_max:-70
-**LINK** peer:0x00000011 proto:ble n:38 rssi_min:-97 rssi_med:-90 rssi_max:-84
-**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-80 rssi_med:-64 rssi_max:-59
-**LINK** peer:0x00000300 proto:espnow n:42 rssi_min:-55 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-75 rssi_med:-67 rssi_max:-62
-**LINK** peer:0x00000010 proto:espnow n:15 rssi_min:-45 rssi_med:-41 rssi_max:-36
+**LINKWIN** t_ms:240139 synced:0 window_ms:60069
+**LINK** peer:0x00000300 proto:ble n:62 rssi_min:-82 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000010 proto:ble n:56 rssi_min:-46 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000011 proto:ble n:45 rssi_min:-93 rssi_med:-86 rssi_max:-79
+**LINK** peer:0x00000300 proto:espnow n:49 rssi_min:-46 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000012 proto:espnow n:27 rssi_min:-62 rssi_med:-57 rssi_max:-55
+**LINK** peer:0x00000011 proto:espnow n:15 rssi_min:-85 rssi_med:-83 rssi_max:-80
+**LINK** peer:0x00000010 proto:espnow n:28 rssi_min:-29 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000012 proto:ble n:63 rssi_min:-81 rssi_med:-71 rssi_max:-68
 
 ---
 
 @LAT97LON2 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:180000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:espnow n:21 rssi_min:-45 rssi_med:-41 rssi_max:-37
-**LINK** peer:0x00000300 proto:espnow n:47 rssi_min:-54 rssi_med:-49 rssi_max:-45
-**LINK** peer:0x00000012 proto:ble n:56 rssi_min:-98 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-80 rssi_med:-63 rssi_max:-57
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-77 rssi_med:-72 rssi_max:-71
-**LINK** peer:0x00000012 proto:espnow n:21 rssi_min:-75 rssi_med:-65 rssi_max:-62
-**LINK** peer:0x00000010 proto:ble n:64 rssi_min:-81 rssi_med:-55 rssi_max:-52
-**LINK** peer:0x00000011 proto:ble n:43 rssi_min:-98 rssi_med:-90 rssi_max:-84
+**LINKWIN** t_ms:300200 synced:0 window_ms:60061
+**LINK** peer:0x00000011 proto:ble n:50 rssi_min:-93 rssi_med:-86 rssi_max:-80
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-79 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000012 proto:ble n:62 rssi_min:-81 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000010 proto:ble n:60 rssi_min:-81 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-58 rssi_med:-57 rssi_max:-55
+**LINK** peer:0x00000300 proto:espnow n:53 rssi_min:-46 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000011 proto:espnow n:19 rssi_min:-86 rssi_med:-84 rssi_max:-82
+**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-30 rssi_med:-29 rssi_max:-28
 
 ---
 
 @LAT97LON3 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:240000 synced:0 window_ms:60000
-**LINK** peer:0x00000010 proto:ble n:59 rssi_min:-64 rssi_med:-55 rssi_max:-51
-**LINK** peer:0x00000300 proto:espnow n:34 rssi_min:-52 rssi_med:-50 rssi_max:-48
-**LINK** peer:0x00000011 proto:espnow n:20 rssi_min:-75 rssi_med:-71 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:44 rssi_min:-97 rssi_med:-87 rssi_max:-84
-**LINK** peer:0x00000300 proto:ble n:55 rssi_min:-81 rssi_med:-63 rssi_max:-59
-**LINK** peer:0x00000010 proto:espnow n:18 rssi_min:-45 rssi_med:-43 rssi_max:-41
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-86 rssi_med:-77 rssi_max:-73
-**LINK** peer:0x00000012 proto:espnow n:23 rssi_min:-70 rssi_med:-63 rssi_max:-61
+**LINKWIN** t_ms:360200 synced:0 window_ms:60000
+**LINK** peer:0x00000012 proto:ble n:62 rssi_min:-81 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000300 proto:espnow n:54 rssi_min:-46 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000011 proto:ble n:57 rssi_min:-92 rssi_med:-86 rssi_max:-80
+**LINK** peer:0x00000012 proto:espnow n:21 rssi_min:-58 rssi_med:-57 rssi_max:-56
+**LINK** peer:0x00000010 proto:ble n:58 rssi_min:-79 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000011 proto:espnow n:22 rssi_min:-85 rssi_med:-84 rssi_max:-83
+**LINK** peer:0x00000300 proto:ble n:51 rssi_min:-81 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000010 proto:espnow n:25 rssi_min:-29 rssi_med:-28 rssi_max:-28
 
 ---
 
 @LAT97LON4 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:300642 synced:0 window_ms:60642
-**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-51 rssi_med:-44 rssi_max:-33
-**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-81 rssi_med:-66 rssi_max:-60
-**LINK** peer:0x00000300 proto:espnow n:42 rssi_min:-78 rssi_med:-54 rssi_max:-49
-**LINK** peer:0x00000010 proto:ble n:61 rssi_min:-81 rssi_med:-57 rssi_max:-51
-**LINK** peer:0x00000012 proto:espnow n:24 rssi_min:-70 rssi_med:-66 rssi_max:-63
-**LINK** peer:0x00000012 proto:ble n:61 rssi_min:-84 rssi_med:-78 rssi_max:-73
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-86 rssi_med:-81 rssi_max:-71
-**LINK** peer:0x00000011 proto:ble n:35 rssi_min:-98 rssi_med:-93 rssi_max:-86
+**LINKWIN** t_ms:420200 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-82 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000011 proto:ble n:53 rssi_min:-92 rssi_med:-86 rssi_max:-80
+**LINK** peer:0x00000012 proto:ble n:59 rssi_min:-80 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000012 proto:espnow n:26 rssi_min:-58 rssi_med:-57 rssi_max:-56
+**LINK** peer:0x00000011 proto:espnow n:14 rssi_min:-86 rssi_med:-84 rssi_max:-83
+**LINK** peer:0x00000010 proto:ble n:62 rssi_min:-81 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000010 proto:espnow n:21 rssi_min:-29 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000300 proto:espnow n:44 rssi_min:-46 rssi_med:-45 rssi_max:-45
 
 ---
 
 @LAT97LON5 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:360642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:22 rssi_min:-82 rssi_med:-78 rssi_max:-74
-**LINK** peer:0x00000300 proto:ble n:56 rssi_min:-83 rssi_med:-63 rssi_max:-61
-**LINK** peer:0x00000010 proto:ble n:63 rssi_min:-81 rssi_med:-54 rssi_max:-50
-**LINK** peer:0x00000012 proto:ble n:64 rssi_min:-87 rssi_med:-77 rssi_max:-72
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-71 rssi_med:-62 rssi_max:-60
-**LINK** peer:0x00000300 proto:espnow n:35 rssi_min:-68 rssi_med:-51 rssi_max:-46
-**LINK** peer:0x00000010 proto:espnow n:31 rssi_min:-43 rssi_med:-35 rssi_max:-33
-**LINK** peer:0x00000011 proto:ble n:46 rssi_min:-97 rssi_med:-92 rssi_max:-89
+**LINKWIN** t_ms:480200 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:66 rssi_min:-81 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000012 proto:ble n:61 rssi_min:-80 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000010 proto:ble n:60 rssi_min:-81 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000300 proto:espnow n:48 rssi_min:-48 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000011 proto:ble n:54 rssi_min:-92 rssi_med:-86 rssi_max:-80
+**LINK** peer:0x00000012 proto:espnow n:30 rssi_min:-57 rssi_med:-57 rssi_max:-56
+**LINK** peer:0x00000011 proto:espnow n:20 rssi_min:-86 rssi_med:-85 rssi_max:-83
+**LINK** peer:0x00000010 proto:espnow n:18 rssi_min:-30 rssi_med:-28 rssi_max:-28
 
 ---
 
 @LAT97LON6 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:420642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:18 rssi_min:-88 rssi_med:-78 rssi_max:-77
-**LINK** peer:0x00000300 proto:ble n:54 rssi_min:-68 rssi_med:-61 rssi_max:-59
-**LINK** peer:0x00000012 proto:ble n:54 rssi_min:-91 rssi_med:-78 rssi_max:-72
-**LINK** peer:0x00000010 proto:ble n:60 rssi_min:-56 rssi_med:-54 rssi_max:-50
-**LINK** peer:0x00000012 proto:espnow n:18 rssi_min:-75 rssi_med:-64 rssi_max:-59
-**LINK** peer:0x00000010 proto:espnow n:31 rssi_min:-36 rssi_med:-34 rssi_max:-34
-**LINK** peer:0x00000300 proto:espnow n:45 rssi_min:-55 rssi_med:-50 rssi_max:-48
-**LINK** peer:0x00000011 proto:ble n:48 rssi_min:-97 rssi_med:-92 rssi_max:-89
+**LINKWIN** t_ms:540200 synced:0 window_ms:60000
+**LINK** peer:0x00000300 proto:ble n:67 rssi_min:-82 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000012 proto:ble n:61 rssi_min:-81 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000010 proto:ble n:56 rssi_min:-81 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000011 proto:espnow n:15 rssi_min:-84 rssi_med:-84 rssi_max:-82
+**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-30 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000300 proto:espnow n:44 rssi_min:-46 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000012 proto:espnow n:17 rssi_min:-60 rssi_med:-57 rssi_max:-56
+**LINK** peer:0x00000011 proto:ble n:42 rssi_min:-92 rssi_med:-86 rssi_max:-79
 
 ---
 
 @LAT97LON7 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:480642 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-91 rssi_med:-78 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:48 rssi_min:-96 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000010 proto:ble n:54 rssi_min:-81 rssi_med:-54 rssi_max:-47
-**LINK** peer:0x00000300 proto:ble n:66 rssi_min:-71 rssi_med:-63 rssi_max:-58
-**LINK** peer:0x00000010 proto:espnow n:13 rssi_min:-37 rssi_med:-34 rssi_max:-32
-**LINK** peer:0x00000300 proto:espnow n:43 rssi_min:-53 rssi_med:-49 rssi_max:-47
-**LINK** peer:0x00000011 proto:espnow n:23 rssi_min:-87 rssi_med:-79 rssi_max:-76
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-67 rssi_med:-62 rssi_max:-60
+**LINKWIN** t_ms:600200 synced:0 window_ms:60000
+**LINK** peer:0x00000011 proto:ble n:49 rssi_min:-92 rssi_med:-86 rssi_max:-79
+**LINK** peer:0x00000012 proto:ble n:65 rssi_min:-81 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000300 proto:espnow n:45 rssi_min:-46 rssi_med:-45 rssi_max:-45
+**LINK** peer:0x00000012 proto:espnow n:22 rssi_min:-58 rssi_med:-57 rssi_max:-56
+**LINK** peer:0x00000011 proto:espnow n:20 rssi_min:-85 rssi_med:-84 rssi_max:-82
+**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-81 rssi_med:-61 rssi_max:-59
+**LINK** peer:0x00000010 proto:ble n:62 rssi_min:-81 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000010 proto:espnow n:18 rssi_min:-30 rssi_med:-28 rssi_max:-28
+
+---
+
+@LAT96LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**ENTWIN** t_ms:617340 synced:0 window_ms:555209 entities:4
+**ENTITY** kind:wifi_ap id:f83eb025d3d2 n:1 rssi:-43
+**ENTITY** kind:wifi_ap id:02c57d2e0f0d n:1 rssi:-76
+**ENTITY** kind:wifi_ap id:bc102f237ace n:1 rssi:-85
+**ENTITY** kind:wifi_ap id:e6b32d2cea8b n:1 rssi:-91
 
 ---
 
 @LAT97LON8 | created:0 | updated:0 | relates:observes@LAT0LON0
 
-**LINKWIN** t_ms:540642 synced:0 window_ms:60000
-**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-74 rssi_med:-64 rssi_max:-61
-**LINK** peer:0x00000012 proto:ble n:52 rssi_min:-81 rssi_med:-73 rssi_max:-69
-**LINK** peer:0x00000011 proto:espnow n:19 rssi_min:-88 rssi_med:-82 rssi_max:-78
-**LINK** peer:0x00000300 proto:espnow n:41 rssi_min:-60 rssi_med:-51 rssi_max:-49
-**LINK** peer:0x00000011 proto:ble n:55 rssi_min:-98 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000010 proto:ble n:61 rssi_min:-60 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000012 proto:espnow n:22 rssi_min:-63 rssi_med:-60 rssi_max:-58
-**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-36 rssi_med:-32 rssi_max:-31
-
----
-
-@LAT97LON9 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:600642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:21 rssi_min:-83 rssi_med:-81 rssi_max:-79
-**LINK** peer:0x00000300 proto:ble n:64 rssi_min:-80 rssi_med:-65 rssi_max:-62
-**LINK** peer:0x00000300 proto:espnow n:56 rssi_min:-59 rssi_med:-55 rssi_max:-49
-**LINK** peer:0x00000011 proto:ble n:62 rssi_min:-94 rssi_med:-91 rssi_max:-88
-**LINK** peer:0x00000012 proto:espnow n:27 rssi_min:-66 rssi_med:-63 rssi_max:-60
-**LINK** peer:0x00000010 proto:espnow n:26 rssi_min:-35 rssi_med:-32 rssi_max:-31
-**LINK** peer:0x00000010 proto:ble n:66 rssi_min:-57 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000012 proto:ble n:66 rssi_min:-83 rssi_med:-73 rssi_max:-70
-
----
-
-@LAT97LON10 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:660642 synced:0 window_ms:60000
-**LINK** peer:0x00000012 proto:ble n:58 rssi_min:-81 rssi_med:-74 rssi_max:-69
-**LINK** peer:0x00000010 proto:ble n:57 rssi_min:-70 rssi_med:-49 rssi_max:-46
-**LINK** peer:0x00000300 proto:espnow n:36 rssi_min:-58 rssi_med:-51 rssi_max:-48
-**LINK** peer:0x00000300 proto:ble n:57 rssi_min:-72 rssi_med:-64 rssi_max:-60
-**LINK** peer:0x00000012 proto:espnow n:26 rssi_min:-62 rssi_med:-60 rssi_max:-58
-**LINK** peer:0x00000011 proto:ble n:53 rssi_min:-98 rssi_med:-91 rssi_max:-87
-**LINK** peer:0x00000011 proto:espnow n:15 rssi_min:-86 rssi_med:-80 rssi_max:-77
-**LINK** peer:0x00000010 proto:espnow n:19 rssi_min:-33 rssi_med:-32 rssi_max:-31
-
----
-
-@LAT97LON11 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:720642 synced:0 window_ms:60000
-**LINK** peer:0x00000300 proto:ble n:63 rssi_min:-64 rssi_med:-61 rssi_max:-60
-**LINK** peer:0x00000010 proto:ble n:55 rssi_min:-79 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000012 proto:ble n:57 rssi_min:-84 rssi_med:-75 rssi_max:-69
-**LINK** peer:0x00000011 proto:ble n:52 rssi_min:-98 rssi_med:-91 rssi_max:-87
-**LINK** peer:0x00000300 proto:espnow n:54 rssi_min:-54 rssi_med:-49 rssi_max:-48
-**LINK** peer:0x00000011 proto:espnow n:24 rssi_min:-88 rssi_med:-83 rssi_max:-77
-**LINK** peer:0x00000012 proto:espnow n:20 rssi_min:-65 rssi_med:-62 rssi_max:-56
-**LINK** peer:0x00000010 proto:espnow n:20 rssi_min:-38 rssi_med:-34 rssi_max:-32
-
----
-
-@LAT97LON12 | created:0 | updated:0 | relates:observes@LAT0LON0
-
-**LINKWIN** t_ms:780642 synced:0 window_ms:60000
-**LINK** peer:0x00000011 proto:espnow n:13 rssi_min:-88 rssi_med:-83 rssi_max:-81
-**LINK** peer:0x00000300 proto:espnow n:46 rssi_min:-54 rssi_med:-52 rssi_max:-48
-**LINK** peer:0x00000012 proto:ble n:60 rssi_min:-83 rssi_med:-75 rssi_max:-71
-**LINK** peer:0x00000300 proto:ble n:62 rssi_min:-66 rssi_med:-63 rssi_max:-59
-**LINK** peer:0x00000010 proto:ble n:68 rssi_min:-80 rssi_med:-50 rssi_max:-47
-**LINK** peer:0x00000010 proto:espnow n:27 rssi_min:-40 rssi_med:-32 rssi_max:-32
-**LINK** peer:0x00000012 proto:espnow n:25 rssi_min:-64 rssi_med:-62 rssi_max:-55
-**LINK** peer:0x00000011 proto:ble n:43 rssi_min:-99 rssi_med:-92 rssi_max:-88
+**LINKWIN** t_ms:660200 synced:0 window_ms:60000
+**LINK** peer:0x00000010 proto:ble n:58 rssi_min:-80 rssi_med:-45 rssi_max:-43
+**LINK** peer:0x00000300 proto:ble n:60 rssi_min:-81 rssi_med:-60 rssi_max:-59
+**LINK** peer:0x00000012 proto:espnow n:15 rssi_min:-58 rssi_med:-56 rssi_max:-55
+**LINK** peer:0x00000011 proto:ble n:55 rssi_min:-92 rssi_med:-87 rssi_max:-80
+**LINK** peer:0x00000010 proto:espnow n:18 rssi_min:-29 rssi_med:-28 rssi_max:-28
+**LINK** peer:0x00000011 proto:espnow n:17 rssi_min:-84 rssi_med:-83 rssi_max:-82
+**LINK** peer:0x00000012 proto:ble n:55 rssi_min:-81 rssi_med:-71 rssi_max:-68
+**LINK** peer:0x00000300 proto:espnow n:33 rssi_min:-47 rssi_med:-45 rssi_max:-45

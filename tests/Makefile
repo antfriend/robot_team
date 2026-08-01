@@ -17,8 +17,9 @@ EP_SRCS := test_entitypercept.cpp \
 # NMEA GGA decode for the roaming GPS anchor (semantic positioning SP2).
 NMEA_SRCS := test_nmea.cpp \
         $(LIB)/Gps/src/Nmea.cpp
-# Streams the real RFCs/rfc.ttdb.md through the firmware's TtdbParse.cpp to prove
-# the compressed RFC corpus stays fleet-carryable as the RFCs evolve.
+# Streams the real replicate/RFCs/rfc.ttdb.md through the firmware's TtdbParse.cpp
+# to prove the compressed RFC corpus stays fleet-carryable as the RFCs evolve.
+# (The corpus moved from RFCs/ to replicate/RFCs/ on 2026-07-31.)
 RFC_SRCS := test_rfc_ttdb.cpp \
         $(LIB)/TTDB/src/TtdbParse.cpp
 # Fleet-pulse chart scene extension: wire compatibility both ways + the scene

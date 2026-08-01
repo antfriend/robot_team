@@ -1003,14 +1003,17 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               ok = false;
             }
             break;
-          case toot::CMD_CLEAR_PERCEPTS:
+          case toot::CMD_CLEAR_PERCEPTS: {
             // Flash rewrite: reaches here only from loop() (radio path defers).
             // ACK only on success, so a failed prune is loud (laptop retries).
-            ok = gDb.removeLane(97);
+            uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
+            ok = gDb.removePerceptLanes(lane);
             if (ok)
-              Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
+              Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
+                            lane ? String(lane).c_str() : "ALL",
                             (unsigned)gDb.fileSize(), gDb.recordCount());
             break;
+          }
           default: break;                                   // ping / set-* (no-op here)
         }
         accepted = ok;

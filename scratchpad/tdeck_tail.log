@@ -1,0 +1,4 @@
+tailing COM10 for 75s (passive)
+     50.0s | [link] percept lane 97 cleared (TTDB now 3711B, 6r)
+     55.0s | [link] percept window -> @LAT97LON0 (TTDB 4474B)
+tail done

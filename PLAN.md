@@ -567,6 +567,20 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       calibrated bench map (2.2–4.0 m, sigma 0.3–0.7 m) that includes the
       K10** — mapped one-directionally by the other nodes' observations, no
       K10 firmware change.
+- [x] **Prune takes a LANE ✅ (2026-07-31): op 8 gains an optional lane byte,
+      default ALL percept lanes (94–97)** — because `@LAT96` entity windows had
+      no way to be cleared at all on four of five nodes, and that lane is what
+      grew a TTDB past what its own bridged pull can carry.
+      `Ttdb::removeLaneRange` does every lane in ONE rewrite (the Cardputer had
+      been doing four, opening four windows for a concurrent reader to see a
+      moving file); `Ttdb::removePerceptLanes` refuses anything outside 94–97,
+      so the prune can never reach `@LAT0` identity, `@LAT98` beliefs or
+      `@LAT99` sync logs. **All five nodes flashed and verified**, incl. the
+      negative case (lane 98/99 refused, lane 97 control ACKs) and survival of
+      real protected records on V4-B and the Cardputer. Sizes after: V4-B
+      65818→1504 B, Cardputer 63502→3601 B, V4-C 63991→848 B, T-Deck ~36 K→3011 B.
+      ⚠ Not a one-time fix: `@LAT97` refills its 48-record cap in under an hour,
+      so a collect must land inside that window or it fuses a truncated sample.
 - [x] **Entity-Jaccard cap ✅ BUILT + offline-verified 2026-07-12.**
       `companion.py proximity` now pulls each node's `@LAT96` lane alongside
       `@LAT97`, fuses the pairwise **WiFi-AP Jaccard** (`consolidate_entity_jaccard`)

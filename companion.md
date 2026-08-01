@@ -2195,6 +2195,148 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `scratchpad/stale_master/`). And `proximity --nodes` had been defaulting to a **stale 3-node
   list**; it now uses `DEFAULT_FLEET`.
 
+- ✅ **`CMD_CLEAR_PERCEPTS` TAKES A LANE, AND THE DEFAULT IS NOW *ALL* PERCEPT LANES — built,
+  flashed and verified on two nodes (2026-07-31).** The increment the SP1/SP2 run identified as
+  its own blocker. Op 8 gains an **optional lane byte at `payload[5]`** (`toot::cmdClearLane`,
+  the additive-byte convention `CMD_DUET`'s `speed` already uses): **0 or absent = every percept
+  lane 94–97**, else exactly that lat. Absent meaning *all* is deliberate — the `@LAT96` entity
+  lane previously had **no way to be cleared at all** on four of five nodes, and it is what grew a
+  TTDB past what its own bridged pull can carry.
+  **`Ttdb::removeLaneRange(lo, hi)` does it in ONE rewrite**, with `removeLane` now a thin wrapper.
+  That is a real fix, not tidying: the Cardputer had been calling `removeLane` **four times**, so a
+  prune cost four whole-file rewrites *and opened four separate windows in which the file moved
+  under a concurrent reader* — the stitched-pull hazard above, self-inflicted four times per clear.
+  🔒 **`Ttdb::removePerceptLanes(lane)` is the guard, and it lives in the library, not in five
+  sketches.** Anything outside 94–97 is **refused, not clamped** — a caller asking for @LAT99 has a
+  bug or bad intent, and pruning a different lane than the one requested would be worse than saying
+  no. This is what stops op 8 being a general remote-delete for `@LAT0` identity, `@LAT98` belief
+  attestations and `@LAT99` sync logs.
+  ✅ **Verified on hardware, including the negative case** (V4-A COM6, T-Deck COM10, both flashed):
+  `--lane 96` dropped **only** @LAT96 (48 records gone, 41 @LAT97 and the @LAT0 records untouched);
+  the **default** clear took the T-Deck from ~36 KB to **3011 B / 4 records**; a raw
+  `lane=99` on the wire (bypassing companion.py's own check, `scratchpad/lane_guard.py`) got
+  **no ACK across 3 attempts — refused** — and the **control matters as much**: `lane=97` over that
+  same raw path ACKed on attempt 1, so the refusal is specific to the protected lane and not the
+  extra byte breaking the parse.
+  **Laptop side:** `cmd --op clear-percepts [--lane 94|95|96|97]` (0/omitted = all, validated
+  client-side too so a doomed CMD does not cost 4 attempts to learn nothing), and
+  `proximity --clear` now sends lane 0 — correct, because that consolidation consumes @LAT96
+  co-occurrence as well as @LAT97 windows.
+  ✅ **V4-B flashed too, and it is the node that PROVED the guard on real data (2026-07-31).** On
+  V4-A and the T-Deck an all-lanes clear could not demonstrate anything about protected lanes —
+  neither node had an `@LAT98` or `@LAT99` record to lose. V4-B did: it went **65818 B / 101
+  records → 1504 B / 5 records**, and the survivors are exactly **3× `@LAT99` sync + 1× `@LAT98`
+  belief + `@LAT0` identity**. The prune is surgical on a node that actually had something to
+  protect.
+  📎 Its pre-flash capture (front-door position, direct over COM9, **no stitching**) is kept at
+  `scratchpad/v4b_frontdoor_capture.md` — the first time V4-B's own `@LAT97` windows have ever been
+  collected. **Not fused into a map**: V4-B was at the bench to be flashed, so those windows and
+  the other nodes' current ones describe two different geometries, and mixing them is the exact
+  error the stale `master/*.md` files nearly caused.
+  ⚠ **`@LAT97` refills to its 48-record cap in well under an hour** — V4-B was back at the cap ~2 h
+  after the earlier clear. **Pruning is not a one-time fix**; the cap is hit continuously, so any
+  node left running is dropping evidence between collections. That is now the growth story, not the
+  file size.
+  ✅ **Cardputer flashed too — and it is where LANE SELECTIVITY was proven, being the only node
+  with all four tiers.** `--lane 94` dropped **exactly** the 48 acoustic records and left `@LAT97`
+  48, `@LAT95` 48, `@LAT96` 5 and `@LAT99` 2 standing; the default clear then took it **63502 B /
+  155 records → 3601 B / 6**, again keeping both `@LAT99` sync records and its `@LAT0`/`@LAT32`/
+  `@LAT35` map records. Pre-flash capture (direct, COM14, no stitching) at
+  `scratchpad/cardputer_preflash_capture.md`.
+  📎 **CORRECTION to the record-count worry recorded earlier today.** §6 said the Cardputer "is
+  growing ~1 record/min and `TTDB_MAX_RECORDS` is 256... the next thing that will bite". Measured:
+  it sat at **155 records with three lanes already pinned at their 48-record cap**. The per-lane
+  caps bound the total — 4 lanes × 48 = 192 percept records plus a handful of base/sync records,
+  ~200, **under 256 by construction**. It was never going to overflow that way. The real growth
+  problem is the one above (a lane that refills its cap in under an hour), not the record ceiling.
+  ✅ **V4-C flashed — the WHOLE FLEET now carries the lane-aware prune (all five nodes,
+  2026-07-31).** 63991 B / 97 records → **848 B / 1** (its `@LAT0` identity record), and the guard
+  refused **lane 98** (the belief lane) the same way V4-A refused 99. Pre-flash capture at
+  `scratchpad/v4c_preflash_capture.md`.
+  📎 V4-C's earlier *bridged* pull read 7474 B against 63991 B direct here. That is **consistent
+  with lane refill** (its `@LAT97` had just been cleared, and ~39 `@LAT96` windows at ~1/min fills
+  the gap over the intervening hours), **not** evidence of a truncated pull — recorded because the
+  two explanations are genuinely indistinguishable from what was kept, and the earlier file was
+  overwritten before the question came up. Keep the pre-clear file next time.
+  **Guard coverage as flashed:** refusal verified on **@LAT98 (V4-C) and @LAT99 (V4-A)**, with the
+  `lane=97` control ACKing on attempt 1 so the refusal is specific; survival of real protected
+  records verified on **V4-B (3× @LAT99 + 1× @LAT98)** and the **Cardputer (2× @LAT99)**; lane
+  selectivity verified on the **Cardputer** (`--lane 94` of four lanes) and **V4-A** (`--lane 96`).
+  📎 All five sketches compile: V4-A/V4-B/V4-C **94%**, T-Deck 40%, Cardputer 41%.
+- **Repo-move breakage fixed where it was real (2026-07-31).** `tests/test_rfc_ttdb.cpp` +
+  `tests/Makefile` now point at `replicate/RFCs/rfc.ttdb.md`, and both handhelds'
+  `data/rfc.ttdb.md` were re-synced from the canonical corpus (34 → **36 records / 38014 B**, so
+  TTDB-RFC-0009 is in the flashable image — **it reaches the glass only on the next FS flash**,
+  which was deliberately NOT run: `Upload-Tdeck-FS.ps1` images the whole `data/` dir and would
+  overwrite the live on-device TTDB).
+  ⚠ **`test_rfc_ttdb` was failing on a stale hardcoded record count (33 vs 36)** — every
+  structural check passed, only the count was stale. Bumped to 36 behind a named
+  `kExpectedRecords` with a note that it is exact **on purpose**: it is the one check that catches
+  a *truncated* corpus, which every other check in that file would happily pass.
+  ⚠ **The native suite could not be rebuilt this session — there is no g++ and no `zig` on this
+  machine** (the portable `zig c++` from an earlier session lived in the scratchpad, which is
+  session-scoped and gone). The prebuilt `tests/*.exe` still run; the source fixes above are
+  therefore **compile-unverified** and the next session with a toolchain should run `make`
+  ([[no-host-cpp-toolchain]]).
+
+- ⚠ **PRUNING DID NOT UNLOCK THE BIDIRECTIONAL COLLECT — the bridged pull fails at ~30 KB too,
+  and the operative limit is now DWELL TIME (2026-07-31).** After the whole fleet was cleared in
+  position and left 25 min to refill, **all three bridged pulls returned "no data"** while the two
+  cabled nodes came back fine at **28791 B (V4-A, 34 windows)** and **29980 B (T-Deck)**. The three
+  silent nodes were cleared at the same instant, so they are the same size.
+  **Two candidate explanations were tested and BOTH eliminated**, which is the only reason the
+  third is worth stating:
+  - **Not the settle.** The stock 2.5 s post-open wait was raised to 6 s with a retry at 9 s
+    (a bridged pull must wait out the *bridge's* boot too, and the bridge has the multi-second
+    early-boot stall). No change — still no data on all three.
+  - **Not the DTR reset.** `reach.py` and `clear_all.py` both work over the bridge and both open
+    with `open_serial_no_reset`, so the pull was re-run the same way (`scratchpad/pull_noreset.py`).
+    Still no data. The reset is not the discriminator.
+  ⚠⚠ **VOLUME WAS ALSO WRONG — and this entry said otherwise for an hour, so read the end, not the
+  middle.** It first concluded "what is left is volume", reasoning that a bridged CMD is one frame
+  where a 30 KB TTDB is ~150. **The decisive test killed it:** the T-Deck is cabled *and* on the
+  mesh, so the same node can be pulled both ways within a minute. Direct: **10232 B, clean, first
+  pass.** Bridged, same minute: **no data.** Then, minutes later, bridged again: **14389 B (3 gaps
+  after 4 rounds).** A size ceiling cannot fail at 10 KB and succeed at 14 KB.
+  **So the bridged pull is INTERMITTENT, and after four eliminations the cause is still unknown:**
+  not the settle, not the DTR reset, not volume, and **not the firmware flashed today** — the
+  `v4a_bridge` diff is six lines entirely inside the `CMD_CLEAR_PERCEPTS` branch and cannot reach
+  TTDB_REQ forwarding. Bridged **CMDs** (ping, clear) succeed against all five nodes throughout.
+  The mesh is simply flakier this evening than this morning, unexplained.
+  📎 **The lane prune was necessary but NOT sufficient, and dwell-time tuning is NOT the lever it
+  looked like.** Trading sample size for a smaller file does not buy reliability from a link whose
+  failures are not size-driven. **Do not spend another session tuning dwell or retry counts** —
+  that is the "chase a flaky measurement" pattern this file already warns about three times.
+  **Next move is the transport itself: the generation-stamped / snapshot serve** the stitched-pull
+  finding already called for. It is now blocking the science, not just data integrity. Until then
+  **a node's own cable is the only trustworthy collection path** — 100% reliable on every node,
+  every attempt, all day.
+
+- ⚠ **FOOTGUN I WALKED INTO: `scratchpad/lane_guard.py <port> <node> 97` is a REAL CLEAR, not a
+  probe.** It was written to prove the firmware refuses a protected lane, and its *valid-lane
+  control* genuinely prunes. Reaching for it as a "ping-like contrast" during the collect **wiped
+  the T-Deck's `@LAT97` lane mid-experiment** and threw away the 8-minute dwell it had just
+  accumulated — caught red-handed by the passive tail: `[link] percept lane 97 cleared (TTDB now
+  3711B, 6r)`. Its success message is also inverted for the control case, which is how it read as
+  reassuring. **Use `scratchpad/reach.py` when you want a harmless probe**; lane_guard mutates.
+- **WHERE THIS SESSION STOPPED (2026-07-31, paused for the night).**
+  **Done and solid:** K10 parked out of all defaults (code kept); the lane-aware prune built,
+  compiled, flashed and verified on **all five nodes**; repo-move breakage fixed in the tests;
+  RFC corpus re-synced to both handhelds' `data/`.
+  **Open, in priority order:**
+  1. **Generation-stamped / snapshot TTDB serve** — the one fix that unblocks both the silent
+     two-generation stitch and the intermittent bridged pull. Everything else waits on it.
+  2. **The bidirectional 5-node SP1/SP2 run** — still not achieved. The last completed fuse
+     (ordering ✅, metric ✗, embedding degenerate) came from **3 observers, one-directional**.
+  3. **`@LAT96` has no consolidation consumer yet** — it is pruned by lane 0 but only feeds
+     `entity_bounds`; worth deciding whether it should survive a prune longer than `@LAT97`.
+  4. Native test suite unrun (no g++/zig this machine); T-Deck FS not reflashed, so TTDB-RFC-0009
+     is in the repo image but not on its glass.
+  **Fleet as left:** all five powered and reachable; every percept lane recently cleared and
+  refilling, so nothing on any node is a usable sample yet. V4-A on **COM6** (bridge), T-Deck on
+  **COM10**; V4-B, V4-C, Cardputer on battery in the stated positions. Working tree has
+  uncommitted changes across firmware, orchestrator, tests and docs.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

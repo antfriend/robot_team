@@ -118,11 +118,23 @@ static bool copyRange(File& in, File& out, size_t off, size_t len) {
   return true;
 }
 
-bool Ttdb::removeLane(int16_t lat) {
-  if (!fs_) return false;
+bool Ttdb::removeLane(int16_t lat) { return removeLaneRange(lat, lat); }
+
+bool Ttdb::removePerceptLanes(uint8_t lane) {
+  if (lane == 0)
+    return removeLaneRange(TTDB_PERCEPT_LANE_LO, TTDB_PERCEPT_LANE_HI);
+  // Refuse anything outside the percept range rather than clamping: a caller
+  // asking for @LAT99 has a bug or bad intent, and silently pruning a different
+  // lane than the one requested would be worse than saying no.
+  if (lane < TTDB_PERCEPT_LANE_LO || lane > TTDB_PERCEPT_LANE_HI) return false;
+  return removeLane((int16_t)lane);
+}
+
+bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
+  if (!fs_ || lo > hi) return false;
   bool any = false;
   for (int i = 0; i < record_count_; ++i)
-    if (records_[i].lat == lat) { any = true; break; }
+    if (records_[i].lat >= lo && records_[i].lat <= hi) { any = true; break; }
   if (!any) return true;  // idempotent: nothing to remove
 
   char tmp[72];
@@ -144,7 +156,7 @@ bool Ttdb::removeLane(int16_t lat) {
   size_t pre = record_count_ ? records_[0].file_offset : file_size_;
   bool ok = copyRange(in, out, 0, pre);
   for (int i = 0; ok && i < record_count_; ++i) {
-    if (records_[i].lat == lat) continue;
+    if (records_[i].lat >= lo && records_[i].lat <= hi) continue;
     size_t off, len;
     recordSpan(i, off, len);
     ok = copyRange(in, out, off, len);

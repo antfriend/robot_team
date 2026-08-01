@@ -117,9 +117,15 @@ enum CmdOp : uint8_t {
   CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
   CMD_PLAY = 6,          // no args — start the node's melody/part (K10 song); boots off
   CMD_STOP = 7,          // no args — stop the node's melody/part
-  CMD_CLEAR_PERCEPTS = 8,  // no args — drop the @LAT97 link-percept lane from the
-                           // live TTDB (SP1 prune after consolidation; flash
-                           // rewrite, so radio callers MUST defer it to loop())
+  CMD_CLEAR_PERCEPTS = 8,  // args: lane u8 (optional; 0 or absent = ALL percept lanes
+                           // 94..97, else that one lat). Drops consumed percept
+                           // records from the live TTDB (SP1 prune after
+                           // consolidation; flash rewrite, so radio callers MUST
+                           // defer it to loop()). An older sender omits the byte and
+                           // gets the all-lanes prune, which is the safe default: the
+                           // @LAT96 entity lane had no way to be cleared at all, and
+                           // it is what grew a TTDB past the size its own bridged
+                           // pull can carry (companion.md §6, 2026-07-31).
   CMD_GET_GPS = 9,         // no args — GPS-bearing node (T-Deck Plus) replies a GPS
                            // PERCEPT (semantic positioning SP2: the roaming
                            // ground-truth anchor/verifier). Cheap (no flash): the
@@ -350,6 +356,11 @@ inline uint8_t cmdOp(const Toot& t) {
 }
 inline uint32_t cmdTarget(const Toot& t) {
   return t.payload_len >= 5 ? get_u32(t.payload + 1) : 0;
+}
+// CMD_CLEAR_PERCEPTS lane selector: 0 = every percept lane. Absent means 0, so a
+// sender built before the argument existed still gets the all-lanes prune.
+inline uint8_t cmdClearLane(const Toot& t) {
+  return t.payload_len >= 6 ? t.payload[5] : 0;
 }
 
 // TTDB_PUT addressed node (payload bytes 0..3); 0 on a too-short body.

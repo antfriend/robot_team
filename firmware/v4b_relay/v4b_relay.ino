@@ -684,9 +684,11 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
         if (toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
           // Flash rewrite: reaches here only from loop() (radio path defers).
           // ACK only on success, so a failed prune is loud (laptop retries).
-          accepted = gDb.removeLane(97);
+          uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
+          accepted = gDb.removePerceptLanes(lane);
           if (accepted)
-            Serial.printf("[link] @LAT97 lane cleared (TTDB now %uB, %dr)\n",
+            Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
+                          lane ? String(lane).c_str() : "ALL",
                           (unsigned)gDb.fileSize(), gDb.recordCount());
         } else if (toot::cmdOp(t) == toot::CMD_DUET) {
           // A console asking the relay to sing with it. Flags + a phrase pointer only —

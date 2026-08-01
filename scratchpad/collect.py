@@ -50,16 +50,28 @@ def lanes_and_check(path):
     return len(s), counts, bad
 
 
-def pull_one(node, port, why):
+def pull_once(node, port, settle):
     import serial
     reader = c.SerialFrameReader()
-    out = os.path.join("master", "%s.md" % node)
     with serial.Serial(port, 115200, timeout=0.1) as ser:
-        time.sleep(2.5)          # port open resets the S3; let it boot
+        # Opening the port resets the S3. companion.py's stock 2.5 s settle is
+        # NOT enough for a bridged pull: the bridge reboots too, and it has a
+        # multi-second stall early in boot (companion.md §6, seen on 4/4 nodes),
+        # so the request can land while it is descheduled and get no reply at all.
+        # A "no data" on every bridged node at once is that, not a size failure.
+        time.sleep(settle)
         ser.reset_input_buffer()
-        data = c.request_ttdb(ser, reader, c.NODE_IDS[node])
+        return c.request_ttdb(ser, reader, c.NODE_IDS[node])
+
+
+def pull_one(node, port, why, settle):
+    out = os.path.join("master", "%s.md" % node)
+    data = pull_once(node, port, settle)
+    if data is None:                      # one retry: the failure is intermittent
+        print("  %-12s %-20s retrying after no data..." % (node, why))
+        data = pull_once(node, port, settle + 3.0)
     if data is None:
-        print("  %-12s %-20s FAILED (no data)" % (node, why))
+        print("  %-12s %-20s FAILED (no data, 2 tries)" % (node, why))
         return False
     os.makedirs("master", exist_ok=True)
     with open(out, "wb") as f:
@@ -76,8 +88,11 @@ def pull_one(node, port, why):
 print("collecting fleet TTDBs (own cable where available)\n")
 ok = True
 for node, (port, why) in ROUTE.items():
+    # A direct pull talks to the node itself; a bridged one has to wait out the
+    # bridge's boot as well, so it gets a longer settle.
+    settle = 2.5 if why.startswith("direct") else 6.0
     try:
-        ok &= pull_one(node, port, "%s %s" % (port, why))
+        ok &= pull_one(node, port, "%s %s" % (port, why), settle)
     except Exception as e:                                    # noqa: BLE001
         print("  %-12s %-20s ERROR %s" % (node, why, e))
         ok = False

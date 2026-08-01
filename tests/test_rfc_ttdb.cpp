@@ -1,4 +1,4 @@
-// test_rfc_ttdb.cpp — native proof that RFCs/rfc.ttdb.md (the semantic
+// test_rfc_ttdb.cpp — native proof that replicate/RFCs/rfc.ttdb.md (the semantic
 // compression of the RFC corpus) is carryable by the fleet's own streaming TTDB
 // reader. It replicates Ttdb::begin()'s two-pass index byte-for-byte (line_start
 // '@' scan, then ttdbParseHeader on each header line, both from TTDB.cpp) over
@@ -6,7 +6,8 @@
 // invariants Agent32 reasoning and TtdbShare streaming depend on. Keeping this in
 // the native suite means the compression stays verified as the RFCs evolve: edit
 // an RFC + regenerate the gist, and a broken header/edge/coordinate fails here
-// before it ever reaches flash. See RFCs/rfc.ttdb.md and RFCs/INDEX.md.
+// before it ever reaches flash. See replicate/RFCs/rfc.ttdb.md and
+// replicate/RFCs/INDEX.md (the corpus moved under replicate/ on 2026-07-31).
 #include "TtdbParse.h"
 #include <cstdio>
 #include <cstring>
@@ -45,7 +46,7 @@ static std::string readLine(const std::string& data, size_t off) {
 }
 
 int main(int argc, char** argv) {
-  const char* path = argc > 1 ? argv[1] : "../RFCs/rfc.ttdb.md";
+  const char* path = argc > 1 ? argv[1] : "../replicate/RFCs/rfc.ttdb.md";
   FILE* f = fopen(path, "rb");
   if (!f) {
     printf("FAIL: cannot open %s\n", path);
@@ -70,7 +71,12 @@ int main(int argc, char** argv) {
     }
     line_start = (c == '\n');
   }
-  CHECK(recs.size() == 33, "pass-1 scan indexes 33 records (got %zu)", recs.size());
+  // Exact, not a lower bound: this is the check that catches a TRUNCATED corpus,
+  // which every structural check below would happily pass. Bump it when the RFC
+  // set genuinely grows (33 -> 36 on 2026-07-31, TTDB-RFC-0009 + INDEX records).
+  const size_t kExpectedRecords = 36;
+  CHECK(recs.size() == kExpectedRecords, "pass-1 scan indexes %zu records (got %zu)",
+        kExpectedRecords, recs.size());
   CHECK(recs.size() <= TTDB_MAX_RECORDS, "fits TTDB_MAX_RECORDS (%d)", TTDB_MAX_RECORDS);
 
   // Pass 2 — every indexed '@' line MUST parse, or it stays a phantom (0,0)

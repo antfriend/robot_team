@@ -46,7 +46,10 @@ orchestrator/companion.py   Laptop side: pull/sync/verify/reconcile/push/cmd/
 master/                 Laptop-side artifacts: consolidated + belief TTDBs, logs
 scripts/                setup / build / deploy / upload-fs (arduino-cli)
 tests/                  Native test for the portable libs (g++ + make)
-RFCs/                   Governing specs (A32, TTDB, TTN, TTCP)
+replicate/              Open-source publication front door (README + the spec store)
+  RFCs/                 Governing specs (A32, TTDB, TTN, TTCP) — MOVED here from the
+                        repo root on 2026-07-31; `replicate/RFCs/rfc.ttdb.md` is the
+                        canonical corpus the handhelds carry in their data/ dirs
 ```
 
 ## Build & deploy — arduino-cli (not PlatformIO)

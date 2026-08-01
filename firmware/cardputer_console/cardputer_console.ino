@@ -697,16 +697,16 @@ static void serveTtdbReq(const toot::Toot& req, TtdbShare::SendFn send, void* ct
 static void toneI2S(float freq, uint32_t ms, float amp);
 #endif
 
-// Prune every consumed percept lane. This node carries four tiers, so a
-// CMD_CLEAR_PERCEPTS has four lanes to compact — all or nothing, so a partial prune
-// is reported as a failure and the laptop retries (`proximity --clear` depends on it).
-static bool clearPerceptLanes() {
-  bool ok = gDb.removeLane(97);
-  ok = gDb.removeLane(96) && ok;
-  ok = gDb.removeLane(95) && ok;
-  ok = gDb.removeLane(94) && ok;
+// Prune consumed percept lanes. This node carries all four tiers, so it had been
+// compacting them with four sequential removeLane() calls — four whole-file rewrites,
+// and four separate windows in which the file moved under any concurrent reader (the
+// stitched-pull hazard, companion.md §6). removePerceptLanes() does it in ONE rewrite.
+// `lane` is the wire byte: 0 = every percept lane, else exactly that one.
+static bool clearPerceptLanes(uint8_t lane) {
+  bool ok = gDb.removePerceptLanes(lane);
   if (ok)
-    Serial.printf("[percept] lanes 94-97 cleared (TTDB now %uB, %dr)\n",
+    Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
+                  lane ? String(lane).c_str() : "ALL (94-97)",
                   (unsigned)gDb.fileSize(), gDb.recordCount());
   return ok;
 }
@@ -834,7 +834,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           case toot::CMD_CLEAR_PERCEPTS:
             // Flash rewrite: reaches here only from loop() (the radio path defers).
             // ACK only on success, so a failed prune is loud and the laptop retries.
-            ok = clearPerceptLanes();
+            ok = clearPerceptLanes(toot::cmdClearLane(t));
             break;
           default: break;                    // ping / set-* (no-op here)
         }
