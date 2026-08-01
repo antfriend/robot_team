@@ -2337,6 +2337,91 @@ If a fact lives in one of these, link to it from here — don't copy it.
   **COM10**; V4-B, V4-C, Cardputer on battery in the stated positions. Working tree has
   uncommitted changes across firmware, orchestrator, tests and docs.
 
+- **2026-08-01 — SPEC SYNC + THE TRANSITION FORM (`percept-learning-handoff.md`, Stage A).**
+  Worked the handoff staged in `toot-toot-engineering` (TTE). Two halves, one blocked.
+  **① Spec sync — done in the repo, NOT on the glass.** All five drifted RFC files pulled from
+  TTE (verified by content, not timestamp: TTE was newer on all five and every change was
+  purely additive), plus `replicate/agent-memory-system_ttdb.md` → Draft 06. `cmp` across the
+  whole corpus is now silent. The headline is **TTDB-RFC-0003 v1.1 §7: `opposes`**, a
+  *symmetric* type for **semantic polarity** — explicitly NOT the epistemic `contradicts`
+  (under `opposes` **both endpoints may be true**: *Joy* and *Grief* both exist and the store
+  is not thereby inconsistent). §7.1: implementations MUST NOT infer the reverse edge, so the
+  author writes **both** directions; every existing parser stays correct unmodified.
+  **② The feelings globes were MERGED, not overwritten**, per handoff §1.3, by script
+  (`scratchpad/merge_feelings.py`): canonical TTE store as the base, then each device's own
+  header paragraph and its `type:band` overlay records re-applied. Result: T-Deck 46 records,
+  Cardputer 47, **22 `opposes` edges each**. The two device copies differ *deliberately* —
+  each console draws the OTHER band members and never itself — so that drift was left alone,
+  not "fixed". The canonical `agent_note` (which is the only written record of the `opposes`
+  work and of the deliberate `sal:0` policy) now travels with them.
+  📎 The globes grew 44→46 / 45→47 records and the worst record went to 5 edges, still under
+  `NODE_EDGE_MAX 6`, so nothing new truncates. **Pre-existing and untouched:** `@LAT0LON0`
+  carries **17** edges and has always been silently cut to 6 by the globe cache.
+  **③ Stage A shipped: `MotionPercept` now writes the difference down (`@LAT93`).** The tier
+  already computed both sides of a `still → moving` edge and threw the pairing away; it now
+  emits a paired `@PERCEPT:before` → `@PERCEPT:after` record on a verdict **change** (never on
+  a repeat, so a node on a shelf writes none). Three findings worth more than the code:
+  1. ⚠ **The pair must be ONE record, not two.** TTDB-RFC-0006 §7.1 calls an orphaned `before`
+     an *error*, and `Ttdb::appendRecord` has no transaction — two appends means power loss
+     between them creates exactly that orphan. **A single atomic append is the only way a
+     fixed-RAM streaming writer can keep §7.1's promise.** That is a spec answer, not a
+     workaround, and Part 4 owes it to TTE.
+  2. ⚠ **`@PERCEPT:` COLLIDES WITH TTDB-RFC-0001 §3.** A record header is *any line whose first
+     character is `@`* (`TTDB.cpp:24`), so an unindented `@PERCEPT:before` in a body is indexed
+     as a record header, fails to parse, and becomes a **phantom (0,0) record**. The two lines
+     are **indented two spaces** and must stay that way; the native test asserts it.
+  3. The pair is **also** written as real `derived_from` edges to each half's `@LAT95` record,
+     because the same lesson RFC-0003 §7.3 draws about polarity applies: what is encoded only
+     positionally (or only in a body) is invisible to a consumer reading the edge list, which
+     is what the renderer actually traverses. Those edges CAN dangle once the `@LAT95` lane
+     wraps, which is why both state blocks are duplicated inline — the record stays
+     self-sufficient without them.
+  A measured pair is **589 B**. `MOTIONPERCEPT_TRANSITION_BUF` is **768** deliberately: a
+  pair that does not fit renders **0 bytes rather than a truncated `before`**, so an
+  under-sized buffer loses transitions *silently* — a first pass at 512 did exactly that and
+  only the test caught it. Lane `@LAT93` is deliberately **outside** the 94–97 block
+  `CMD_CLEAR_PERCEPTS` drops: percept windows are cheap raw evidence, a transition is the
+  thing the node learns from. Cap `MOTIONPERCEPT_MAX_TRANSITION_LANE 32`, and a full lane
+  **says so on serial** — silently dropping transitions looks identical to a node that never
+  moved, which is the opposite claim.
+  📎 **A discarded window BREAKS the chain** (`reset()` clears it) rather than pairing across
+  the gap: the sketch throws a window away when the `@LAT95` lane is full, and pairing over it
+  would assert an edge across a window nobody measured.
+  **④ Tests — the suite now BUILDS, which it did not.** `tests/test_motionpercept.cpp` (48
+  checks) pins the `@LAT95` format that `MotionPercept.h` had admitted was *"verified only on
+  hardware"*, plus the whole transition contract. `tests/test_symmetric_edges.cpp` (7 checks)
+  is RFC-0003 §7.1's "validators SHOULD report one-directional symmetric edges", run against
+  the globes the handhelds actually carry; it also **fails if it finds no symmetric edges at
+  all**, which is what a bad merge against canonical would produce. ⚠ **`test_linkpercept` had
+  not compiled for some time** — it asserts on `windowStartMs()`, which did not exist (no
+  `.exe` in the repo is the tell), so `cd tests && make` failed at *build* for every test.
+  Added the one-line accessor; **all 8 tests now build and pass** (48/·/·/48/10/7/27/45).
+  Built with portable **zig** (`zig c++`, no host g++ on this machine — see the memory note);
+  `scratchpad/t.sh` is the one-test wrapper.
+  **⑤ Cardputer sketch wired and compiling** — `41%` flash / `34%` RAM on
+  `huge_app,FlashSize=8M`. **Not flashed.**
+- 🚧 **WHERE 2026-08-01 STOPPED — BLOCKED ON HARDWARE, and the block is the measurement.**
+  **No ESP32 is attached to this machine.** Enumerating `Win32_PnPEntity` found only two
+  Bluetooth virtual COM ports (COM4/COM5) — no `VID_303A&PID_1001` device. So, not done:
+  1. **Neither handheld FS is reflashed.** Both consoles are still displaying a **v1.0 spec
+     globe** — including a Typed Edges RFC with no §7 `opposes`, which is the very finding
+     this sync turns on. Run `scripts/Upload-Tdeck-FS.ps1` / `scripts/Upload-Cardputer-FS.ps1`
+     (⚠ per-node scripts — huge_app puts LittleFS at **0x310000**, the V4 script writes
+     0x290000 and fails *silently* to an empty globe). Confirm by walking the RFC globe to
+     Typed Edges and looking for §7; if `opposes` is absent, the image did not land.
+  2. **The Cardputer is not flashed with the transition firmware**, so `@LAT93` has **never
+     been written by a device** — Stage A is verified natively and nowhere else. The whole
+     point is a store reconciling itself on hardware; treat the native pass as necessary and
+     not sufficient.
+  3. Nothing was measured that Part 4 of the handoff asks to send back: no flash cost in situ,
+     no lane-pruning behaviour, no answer on whether the fleet clock is stable enough to order
+     transitions across nodes given the **unresolved multi-second loop stall**. Stages B–E
+     (expectation → side log → asymmetric reconcile → K=3 abort) are **untouched**, and D is
+     the actual experiment — do not let A–C become the deliverable.
+  **First action next session:** plug in the Cardputer, `arduino-cli compile --upload`, and
+  watch for `[motion] still -> moving TRANSITION -> @LAT93LON0`. Everything else waits on a
+  device being on the end of a cable.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

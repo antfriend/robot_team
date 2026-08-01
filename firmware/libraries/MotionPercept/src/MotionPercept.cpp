@@ -36,6 +36,14 @@ void Log::reset(uint32_t now_ms) {
   last_sample_ms_ = now_ms;
   last_moving_ms_ = 0;
   window_start_ms_ = now_ms;
+
+  // reset() is "throw this window away" — the sketch calls it when the lane is full
+  // or the IMU drops out. Whatever closes next is NOT adjacent to whatever closed
+  // last, so the chain breaks here. Pairing across the gap would assert a transition
+  // over a window nobody measured. buildRecord() re-arms the chain deliberately,
+  // after calling this.
+  prev_valid_ = false;
+  pending_ = false;
 }
 
 void Log::add(int ax_mg, int ay_mg, int az_mg, uint32_t now_ms) {
@@ -104,7 +112,79 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     reset(now_ms);
     return 0;
   }
-  reset(now_ms);
+
+  // Reduce the window we just wrote to the numbers a transition needs, BEFORE reset()
+  // clears the chain, then re-arm the chain with it as the new `after` candidate.
+  Window cur;
+  cur.moving = (permille >= 100);
+  cur.synced = synced;
+  cur.lane = (int16_t)lane_n;
+  cur.n = n_;
+  cur.permille = permille;
+  cur.dev_mean_mg = devMeanMg();
+  cur.dev_max_mg = dev_max_mg_;
+  cur.moving_ms = moving_ms_;
+  cur.window_ms = window_ms;
+  cur.t_sec = t_sec;
+  cur.t_ms = t_ms;
+
+  const Window prev = prev_;
+  const bool had_prev = prev_valid_;
+
+  reset(now_ms);  // clears prev_valid_/pending_ — re-armed on the next three lines
+
+  prev_ = cur;
+  prev_valid_ = true;
+  // The claim exists only where the two verdicts disagree. Equal verdicts are not a
+  // transition, and writing one anyway would bury the real changes in noise.
+  if (had_prev && prev.moving != cur.moving) {
+    before_ = prev;
+    pending_ = true;
+  }
+  return (size_t)m;
+}
+
+size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id) {
+  if (!pending_) return 0;
+  pending_ = false;  // one write per change, success or not: never a second attempt
+
+  const Window& b = before_;
+  const Window& a = prev_;
+  // Elapsed between the two windows' close stamps. Both come from the same clock on
+  // the same node, so this is a real duration even when the fleet clock is unsynced —
+  // `synced` on each half says whether it is comparable with another node's.
+  const uint64_t dt_ms = (a.t_ms > b.t_ms) ? (a.t_ms - b.t_ms) : 0;
+
+  // NOTE: the two `@PERCEPT:` lines are indented by two spaces ON PURPOSE. See the
+  // header — an unindented '@' at line start IS a record header to Ttdb::begin(), and
+  // this pair would index as two phantom (0,0) records.
+  int m = snprintf(
+      out, cap,
+      "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
+      "relates:senses@LAT0LON0,derived_from@LAT95LON%d,derived_from@LAT95LON%d\n\n"
+      "**TRANSITION** t_ms:%llu synced:%d node:0x%lx from:%s to:%s dt_ms:%llu\n"
+      "  @PERCEPT:before state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d\n"
+      "  @PERCEPT:after state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d\n"
+      "**DELTA** edge:became d_permille:%ld d_dev_mean_mg:%ld d_dev_max_mg:%ld\n",
+      MOTIONPERCEPT_TRANSITION_LANE, lane_n,
+      (unsigned long)a.t_sec, (unsigned long)a.t_sec, (int)b.lane, (int)a.lane,
+      (unsigned long long)a.t_ms, a.synced ? 1 : 0, (unsigned long)node_id,
+      b.moving ? "moving" : "still", a.moving ? "moving" : "still",
+      (unsigned long long)dt_ms,
+      b.moving ? "moving" : "still", (unsigned long long)b.t_ms,
+      (unsigned long)b.window_ms, (long)b.n, (long)b.permille,
+      (long)b.dev_mean_mg, (long)b.dev_max_mg, (unsigned long)b.moving_ms, (int)b.lane,
+      a.moving ? "moving" : "still", (unsigned long long)a.t_ms,
+      (unsigned long)a.window_ms, (long)a.n, (long)a.permille,
+      (long)a.dev_mean_mg, (long)a.dev_max_mg, (unsigned long)a.moving_ms, (int)a.lane,
+      (long)(a.permille - b.permille), (long)(a.dev_mean_mg - b.dev_mean_mg),
+      (long)(a.dev_max_mg - b.dev_max_mg));
+
+  // A truncated pair is an orphan, which TTDB-RFC-0006 §7.1 calls an error rather than
+  // partial data. Write nothing at all instead.
+  if (m < 0 || (size_t)m >= cap) return 0;
   return (size_t)m;
 }
 

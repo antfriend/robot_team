@@ -3085,6 +3085,30 @@ void loop() {
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[motion] percept window -> @LAT95LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+
+      // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is
+      // the DIFFERENCE between it and the window before it, and per §5.2 the difference
+      // is the datum — the thing a prediction could ever be wrong about. Written only
+      // on a verdict change, so a node sitting still on a shelf writes none at all.
+      // Must run before the next buildRecord(), which would overwrite the `after` half.
+      if (gMotionLog.transitionPending()) {
+        int tlane = laneCount(MOTIONPERCEPT_TRANSITION_LANE);
+        if (tlane >= MOTIONPERCEPT_MAX_TRANSITION_LANE) {
+          // Lane full. Say so out loud: silently dropping transitions would look
+          // exactly like a node that never moved, which is the opposite claim.
+          Serial.printf("[motion] transition DROPPED — @LAT%d lane full (%d)\n",
+                        MOTIONPERCEPT_TRANSITION_LANE, tlane);
+        } else {
+          char trec[MOTIONPERCEPT_TRANSITION_BUF];
+          size_t tm = gMotionLog.buildTransition(trec, sizeof(trec), tlane, kNodeId);
+          if (tm && gDb.appendRecord(trec, tm))
+            Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d (%uB, TTDB %uB)\n",
+                          gMotionLog.pendingBefore().moving ? "moving" : "still",
+                          gMotionLog.lastWindow().moving ? "moving" : "still",
+                          MOTIONPERCEPT_TRANSITION_LANE, tlane, (unsigned)tm,
+                          (unsigned)gDb.fileSize());
+        }
+      }
     }
   }
 #endif

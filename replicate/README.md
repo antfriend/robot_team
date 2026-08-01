@@ -1,7 +1,11 @@
-# Open-source Universal Agent Memory & Learning System
+# Toot Toot Engineering
+free, open-source software. [MIT License](LICENSE) | [antfriend.github.io](https://antfriend.github.io/)
+![Release](https://img.shields.io/github/v/release/antfriend/toot-toot-engineering)
+
+# Universal Agent Memory & Learning System
 ## Multi Agent Memory, Learning, Reasoning and Coordination on *Any* Substrate
 
-It's a drafty, synthetic, experimentally unified field ("the cognitive glue of intelligence in spaces other than neural." - Levin) with concrete elements of:
+It's a synthetic, experimentally unified field with concrete elements of:
 - free energy principle.
 - subjective data, the Umwelt.
 - experiential perception as synthetic modeling or maybe synthetic perception as experiential modeling, depending on your umwelt valence.
@@ -11,12 +15,22 @@ It's a drafty, synthetic, experimentally unified field ("the cognitive glue of i
 
 - [agent-memory-system_ttdb.md](agent-memory-system_ttdb.md) — the semantically compressed spec file for all of this. It is also *an instance of the thing it specifies*: **a conforming store describing itself in its own format.** If you read one file, read this one.
 
+- [feelings_ttdb.md](feelings_ttdb.md) — a second conforming store, and the one to load if you want to *see* what a knowledge globe is rather than read about it. An affective landscape: latitude is valence (north positive, south negative), longitude is what the feeling points at (east toward others, west toward the self), and distance from the origin is intensity. Serenity sits near the middle; Rage and Ecstasy sit at the edges, opposite each other. Walk it in the viewer below.
+
 - [RFCs/](RFCs/) — the Request For Comment, internet spec style documents: the fully expanded version of agent-memory-system_ttdb.md. Start at [RFCs/INDEX.md](RFCs/INDEX.md).
+
+- [research/valence/](research/valence/) — **not spec, and deliberately so.** An
+open line of work asking whether a signed scalar field over a store's typed edges
+locates its contradictions. It survived its first falsification round — the field
+recovers held-out valence at r = +0.941 against published human norms — and has
+not earned an RFC, because the test that would settle whether it earns its keep
+has not run. Read `TIER1_RESULTS.md` for the results including the several places
+the method or its author was wrong.
 
 - [https://antfriend.github.io](https://antfriend.github.io) — the reference viewer. 
 
 Upload any conforming TTDB store on it (including the spec file above) and walk the globe of records. This website is all static files, hosted on github. File "upload" is merely to a client-side cookie on your own machine.
-![upload here](/replicate/upload.png)
+![upload here](upload.png)
 
 The load-bearing idea, in one breath: an agent's memory is one plain-text file
 of coordinate-addressed records with typed edges and epistemic weights; the
@@ -87,8 +101,9 @@ carries an *expectation* (a predicted outcome), outcomes are appended to a side
 log, and a reconciliation pass folds them into the weights asymmetrically —
 expectation met: `conf +2`; violated: `conf −16`, `sal +8`. Knowledge that
 works goes quiet; knowledge that fails gets loud. This is "Learning from
-Action" (`@LAT20LON3`), the spec's own highest-EPS record, and it is
-**deliberately unimplemented** — see the last section of this README.
+Action" (`@LAT20LON3`), the spec's own highest-EPS record. One agent now runs
+the outer loop; **the asymmetry itself is still unimplemented everywhere** — see
+the last section of this README.
 
 ### "I want a sensor mesh in my garden / on my roof / across my neighborhood that shares what it learns."
 
@@ -170,7 +185,7 @@ brings us to —
 
 The spec store's own attention mechanism, run on itself, points at one record:
 `@LAT20LON3`, **Learning from Action** — the newest, least-proven,
-most-relied-upon idea in the system, implemented nowhere. The `+2/−16`
+most-relied-upon idea in the system. The `+2/−16`
 asymmetry and the `K = 3` abort threshold are hypotheses awaiting a real run,
 on an ESP32 acting on sensor expectations or an LLM harness acting on
 predicted tool results.
@@ -186,3 +201,35 @@ starts *performing* it — and whoever runs the experiment becomes its
 co-author, with provenance to prove it. (`@LAT98LON2` in
 [the spec store](agent-memory-system_ttdb.md) is the formal version of this
 paragraph.)
+
+### Where it stands, 2026-08-01: partly answered, and the interesting half is open
+
+[LOCUS](https://antfriend.github.io/companion_arcprize.md), an ARC-AGI-3
+competition agent, *is* the LLM harness described above, and it has been running
+the loop for 39 sessions: 246 records, 18 of them revised, one 28 times, with
+confidence gated on outcome — "conf rises only when Phase 4 validates." That
+corroborates the first rule, that expectation-bearing action earns confidence.
+
+It does **not** test the part that needed testing. There is no `+2/−16`
+asymmetry; confidence moves in large manual jumps. There is no `K`-consecutive
+abort. And outcomes overwrite records rather than appending to a side log, so the
+loop mutates where the spec says it should testify. The constants are exactly as
+unrun as they were.
+
+Reading that agent moved two records here, in opposite directions, under this
+store's own rule: `@LAT20LON3` up `+2` for the rule that held, and `@LAT98LON2` —
+which had claimed the idea was implemented nowhere — down `−16` with `sal +8` for
+the claim that failed. Knowledge that works went quiet; knowledge that failed got
+loud. The asymmetry operating on the store's own beliefs, driven by evidence from
+outside it.
+
+But **a human did the reconciling.** No store reconciled itself, and that is the
+whole of what `@LAT20LON3` describes. The sharper finding is `@LAT98LON6`: the
+`@PERCEPT:before → @PERCEPT:after` transition form that all of this is specified
+on is instantiated **zero times anywhere** — including by the agent whose own
+constraints mandate it. A loop that overwrites state never materializes the
+difference, and the difference is the datum.
+
+So the invitation narrows rather than closes. The harness exists; the
+reconciliation is still manual; the constants are still guesses. What is now
+missing is precise enough to build: one loop that writes the difference down.

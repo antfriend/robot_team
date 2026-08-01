@@ -65,6 +65,14 @@ class Log {
   int totalObs() const;
   int peerCount() const { return peer_count_; }
 
+  // When the current window opened. tests/test_linkpercept.cpp asserts on this to prove
+  // a flush re-bases the window at flush time rather than at the next observation — the
+  // difference matters because `window_ms` in the record is derived from it, and a
+  // window that silently starts late reports a shorter one than it measured. (The
+  // accessor was missing until 2026-08-01, so that test had not compiled, and therefore
+  // `cd tests && make` had not built, for as long as the assertion had been there.)
+  uint32_t windowStartMs() const { return window_start_ms_; }
+
   // Per-peer stats out of the histogram (median = middle observation).
   bool stats(int slot, uint32_t& peer, uint8_t& proto, uint32_t& n,
              int& rmin, int& rmed, int& rmax) const;
