@@ -2468,13 +2468,151 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📎 The Cardputer's `@LAT93` records **survived the firmware reflash** (LittleFS is untouched
   by an app upload): both transitions still read back after re-pulling, TTDB now 17307 B / 60
   records and still accumulating.
+- ✅ **2026-08-02 — STAGES B + C RUN ON HARDWARE. The node now PREDICTS and TESTIFIES.**
+  New portable lib `firmware/libraries/PerceptLearn/` (39 native checks) + `@LAT92` outcome
+  lane on the Cardputer. Rule 1: a `still` @LAT95 window is a positive claim that the node
+  was anchored, so it arms an expectation that each peer's median RSSI will hold within a
+  band next window — falsifiable in 60 s against `@LAT97`, which already existed. Rule 2:
+  the verdict is APPENDED to a side lane and **nothing in the live loop edits any `[ew]`**.
+  Device-written record:
+  ```
+  @LAT92LON0 | ... relates:testifies_about@LAT95LON44,derived_from@LAT97LON28,senses@LAT0LON0
+  **OUTCOME** t_ms:122007 synced:0 node:0x300 acting:@LAT95LON44 observed_in:@LAT97LON28
+              band_dbm:6 met:2 violated:0 unobserved:0 streak:0
+  **EXPECTED** peer:0x00000200 proto:ble    predicted_med:-53 band:6
+  **OBSERVED** peer:0x00000200 proto:ble    observed_med:-53 delta:0 verdict:met
+  **EXPECTED** peer:0x00000200 proto:espnow predicted_med:-37 band:6
+  **OBSERVED** peer:0x00000200 proto:espnow observed_med:-37 delta:0 verdict:met
+  **PROVENANCE** rule:LearningFromAction/Rule1 src:@LAT20LON3 basis:motion_state:still ...
+  ```
+  4 outcomes / 8 claims, **all met, delta 0 every time** — both handhelds flat on a desk.
+  📎 **THE BAND IS THE FIRST CONSTANT IN THIS SYSTEM WITH AN EMPIRICAL BASIS.** 6 dBm is the
+  **p90 of consecutive-window median drift across 33 link windows the node had already
+  written while all 34 motion windows read `still`** (median drift 0–2 dBm, p90 1–6, max 27).
+  Derived from `master/preflash-2026-08-02/cardputer_ttdb.md`, not guessed like `+2/−16`.
+  📎 **Rule 3's asymmetry has a computable break-even, and it is 1/9.** Expected drift per
+  window is `(1-p)(+2) + p(-16) = 2 - 18p`, zero at **p = 11.1%**. So `+2/−16` encodes "a
+  claim must hold at least 8 times in 9 to be worth keeping." Setting the band at p90 puts a
+  perfectly anchored node at ~10% — just inside break-even — deliberately, so Rule 3 is not
+  flattered by construction. ⚠ **Widening the band would make Rule 3 look good and prove
+  nothing; say so if you change it.**
+  📎 ⚠ **A violation does NOT mean "this node moved."** RSSI cannot say which end of a pair
+  moved, and the T-Deck is the roamer. The claim under test is "this link was stable."
+- ⚠ **2026-08-02 — THE LEARNING LOOP WENT SILENT AFTER 4 OUTCOMES, AND NOTHING SAID SO.**
+  `@LAT95` hit **48/48** (`MOTIONPERCEPT_MAX_LANE`) after ~48 min. That path just called
+  `reset()` — no print — so every later window was discarded and `gLearn.disarm()` fired
+  forever while `[link]` lines kept scrolling and the node looked perfectly healthy.
+  **The motion lane fills ~2× faster than the link lane** (motion flushes with no peers in
+  range; link needs an observation), so it is always the first cap to bite. Now logged, rate
+  limited to once per 5 min. This is the third instance of the same lesson in two days:
+  **on this fleet the dangerous failure is always the silent one, and only a test or a print
+  catches it.**
+- 🔬 **2026-08-02 — THE MOVING RUN. First evidence anyone has about `+2/−16` and `K = 3`.**
+  Cardputer flat and untouched on the desk; T-Deck carried to another room and back over
+  ~10 min. 7 outcomes, **14 claims: 9 met, 5 violated**. Raw, per (peer,proto):
+  ```
+        espnow                    ble
+  LON17 -41  d=-1  met      LON17 -55  d= 0  met     <- both on the desk
+  LON18 -45  d=-4  met      LON18 -56  d=-1  met
+  LON19 -83  d=-38 VIOLATED LON19 -93  d=-37 VIOLATED  <- being carried away
+  LON20 -83  d= 0  met      LON20 -92  d= 1  met     <- PARKED far away
+  LON21 -82  d= 1  met      LON21 -86  d= 6  met     <- still parked (d=6 == band edge)
+  LON22 -54  d=28  VIOLATED LON22 -69  d=17  VIOLATED  <- being carried back
+  LON23 -50  d= 4  met      LON23 -59  d=10  VIOLATED  <- settling
+  ```
+  ✅ **THE HEADLINE: violations track CHANGE, not distance.** The two windows where the
+  T-Deck sat parked in another room at **−83 / −93 dBm** were **MET** — the link was far
+  but stable, which is exactly what the expectation claims to test. Only the transit
+  windows failed. The prediction measures what it says it measures, and a 40 dB gap does
+  not fool it. (The band edge was genuinely exercised too: `d=6` == 6 read as met.)
+  📊 **Rule 3, applied by hand from these records** (start `conf:128`, met +2 sat, violated
+  −16 floor 0 / sal +8): **espnow 128 → 106** (−22, sal 16), **ble 128 → 88** (−40, sal 24,
+  contradiction flag raised on 2 consecutive). Pooled: **128 → 66**.
+  Violation rate **35.7%**, which is **3.2× the 1/9 break-even** — so Rule 3 drives
+  confidence hard down, as designed.
+  ⚠ **VERDICT ON `+2/−16`: the asymmetry assumes violations are EXCEPTIONAL, and in this
+  fleet they are ROUTINE.** Recovery costs 8 met windows per violated one, so a roamer that
+  moves even once an hour keeps every link belief permanently depressed. That is not
+  "self-regulating", it is **self-extinguishing**. Either the belief is mis-framed or the
+  constants are wrong for a domain where change is normal rather than anomalous.
+  📎 And note *why* it is arguably mis-framed: the node is penalised for **its peer's**
+  behaviour. RSSI cannot say which end moved, the Cardputer never moved at all, and it still
+  lost 22–40 conf. A belief the agent cannot act on is a strange thing to punish it for.
+  ⚠ **VERDICT ON `K = 3`: it would NOT have fired.** Device-reported window streaks were
+  `0,0,1,0,0,1,2` — **max 2**, one short. A *complete relocation of the peer* did not trip
+  the abort. At 60 s windows, K=3 demands **three minutes of continuous geometry change**,
+  and ordinary movement between two places does not last that long — the roamer arrives and
+  stops. So on this observable **K=3 never fires**, and Stage E would keep asserting a stale
+  distance straight through a relocation. K must drop to 2, or the window must shorten, or
+  Rule 4 needs a different trigger. **K and the window length are not independent knobs.**
+  ✅ **The lane-full logging fix paid off inside one run.** `@LAT92` hit its 24 cap and
+  **said so** — 2 outcomes dropped loudly instead of silently. That is the same failure that
+  went unnoticed for 44 windows earlier the same day.
+- 🏁 **2026-08-02 — STAGE D RUNS. THE STORE RECONCILES ITSELF.** The Cardputer's Dream
+  Cycle (`DREAM_RECONCILE_MS` 3 min, `reconcileBeliefs()`) re-reads its own `@LAT92`
+  outcome lane **off flash**, folds every claim through Rule 3 from a fixed baseline, and
+  rewrites an `@LAT91` LINK-STABLE belief lane. Device-written:
+  ```
+  @LAT91LON1 | ... relates:believes_about@LAT0LON0,reconciles@LAT92LON0,...
+  [ew]
+  conf:140   rev:1   sal:16   touched:0
+  [/ew]
+  **LINK-STABLE** peer:0x00000200 proto:espnow node:0x300
+  **TALLY** met:22 violated:2 unobserved:0 baseline_conf:128 rule:+2/-16 max_streak:1
+            contradiction:0
+  **PROVENANCE** rule:LearningFromAction/Rule3 src:@LAT20LON3 recomputed_from:@LAT92
+                 lane_records:24 method:sequential_fold_from_baseline
+  ```
+  plus `@LAT91LON0` ble **conf:122 sal:24, met 21 / violated 3, contradiction:1**.
+  ✅ **These are the FIRST records on this fleet carrying a TBEW `[ew]` block at all.**
+  ✅ **VERIFIED BY INDEPENDENT RECOMPUTATION.** The same 24 `@LAT92` records were re-folded
+  on the laptop, in lane order, from the same baseline: **ble 122/24, espnow 140/16 — exact
+  match on conf, sal, met, violated, max_streak and the contradiction flag.** Two different
+  implementations, same evidence, same answer.
+  📎 **That check is the whole reason the belief is recomputed from baseline each cycle
+  instead of accumulated.** A running total would have produced the identical two numbers
+  and proved nothing — it would be the node REMEMBERING. Re-reading the lane makes it the
+  store RECONCILING, and it means anyone holding the `@LAT92` records can audit the node's
+  arithmetic. **TTE Draft 06's standing caveat — "the reconciliation was performed BY HAND,
+  by an outside reader" — is discharged.**
+  📎 Two properties to carry back to the spec: **(1) pruning the outcome lane resets the
+  belief toward baseline** — not a bug, the belief is exactly as strong as the testimony
+  still retained, but it means Rule 3's `conf` describes *retained evidence*, not history,
+  and a store that prunes forgets what it concluded. **(2) Folding must be SEQUENTIAL**:
+  `+2` saturates at 255 and `−16` floors at 0, and a clamp does not commute with a sum, so
+  tallying met/violated and applying the arithmetic once is subtly wrong over long runs.
+  📎 The rewrite is **skipped when nothing changed** (`[dream] ... no change (conf steady)`)
+  — a lane rewrite is a whole-TTDB flash operation, and re-running a pure function to write
+  identical bytes is just flash wear.
 - 🚧 **STILL OPEN after 2026-08-02.**
-  1. **The three V4s and the K10 are unflashed** for the silent-boot change (above), and the
+  1. ⚠ **STAGE D IS BLOCKED ON TWO STRUCTURAL FACTS, both discovered today and both worth
+     reporting to TTE regardless of when D gets built:**
+     a. **The node's own TTDB carries ZERO `[ew]` blocks.** Rule 3 moves `conf`/`sal` — and
+        there is nothing on this node that has either. The globes that do (`rfc.ttdb.md` 36,
+        `feelings.ttdb.md` 46) are read-only reference corpora in separate files. **Stage D
+        must first CREATE the thing it reconciles** — proposed: an `@LAT91` per-(peer,proto)
+        LINK-STABLE belief carrying `[ew]`, starting at `conf:128` (mid-range, so movement
+        is visible both ways: 64 windows to saturate at +2, 8 to floor at −16).
+     b. **`Ttdb` has NO in-place update** — only `appendRecord`, `removeLane`,
+        `removeLaneRange`. Moving a `conf` means rewriting the whole lane, which is a
+        Dream-Cycle-scale flash operation, not a per-window one. That is *consistent* with
+        Rule 2 (the live loop must not mutate) but it means reconciliation has to be a real
+        Dream Cycle pre-phase, not a counter.
+     📎 To answer TTE's actual question — *"its only reconciliation was performed by hand, by
+     an outside reader"* — Stage D should recompute the tally **by reading the `@LAT92`
+     records back off flash**, the way an outside reader would, NOT from a RAM counter kept
+     during scoring. A running total would be cheaper and would not prove the thing.
+  2. 📎 **A stationary pair cannot test the constants.** 8/8 claims met with delta 0 is a 0%
+     violation rate, far under the 1/9 break-even, so Rule 3 would simply saturate `conf`.
+     **The interesting run needs the T-Deck carried away and back** while the Cardputer sits
+     still. Plan the motion before building D, or D will produce a monotone graph.
+  3. **The three V4s and the K10 are unflashed** for the silent-boot change (above), and the
      V4 sketches sit at **94% of the default app partition** — the next feature added to them
      probably needs `huge_app` first.
-  2. **Stages B–E are untouched.** Stage A writes the difference down; it does not predict,
-     testify, or reconcile. `+2/−16` and `K = 3` are **still unrun** — exactly as unproven as
-     in TTE Draft 06. **D is the actual experiment; do not let A become the deliverable.**
+  4. **Stages D–E are untouched.** A writes the difference down; B and C predict and
+     testify. **Nothing reconciles anything yet**, so `+2/−16` and `K = 3` are **still
+     unrun — exactly as unproven as in TTE Draft 06.** D is the actual experiment; do not
+     let A–C become the deliverable.
   3. Only the Cardputer has an IMU, so the transition tier is single-node. Multi-node
      transition ordering is unexercised and, per the quantization finding above, needs a
      sub-window timestamp before it would mean anything.

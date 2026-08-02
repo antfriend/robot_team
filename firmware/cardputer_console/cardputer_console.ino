@@ -52,6 +52,7 @@
 #include <BleLink.h>         // SP0 near-range tier: BLE advert+scan -> PROTO_BLE
 #include <EntityPercept.h>   // SP0 entity tier: WiFi BSSID sightings -> @LAT96
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
+#include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
@@ -142,6 +143,14 @@ static bool gScanRunning = false;
 #endif
 #if USE_IMU
 static motionpercept::Log gMotionLog;    // @LAT95 was-this-node-still
+// The percept-learning loop. Armed by a `still` @LAT95 window, scored by the next
+// @LAT97 window, testified to @LAT92. It never edits anything (Rule 2).
+static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
+// How often the Dream Cycle re-reads the outcome lane and reconciles @LAT91. Slower than
+// the 60 s percept windows on purpose: a lane rewrite is a whole-TTDB flash operation, and
+// Rule 2 wants reconciliation to be a separate phase from testimony, not a side effect of
+// it. 3 min gives a few new outcomes per cycle during an experiment.
+#define DREAM_RECONCILE_MS 180000
 #endif
 #if USE_MIC && USE_CARD_HW
 static acousticpercept::Log gAcousticLog;  // @LAT94 what it heard
@@ -981,6 +990,82 @@ static void appendBeliefRecord() {
                   (unsigned long)gPendBeliefCrc, n, (unsigned)gDb.fileSize());
   else
     Serial.println("[belief] appendRecord FAILED");
+}
+
+// --- Stage D: the Dream Cycle's reconciliation pre-phase (Rule 3) ------------------
+// Re-reads the @LAT92 outcome lane OFF FLASH, folds every claim through Rule 3 from a
+// fixed baseline, and rewrites the @LAT91 belief lane if the result changed.
+//
+// It deliberately does NOT keep a running total as outcomes are scored, even though that
+// would be free and would give the same numbers. The belief has to be a pure function of
+// the records on flash, so that anyone re-reading the same lane arrives at the same conf.
+// A counter would make this the node REMEMBERING; re-reading makes it the store
+// RECONCILING, which is the only version that answers TTE Draft 06's standing caveat that
+// "the reconciliation was performed by hand, by an outside reader".
+//
+// Runs from loop(), never a callback: it can rewrite the whole TTDB.
+static perceptlearn::Reconciler gRecon;
+static int32_t gLastConf[PERCEPTLEARN_MAX_BELIEFS];
+static int gLastConfN = -1;      // -1 = never reconciled this boot
+static int gBeliefRev = 0;
+
+static void reconcileBeliefs() {
+  gRecon.begin();
+  // Fold the outcome lane in record order — order matters, because the +2 saturates and
+  // the -16 floors, and a clamp does not commute with a sum.
+  static uint8_t buf[PERCEPTLEARN_BUF];
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
+    size_t start = gDb.record(i).file_offset;
+    size_t end = (i + 1 < gDb.recordCount()) ? gDb.record(i + 1).file_offset
+                                             : gDb.fileSize();
+    size_t len = end - start;
+    if (len > sizeof(buf)) len = sizeof(buf);
+    size_t got = gDb.readBytes(start, buf, len);
+    if (got) gRecon.foldRecord((const char*)buf, got);
+    yield();
+  }
+
+  const int n = gRecon.beliefCount();
+  if (n == 0) return;
+
+  // Skip the rewrite when nothing moved. Re-running the reconciliation is supposed to be
+  // a no-op, and a lane rewrite is a whole-TTDB flash operation — doing it every cycle
+  // regardless would burn flash to write identical bytes.
+  bool changed = (gLastConfN != n);
+  if (!changed)
+    for (int i = 0; i < n; ++i)
+      if (gLastConf[i] != gRecon.belief(i).conf) { changed = true; break; }
+  if (!changed) {
+    Serial.printf("[dream] reconciled %d outcome record(s) -> no change (conf steady)\n",
+                  gRecon.recordsFolded());
+    return;
+  }
+
+  ++gBeliefRev;
+  if (!gDb.removeLane(PERCEPTLEARN_BELIEF_LANE)) {
+    Serial.println("[dream] belief lane rewrite FAILED (removeLane)");
+    return;
+  }
+  uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+  static char brec[PERCEPTLEARN_BUF];
+  for (int i = 0; i < n; ++i) {
+    size_t m = gRecon.buildBelief(brec, sizeof(brec), i, i, t_sec, kNodeId, gBeliefRev);
+    if (m && gDb.appendRecord(brec, m)) {
+      const perceptlearn::Belief& b = gRecon.belief(i);
+      Serial.printf("[dream] @LAT%dLON%d peer:0x%lx %s conf:%ld sal:%ld "
+                    "(met:%ld violated:%ld%s) rev:%d\n",
+                    PERCEPTLEARN_BELIEF_LANE, i, (unsigned long)b.peer,
+                    b.proto == 0 ? "espnow" : (b.proto == 1 ? "lora" : "ble"),
+                    (long)b.conf, (long)b.sal, (long)b.met, (long)b.violated,
+                    b.contradiction ? " CONTRADICTION" : "", gBeliefRev);
+    }
+    gLastConf[i] = gRecon.belief(i).conf;
+    yield();
+  }
+  gLastConfN = n;
+  Serial.printf("[dream] reconciled %d outcome record(s) -> %d belief(s), TTDB %uB\n",
+                gRecon.recordsFolded(), n, (unsigned)gDb.fileSize());
 }
 
 // Count existing records in a percept lane (the LON index of the next one).
@@ -3043,8 +3128,20 @@ void loop() {
   if (gLinkLog.due(now)) {
     int lane = laneCount(97);
     if (lane >= LINKPERCEPT_MAX_LANE) {
+      // No @LAT97 record will be written, so an outstanding expectation has nothing to
+      // cite as the observation that answered it. Drop it rather than testify with
+      // provenance pointing at a record that does not exist.
+      gLearn.disarm();
       gLinkLog.reset(now);
     } else {
+      // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
+      // double duty: they SCORE the expectation armed last window, and they are the
+      // basis for the next one (Rule 1 — re-derived from current state, every window).
+      gLearn.stageBegin(lane);
+      for (int s = 0; s < gLinkLog.peerCount(); ++s) {
+        uint32_t pr; uint8_t pt; uint32_t pn; int rmin, rmed, rmax;
+        if (gLinkLog.stats(s, pr, pt, pn, rmin, rmed, rmax)) gLearn.stage(pr, pt, rmed);
+      }
       char rec[1024];
       uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
       uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
@@ -3052,6 +3149,41 @@ void loop() {
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+
+      // Rule 2: the world has answered — score the prediction and TESTIFY. Appended to
+      // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
+      // doing it from the live loop is the exact violation Rule 2 names (and the one
+      // LOCUS committed).
+      if (gLearn.score(t_ms, gSynced) && gLearn.outcomePending()) {
+        int olane = laneCount(PERCEPTLEARN_LANE);
+        if (olane >= PERCEPTLEARN_MAX_LANE) {
+          Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
+                        "still predicting but no longer testifying\n",
+                        PERCEPTLEARN_LANE, olane);
+        } else {
+          // static: 1792 B is far too much to add to this loop's stack next to the
+          // other tiers' buffers (see PERCEPTLEARN_BUF).
+          static char orec[PERCEPTLEARN_BUF];
+          size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
+          if (om && gDb.appendRecord(orec, om))
+            Serial.printf("[learn] outcome -> @LAT%dLON%d met:%d violated:%d streak:%d "
+                          "(%uB, TTDB %uB)\n",
+                          PERCEPTLEARN_LANE, olane, gLearn.metCount(),
+                          gLearn.violatedCount(), gLearn.violationStreak(),
+                          (unsigned)om, (unsigned)gDb.fileSize());
+        }
+      }
+    }
+  }
+
+  // Stage D: the Dream Cycle's reconciliation pre-phase. Deliberately NOT run from the
+  // scoring path — Rule 2 says the live loop testifies and never mutates, so the belief
+  // lane moves on its own cadence, reading the testimony back the way a reader would.
+  {
+    static uint32_t last_dream = 0;
+    if (now - last_dream >= DREAM_RECONCILE_MS || last_dream == 0) {
+      last_dream = now;
+      reconcileBeliefs();
     }
   }
 
@@ -3082,7 +3214,23 @@ void loop() {
   if (gMotionLog.due(now)) {
     int lane = laneCount(95);
     if (lane >= MOTIONPERCEPT_MAX_LANE) {
+      // ⚠ SAY THIS OUT LOUD. This path used to be silent, and a silent full lane looks
+      // exactly like a healthy node: percept windows keep flushing on the other tiers
+      // while the learning loop is disarmed every single window and testifies nothing.
+      // That is precisely how it failed on 2026-08-02 — @LAT95 hit 48/48 after 48
+      // minutes, four @LAT92 outcomes had been written, and the loop then went quiet
+      // with no error anywhere. The motion lane fills ~2x faster than the link lane
+      // (motion flushes with no peers in range; link needs an observation), so it is
+      // always the first cap to bite.
+      static uint32_t last_full_log = 0;
+      if (now - last_full_log > 300000 || last_full_log == 0) {
+        last_full_log = now;
+        Serial.printf("[motion] @LAT95 lane FULL (%d/%d) - windows are being DISCARDED "
+                      "and the learning loop is disarmed. Prune with `companion.py cmd "
+                      "--op clear-percepts`.\n", lane, MOTIONPERCEPT_MAX_LANE);
+      }
       gMotionLog.reset(now);
+      gLearn.disarm();   // no acting record to cite; make no claim
     } else {
       char rec[320];
       uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
@@ -3091,6 +3239,24 @@ void loop() {
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[motion] percept window -> @LAT95LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+
+      // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
+      // window asserts the node was anchored for 60 s; that assertion is what makes
+      // "the next window's RSSI to each peer will land within the band" a prediction
+      // the world can refute. A `moving` window asserts nothing, so it earns no
+      // expectation — and any outstanding one is dropped UNSCORED rather than judged
+      // against a claim the node never made.
+      //
+      // The medians come from the link flush earlier in THIS pass (section [2]); if
+      // that did not run, arm() refuses rather than predicting from a stale window.
+      if (m == 0) {
+        gLearn.disarm();
+      } else if (gMotionLog.lastWindow().moving) {
+        gLearn.disarm();
+      } else if (gLearn.arm(lane)) {
+        Serial.printf("[learn] expectation armed from @LAT95LON%d (still): peers hold "
+                      "within +/-%d dBm\n", lane, PERCEPTLEARN_RSSI_BAND);
+      }
 
       // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is
       // the DIFFERENCE between it and the window before it, and per §5.2 the difference

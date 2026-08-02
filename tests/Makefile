@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -44,16 +44,18 @@ test: build
 	./test_linkpercept
 	./test_entitypercept
 	./test_motionpercept
+	./test_perceptlearn
 	./test_rfc_ttdb
 	./test_symmetric_edges
 	./test_nmea
 	./test_pulse
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(MP_SRCS) -o test_motionpercept
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PL_SRCS) -o test_perceptlearn
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(RFC_SRCS) -o test_rfc_ttdb
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SYM_SRCS) -o test_symmetric_edges
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(NMEA_SRCS) -o test_nmea

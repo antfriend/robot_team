@@ -13,6 +13,186 @@ Throughout: `TTE` = `toot-toot-engineering`, `RT` = `robot_team`.
 
 ---
 
+## 0c. STAGE D RUNS — and TTE Draft 06's standing caveat is discharged
+
+**The store reconciles itself.** The Cardputer's Dream Cycle re-reads its own `@LAT92`
+outcome lane off flash, folds every claim through Rule 3 from a fixed baseline, and
+rewrites an `@LAT91` belief lane. Device-written, 2026-08-02:
+
+```
+@LAT91LON1 | ... relates:believes_about@LAT0LON0,reconciles@LAT92LON0,derived_from@LAT97LON0
+[ew]
+conf:140
+rev:1
+sal:16
+touched:0
+[/ew]
+
+**LINK-STABLE** peer:0x00000200 proto:espnow node:0x300
+**TALLY** met:22 violated:2 unobserved:0 baseline_conf:128 rule:+2/-16 max_streak:1 contradiction:0
+**PROVENANCE** rule:LearningFromAction/Rule3 src:@LAT20LON3 recomputed_from:@LAT92
+              lane_records:24 method:sequential_fold_from_baseline
+```
+
+plus `@LAT91LON0` for ble: **`conf:122 sal:24`, met 21 / violated 3, `contradiction:1`**.
+
+**These are the first records on this fleet to carry a TBEW `[ew]` block at all** — before
+today the node's store had none, which is itself the finding in §2.7a.
+
+### The verification that makes it a reconciliation and not a number
+
+The 24 `@LAT92` records were re-folded **independently on the laptop**, in lane order, from
+the same baseline:
+
+| proto | laptop conf/sal | device conf/sal | met/violated | match |
+|---|---|---|---|---|
+| ble | 122 / 24 | 122 / 24 | 21 / 3 | **yes** |
+| espnow | 140 / 16 | 140 / 16 | 22 / 2 | **yes** |
+
+Exact agreement, derived twice by different code from the same evidence. That is the
+property the design was built for: **the belief is a pure function of the outcome lane**,
+recomputed from baseline every cycle rather than accumulated. A running total would have
+produced these same two numbers and proven nothing — it would have been the node
+*remembering*. Re-reading makes it the store *reconciling*, and it means any third party
+holding the `@LAT92` records can check the node's arithmetic. Draft 06's caveat — *"the
+reconciliation was performed BY HAND, by an outside reader"* — no longer holds: it was
+performed by the node, and the outside reader now merely audits it.
+
+Two consequences worth carrying into the spec:
+
+- **Pruning the outcome lane resets the belief toward baseline.** Not a bug: the belief is
+  exactly as strong as the evidence still retained. But it means Rule 3's `conf` is a
+  statement about *retained testimony*, not about history, and a store that prunes is a
+  store that forgets what it concluded. Rule 2's side log therefore has a retention policy
+  whether or not it declares one.
+- **Order matters and a clamp does not commute with a sum.** `+2` saturates at 255 and
+  `−16` floors at 0, so a belief that hit the ceiling and then fell is not the same as one
+  that never rose. Folding must be sequential; tallying met/violated and applying the
+  arithmetic once is subtly wrong over long runs. Rule 3 should say so.
+
+---
+
+## 0a. Update — 2026-08-02 later the same day: Stages B and C also run
+
+**The node now makes falsifiable predictions and testifies to the result.** New portable
+lib `firmware/libraries/PerceptLearn/` (39 native checks) writes an `@LAT92` outcome lane
+on the Cardputer. Rule 1: a `still` motion window is a positive claim of anchoring, so it
+arms an expectation that each peer's median RSSI holds within a band next window. Rule 2:
+the verdict is **appended** and nothing in the live loop touches any `[ew]`. Verified over
+two hardware runs — **8 outcome records, 16 claims, ~683 B each**, cycling
+arm → score → testify → re-arm every 60 s.
+
+Three things this adds to what TTE asked for:
+
+1. **The band is the first constant in this system with an empirical basis.** 6 dBm is the
+   **p90 of consecutive-window median drift over 33 link windows the node had already
+   written while all 34 motion windows read `still`** — derived from the node's own flash,
+   not guessed the way `+2/−16` and `K = 3` were.
+2. **Rule 3's asymmetry has a computable break-even: 1/9.** Expected drift per window is
+   `(1-p)(+2) + p(-16) = 2 - 18p`, zero at **p = 11.1%**. So `+2/−16` encodes *"a claim
+   must hold at least 8 times in 9 to be worth keeping."* That is derivable without running
+   anything, and it means **the band choice, not the constants, sets whether Rule 3 looks
+   good** — which is why the band was fixed at p90 (~10%, just inside break-even) rather
+   than somewhere comfortable. ⚠ A wider band would flatter Rule 3 and prove nothing.
+3. **Stage D is blocked on two structural facts, and they are findings in their own right.**
+   See §2.7.
+
+## 0b. THE CONSTANTS — Part 4.1.C, answered
+
+A second run put the Cardputer flat and untouched on a desk and carried the T-Deck to
+another room and back over ~10 minutes. **7 outcomes, 14 claims, 9 met / 5 violated.**
+
+```
+      espnow                       ble
+LON17 -41  d= -1  met        LON17 -55  d=  0  met      <- both on the desk
+LON18 -45  d= -4  met        LON18 -56  d= -1  met
+LON19 -83  d=-38  VIOLATED   LON19 -93  d=-37  VIOLATED <- being carried away
+LON20 -83  d=  0  met        LON20 -92  d=  1  met      <- PARKED far away
+LON21 -82  d=  1  met        LON21 -86  d=  6  met      <- still parked (d=6 = band edge)
+LON22 -54  d= 28  VIOLATED   LON22 -69  d= 17  VIOLATED <- being carried back
+LON23 -50  d=  4  met        LON23 -59  d= 10  VIOLATED <- settling
+```
+
+**First: the expectation measures what it claims to.** The windows where the T-Deck sat
+parked in another room at **−83 / −93 dBm** were **MET**. A far but stationary link is a
+stable link, and the prediction was not fooled by a 40 dB gap — only by *change*. This is
+the design working, and it is worth stating because it is what makes the violations below
+trustworthy rather than noise.
+
+**Rule 3, computed by hand from these records** (start `conf:128`; met +2 saturating,
+violated −16 floor 0 / sal +8):
+
+| belief | conf | sal | max streak | contradiction |
+|---|---|---|---|---|
+| link-stable espnow | 128 → **106** (−22) | 16 | 1 | no |
+| link-stable ble | 128 → **88** (−40) | 24 | 2 | **raised** |
+| pooled | 128 → **66** | — | — | — |
+
+Violation rate **35.7%** — **3.2× the 1/9 break-even**, so Rule 3 drives confidence hard
+down.
+
+### ⚠ Verdict on `+2/−16`: the asymmetry assumes violations are EXCEPTIONAL. Here they are ROUTINE.
+
+The 1:8 ratio is a good guard against confirmation bias *for a claim that should almost
+always hold*. "This link is stable" does not almost always hold in a fleet that contains a
+designated roamer — and recovery costs **8 met windows per violated one**, so a peer that
+moves even once an hour keeps every link belief permanently depressed. That behaviour is
+not *self-regulating*; it is **self-extinguishing**.
+
+And note *why* the framing is suspect: **the node is penalised for its peer's behaviour.**
+The Cardputer never moved. RSSI cannot say which end of a pair moved, so an agent that did
+exactly what it claimed — held still — lost 22–40 confidence for someone else's walk. A
+belief the agent cannot act on is a strange thing to punish it for.
+
+So the honest answer to "did `+2/−16` behave as designed?" is: **yes, and that is the
+problem.** It did precisely what the numbers specify, and the result is a belief that
+decays whenever the world behaves normally. Either the constants need to be domain-scaled,
+or Rule 3 needs to distinguish "my model was wrong" from "the world legitimately changed" —
+which the current formulation cannot, because a violated expectation reports only that the
+prediction failed, never why.
+
+### ⚠ Verdict on `K = 3`: it would NOT have fired — on a complete relocation
+
+Device-reported consecutive-violation streaks across the run: `0, 0, 1, 0, 0, 1, 2`.
+**Max 2, one short of K.** A peer physically relocating to another room and back never
+tripped the abort.
+
+The reason is structural: at 60 s windows, `K = 3` demands **three continuous minutes of
+changing geometry**, and ordinary movement between two places does not last that long — the
+roamer arrives and stops, and the very next window is `met` because the new position is
+also stable. **On this observable K=3 can essentially never fire**, so Stage E would keep
+asserting a stale distance straight through a relocation.
+
+**`K` and the window length are not independent knobs**, and no statement of `K` is
+meaningful without the window it counts. Either K drops to 2, or the window shortens, or
+Rule 4 needs a trigger other than consecutive-window counting. This is, as far as either
+repo knows, the first evidence about `K` from any domain.
+
+---
+
+### 2.7 What Stage D actually requires (discovered by trying to build it)
+
+**a. The node's own TTDB carries ZERO `[ew]` blocks.** Rule 3 moves `conf`/`sal`, and
+there is nothing in this node's store that has either. The two globes that do
+(`rfc.ttdb.md` 36, `feelings.ttdb.md` 46) are read-only reference corpora in separate
+files. **Stage D must first create the thing it reconciles.** This is not a `RT` quirk:
+Rule 3 silently assumes the acting agent's store already carries epistemic weight on the
+belief being tested, and a percept-writing device has no reason to have written one.
+
+**b. `Ttdb` has no in-place update** — only `appendRecord`, `removeLane`,
+`removeLaneRange`. Moving a `conf` means rewriting a whole lane, i.e. a Dream-Cycle-scale
+flash operation rather than a per-window one. That is *consistent* with Rule 2 (the live
+loop must not mutate) but it means reconciliation cannot be a cheap running total.
+
+**c. And it should not be one anyway.** To answer the question Draft 06 actually leaves
+open — *"the reconciliation was performed by hand, by an outside reader"* — Stage D must
+recompute its tally **by reading the `@LAT92` records back off flash**, the way an outside
+reader would. A RAM counter kept during scoring would be cheaper, would produce the same
+numbers, and **would not prove the thing**: it would be the node remembering, not the
+store reconciling.
+
+---
+
 ## 0. Status in one paragraph
 
 `RT` pulled the five drifted spec files and merged the canonical feelings store into
