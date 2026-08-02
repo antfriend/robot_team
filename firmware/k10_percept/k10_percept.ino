@@ -809,7 +809,12 @@ void setup() {
 
 #if USE_K10_HW
   k10.begin();              // inits onboard peripherals incl. AHT20 + rgb
+#if STARTUP_TOOT
+  // Boot is silent by default (RobotTeamConfig.h). Kept HERE, before initScreen(), on
+  // purpose: this call playing while later tones are silent is the signature of a bad
+  // TFT_BL 45 seizing the speaker pin.
   playStartupToot();        // "toot toot"
+#endif
   k10.initScreen(2);        // 2 = default orientation
   k10.creatCanvas();
   k10.rgb->brightness(5);   // 0-9

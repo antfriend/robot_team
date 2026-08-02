@@ -2400,27 +2400,84 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `scratchpad/t.sh` is the one-test wrapper.
   **⑤ Cardputer sketch wired and compiling** — `41%` flash / `34%` RAM on
   `huge_app,FlashSize=8M`. **Not flashed.**
-- 🚧 **WHERE 2026-08-01 STOPPED — BLOCKED ON HARDWARE, and the block is the measurement.**
-  **No ESP32 is attached to this machine.** Enumerating `Win32_PnPEntity` found only two
-  Bluetooth virtual COM ports (COM4/COM5) — no `VID_303A&PID_1001` device. So, not done:
-  1. **Neither handheld FS is reflashed.** Both consoles are still displaying a **v1.0 spec
-     globe** — including a Typed Edges RFC with no §7 `opposes`, which is the very finding
-     this sync turns on. Run `scripts/Upload-Tdeck-FS.ps1` / `scripts/Upload-Cardputer-FS.ps1`
-     (⚠ per-node scripts — huge_app puts LittleFS at **0x310000**, the V4 script writes
-     0x290000 and fails *silently* to an empty globe). Confirm by walking the RFC globe to
-     Typed Edges and looking for §7; if `opposes` is absent, the image did not land.
-  2. **The Cardputer is not flashed with the transition firmware**, so `@LAT93` has **never
-     been written by a device** — Stage A is verified natively and nowhere else. The whole
-     point is a store reconciling itself on hardware; treat the native pass as necessary and
-     not sufficient.
-  3. Nothing was measured that Part 4 of the handoff asks to send back: no flash cost in situ,
-     no lane-pruning behaviour, no answer on whether the fleet clock is stable enough to order
-     transitions across nodes given the **unresolved multi-second loop stall**. Stages B–E
-     (expectation → side log → asymmetric reconcile → K=3 abort) are **untouched**, and D is
-     the actual experiment — do not let A–C become the deliverable.
-  **First action next session:** plug in the Cardputer, `arduino-cli compile --upload`, and
-  watch for `[motion] still -> moving TRANSITION -> @LAT93LON0`. Everything else waits on a
-  device being on the end of a cable.
+- ✅ **2026-08-02 — THE TRANSITION FORM RUNS ON HARDWARE. Stage A is on-device verified.**
+  Cardputer (0x300) on **COM14** (identified by `VID_303A&PID_1001`, never by remembered COM
+  number). Firmware + FS both flashed; new globes confirmed by the boot line — **RFC globe
+  38819 B / 36 records** (was 34047 / 34) and **feelings 35816 B / 47 records** (was 32522 /
+  45), i.e. the v1.1 corpus with §7 `opposes` and the merged globe are now **on the glass**.
+  📎 **The pre-flash pull is itself the cleanest confirmation of `@LAT98LON6` this project can
+  offer.** The node's TTDB was pulled before being overwritten (41400 B, 114 records, kept at
+  `master/preflash-2026-08-02/cardputer_ttdb.md`): **34 `@LAT95` motion-state records and
+  ZERO `@PERCEPT:` markers.** Thirty-four windows of a device noticing its own motion, and not
+  one recorded difference. That is the representational gap, measured on this fleet's own
+  hardware rather than argued.
+  **The run.** Held ONE serial connection for 7 min (`scratchpad/watch_motion.py` — no reset,
+  per the looping-companion.py lesson) while the device was left still, carried/waved, then
+  set down. Nine 60 s windows; **two transitions, both directions**:
+  ```
+  [  246.7s] [motion] still -> moving TRANSITION -> @LAT93LON0 (559B, TTDB 6226B)
+  **TRANSITION** t_ms:300010 synced:0 node:0x300 from:still to:moving dt_ms:60000
+    @PERCEPT:before state:still  moving_permille:52  dev_mean_mg:22  lane:@LAT95LON3
+    @PERCEPT:after  state:moving moving_permille:735 dev_mean_mg:227 lane:@LAT95LON4
+  **DELTA** edge:became d_permille:683 d_dev_mean_mg:205 d_dev_max_mg:620
+  ```
+  plus `@LAT93LON1` `from:moving to:still` (`derived_from@LAT95LON6,@LAT95LON7`). **559 B on
+  flash — exactly the native test's measured 559 B**, so the format is pinned end to end.
+  TTDB 3267 → 8773 B over the run; the two pairs are 1118 B of it.
+  ✅ **The `@PERCEPT:`/RFC-0001 §3 collision is real AND the two-space indent resolves it, on
+  device.** The node's own reader reports **`TTDB loaded: 8773 bytes, 26 records`** and the file
+  contains exactly **26** lines beginning with `@` — all of them `@LAT`. **Zero phantom (0,0)
+  records** from four `@PERCEPT:` markers. Unindent them and this number would have been 30.
+  📎 **New finding the native test could not have produced: the transition is QUANTIZED TO THE
+  WINDOW.** The device was set down partway through `@LAT95LON6`, which still scored 129
+  permille — just over the 100 threshold — so it was judged `moving` and the `moving -> still`
+  edge did not fire until the *next* window closed. **A transition's timestamp is therefore
+  accurate to ±1 window (60 s), not to the physical event.** Fine for Stage B/C; it is a
+  problem for anything that wants to order transitions finely across nodes, and it compounds
+  with the unresolved loop stall rather than replacing it. (Worst pass over this 7-minute run
+  was a benign **200 ms**, widest section `entity` 111 ms — the multi-second stall did not
+  appear in this window, which per the `lp` lesson proves nothing about its absence.)
+  📎 Node was alone, so **`synced:0` and `created:0`** throughout: transitions carry local
+  `millis()` and correctly refuse to claim cross-node orderability. `dt_ms:60000` on both, by
+  construction (consecutive windows).
+- 🔇 **2026-08-02 — THE FLEET NOW BOOTS SILENTLY (`STARTUP_TOOT 0`).** One switch for all six
+  nodes, in **`RobotTeamConfig.h`** (every sketch already includes it); flip to 1 and reflash
+  to get the "toot toot" signature back everywhere. **Only the automatic play at boot is
+  gated** — I2S/codec bring-up is untouched, because the speaker still has to be ready for
+  band notes, `CMD_BEEP` and the duet, and on the Cardputer the same I2S bus feeds the mic.
+  ⚠ **The `playStartupToot()` functions and their tone paths are deliberately left COMPILED,
+  not `#if`-d out.** Each board's audio was hard-won in a different way (K10 GPIO45-vs-TFT_BL,
+  the V4s' square-wave-only 8 kHz MAX98357A, the T-Deck's rail behind `PIN_POWERON`, the
+  Cardputer's ES8311 with no MCLK and a dB-not-linear volume register) and **the boot toot is
+  the fleet's audio smoke test**. Keeping it compiled stops it rotting when a tone signature
+  changes; the linker drops it, so a silent build costs nothing. The K10's call stays *before*
+  `initScreen()` on purpose — a toot that plays there while later tones are silent is the
+  signature of a bad `TFT_BL 45`, and that diagnostic only exists if the code does.
+  All six compile clean (K10 20%, V4s 94%, T-Deck 40%, Cardputer 41%).
+  **Flashed + verified silent on the two that were on the cable: T-Deck (COM10) and Cardputer
+  (COM14).** ⚠ **The three V4s and the K10 still carry the tooting firmware** — they were not
+  attached. Reflash them when they are next on a cable, or the fleet is only half quiet.
+- ✅ **The T-Deck's FS is now reflashed too** (same session, COM10): boot reports **RFC globe
+  38819 B / 36 records** (was 34047 / 34) and **feelings 34939 B / 46 records** (was 31664 /
+  44). **Both handhelds are finally off the v1.0 spec globe** — §7 `opposes` is on both
+  screens. Its pre-flash TTDB (17500 B, 37 records) is kept at
+  `master/preflash-2026-08-02/tdeck_ttdb.md`.
+  📎 The T-Deck's flaky native-USB auto-reset **worked unattended this time** — no BOOT/RST
+  dance was needed for either the app or the FS. Do not rely on that; CLAUDE.md's manual
+  procedure stands as the fallback.
+  📎 The Cardputer's `@LAT93` records **survived the firmware reflash** (LittleFS is untouched
+  by an app upload): both transitions still read back after re-pulling, TTDB now 17307 B / 60
+  records and still accumulating.
+- 🚧 **STILL OPEN after 2026-08-02.**
+  1. **The three V4s and the K10 are unflashed** for the silent-boot change (above), and the
+     V4 sketches sit at **94% of the default app partition** — the next feature added to them
+     probably needs `huge_app` first.
+  2. **Stages B–E are untouched.** Stage A writes the difference down; it does not predict,
+     testify, or reconcile. `+2/−16` and `K = 3` are **still unrun** — exactly as unproven as
+     in TTE Draft 06. **D is the actual experiment; do not let A become the deliverable.**
+  3. Only the Cardputer has an IMU, so the transition tier is single-node. Multi-node
+     transition ordering is unexercised and, per the quantization finding above, needs a
+     sub-window timestamp before it would mean anything.
 
 Keep this section current. It is the first thing the next session reads.
 

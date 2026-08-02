@@ -2855,7 +2855,13 @@ void setup() {
     gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT, PIN_I2S_DIN, -1);
     if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT,
                    I2S_SLOT_MODE_STEREO)) {
+      // The codec is configured and I2S is up either way — the mic (@LAT94) and the
+      // band voice both need it. Only the boot signature is gated (STARTUP_TOOT).
+      // ⚠ Do NOT "simplify" this to mono or another bit width to save a silent boot:
+      // the ES8311 derives MCLK from BCLK here, which only holds at 16-bit STEREO.
+#if STARTUP_TOOT
       playStartupToot();
+#endif
     } else {
       Serial.println("I2S begin failed");
       gCodecOk = false;

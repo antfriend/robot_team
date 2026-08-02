@@ -1924,10 +1924,15 @@ void setup() {
   // Audio first: bring up I2S and sound the boot "toot toot" (before the screen, like
   // the K10). The MAX98357A speaker rail is powered by PIN_POWERON (asserted above).
   gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT);
-  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO))
+  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+    // I2S comes up either way — the speaker must be ready for band notes and CMD_BEEP.
+    // Only the boot signature is gated (STARTUP_TOOT, RobotTeamConfig.h): silent fleet.
+#if STARTUP_TOOT
     playStartupToot();
-  else
+#endif
+  } else {
     Serial.println("I2S begin failed");
+  }
 
   // Keyboard I2C + the ST7789 on its own HSPI bus (shared with LoRa/SD, both idle here).
   Wire.begin(PIN_KBD_SDA, PIN_KBD_SCL);

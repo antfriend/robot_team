@@ -16,6 +16,35 @@ static const uint8_t ROBOT_TEAM_KEY_LEN = 16;
 // toot_network_architecture.md section 3.
 static const uint8_t ROBOT_TEAM_ESPNOW_CHANNEL = 1;
 
+// --- boot voice --------------------------------------------------------------
+// THE FLEET BOOTS SILENTLY. One switch for every node — flip to 1 and reflash to get
+// the "toot toot" signature back on all six.
+//
+// This gates only the AUTOMATIC play at boot. Every node's `playStartupToot()` and its
+// whole tone path stay compiled and callable, deliberately, because **the boot toot is
+// the fleet's audio smoke test and each board's audio was hard-won in a different way**:
+//
+//   K10        GPIO45 is the I2S SPEAKER, not the LCD backlight. Defining TFT_BL 45 in
+//              the shared TFT_eSPI User_Setup.h makes tft.begin() seize the pin and
+//              silence everything after initScreen() — and the tell is that the startup
+//              toot, which runs BEFORE initScreen, still plays. That diagnostic only
+//              works if the toot is available; keep it one #define away.
+//   V4 a/b/c   The hand-wired MAX98357A only reproduces SQUARE waves at 8 kHz; sine
+//              stutters and clicks.
+//   T-Deck     I2S MAX98357A via the core's ESP_I2S — no analog tone path at all, and
+//              the speaker rail depends on PIN_POWERON being asserted first.
+//   Cardputer  Everything goes through an ES8311 codec that must be register-configured
+//              before the speaker exists. The board routes NO MCLK, so the codec derives
+//              it from BCLK, which only holds while I2S runs 16-bit STEREO. DAC volume
+//              (reg 0x32) is 0.5 dB/step with unity at 0xBF, NOT a linear 0..255.
+//
+// Re-enabling is one line. Re-deriving any of the above is not. Do not delete the
+// disabled path, and do not #if out the functions themselves — keeping them compiled is
+// what stops them rotting when a tone signature changes.
+#ifndef STARTUP_TOOT
+#define STARTUP_TOOT 0
+#endif
+
 // Stable logical node ids (src_node_id in the toot header). Not MAC-derived so
 // they survive board swaps.
 enum RobotTeamNodeId : uint32_t {

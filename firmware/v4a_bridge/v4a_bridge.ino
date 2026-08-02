@@ -686,10 +686,15 @@ void setup() {
   // Audio first: bring up I2S and sound the boot "toot toot" before the OLED (like the
   // K10/T-Deck). VIN on 3V3 so the amp works on USB or battery; GAIN & SD float.
   gI2S.setPins(PIN_I2S_BCLK, PIN_I2S_WS, PIN_I2S_DOUT);
-  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO))
+  if (gI2S.begin(I2S_MODE_STD, I2S_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO)) {
+    // I2S comes up either way — the speaker must be ready for band notes and CMD_BEEP.
+    // Only the boot signature is gated (STARTUP_TOOT, RobotTeamConfig.h): silent fleet.
+#if STARTUP_TOOT
     playStartupToot();
-  else
+#endif
+  } else {
     Serial.println("I2S begin failed");
+  }
 #endif
 
 #if USE_PULSE
