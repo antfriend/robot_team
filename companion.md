@@ -2617,6 +2617,27 @@ If a fact lives in one of these, link to it from here — don't copy it.
      transition ordering is unexercised and, per the quantization finding above, needs a
      sub-window timestamp before it would mean anything.
 
+- 📋 **NEXT SESSION STARTS HERE: [timestream-handoff.md](timestream-handoff.md)** (written
+  2026-08-02 against `33a7a02`). Three parts, and the order matters:
+  **Part 1 is a VERIFICATION GATE** — everything built on 2026-08-02 that has not been
+  proven on hardware, and **`percept-learning-return.md` does NOT go to TTE until it
+  passes.** Highest item: ⚠ **`reconcileBeliefs()` calls `removeLane()`, which rewrites the
+  whole ~46 KB TTDB from `loop()`, and has NEVER BEEN TIMED** — a plausible new source of a
+  multi-second stall that would be indistinguishable from the existing unexplained one.
+  Second: **the `+2/−16` and `K = 3` verdicts rest on n=1** (a single walk), against this
+  repo's own written rule that n=1 here is noise.
+  **Part 2 is the team time stream** — `stream:<id>` + `wall:<0|1>` replacing the single
+  `synced` bit, riding on Pulse's existing era/conductor rather than a new subsystem. The
+  headline reason: **`touched:0` makes TBEW recency inert**, so `@LAT91`'s `sal:24` can
+  never decay and EPS has no time term. The epistemic-weight machinery cannot work on-device
+  without a clock — and that is a spec gap, since **Rule 3 says how `sal` rises and never
+  says what makes it fall.**
+  **Part 3 is change-triggered logging**, which **depends on Part 2** (event logs cannot
+  infer time from record position) and must obey three rules: heartbeat-or-change so absence
+  is never ambiguous; correct for STATE but WRONG for EVIDENCE (a tally needs its
+  denominator — leave `@LAT92` periodic or make it run-length); and thresholds DERIVED from
+  each signal's measured noise floor, the way the 6 dBm band was.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
