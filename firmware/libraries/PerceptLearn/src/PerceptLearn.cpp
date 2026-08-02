@@ -28,6 +28,7 @@ const char* protoName(uint8_t p) {
 void Loop::reset() {
   staged_n_ = 0;
   staged_lane_ = -1;
+  staged_over_ = 0;
   claims_n_ = 0;
   armed_ = false;
   acting_lane_ = -1;
@@ -41,11 +42,19 @@ void Loop::reset() {
 
 void Loop::stageBegin(int link_lane) {
   staged_n_ = 0;
+  staged_over_ = 0;
   staged_lane_ = link_lane;
 }
 
 void Loop::stage(uint32_t peer, uint8_t proto, int median) {
-  if (staged_n_ >= PERCEPTLEARN_MAX_CLAIMS) return;
+  if (staged_n_ >= PERCEPTLEARN_MAX_CLAIMS) {
+    // ⚠ Do NOT make this a bare `return`. An overflowed peer is still in claims_, so
+    // score() finds nothing staged for it and records VERDICT_UNOBSERVED — the buffer
+    // running out reads as "the peer went unheard", which is a plausible WRONG answer
+    // rather than a gap. The caller must be able to tell the two apart.
+    ++staged_over_;
+    return;
+  }
   Claim& c = staged_[staged_n_++];
   c.peer = peer;
   c.proto = proto;
@@ -191,12 +200,13 @@ size_t Loop::buildOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) {
 void Reconciler::begin() {
   n_ = 0;
   records_ = 0;
+  dropped_ = 0;
 }
 
 int Reconciler::slotFor(uint32_t peer, uint8_t proto) {
   for (int i = 0; i < n_; ++i)
     if (b_[i].peer == peer && b_[i].proto == proto) return i;
-  if (n_ >= PERCEPTLEARN_MAX_BELIEFS) return -1;
+  if (n_ >= PERCEPTLEARN_MAX_BELIEFS) { ++dropped_; return -1; }
   Belief& b = b_[n_];
   b.peer = peer;
   b.proto = proto;

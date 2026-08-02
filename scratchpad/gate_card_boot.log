@@ -1,0 +1,12 @@
+    1.0s | [dream] @LAT91LON0 peer:0x200 ble conf:122 sal:24 (met:21 violated:3 CONTRADICTION) rev:1
+    1.1s | [dream] @LAT91LON1 peer:0x200 espnow conf:140 sal:16 (met:22 violated:2) rev:1
+    1.1s | [dream] reconciled 24 outcome record(s) -> 2 belief(s), TTDB 62654B
+    1.1s | [dream] TIMING fold 93ms rewrite 900ms append 95ms TOTAL 1089ms (62654B -> 62654B, 180 records)
+    1.2s | [scene] scene 0 ALONE (era 1 cond 0x00000300)
+   10.0s | [wifi] scan: 7 AP(s) folded into @LAT96 window
+   20.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 30ms | frames 172 | maxalloc 15K
+   50.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 15K
+   50.3s | [entity] percept window -> @LAT96LON16 (TTDB 63154B)
+   50.4s | [motion] @LAT95 lane FULL (48/48) - windows are being DISCARDED and the learning loop is disarmed. Prune with `companion.py cmd --op clear-percepts`.
+   50.4s | [acoustic] percept window -> @LAT94LON33 (TTDB 63357B)
+   80.3s | [loop] worst pass 112ms (render 12ms, widest section entity 52ms) | worst render 18ms | frames 239 | maxalloc 15K

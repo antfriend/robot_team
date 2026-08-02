@@ -167,6 +167,60 @@ int main(void) {
   }
 
   // -------------------------------------------------------------------------
+  // 3b. Overflowing the claim house is REPORTED, not silent
+  //
+  // The trap this pins: an overflowed (peer, proto) is still in claims_, so score()
+  // finds nothing staged for it and calls it VERDICT_UNOBSERVED — byte-identical to
+  // case 3 above, where the peer genuinely went quiet. Without a counter the two are
+  // indistinguishable, and 4 nodes x {espnow, ble} sits EXACTLY on the cap, so this is
+  // the configuration Part 1.3 of the handoff is about to run.
+  // -------------------------------------------------------------------------
+  {
+    perceptlearn::Loop L;
+    L.stageBegin(0);
+    for (int i = 0; i < PERCEPTLEARN_MAX_CLAIMS; ++i)
+      L.stage(0x200 + i, ESPNOW, -35);
+    CHECK(L.stagedOverflow() == 0, "a full-but-not-over house reports no overflow (got %d)",
+          L.stagedOverflow());
+
+    L.stage(0x999, ESPNOW, -35);
+    L.stage(0x999, BLE, -50);
+    CHECK(L.stagedOverflow() == 2, "two observations past the cap are counted (got %d)",
+          L.stagedOverflow());
+
+    L.stageBegin(1);
+    CHECK(L.stagedOverflow() == 0, "and the count is per-window, cleared by stageBegin "
+          "(got %d)", L.stagedOverflow());
+  }
+
+  // -------------------------------------------------------------------------
+  // 3c. The Reconciler's belief cap is reported too
+  //
+  // Worse than the staged cap because it biases an ANSWER: the dropped pair's testimony
+  // never reaches any belief, so conf is folded from a subset of the lane while the
+  // output looks like a complete reconciliation.
+  // -------------------------------------------------------------------------
+  {
+    perceptlearn::Reconciler R;
+    R.begin();
+    for (int i = 0; i < PERCEPTLEARN_MAX_BELIEFS; ++i)
+      R.fold(0x200 + i, ESPNOW, perceptlearn::VERDICT_MET);
+    CHECK(R.beliefCount() == PERCEPTLEARN_MAX_BELIEFS, "every slot taken (got %d)",
+          R.beliefCount());
+    CHECK(R.claimsDropped() == 0, "nothing dropped yet (got %d)", R.claimsDropped());
+
+    R.fold(0x999, BLE, perceptlearn::VERDICT_VIOLATED);
+    CHECK(R.claimsDropped() == 1, "a claim with no slot is counted, not swallowed (got %d)",
+          R.claimsDropped());
+    CHECK(R.beliefCount() == PERCEPTLEARN_MAX_BELIEFS,
+          "and it does not overwrite an existing belief (got %d)", R.beliefCount());
+
+    R.begin();
+    CHECK(R.claimsDropped() == 0, "begin() clears it — every cycle re-folds from scratch "
+          "(got %d)", R.claimsDropped());
+  }
+
+  // -------------------------------------------------------------------------
   // 4. A `moving` window drops the expectation UNSCORED
   // -------------------------------------------------------------------------
   {

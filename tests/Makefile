@@ -33,6 +33,12 @@ PULSE_SRCS := test_pulse.cpp \
 # Until 2026-08-01 this tier had only ever been verified on hardware.
 MP_SRCS := test_motionpercept.cpp \
         $(LIB)/MotionPercept/src/MotionPercept.cpp
+# Stages B/C/D of Learning from Action: the armed expectation, the @LAT92 outcome
+# testimony, and Rule 3's fold into an @LAT91 belief. This variable was MISSING — the
+# recipe below referenced an undefined $(PL_SRCS), so `make` invoked the compiler with
+# no input files and test_perceptlearn could never have been built by it.
+PL_SRCS := test_perceptlearn.cpp \
+        $(LIB)/PerceptLearn/src/PerceptLearn.cpp
 # TTDB-RFC-0003 v1.1 §7.1: symmetric types are written in BOTH directions by the
 # author, never inferred by a parser — so a one-directional `opposes` is a defect a
 # validator must report. Runs against the globes the handhelds actually carry.
@@ -65,6 +71,7 @@ clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
 	      test_entitypercept test_entitypercept.exe \
 	      test_motionpercept test_motionpercept.exe \
+	      test_perceptlearn test_perceptlearn.exe \
 	      test_rfc_ttdb test_rfc_ttdb.exe test_nmea test_nmea.exe \
 	      test_symmetric_edges test_symmetric_edges.exe \
 	      test_pulse test_pulse.exe

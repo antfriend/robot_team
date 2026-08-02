@@ -164,6 +164,12 @@ class Loop {
 
   bool armed() const { return armed_; }
   bool outcomePending() const { return pending_; }
+  // (peer, proto) observations dropped this window because staged_ was full. MUST be
+  // surfaced by the caller: an overflowed peer scores as VERDICT_UNOBSERVED, so a cap
+  // that is too small is indistinguishable from peers going quiet unless someone says
+  // so. PERCEPTLEARN_MAX_CLAIMS is 8 and a 4-node fleet over espnow+ble needs exactly
+  // 8, so this is at the boundary the moment the V4s are powered, not a distant limit.
+  int  stagedOverflow() const { return staged_over_; }
   int  metCount() const { return met_; }
   int  violatedCount() const { return violated_; }
   // Consecutive windows in which at least one claim was violated. Rule 4 (Stage E)
@@ -180,6 +186,7 @@ class Loop {
 
   Claim staged_[PERCEPTLEARN_MAX_CLAIMS];
   int   staged_n_;
+  int   staged_over_;      // dropped for want of a slot this window
   int   staged_lane_;      // the @LAT97 record the staged medians came from
 
   Claim claims_[PERCEPTLEARN_MAX_CLAIMS];   // the armed expectation
@@ -290,6 +297,11 @@ class Reconciler {
   int beliefCount() const { return n_; }
   const Belief& belief(int i) const { return b_[i]; }
   int recordsFolded() const { return records_; }
+  // Claims discarded this cycle because every belief slot was taken. Unlike the staged
+  // overflow above this one silently biases an ANSWER: the dropped (peer, proto)'s
+  // testimony never reaches any belief, so conf is computed from a subset of the lane
+  // while looking exactly like a complete fold.
+  int claimsDropped() const { return dropped_; }
 
   // Render one @LAT91 belief — the first record on this fleet to carry an [ew] block.
   size_t buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
@@ -300,6 +312,7 @@ class Reconciler {
   Belief b_[PERCEPTLEARN_MAX_BELIEFS];
   int n_;
   int records_;
+  int dropped_;
 };
 
 }  // namespace perceptlearn

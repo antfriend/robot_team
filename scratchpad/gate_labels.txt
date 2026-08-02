@@ -1,0 +1,3 @@
+857 walking
+950 parked
+1370 back

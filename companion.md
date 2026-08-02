@@ -61,7 +61,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` too — the whole LoRa spine is now at parity, and its pack read 3.841 V / 54% on the FIRST flash because it was built with the measured GPIO37 polarity instead of the published one**; compile-verified 94% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
 | **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ⏸ **PARKED 2026-07-31 — temporarily excluded from the fleet; depend on nothing here.** Code kept and unmodified (`firmware/k10_percept`, `NODE_K10_1`, the `.vscode` K10 tasks); it is only out of the *defaults* — `--node k10_1` still works the moment it is plugged back in. Was already off the band roster and off the T-Deck's mesh map (2026-07-29) on v1 firmware; this finishes that. Previously ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
-| **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor) |
+| **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor). **2026-08-02: the Learning-from-Action stack (@LAT93 transitions · @LAT92 outcomes · @LAT91 TBEW beliefs) passed its verification gate on this node** — Dream Cycle flash cost measured (150 ms→1757 ms, O(file)), the shape claim confirmed against operator labels with a **23× roamer-vs-stationary separation**, `unobserved` fired for real, beliefs moved to `rev:9`, and a laptop re-fold matched the device on 8 pairs × 7 fields. Also answers `CMD_PING` with a `[mark] FIELD MARK` line so a walk can be labelled from across the house |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
@@ -2637,6 +2637,223 @@ If a fact lives in one of these, link to it from here — don't copy it.
   is never ambiguous; correct for STATE but WRONG for EVIDENCE (a tally needs its
   denominator — leave `@LAT92` periodic or make it run-length); and thresholds DERIVED from
   each signal's measured noise floor, the way the 6 dBm band was.
+
+- ✅ **2026-08-02 (later) — THE VERIFICATION GATE: Parts 1.1, 1.2 and 1.3 PASS.**
+  Worked [timestream-handoff.md](timestream-handoff.md) Part 1 on hardware. Cardputer on
+  **COM14**, V4-A bridge on **COM6**, T-Deck on battery as the roamer, V4-B and V4-C powered
+  mid-session (all identified by `VID_303A&PID_1001`, never by remembered COM number).
+  **① 1.1 — the Dream Cycle's flash cost is MEASURED, and it is a SCALING LAW, not a
+  number.** `reconcileBeliefs()` now times itself in three phases and prints them
+  (`[dream] TIMING fold Xms rewrite Yms append Zms TOTAL Wms (aB -> bB, n records)`), on the
+  CHANGING path — the path that had never been observed. Measured across 9 cycles from 8.6 KB
+  to 74 KB:
+  ```
+  bytes   fold  rewrite  append  TOTAL
+   8652     14        1     135    150     (belief lane empty: nothing to remove)
+  28511     31      265     291    587
+  45054     45      443     325    813
+  53347    110      537     442   1089
+  61979     66      703     445   1214
+  74272    197      999     561   1757
+  ```
+  **`removeLane` is O(whole file) at ~10-13 µs/byte** — and `appendRecord` is O(file) TOO
+  (~50 ms each at 60 KB, because it re-runs the offset index), so a changing cycle costs
+  **1 rewrite + N appends = 9 full-file passes at 8 beliefs**. It crosses **1 s at ~53 KB**
+  and reached **1757 ms at 74 KB**. So the handoff's worry was right: this IS in the
+  multi-second class, it fires every 3 min whenever a belief moves, and **at 120 BPM a 1.2 s
+  stall is two and a half missed beats on a node that plays in the band.** Fix candidates
+  unchanged: move the rewrite off `loop()`, or make the belief lane append-with-supersede
+  (O(1)) instead of rewrite-in-place. **Not done — decide before Part 2 adds more writers.**
+  🔎 **AND THE PROFILER WAS BLIND TO EXACTLY THIS.** `worst pass` was guarded by
+  `if (loopStart)` with `loopStart` starting at 0, so **the FIRST loop pass was never
+  measured** — and the boot Dream Cycle runs on precisely that pass (`last_dream == 0`). The
+  profiler covering a window containing a 1089 ms pass serenely reported **`worst pass
+  18ms`**. Fixed to measure from `gSectMark[0]` (the stamp taken at the top of *this* pass);
+  it now reports `worst pass 1097ms widest section linkperc 1089ms` against a `TIMING ...
+  TOTAL 1089ms` print from the same pass — **two independent instruments agreeing to 8 ms.**
+  ⚠ This does NOT explain the older unexplained multi-second stall (that one was caught by
+  the profiler, so it was never in the first pass), but any boot-time cost measured before
+  today was invisible by construction.
+  **② 1.2 — THE SHAPE CLAIM IS CONFIRMED WITH OPERATOR LABELS, and the separation is 23×.**
+  Two runs. The first was unlabelled (the operator's timings drifted and the V4s came up
+  mid-run), so its *shape* is uninterpretable — **but it accidentally supplied a CONTROL
+  GROUP**, which the 2026-08-02 n=1 run never had: final beliefs `rev:9` after 24 outcomes
+  were V4-B **172 (22 met, 0 violated)**, V4-C **170 (21/0)**, V4-A **140 (22/2)** versus the
+  carried T-Deck at **44 ble / 40 espnow, 7 violated each, both CONTRADICTION**. The one
+  device that was picked up is the only belief that collapsed, on both radios independently,
+  in the same windows. Its violation rate **37%** against the earlier run's **35.7%**.
+  The second run was labelled by the operator at each transition (walking → parked → back).
+  The T-Deck's espnow link, window by window:
+  ```
+  LON13  walk starts 30s in    -5   met
+  LON14  FULL TRANSIT         -36   VIOLATED
+  LON16..LON20  PARKED FAR    +1,-1,0,+1,0   met x5   <- 36 dB away, |delta| <= 1
+  LON21  set off to fetch it  +17   VIOLATED
+  LON22  carrying it back     +26   VIOLATED
+  LON23  settled on the desk   +1   met
+  ```
+  ✅ **Five consecutive windows at a distance that had moved the signal 36 dB, every one
+  `met` to within 1 dBm — then violating again the moment the geometry changed.** The
+  internal control over the whole run: **stationary peers 2 violations / 144 claims (1.4%)
+  vs the roamer 12 / 37 (32.4%)** — same node, same windows, same 6 dBm band. The prediction
+  measures what it says it measures.
+  📎 **The 6 dBm band's false-positive rate is ~1.4%, and it is COMMON MODE when it fires**:
+  the one bad parked window had **two stationary peers violating together** (−7 and +8, both
+  barely past the band). Per `@LAT90LON70`, peers moving in lockstep is a shared-reference
+  effect, not per-node drift.
+  📎 **BLE contributes NOTHING at distance** — 9 windows with no claim armed at all once the
+  T-Deck was parked. Correct for a 10–30 m radio, but the near-range tier is absent exactly
+  when the espnow tier is most stressed.
+  ⚠ **`K = 3` STILL NEVER FIRES — now across three independent runs.** Max streak **2** every
+  time, including a full relocation and return. The written verdict hardens: at 60 s windows
+  K=3 is unreachable by ordinary movement. **K and the window length are not independent.**
+  ⚠ **`+2/−16` verdict unchanged and now n≥2 with a control**: the roamer's conf fell to
+  40/44 and never recovered in 24 windows, because recovery costs 8 met windows per
+  violation. Self-extinguishing, as recorded.
+  📎 **The pre-walk period of the labelled run is NOT a still baseline** and must not be read
+  as one — the operator was handling the roamer during it (trying the field-mark key), which
+  shows as −15/−25/+37 dB swings. The first analysis pass labelled it "still" and produced a
+  bogus **7% baseline violation rate** that would have buried the real result;
+  `scratchpad/shape.py` now calls it `unlabelled`, because that is what it is. **Only label
+  what the operator actually labelled.**
+  **③ 1.3 — MULTI-NODE PASSES, all four bullets, three of them from the unlabelled run.**
+  4 peers × 2 protos = **8 beliefs, EXACTLY `PERCEPTLEARN_MAX_BELIEFS`**, nothing dropped;
+  a belief moved across cycles to **`rev:9`**; and the **`unobserved` verdict fired on
+  hardware for the first time** (`unobs:1` on both T-Deck protos when it went out of range)
+  and correctly did **not** count as violated. The handoff expected to force that by powering
+  a peer off; walking one out of range did it, which is the more realistic case.
+  ⚠ Hardware reached the 8-claim boundary but never crossed it, so **over-cap behaviour is
+  still native-tested only** (a 9th pair needs a 5th node — the K10 is parked).
+  📎 Subtlety worth keeping: a peer heard in NO window gets **no claim armed at all**, which
+  is distinct from `unobserved` and is invisible in the tally (T-Deck espnow totalled 20
+  windows against V4-B's 22).
+  **④ TWO SILENT FAILURES FOUND AND FIXED IN THE CODE 1.3 WAS ABOUT TO EXERCISE.**
+  `Loop::stage()` past `PERCEPTLEARN_MAX_CLAIMS` was a bare `return` — and the overflowed
+  peer is still in `claims_`, so `score()` finds nothing staged and records
+  **`VERDICT_UNOBSERVED`**, byte-identical to a peer that genuinely went quiet. A buffer
+  overflow that reads as a plausible WRONG ANSWER, not a gap — and 4 nodes × 2 protos sits
+  exactly on the cap. `Reconciler::slotFor()` past `MAX_BELIEFS` dropped a claim with no
+  trace, folding `conf` from a subset of the lane while looking like a complete
+  reconciliation. Both now counted (`stagedOverflow()`, `claimsDropped()`) and printed by the
+  sketch. **This is the fourth instance in three days of "the dangerous failure is the silent
+  one".**
+  **⑤ Cross-check: `scratchpad/refold.py` re-folds `@LAT92` on the laptop** and compared 8
+  pairs × 7 fields against the device's `@LAT91` — **0 mismatches**. Far stronger than the
+  2-pair check of the morning; two implementations, same records off flash, same answer.
+  **⑥ Tooling that should survive this session:**
+  - **Portable `zig` now lives at `c:\tmp\toolchain\` — NOT the session scratchpad**, which is
+    wiped between sessions and is why it had been re-downloaded three times. **There is no
+    `make` on this box either**, so `scratchpad/t.sh [name...]` builds and runs the suite
+    directly. All 9 tests build and pass (0 failures), including 11 new checks pinning the two
+    caps above.
+  - ⚠ **`tests/Makefile` never defined `PL_SRCS`** — the `test_perceptlearn` recipe invoked the
+    compiler with no input files, so `make` could not have built that test at all. Fixed.
+  - **`scratchpad/gate_watch.py`** holds one no-reset connection and tees to a log (optional
+    `reset` 4th arg when the thing being measured happens AT BOOT); **`scratchpad/shape.py`**
+    builds the per-(peer,proto) verdict matrix against operator labels; **`scratchpad/refold.py`**
+    is the independent Rule 3 fold.
+  - **`CMD_PING` is now a FIELD MARKER**: the Cardputer prints `[mark] FIELD MARK from 0x...`
+    on a ping. The T-Deck's `p` key already defaults to the Cardputer, so **the operator can
+    label a walk from anywhere in the house** without returning to the laptop — which is the
+    thing that made the first labelled attempt fail. Verified from both the laptop (`0x1`) and
+    the T-Deck (`0x200`).
+  📎 **Operational note that cost a run:** `@LAT92` caps at 24 (~24 min of testimony) and
+  **`CMD_CLEAR_PERCEPTS` deliberately cannot touch it** (the guard allows only lanes 94–97).
+  So the reset between experiments is a **FS reflash** (`scripts/Upload-Cardputer-FS.ps1`),
+  which also resets the belief toward baseline — correct for independent trials, but it means
+  every run is capped at ~24 windows and must be planned to fit.
+  📎 Pre-flash captures kept at `master/gate-2026-08-02/` (`cardputer_preflash.md` 61093 B /
+  175 records, `cardputer_walkrun.md`, `cardputer_labelled.md`).
+  **⑦ Gate status: 1.1 ✅ · 1.2 ✅ · 1.3 ✅ · 1.5 PARTIAL** (negchecks PASS on the T-Deck
+  post-change, direct pull byte-clean 25253 B; radio_replay, bridged pull, band/intero/gps
+  still to run) **· 1.4 and 1.6 NOT STARTED.** `percept-learning-return.md` still must not go
+  to TTE until 1.4–1.6 pass, but **no §0b verdict changed** — `+2/−16` and `K = 3` both
+  survived the n≥3 re-test, so the report's conclusions stand as written.
+
+- ✅ **2026-08-02 (evening) — GATE PARTS 1.4 AND 1.5: THE WHOLE FLEET IS NOW QUIET, AND THE
+  FLOOR SURVIVED IT.**
+  **① 1.4 — all six nodes carry `STARTUP_TOOT 0`, and every speaker was proven by EAR.**
+  V4-A (COM6, 94%), V4-B (COM9), V4-C (COM13) and the **K10 (COM3, 20%)** flashed; both
+  consoles were already done this morning. Each was reset by the `cmd` port-open and then
+  sent `CMD_BEEP`: **all four ACKed APPLIED on attempt 1 and all four were CONFIRMED AUDIBLE
+  by the operator**, with silence at boot. That double check is the point — an ACK only
+  proves `toneI2S` ran (`@LAT90LON70`), and **a silent boot and a silent node look
+  identical**, which is exactly the failure this change could have introduced on four boards
+  whose audio was each hard-won differently.
+  📎 **The K10 is un-parked as a flashable node** (it stays out of the fleet defaults). It had
+  been on v1 firmware since before 2026-07-31, so this brought a large unrelated delta with
+  it. Checked the `TFT_BL` trap in the sketchbook `User_Setup.h` **before** flashing (K10 pins
+  present, `TFT_BL` correctly undefined) — and the operator confirmed **both sound and a
+  rendering LCD** afterwards. Its LittleFS was untouched by the app upload: **pull byte-clean
+  at 14840 B and `negchecks.py` PASS** on the DFRobot core.
+  ⚠ Note for the future: with the boot toot gated off, **the K10's oldest audio diagnostic is
+  gone** — "startup toot plays but later tones are silent" was the signature of a bad
+  `TFT_BL 45`. On that board `CMD_BEEP` is now the only audio smoke test.
+  **② 1.5 — regressions PASS, except the one already known to be broken.**
+  `negchecks.py` PASS on the **T-Deck** and the **K10** post-change (wrong-key → 0,
+  tampered → 0, radio-only dedup intact). **`radio_replay.py` PASS** over the air — an exact
+  `(src,seq)` duplicate dropped, a fresh seq served (attempt 1's original was itself lost in
+  the air and it retried, which is the ambient mesh flakiness, not the dedup).
+  **`band` PASS ×3 at ±3.4 / ±8.8 / ±9.4 ms** (bound ±50), four nodes on one chart,
+  conductor **`0x300` era 20, 120 bpm**. `intero` answers over the bridge (V4-B 3.871 V/60%,
+  48.2 °C die, 87 KB maxalloc, worst pass 35 ms).
+  🔎 **THIS CORRECTS THE ALARMING READING OF 1.1.** The Cardputer is the **conductor**, and it
+  is the node taking the 1.2–1.7 s Dream Cycle stalls — yet the band measured tight to ±9 ms
+  across three runs. **The pulse is COMPUTED from a shared clock, not counted per beat**
+  (TTN-RFC-0010), so a stall delays that node's own audible hit and its beacons but does
+  **not** move the phase reference. The stall is a real problem for *this node's part* and for
+  its mesh rtt; it is **not** a threat to band coherence. Do not repeat the "two and a half
+  missed beats would drag the band" framing — it was measured and it is wrong.
+  ⚠ **`gps` NOT RUN — the T-Deck went unreachable** (0/2 through the bridge, having answered
+  that morning) after a full session on battery; put on a charger. **1.5 is complete except
+  this one item.**
+  ⚠ **Bridged pull STILL BROKEN and looks worse, exactly as CLAUDE.md predicts.**
+  `pull --port COM6 --node v4b_relay` self-healed through 4 rounds and still ended
+  **4 ranges short of complete** on a **41285 B** object. V4-B's lanes have refilled to ~42 KB
+  since the 07-31 prune, which is consistent with the recorded pattern — **and consistent is
+  all it is**: the size story was already DISPROVEN once (10 KB failed, 14 KB succeeded), so
+  this is one more data point on an intermittent link, not a diagnosis. **Not tuned. Do not
+  tune dwell or retries.** The generation-stamped / snapshot serve remains the open fix, and a
+  node's own cable remains the only trustworthy collection path.
+
+- ✅ **2026-08-02 (late) — GATE PART 1.6 PASSES, AND IT FOUND A RENDERER DEFECT THAT MADE
+  ONE OF ITS OWN CHECKS IMPOSSIBLE.**
+  **① `§7 opposes` is ON THE GLASS on BOTH handhelds** (operator-confirmed) — the finding
+  the whole 2026-08-01 spec sync turned on, and until now verified only by byte count.
+  **The feelings globe still renders its band overlay** after the merge. `gps` also answers:
+  **12 sats, HDOP 0.7 indoors** (T-Deck COM10), completing 1.5.
+  **② Why it could not be checked before: the record pane silently rendered the first ~40%
+  of a record (T-Deck) and ~15% (Cardputer).** `renderRecord` read the body into a **520 B
+  buffer** — not a scroll limit but a **READ limit: bytes past it never left flash.** The RFC
+  globe's records average **1036 B and reach 2666 B**, and TTDB-RFC-0003's `opposes` clause
+  sits at **body offset 865**, so it was *physically unreachable* on both devices. Nothing on
+  screen said the record continued. **The operator was asked to look for something the
+  firmware could not display** — and the check would have been recorded as a fail, or worse,
+  hand-waved.
+  **Fixed on both:** 3 KB read (covers every record the fleet carries — max 2666 B, with a
+  `+` in the title if one ever exceeds it), the **whole** body wrapped so the page count is
+  honest, and `pg n/m` in the title. **`1` pages forward, `2` back, both wrapping.**
+  ⚠ **On the Cardputer `1`/`2`/`3` were already §5's direct modality pins**, so paging there
+  is **context-sensitive — the same rule `ENTER` already follows in that file**: with the
+  FACE up `1`/`2` pin eye/scope, with the GLOBES up they page the record. **`3` stays the
+  modality pin in both stacks**, so one key always returns to the face. Operator-confirmed on
+  both devices.
+  📎 **This is the same silent-failure shape as the rest of the week, in the RENDERER**: a
+  truncation with no indicator. It is worth stating as a rule — *if a view can show less than
+  all of a record, it must say so on screen.*
+  **③ 1.6's third check was ILL-POSED and the answer is a design gap, not a tick.** The
+  handoff asked how `@LAT90–93` render on the T-Deck's record pane. They cannot: the T-Deck's
+  three globes contain no such lanes (they are `@LAT0/6/10/14/20/30/32/35/40/50/88/98`), those
+  lanes are written at runtime into the **Cardputer's own live TTDB**, and both globes'
+  navigable filter is **`isNodeRecord(): lat > -90 && lat < 90`** — written to exclude the
+  percept/belief/sync lanes at 94–99, which also excludes 90–93.
+  ⚠ **So the `@LAT91` beliefs — the first records on this fleet to carry a TBEW `[ew]` block,
+  and arguably the most interesting thing a node now knows about itself — are visible NOWHERE
+  on the fleet's glass.** They can only be seen by pulling to the laptop. For a project whose
+  end goal is the **rendered** proof leg (SP6), that is a gap rather than an oversight.
+  **DECIDED (operator, 2026-08-02): `@LAT91` gets its own view** rather than being promoted
+  into the navigable globe range — the globe is a map of places, a belief is not a place.
+  **Not yet built.**
 
 Keep this section current. It is the first thing the next session reads.
 

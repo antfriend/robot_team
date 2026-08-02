@@ -56,12 +56,19 @@ the ENTIRE TTDB** — currently ~46 KB — and then appends. **This has never be
 The fleet already has an unexplained multi-second loop stall (CLAUDE.md), and this is a
 plausible new source of one that would be indistinguishable from it.
 
-- [ ] Measure the worst loop pass across a Dream Cycle that **changes** a belief (not the
+- [x] Measure the worst loop pass across a Dream Cycle that **changes** a belief (not the
       no-op path, which is the only one observed so far). Use the sketch's own section
       profiler; `lp` is a 10-second-window number, so sample it *during* the rewrite.
+      **DONE 2026-08-02: 150 ms @ 8.6 KB → 1757 ms @ 74 KB, ~10-13 µs/byte; crosses 1 s at
+      ~53 KB.** ⚠ The section profiler **could not have answered this**: it skipped the
+      FIRST loop pass, which is where the boot Dream Cycle runs. Fixed; the two instruments
+      now agree to 8 ms. See companion.md §6.
 - [ ] If it is seconds, move the rewrite off `loop()` or make the belief lane
-      append-with-supersede instead of rewrite-in-place.
-- [ ] Record the number in companion.md either way. **"It seemed fine" is not a result.**
+      append-with-supersede instead of rewrite-in-place. **STILL OPEN — it IS seconds-class
+      (1.76 s).** `removeLane` is O(file) and `appendRecord` is O(file) too, so a changing
+      cycle is 1 rewrite + N appends = **9 full-file passes at 8 beliefs**. Decide before
+      Part 2 adds more writers.
+- [x] Record the number in companion.md either way. **"It seemed fine" is not a result.**
 
 ### 1.2 The constants verdict rests on n=1
 
@@ -69,24 +76,47 @@ plausible new source of one that would be indistinguishable from it.
 **a single walk-away-and-back**. This repo's own hard-won rule is that n=1 and n=3 samples
 here are noise and n≥9 is the floor.
 
-- [ ] Repeat the moving run **at least 3 more times**, varying distance and dwell.
-- [ ] Confirm the shape holds: violations only in transit windows, `met` while parked at
+- [x] Repeat the moving run **at least 3 more times**, varying distance and dwell.
+      **DONE — two further runs 2026-08-02** (one unlabelled but with a CONTROL GROUP, one
+      operator-labelled), giving three independent runs total.
+- [x] Confirm the shape holds: violations only in transit windows, `met` while parked at
       distance (this is the finding that makes the whole tier trustworthy — see §0b).
-- [ ] Confirm `K = 3` still never fires. If a longer/slower walk *does* reach streak 3,
+      **CONFIRMED:** −36 dB transit → VIOLATED, then **five consecutive parked-far windows
+      all `met` to within 1 dBm**, then +17/+26 on the return → VIOLATED. Internal control:
+      **stationary peers 1.4% violation (2/144) vs the roamer 32.4% (12/37) — a 23×
+      separation** in the same windows with the same band.
+- [x] Confirm `K = 3` still never fires. If a longer/slower walk *does* reach streak 3,
       the verdict changes and the return report must be rewritten before it is sent.
-- [ ] Re-run the laptop-vs-device reconciliation cross-check after each run.
+      **STILL NEVER FIRES — max streak 2 in all three runs**, including a full relocation
+      and return. §0b stands unchanged.
+- [x] Re-run the laptop-vs-device reconciliation cross-check after each run.
+      **`scratchpad/refold.py`: 8 pairs × 7 fields, 0 mismatches** (the morning's check was
+      2 pairs).
+- ⚠ **Lesson for whoever runs the next one:** label ONLY what the operator actually
+      labelled. The first analysis pass called the unlabelled pre-walk period "still",
+      which manufactured a 7% baseline violation rate and nearly buried the real result —
+      the roamer was being handled during it.
 
 ### 1.3 Multi-node — never exercised
 
 Everything so far is the Cardputer with the T-Deck as its only peer. The V4s were off.
 
-- [ ] Power all three V4s. Confirm `@LAT97` shows 4+ peers and `@LAT91` grows a belief per
+- [x] Power all three V4s. Confirm `@LAT97` shows 4+ peers and `@LAT91` grows a belief per
       (peer, proto). `PERCEPTLEARN_MAX_CLAIMS` is 8 — with 4 nodes × 2 protos that is
-      **exactly at the cap**, so verify nothing is silently dropped.
-- [ ] Exercise the `unobserved` verdict for real by powering a peer OFF mid-run. The code
+      **exactly at the cap**, so verify nothing is silently dropped. **DONE: 8 beliefs,
+      nothing dropped.** ⚠ But hardware only *reached* the boundary, never crossed it —
+      over-cap behaviour is still native-tested only (a 9th pair needs a 5th node).
+      ⚠⚠ **Both caps were SILENT until this session.** An overflowed `stage()` scored the
+      peer `VERDICT_UNOBSERVED` — indistinguishable from a peer that genuinely went quiet,
+      i.e. a plausible wrong answer rather than a gap. Now counted and printed.
+- [x] Exercise the `unobserved` verdict for real by powering a peer OFF mid-run. The code
       path is unit-tested but has never fired on hardware. It must NOT count as violated.
-- [ ] Verify a belief actually **moves between Dream Cycles** (`rev:2`+). Only `rev:1` and
-      the no-op path have been seen.
+      **FIRED ON HARDWARE** (`unobs:1` on both T-Deck protos) by the roamer going out of
+      range rather than powering off — the more realistic case — and it did **not** count
+      as violated. 📎 Distinct from it: a peer heard in NO window gets **no claim armed at
+      all**, which is invisible in the tally.
+- [x] Verify a belief actually **moves between Dream Cycles** (`rev:2`+). Only `rev:1` and
+      the no-op path have been seen. **Reached `rev:9`.**
 
 ### 1.4 Nodes still carrying old firmware
 

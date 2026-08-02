@@ -82,7 +82,7 @@
 // insertion point. (`enum Pane` below gets away with sitting mid-file only because
 // nothing takes one as an argument.)
 enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_INTERO = 2,
-                          FACE_VIEW_COUNT = 3 };
+                          FACE_BELIEF = 3, FACE_VIEW_COUNT = 4 };
 
 // --- Cardputer ADV pin map (M5Stack K132-Adv, Stamp-S3A) ---------------------
 // Documented here and in hardware_specs.md. Three peripherals share ONE I2C bus
@@ -301,6 +301,13 @@ static void logLine(const char* s) {
 }
 
 static int gSel = -1;      // selected TTDB record (globe cursor)
+// Which page of the selected record's body the bottom pane is showing, and how many there
+// are. This panel holds four lines, so anything but a stub record is multi-page; `1`/`2`
+// walk them while the globes hold the screen, both directions wrapping. `gRecPages` is
+// published by renderRecord because the page count is only knowable after the body has
+// been laid out, and the key handler must not re-wrap it just to clamp.
+static int gRecPage = 0;
+static int gRecPages = 1;
 static uint32_t gLastRenderMs = 0;   // cost of the last screen repaint (loop profile)
 // ...and the worst one in the reporting window. The LAST render is nearly useless as a
 // budget check for a view that only repaints what changed: a still deck writes zero
@@ -845,7 +852,18 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             // ACK only on success, so a failed prune is loud and the laptop retries.
             ok = clearPerceptLanes(toot::cmdClearLane(t));
             break;
-          default: break;                    // ping / set-* (no-op here)
+          case toot::CMD_PING:
+            // A ping otherwise does nothing but ACK, which is exactly what makes it the
+            // right thing to overload as a FIELD MARKER. During a walk experiment the
+            // operator is across the house holding the T-Deck and cannot reach the
+            // laptop, so `p` on its keyboard (whose default target is this node) drops a
+            // timestamped label straight into this node's serial log. The alternative is
+            // the operator's memory of when they moved, and that is precisely what
+            // invalidated the first attempt at a labelled run — the shape claim needs
+            // ground truth that does NOT come from the RSSI it is being tested against.
+            Serial.printf("[mark] FIELD MARK from 0x%08X\n", (unsigned)t.src_node_id);
+            break;
+          default: break;                    // set-* (no-op here)
         }
         accepted = ok;
         gScreenDirty = true;
@@ -1010,6 +1028,12 @@ static int gLastConfN = -1;      // -1 = never reconciled this boot
 static int gBeliefRev = 0;
 
 static void reconcileBeliefs() {
+  // Timed in three phases because they fail differently and the section profiler cannot
+  // tell them apart (the whole Dream Cycle sits inside "linkperc"). `fold` re-reads the
+  // outcome lane off flash EVERY cycle even when nothing changed — that cost is paid
+  // forever, so it is worth its own number. `rewrite` is the removeLane whole-TTDB
+  // rewrite the handoff flagged as a plausible new source of a multi-second stall.
+  const uint32_t t_enter = millis();
   gRecon.begin();
   // Fold the outcome lane in record order — order matters, because the +2 saturates and
   // the -16 floors, and a clamp does not commute with a sum.
@@ -1026,7 +1050,15 @@ static void reconcileBeliefs() {
     yield();
   }
 
+  const uint32_t t_fold = millis();
   const int n = gRecon.beliefCount();
+  // A dropped claim biases conf from a subset of the lane while looking like a complete
+  // fold, so it is reported before anything else this cycle prints.
+  if (gRecon.claimsDropped())
+    Serial.printf("[dream] ⚠ %d claim(s) DROPPED - belief slots full "
+                  "(PERCEPTLEARN_MAX_BELIEFS %d): conf below is folded from a SUBSET "
+                  "of @LAT%d\n",
+                  gRecon.claimsDropped(), PERCEPTLEARN_MAX_BELIEFS, PERCEPTLEARN_LANE);
   if (n == 0) return;
 
   // Skip the rewrite when nothing moved. Re-running the reconciliation is supposed to be
@@ -1037,16 +1069,21 @@ static void reconcileBeliefs() {
     for (int i = 0; i < n; ++i)
       if (gLastConf[i] != gRecon.belief(i).conf) { changed = true; break; }
   if (!changed) {
-    Serial.printf("[dream] reconciled %d outcome record(s) -> no change (conf steady)\n",
-                  gRecon.recordsFolded());
+    Serial.printf("[dream] reconciled %d outcome record(s) -> no change (conf steady) "
+                  "| fold %lums (TTDB %uB)\n",
+                  gRecon.recordsFolded(), (unsigned long)(t_fold - t_enter),
+                  (unsigned)gDb.fileSize());
     return;
   }
 
   ++gBeliefRev;
+  const uint32_t bytes_before = (unsigned)gDb.fileSize();
+  const uint32_t t_rm0 = millis();
   if (!gDb.removeLane(PERCEPTLEARN_BELIEF_LANE)) {
     Serial.println("[dream] belief lane rewrite FAILED (removeLane)");
     return;
   }
+  const uint32_t t_rm = millis();
   uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
   static char brec[PERCEPTLEARN_BUF];
   for (int i = 0; i < n; ++i) {
@@ -1064,8 +1101,17 @@ static void reconcileBeliefs() {
     yield();
   }
   gLastConfN = n;
+  const uint32_t t_end = millis();
   Serial.printf("[dream] reconciled %d outcome record(s) -> %d belief(s), TTDB %uB\n",
                 gRecon.recordsFolded(), n, (unsigned)gDb.fileSize());
+  // The number companion.md owes the handoff. Printed on the CHANGING path only, which
+  // is the path that had never been observed. "It seemed fine" is not a result.
+  Serial.printf("[dream] TIMING fold %lums rewrite %lums append %lums TOTAL %lums "
+                "(%luB -> %luB, %d records)\n",
+                (unsigned long)(t_fold - t_enter), (unsigned long)(t_rm - t_rm0),
+                (unsigned long)(t_end - t_rm), (unsigned long)(t_end - t_enter),
+                (unsigned long)bytes_before, (unsigned long)gDb.fileSize(),
+                gDb.recordCount());
 }
 
 // Count existing records in a percept lane (the LON index of the next one).
@@ -1884,31 +1930,63 @@ static void renderRecord() {
     return;
   }
   const TtdbRecord& r = gViewDb->record(gSel);
-  snprintf(l, sizeof(l), "@LAT%dLON%d  %d/%d", r.lat, r.lon, gSel + 1,
-           gViewDb->recordCount());
-  drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
+
+  // A new selection starts at the top of its record.
+  static int lastSel = -2;
+  if (gSel != lastSel) { lastSel = gSel; gRecPage = 0; }
 
   if (!gBottomDirty) return;
   size_t off, len;
   if (!gViewDb->recordSpan(gSel, off, len)) return;
-  static char body[520];
-  size_t n = len < sizeof(body) - 1 ? len : sizeof(body) - 1;
+  // ⚠ 520 B here was a READ limit, not a scroll limit — bytes past it never left flash.
+  // This panel is worse off than the T-Deck's: four lines of 39 columns is ~156 characters
+  // against an RFC-globe record averaging 1036 B and reaching 2666 B, so the pane was
+  // showing roughly the first 15% of a record with nothing on screen to say so.
+  static char body[3072];
+  bool clipped = len > sizeof(body) - 1;
+  size_t n = clipped ? sizeof(body) - 1 : len;
   n = gViewDb->readBytes(off, (uint8_t*)body, n);
   body[n] = 0;
   const char* p = strchr(body, '\n');       // skip the header line
   p = p ? p + 1 : body;
-  int y = BOTTOM_Y + 11, col = 0;
-  char line[TEXT_COLS + 2];
-  while (*p && y < SCR_H - 8) {
+
+  // Wrap the whole body, then draw one page of it, so the page count is honest.
+  const int kLineH = 10, kTop = BOTTOM_Y + 11;
+  const int kPerPage = (SCR_H - 8 - kTop) / kLineH;
+  static const char* ls[160];
+  static uint8_t ll[160];
+  int nl = 0, col = 0;
+  const char* start = p;
+  while (*p && nl < 160) {
     if (*p == '\n') {
-      if (col > 0) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
-      p++;
+      if (col > 0) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; }
+      ++p; start = p; col = 0;
       continue;
     }
-    line[col++] = *p++;
-    if (col >= TEXT_COLS) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
+    ++col; ++p;
+    if (col >= TEXT_COLS) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; start = p; col = 0; }
   }
-  if (col > 0 && y < SCR_H - 8) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); }
+  if (col > 0 && nl < 160) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; }
+
+  int pages = (nl + kPerPage - 1) / kPerPage;
+  if (pages < 1) pages = 1;
+  gRecPages = pages;                        // published for the wrapping key handler
+  if (gRecPage >= pages) gRecPage = pages - 1;
+  if (gRecPage < 0) gRecPage = 0;
+
+  snprintf(l, sizeof(l), "@LAT%dLON%d %d/%d pg%d/%d%s", r.lat, r.lon, gSel + 1,
+           gViewDb->recordCount(), gRecPage + 1, pages, clipped ? "+" : "");
+  drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
+
+  char line[TEXT_COLS + 2];
+  int y = kTop;
+  for (int i = gRecPage * kPerPage; i < nl && i < (gRecPage + 1) * kPerPage; ++i) {
+    int c = ll[i] < TEXT_COLS ? ll[i] : TEXT_COLS;
+    memcpy(line, ls[i], c);
+    line[c] = 0;
+    drawWide(y, ST77XX_WHITE, line);
+    y += kLineH;
+  }
 }
 
 // Bottom pane — the console log, plus the two things only this node knows: whether it
@@ -2125,6 +2203,7 @@ static FaceView gFaceView = FACE_EYE;
 static const char* faceViewName(FaceView v) {
   return (v == FACE_SCOPE)  ? "REPRESENTOR (oscilloscope)"
        : (v == FACE_INTERO) ? "REPRESENTOR (interoception)"
+       : (v == FACE_BELIEF) ? "REPRESENTOR (link beliefs)"
                             : "REPRESENTOR (eyeball)";
 }
 
@@ -2856,6 +2935,130 @@ static void renderIntero(uint32_t now) {
   gInPainted = true;
 }
 
+// --- FACE_BELIEF: what this node has CONCLUDED about its own links -----------------
+//
+// The `@LAT91` lane holds the only records on this fleet that carry a TBEW `[ew]` block,
+// and until this view existed they could be seen NOWHERE on the fleet's glass — only by
+// pulling the TTDB to the laptop. The globes cannot show them: `isNodeRecord()` bounds
+// navigation to `lat < 90` (deliberately, to keep the runtime percept/belief/sync lanes
+// out of a map), and that bound catches 90-93 as well. A globe is a map of PLACES and a
+// belief is not a place, so this is its own view rather than a promotion into that range.
+//
+// It belongs in the representor stack for the same reason interoception does: both are
+// the node reporting on itself. Interoception is the body; this is what the body has
+// learned.
+struct BeliefRow {
+  uint32_t peer;
+  char     proto[4];
+  int      conf, sal, met, vio;
+  bool     contradiction;
+};
+static BeliefRow gBel[PERCEPTLEARN_MAX_BELIEFS];
+static int  gBelN = 0;
+static int  gBelRevSeen = -1;
+static bool gBelPainted = false;
+
+// Read an integer field. `key` should include the delimiter that makes it unambiguous —
+// "\nconf:" and not "conf:", because `**TALLY**` also carries `baseline_conf:`.
+static int belField(const char* s, const char* key, int dflt) {
+  const char* p = strstr(s, key);
+  return p ? atoi(p + strlen(key)) : dflt;
+}
+
+// Re-read the lane off flash. ⚠ Called ONLY when the belief revision changes or the view
+// is entered — never per frame. Eight records x (recordSpan + readBytes) is exactly the
+// per-frame file I/O that cost 767 ms/repaint in the `edgesAt` defect (companion.md §6).
+static void readBeliefs() {
+  gBelN = 0;
+  static char buf[768];
+  for (int i = 0; i < gDb.recordCount() && gBelN < PERCEPTLEARN_MAX_BELIEFS; ++i) {
+    if (gDb.record(i).lat != PERCEPTLEARN_BELIEF_LANE) continue;
+    size_t off, len;
+    if (!gDb.recordSpan(i, off, len)) continue;
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    n = gDb.readBytes(off, (uint8_t*)buf, n);
+    buf[n] = 0;
+    const char* pk = strstr(buf, "peer:0x");
+    if (!pk) continue;                       // not a LINK-STABLE body: skip, do not guess
+    BeliefRow& b = gBel[gBelN];
+    b.peer = (uint32_t)strtoul(pk + 7, nullptr, 16);
+    const char* pr = strstr(buf, "proto:");
+    snprintf(b.proto, sizeof(b.proto), "%.3s", pr ? pr + 6 : "?");
+    b.conf = belField(buf, "\nconf:", 0);
+    b.sal  = belField(buf, "\nsal:", 0);
+    b.met  = belField(buf, "met:", 0);
+    b.vio  = belField(buf, "violated:", 0);
+    b.contradiction = belField(buf, "contradiction:", 0) != 0;
+    ++gBelN;
+    yield();
+  }
+}
+
+static void beliefChrome() {
+  gTft.fillScreen(ST77XX_BLACK);
+  gBelPainted = false;
+  gBelRevSeen = -1;                          // force a re-read on entry
+}
+
+// Beliefs move only when the Dream Cycle rewrites the lane (every 3 min at most), so this
+// view repaints on CHANGE rather than on a clock. A static panel costs nothing.
+static bool beliefFrameDue(uint32_t now) {
+  (void)now;
+  return !gBelPainted || gBeliefRev != gBelRevSeen;
+}
+
+static void renderBelief(uint32_t now) {
+  (void)now;
+  if (!gBelPainted || gBeliefRev != gBelRevSeen) {
+    readBeliefs();
+    gBelRevSeen = gBeliefRev;
+    gTft.fillRect(0, 10, SCR_W, SCR_H - 10, ST77XX_BLACK);
+  }
+  char l[TEXT_COLS + 2];
+  snprintf(l, sizeof(l), "LINK BELIEFS @LAT91  %d  rev%d", gBelN, gBeliefRev);
+  drawWide(0, rgb565(150, 190, 255), l);
+
+  if (gBelN == 0) {
+    // Say WHY it is empty. A blank panel here would look identical to a broken view, and
+    // on a freshly imaged filesystem empty is the correct and expected state.
+    drawWide(20, rgb565(240, 200, 90), "no belief yet");
+    drawWide(32, rgb565(150, 150, 150), "the Dream Cycle writes @LAT91 from");
+    drawWide(42, rgb565(150, 150, 150), "@LAT92 testimony; needs a still");
+    drawWide(52, rgb565(150, 150, 150), "window + a peer, then <=3 min.");
+    gBelPainted = true;
+    return;
+  }
+
+  const int kRowH = 14, kTop = 16, kBarX = 46, kBarW = 96;
+  gTft.setTextSize(1);
+  for (int i = 0; i < gBelN; ++i) {
+    const int y = kTop + i * kRowH;
+    if (y + 9 > SCR_H) break;
+    const BeliefRow& b = gBel[i];
+    // Colour carries the same meaning as the conf number so the panel reads at a glance:
+    // red is not "low" but "the world contradicted this twice running".
+    const uint16_t col = b.contradiction ? rgb565(240, 90, 90)
+                       : b.conf >= 170   ? rgb565(80, 220, 120)
+                       : b.conf >= 100   ? rgb565(240, 200, 90)
+                                         : rgb565(240, 140, 90);
+    gTft.setTextColor(col, ST77XX_BLACK);
+    gTft.setCursor(0, y);
+    snprintf(l, sizeof(l), "%03X %-3s", (unsigned)(b.peer & 0xFFF), b.proto);
+    gTft.print(l);
+
+    gTft.drawRect(kBarX, y - 1, kBarW, 9, rgb565(60, 66, 78));
+    const int w = ((kBarW - 2) * (b.conf < 0 ? 0 : b.conf > 255 ? 255 : b.conf)) / 255;
+    if (w) gTft.fillRect(kBarX + 1, y, w, 7, col);
+    if (w < kBarW - 2) gTft.fillRect(kBarX + 1 + w, y, kBarW - 2 - w, 7, ST77XX_BLACK);
+
+    gTft.setCursor(kBarX + kBarW + 4, y);
+    snprintf(l, sizeof(l), "%3d %2d/%-2d%s", b.conf, b.met, b.vio,
+             b.contradiction ? "!" : "");
+    gTft.print(l);
+  }
+  gBelPainted = true;
+}
+
 // `t` switches between the representor and the inherited globes (§5). Leaving the face
 // hands a clean panel back to the globe renderer, which paints in dirty-rect pieces
 // and would otherwise draw over the sclera.
@@ -2875,6 +3078,7 @@ static void enterFaceView() {
   gInFoot[0] = 0;
   for (int i = 0; i < 3; ++i) { gInVal[i][0] = 0; gInCol[i] = 0; gInFill[i] = 0; }
   if (gFaceView == FACE_INTERO) { interoChrome(); return; }
+  if (gFaceView == FACE_BELIEF) { beliefChrome(); return; }
 #if USE_MIC && USE_CARD_HW
   if (gFaceView == FACE_SCOPE) { scopeChrome(); return; }
 #endif
@@ -3142,6 +3346,16 @@ void loop() {
         uint32_t pr; uint8_t pt; uint32_t pn; int rmin, rmed, rmax;
         if (gLinkLog.stats(s, pr, pt, pn, rmin, rmed, rmax)) gLearn.stage(pr, pt, rmed);
       }
+      // ⚠ Say so when the claim house is full. An overflowed (peer, proto) is scored
+      // VERDICT_UNOBSERVED, which is the SAME verdict a peer that genuinely went quiet
+      // gets — so without this line a cap that is one slot short looks like the fleet
+      // going intermittent. 4 nodes x {espnow, ble} needs exactly PERCEPTLEARN_MAX_CLAIMS,
+      // so this is live the moment the V4s come up, not a theoretical limit.
+      if (gLearn.stagedOverflow())
+        Serial.printf("[learn] %d peer-observation(s) DROPPED - staged claim house full "
+                      "(PERCEPTLEARN_MAX_CLAIMS %d): they will score as 'unobserved' and "
+                      "are NOT missing peers\n",
+                      gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
       char rec[1024];
       uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
       uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
@@ -3370,9 +3584,26 @@ void loop() {
       case 't': setFace(!gFaceOn); break;
       // §5's direct modality pins. With no arbiter yet these ARE the arbiter; when S1
       // lands they become the pin that overrides it, which is the same binding.
-      case '1': setFaceView(FACE_EYE); break;
-      case '2': setFaceView(FACE_SCOPE); break;
+      // 1 and 2 mean whichever stack you are actually looking at — the same rule ENTER
+      // already follows above. With the FACE up they are §5's direct modality pins; with
+      // the GLOBES up there is no face to pin, and what the reader needs instead is a way
+      // through a record body that does not fit in four lines. 3 stays the modality pin in
+      // both stacks, so there is always one key that takes you back into the face.
+      case '1':
+        if (gFaceOn) { setFaceView(FACE_EYE); }
+        else { gRecPage = (gRecPage + 1) % (gRecPages > 0 ? gRecPages : 1);
+               gBottomDirty = gScreenDirty = true; }
+        break;
+      case '2':
+        if (gFaceOn) { setFaceView(FACE_SCOPE); }
+        else { gRecPage = (gRecPage + (gRecPages > 0 ? gRecPages : 1) - 1)
+                          % (gRecPages > 0 ? gRecPages : 1);
+               gBottomDirty = gScreenDirty = true; }
+        break;
       case '3': setFaceView(FACE_INTERO); break;
+      // 4 is the belief view. Like 3 it works from either stack, because it is the only
+      // way to see the @LAT91 lane at all — the globes exclude it by the lat < 90 bound.
+      case '4': setFaceView(FACE_BELIEF); break;
       case '+': case '=':
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -3548,6 +3779,9 @@ void loop() {
       case FACE_SCOPE:  due = scopeFrameDue(now);  break;
 #endif
       case FACE_INTERO: due = interoFrameDue(now); break;
+      // Beliefs move only when the Dream Cycle rewrites the lane, so this one is
+      // change-driven rather than clocked — it asks for a frame and then goes quiet.
+      case FACE_BELIEF: due = beliefFrameDue(now); break;
       default:          due = eyeFrameDue(now);    break;
     }
     if (due) {
@@ -3555,9 +3789,12 @@ void loop() {
 #if USE_MIC && USE_CARD_HW
       if (gFaceView == FACE_SCOPE)       renderScope(now);
       else if (gFaceView == FACE_INTERO) renderIntero(now);
+      else if (gFaceView == FACE_BELIEF) renderBelief(now);
       else                               renderEye(now);
 #else
-      if (gFaceView == FACE_INTERO) renderIntero(now); else renderEye(now);
+      if (gFaceView == FACE_INTERO)      renderIntero(now);
+      else if (gFaceView == FACE_BELIEF) renderBelief(now);
+      else                               renderEye(now);
 #endif
       gLastRenderMs = gPassRenderMs = millis() - r0;
       if (gLastRenderMs > gWorstRenderMs) gWorstRenderMs = gLastRenderMs;
@@ -3586,8 +3823,16 @@ void loop() {
     static uint32_t loopStart = 0, worst = 0, worstOwnRender = 0, lastReport = 0;
     static uint32_t worstSect = 0;
     static const char* worstSectName = "-";
-    if (loopStart) {
-      uint32_t d = millis() - loopStart;
+    // Measured from gSectMark[0] — the stamp taken at the TOP of THIS pass — not from a
+    // stamp left at the end of the previous one. ⚠ The old form was
+    // `static loopStart = 0; if (loopStart) { d = millis() - loopStart; ... }`, which
+    // skipped the FIRST pass entirely (it had no previous stamp to subtract). That is
+    // precisely the pass that does the one-time boot work: the first Dream Cycle runs
+    // there (`last_dream == 0`) and cost a measured 1089 ms, while the profiler covering
+    // that window serenely reported `worst pass 18ms`. A profiler blind to the most
+    // expensive pass in the run is worse than no profiler.
+    {
+      uint32_t d = millis() - gSectMark[0];
       // Carry the render cost OF THAT PASS along with it. "Worst pass 53 ms, worst
       // render 24 ms" is ambiguous — they may be different passes — and the whole
       // point of this profiler is to stop us guessing which.

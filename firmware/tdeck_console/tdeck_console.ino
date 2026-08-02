@@ -388,6 +388,13 @@ static void logLine(const char* s) {
 // Globe selection: index of the selected TTDB record (the one shown in the record
 // view). -1 until the first record is seated in setup(). Shared with the globe.
 static int gSel = -1;
+// Which page of the selected record's body the pane is showing. Records run to 2666 B on
+// the RFC globe and the pane holds ~10 lines, so a long record is several pages; `1`/`2`
+// walk them and both directions wrap. Reset whenever the selection changes.
+// `gRecPages` is published by renderRecord so the key handler can wrap without re-wrapping
+// the body itself — the page count is only knowable after the text has been laid out.
+static int gRecPage = 0;
+static int gRecPages = 1;
 
 // --- wall clock (TTN-RFC-0008) ----------------------------------------------
 static int64_t gClockOffsetMs = 0;
@@ -1759,34 +1766,68 @@ static void renderRecord() {
     return;
   }
   const TtdbRecord& r = gViewDb->record(gSel);
-  snprintf(l, sizeof(l), "@LAT%dLON%d   record %d/%d", r.lat, r.lon, gSel + 1,
-           gViewDb->recordCount());
-  drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
 
-  // Stream the body: read the record span, skip the header line, print the next lines
-  // wrapped to the screen width. Only redrawn on selection/pane change (gBottomDirty),
-  // so this streaming read is not per-frame.
+  // A new selection starts at the top of its record.
+  static int lastSel = -2;
+  if (gSel != lastSel) { lastSel = gSel; gRecPage = 0; }
+
+  // Read the body. ⚠ This buffer was 520 B, which was NOT a scroll limitation but a READ
+  // limitation: bytes past it never left flash. The RFC globe's records average 1036 B and
+  // reach 2666 B, so the pane was silently showing the first 40% of a record with nothing
+  // on screen to say so — and TTDB-RFC-0003's `opposes` (body offset 865) was physically
+  // unreachable, which is what blocked the on-glass spec check. 3 KB covers every record
+  // the fleet currently carries with headroom, and anything longer now says `+` in the
+  // title rather than vanishing.
   if (!gBottomDirty) return;
   size_t off, len;
   if (!gViewDb->recordSpan(gSel, off, len)) return;
-  static char body[520];
-  size_t n = len < sizeof(body) - 1 ? len : sizeof(body) - 1;
+  static char body[3072];
+  bool clipped = len > sizeof(body) - 1;
+  size_t n = clipped ? sizeof(body) - 1 : len;
   n = gViewDb->readBytes(off, (uint8_t*)body, n);
   body[n] = 0;
   const char* p = strchr(body, '\n');       // skip the header line
   p = p ? p + 1 : body;
-  int y = BOTTOM_Y + 14, col = 0;
-  char line[54];
-  while (*p && y < 240 - 8) {
+
+  // Wrap the whole body to screen width first, then draw only the requested page. Wrapping
+  // every line (rather than stopping at the pane bottom) is what makes the page count
+  // honest — the reader can see there IS more.
+  const int kLineH = 10, kTop = BOTTOM_Y + 14;
+  const int kPerPage = (240 - 8 - kTop) / kLineH;
+  static const char* ls[128];
+  static uint8_t ll[128];
+  int nl = 0, col = 0;
+  const char* start = p;
+  while (*p && nl < 128) {
     if (*p == '\n') {                        // blank line -> small gap, new row
-      if (col > 0) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
-      p++;
+      if (col > 0) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; }
+      ++p; start = p; col = 0;
       continue;
     }
-    line[col++] = *p++;
-    if (col >= 52) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); y += 10; col = 0; }
+    ++col; ++p;
+    if (col >= 52) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; start = p; col = 0; }
   }
-  if (col > 0 && y < 240 - 8) { line[col] = 0; drawWide(y, ST77XX_WHITE, line); }
+  if (col > 0 && nl < 128) { ls[nl] = start; ll[nl] = (uint8_t)col; ++nl; }
+
+  int pages = (nl + kPerPage - 1) / kPerPage;
+  if (pages < 1) pages = 1;
+  gRecPages = pages;                        // published for the wrapping key handler
+  if (gRecPage >= pages) gRecPage = pages - 1;
+  if (gRecPage < 0) gRecPage = 0;
+
+  snprintf(l, sizeof(l), "@LAT%dLON%d  rec %d/%d  pg %d/%d%s", r.lat, r.lon, gSel + 1,
+           gViewDb->recordCount(), gRecPage + 1, pages, clipped ? "+" : "");
+  drawWide(BOTTOM_Y, nodeColor(r.lat, r.lon), l);
+
+  char line[54];
+  int y = kTop;
+  for (int i = gRecPage * kPerPage; i < nl && i < (gRecPage + 1) * kPerPage; ++i) {
+    int c = ll[i] < 52 ? ll[i] : 52;
+    memcpy(line, ls[i], c);
+    line[c] = 0;
+    drawWide(y, ST77XX_WHITE, line);
+    y += kLineH;
+  }
 }
 
 // Bottom half — the console log pane (the swipe-up analog; toggled by SPACE). Shows
@@ -2171,6 +2212,8 @@ void loop() {
   //   d = duet with the node currently selected on SemPos (we lead, they harmonise);
   //       press again to end. Contextual, so there is no separate partner to choose.
   //   o = onward (next scene of the hero's-arc song)   r = restart the tale (scene 0)
+  //   1 / 2 = next / previous page of the selected record's body, both wrapping
+  //           (title shows pg n/m)
   //   +/= = zoom in (closer)   -/_ = zoom out (further)
   // Any other key defaults to a status query. See the on-screen legend.
   char k = readKey();
@@ -2192,6 +2235,20 @@ void loop() {
       case '-': case '_':                        // zoom out (further)
         if (gZoomIdx > 0) { gZoomIdx--; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
+        break;
+      // Page through a long record body. Without these the pane shows only the first
+      // ~10 wrapped lines of a record that may run to 2666 B, which is how TTDB-RFC-0003's
+      // `opposes` clause stayed invisible on the glass. BOTH directions wrap: a record is
+      // a small ring, and dead-ending at the last page just makes the reader press again
+      // and wonder whether the key registered.
+      case '1':                                        // forward, wrapping
+        gRecPage = (gRecPage + 1) % (gRecPages > 0 ? gRecPages : 1);
+        gBottomDirty = gScreenDirty = true;
+        break;
+      case '2':                                        // back, wrapping
+        gRecPage = (gRecPage + (gRecPages > 0 ? gRecPages : 1) - 1)
+                   % (gRecPages > 0 ? gRecPages : 1);
+        gBottomDirty = gScreenDirty = true;
         break;
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);

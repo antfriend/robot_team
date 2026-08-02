@@ -1,0 +1,286 @@
+   24.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 224 | maxalloc 23K
+   24.5s | [link] percept window -> @LAT97LON0 (TTDB 3707B)
+   24.5s | [entity] percept window -> @LAT96LON0 (TTDB 4312B)
+   24.6s | [motion] percept window -> @LAT95LON0 (TTDB 4518B)
+   24.6s | [learn] expectation armed from @LAT95LON0 (still): peers hold within +/-6 dBm
+   24.6s | [acoustic] percept window -> @LAT94LON0 (TTDB 4764B)
+   54.4s | [loop] worst pass 233ms (render 1ms, widest section linkperc 122ms) | worst render 18ms | frames 240 | maxalloc 23K
+   84.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 23K
+   84.4s | [link] percept window -> @LAT97LON1 (TTDB 5205B)
+   84.4s | [learn] outcome -> @LAT92LON0 met:4 violated:0 streak:0 (970B, TTDB 6175B)
+   84.5s | [motion] percept window -> @LAT95LON1 (TTDB 6382B)
+   84.5s | [learn] expectation armed from @LAT95LON1 (still): peers hold within +/-6 dBm
+   84.5s | [acoustic] percept window -> @LAT94LON1 (TTDB 6630B)
+  114.3s | [loop] worst pass 136ms (render 0ms, widest section linkperc 58ms) | worst render 18ms | frames 240 | maxalloc 23K
+  144.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 22K
+  144.4s | [link] percept window -> @LAT97LON2 (TTDB 7230B)
+  144.4s | [learn] outcome -> @LAT92LON1 met:2 violated:2 streak:1 (985B, TTDB 8215B)
+  144.4s | [motion] percept window -> @LAT95LON2 (TTDB 8422B)
+  144.4s | [learn] expectation armed from @LAT95LON2 (still): peers hold within +/-6 dBm
+  144.5s | [acoustic] percept window -> @LAT94LON2 (TTDB 8670B)
+  156.3s | [dream] @LAT91LON0 peer:0x10 ble conf:114 sal:8 (met:1 violated:1) rev:1
+  156.3s | [dream] @LAT91LON1 peer:0x200 ble conf:132 sal:0 (met:2 violated:0) rev:1
+  156.3s | [dream] @LAT91LON2 peer:0x10 espnow conf:114 sal:8 (met:1 violated:1) rev:1
+  156.4s | [dream] @LAT91LON3 peer:0x200 espnow conf:132 sal:0 (met:2 violated:0) rev:1
+  156.4s | [dream] reconciled 2 outcome record(s) -> 4 belief(s), TTDB 10472B
+  156.4s | [dream] TIMING fold 15ms rewrite 0ms append 138ms TOTAL 153ms (8670B -> 10472B, 21 records)
+  174.4s | [loop] worst pass 160ms (render 0ms, widest section linkperc 98ms) | worst render 18ms | frames 238 | maxalloc 22K
+  204.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 22K
+  204.5s | [link] percept window -> @LAT97LON3 (TTDB 11234B)
+  204.5s | [learn] outcome -> @LAT92LON2 met:6 violated:0 streak:0 (1257B, TTDB 12491B)
+  204.5s | [motion] percept window -> @LAT95LON3 (TTDB 12698B)
+  204.6s | [learn] expectation armed from @LAT95LON3 (still): peers hold within +/-6 dBm
+  204.6s | [acoustic] percept window -> @LAT94LON3 (TTDB 12946B)
+  234.3s | [loop] worst pass 265ms (render 0ms, widest section linkperc 218ms) | worst render 18ms | frames 239 | maxalloc 22K
+  264.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 22K
+  264.4s | [link] percept window -> @LAT97LON4 (TTDB 13709B)
+  264.4s | [learn] outcome -> @LAT92LON3 met:8 violated:0 streak:0 (1541B, TTDB 15250B)
+  264.5s | [motion] percept window -> @LAT95LON4 (TTDB 15457B)
+  264.5s | [learn] expectation armed from @LAT95LON4 (still): peers hold within +/-6 dBm
+  264.5s | [acoustic] percept window -> @LAT94LON4 (TTDB 15706B)
+  294.4s | [loop] worst pass 134ms (render 0ms, widest section linkperc 60ms) | worst render 18ms | frames 240 | maxalloc 22K
+  324.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 22K
+  324.4s | [link] percept window -> @LAT97LON5 (TTDB 16469B)
+  324.4s | [learn] outcome -> @LAT92LON4 met:4 violated:4 streak:1 (1567B, TTDB 18036B)
+  324.4s | [motion] percept window -> @LAT95LON5 (TTDB 18243B)
+  324.5s | [learn] expectation armed from @LAT95LON5 (still): peers hold within +/-6 dBm
+  324.5s | [acoustic] percept window -> @LAT94LON5 (TTDB 18446B)
+  336.5s | [dream] @LAT91LON0 peer:0x10 ble conf:102 sal:16 (met:3 violated:2) rev:2
+  336.6s | [dream] @LAT91LON1 peer:0x200 ble conf:120 sal:8 (met:4 violated:1) rev:2
+  336.6s | [dream] @LAT91LON2 peer:0x10 espnow conf:102 sal:16 (met:3 violated:2) rev:2
+  336.6s | [dream] @LAT91LON3 peer:0x200 espnow conf:120 sal:8 (met:4 violated:1) rev:2
+  336.7s | [dream] @LAT91LON4 peer:0x11 espnow conf:134 sal:0 (met:3 violated:0) rev:2
+  336.7s | [dream] @LAT91LON5 peer:0x11 ble conf:134 sal:0 (met:3 violated:0) rev:2
+  336.7s | [dream] @LAT91LON6 peer:0x12 ble conf:132 sal:0 (met:2 violated:0) rev:2
+  336.9s | [dream] @LAT91LON7 peer:0x12 espnow conf:132 sal:0 (met:2 violated:0) rev:2
+  336.9s | [dream] reconciled 5 outcome record(s) -> 8 belief(s), TTDB 20250B
+  336.9s | [dream] TIMING fold 38ms rewrite 209ms append 353ms TOTAL 600ms (18446B -> 20250B, 37 records)
+  354.3s | [loop] worst pass 602ms (render 0ms, widest section linkperc 600ms) | worst render 18ms | frames 234 | maxalloc 20K
+  384.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 20K
+  384.4s | [link] percept window -> @LAT97LON6 (TTDB 21013B)
+  384.5s | [learn] outcome -> @LAT92LON5 met:6 violated:2 streak:2 (1554B, TTDB 22567B)
+  384.5s | [motion] percept window -> @LAT95LON6 (TTDB 22774B)
+  384.5s | [learn] expectation armed from @LAT95LON6 (still): peers hold within +/-6 dBm
+  384.6s | [acoustic] percept window -> @LAT94LON6 (TTDB 23022B)
+  414.3s | [loop] worst pass 164ms (render 0ms, widest section linkperc 92ms) | worst render 18ms | frames 240 | maxalloc 20K
+  444.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 20K
+  444.4s | [link] percept window -> @LAT97LON7 (TTDB 23785B)
+  444.4s | [learn] outcome -> @LAT92LON6 met:8 violated:0 streak:0 (1543B, TTDB 25328B)
+  444.4s | [motion] percept window -> @LAT95LON7 (TTDB 25535B)
+  444.5s | [learn] expectation armed from @LAT95LON7 (still): peers hold within +/-6 dBm
+  444.5s | [acoustic] percept window -> @LAT94LON7 (TTDB 25738B)
+  474.4s | [loop] worst pass 169ms (render 0ms, widest section linkperc 102ms) | worst render 18ms | frames 240 | maxalloc 20K
+  504.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 18K
+  504.4s | [link] percept window -> @LAT97LON8 (TTDB 26501B)
+  504.5s | [learn] outcome -> @LAT92LON7 met:6 violated:2 streak:1 (1555B, TTDB 28056B)
+  504.7s | [motion] percept window -> @LAT95LON8 (TTDB 28263B)
+  504.7s | [learn] expectation armed from @LAT95LON8 (still): peers hold within +/-6 dBm
+  504.7s | [acoustic] percept window -> @LAT94LON8 (TTDB 28511B)
+  516.6s | [dream] @LAT91LON0 peer:0x10 ble conf:108 sal:16 (met:6 violated:2) rev:3
+  516.6s | [dream] @LAT91LON1 peer:0x200 ble conf:90 sal:24 (met:5 violated:3 CONTRADICTION) rev:3
+  516.6s | [dream] @LAT91LON2 peer:0x10 espnow conf:108 sal:16 (met:6 violated:2) rev:3
+  516.7s | [dream] @LAT91LON3 peer:0x200 espnow conf:90 sal:24 (met:5 violated:3 CONTRADICTION) rev:3
+  516.7s | [dream] @LAT91LON4 peer:0x11 espnow conf:140 sal:0 (met:6 violated:0) rev:3
+  516.7s | [dream] @LAT91LON5 peer:0x11 ble conf:140 sal:0 (met:6 violated:0) rev:3
+  516.7s | [dream] @LAT91LON6 peer:0x12 ble conf:138 sal:0 (met:5 violated:0) rev:3
+  516.7s | [dream] @LAT91LON7 peer:0x12 espnow conf:138 sal:0 (met:5 violated:0) rev:3
+  516.7s | [dream] reconciled 8 outcome record(s) -> 8 belief(s), TTDB 28511B
+  516.8s | [dream] TIMING fold 31ms rewrite 265ms append 291ms TOTAL 587ms (28511B -> 28511B, 49 records)
+  534.4s | [loop] worst pass 589ms (render 0ms, widest section linkperc 587ms) | worst render 18ms | frames 234 | maxalloc 18K
+  564.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 18K
+  564.4s | [link] percept window -> @LAT97LON9 (TTDB 29274B)
+  564.4s | [learn] outcome -> @LAT92LON8 met:8 violated:0 streak:0 (1542B, TTDB 30816B)
+  564.6s | [motion] percept window -> @LAT95LON9 (TTDB 31023B)
+  564.6s | [learn] expectation armed from @LAT95LON9 (still): peers hold within +/-6 dBm
+  564.6s | [acoustic] percept window -> @LAT94LON9 (TTDB 31271B)
+  585.0s | [wifi] scan: 7 AP(s) folded into @LAT96 window
+  585.1s | [entity] percept window -> @LAT96LON1 (TTDB 31772B)
+  594.3s | [loop] worst pass 270ms (render 0ms, widest section imu 135ms) | worst render 18ms | frames 239 | maxalloc 18K
+  624.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 18K
+  624.4s | [link] percept window -> @LAT97LON10 (TTDB 32536B)
+  624.4s | [learn] outcome -> @LAT92LON9 met:7 violated:1 streak:1 (1552B, TTDB 34088B)
+  624.5s | [motion] percept window -> @LAT95LON10 (TTDB 34296B)
+  624.5s | [learn] expectation armed from @LAT95LON10 (still): peers hold within +/-6 dBm
+  624.5s | [acoustic] percept window -> @LAT94LON10 (TTDB 34545B)
+  654.3s | [loop] worst pass 168ms (render 0ms, widest section linkperc 105ms) | worst render 18ms | frames 240 | maxalloc 17K
+  684.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 17K
+  684.4s | [link] percept window -> @LAT97LON11 (TTDB 35308B)
+  684.5s | [learn] outcome -> @LAT92LON10 met:6 violated:2 streak:2 (1561B, TTDB 36869B)
+  684.5s | [motion] percept window -> @LAT95LON11 (TTDB 37077B)
+  684.5s | [learn] expectation armed from @LAT95LON11 (still): peers hold within +/-6 dBm
+  684.6s | [acoustic] percept window -> @LAT94LON11 (TTDB 37282B)
+  696.7s | [dream] @LAT91LON0 peer:0x10 ble conf:114 sal:16 (met:9 violated:2) rev:4
+  696.7s | [dream] @LAT91LON1 peer:0x200 ble conf:78 sal:32 (met:7 violated:4 CONTRADICTION) rev:4
+  696.9s | [dream] @LAT91LON2 peer:0x10 espnow conf:114 sal:16 (met:9 violated:2) rev:4
+  696.9s | [dream] @LAT91LON3 peer:0x200 espnow conf:60 sal:40 (met:6 violated:5 CONTRADICTION) rev:4
+  697.0s | [dream] @LAT91LON4 peer:0x11 espnow conf:146 sal:0 (met:9 violated:0) rev:4
+  697.0s | [dream] @LAT91LON5 peer:0x11 ble conf:146 sal:0 (met:9 violated:0) rev:4
+  697.0s | [dream] @LAT91LON6 peer:0x12 ble conf:144 sal:0 (met:8 violated:0) rev:4
+  697.0s | [dream] @LAT91LON7 peer:0x12 espnow conf:144 sal:0 (met:8 violated:0) rev:4
+  697.0s | [dream] reconciled 11 outcome record(s) -> 8 belief(s), TTDB 37290B
+  697.1s | [dream] TIMING fold 80ms rewrite 358ms append 401ms TOTAL 839ms (37282B -> 37290B, 62 records)
+  714.4s | [loop] worst pass 841ms (render 0ms, widest section linkperc 839ms) | worst render 18ms | frames 234 | maxalloc 17K
+  744.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 17K
+  744.4s | [link] percept window -> @LAT97LON12 (TTDB 37975B)
+  744.4s | [learn] outcome -> @LAT92LON11 met:7 violated:0 streak:0 (1529B, TTDB 39504B)
+  744.5s | [motion] percept window -> @LAT95LON12 (TTDB 39712B)
+  744.5s | [learn] expectation armed from @LAT95LON12 (still): peers hold within +/-6 dBm
+  744.5s | [acoustic] percept window -> @LAT94LON12 (TTDB 39915B)
+  774.3s | [loop] worst pass 149ms (render 0ms, widest section linkperc 67ms) | worst render 18ms | frames 240 | maxalloc 17K
+  804.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 17K
+  804.4s | [link] percept window -> @LAT97LON13 (TTDB 40600B)
+  804.4s | [learn] outcome -> @LAT92LON12 met:7 violated:0 streak:0 (1406B, TTDB 42006B)
+  804.5s | [motion] percept window -> @LAT95LON13 (TTDB 42214B)
+  804.5s | [learn] expectation armed from @LAT95LON13 (still): peers hold within +/-6 dBm
+  804.5s | [acoustic] percept window -> @LAT94LON13 (TTDB 42417B)
+  834.4s | [loop] worst pass 187ms (render 0ms, widest section linkperc 112ms) | worst render 18ms | frames 240 | maxalloc 17K
+  864.3s | [loop] worst pass 17ms (render 17ms, widest section render 17ms) | worst render 17ms | frames 240 | maxalloc 17K
+  864.4s | [link] percept window -> @LAT97LON14 (TTDB 43181B)
+  864.4s | [learn] outcome -> @LAT92LON13 met:6 violated:1 streak:1 (1412B, TTDB 44593B)
+  864.7s | [motion] percept window -> @LAT95LON14 (TTDB 44801B)
+  864.7s | [learn] expectation armed from @LAT95LON14 (still): peers hold within +/-6 dBm
+  864.7s | [acoustic] percept window -> @LAT94LON14 (TTDB 45054B)
+  876.7s | [dream] @LAT91LON0 peer:0x10 ble conf:120 sal:16 (met:12 violated:2) rev:5
+  876.7s | [dream] @LAT91LON1 peer:0x200 ble conf:78 sal:32 (met:7 violated:4 CONTRADICTION) rev:5
+  876.9s | [dream] @LAT91LON2 peer:0x10 espnow conf:120 sal:16 (met:12 violated:2) rev:5
+  876.9s | [dream] @LAT91LON3 peer:0x200 espnow conf:48 sal:48 (met:8 violated:6 CONTRADICTION) rev:5
+  876.9s | [dream] @LAT91LON4 peer:0x11 espnow conf:152 sal:0 (met:12 violated:0) rev:5
+  877.0s | [dream] @LAT91LON5 peer:0x11 ble conf:152 sal:0 (met:12 violated:0) rev:5
+  877.0s | [dream] @LAT91LON6 peer:0x12 ble conf:150 sal:0 (met:11 violated:0) rev:5
+  877.1s | [dream] @LAT91LON7 peer:0x12 espnow conf:150 sal:0 (met:11 violated:0) rev:5
+  877.1s | [dream] reconciled 14 outcome record(s) -> 8 belief(s), TTDB 45060B
+  877.1s | [dream] TIMING fold 45ms rewrite 443ms append 325ms TOTAL 813ms (45054B -> 45060B, 74 records)
+  894.3s | [loop] worst pass 814ms (render 0ms, widest section linkperc 813ms) | worst render 18ms | frames 232 | maxalloc 16K
+  924.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 15K
+  924.4s | [link] percept window -> @LAT97LON15 (TTDB 45824B)
+  924.4s | [learn] outcome -> @LAT92LON14 met:8 violated:0 streak:0 (1547B, TTDB 47371B)
+  924.4s | [motion] percept window -> @LAT95LON15 (TTDB 47579B)
+  924.5s | [learn] expectation armed from @LAT95LON15 (still): peers hold within +/-6 dBm
+  924.6s | [acoustic] percept window -> @LAT94LON15 (TTDB 47783B)
+  954.4s | [loop] worst pass 268ms (render 0ms, widest section mic 151ms) | worst render 18ms | frames 239 | maxalloc 15K
+  984.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 15K
+  984.4s | [link] percept window -> @LAT97LON16 (TTDB 48548B)
+  984.5s | [learn] outcome -> @LAT92LON15 met:8 violated:0 streak:0 (1550B, TTDB 50098B)
+  984.5s | [motion] percept window -> @LAT95LON16 (TTDB 50307B)
+  984.5s | [learn] expectation armed from @LAT95LON16 (still): peers hold within +/-6 dBm
+  984.6s | [acoustic] percept window -> @LAT94LON16 (TTDB 50560B)
+ 1014.3s | [loop] worst pass 169ms (render 0ms, widest section linkperc 107ms) | worst render 18ms | frames 240 | maxalloc 15K
+ 1044.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 15K
+ 1044.4s | [link] percept window -> @LAT97LON17 (TTDB 51325B)
+ 1044.4s | [learn] outcome -> @LAT92LON16 met:6 violated:2 streak:1 (1561B, TTDB 52886B)
+ 1044.4s | [motion] percept window -> @LAT95LON17 (TTDB 53095B)
+ 1044.5s | [learn] expectation armed from @LAT95LON17 (still): peers hold within +/-6 dBm
+ 1044.5s | [acoustic] percept window -> @LAT94LON17 (TTDB 53347B)
+ 1057.0s | [dream] @LAT91LON0 peer:0x10 ble conf:126 sal:16 (met:15 violated:2) rev:6
+ 1057.0s | [dream] @LAT91LON1 peer:0x200 ble conf:66 sal:40 (met:9 violated:5 CONTRADICTION) rev:6
+ 1057.0s | [dream] @LAT91LON2 peer:0x10 espnow conf:126 sal:16 (met:15 violated:2) rev:6
+ 1057.1s | [dream] @LAT91LON3 peer:0x200 espnow conf:36 sal:56 (met:10 violated:7 CONTRADICTION) rev:6
+ 1057.2s | [dream] @LAT91LON4 peer:0x11 espnow conf:158 sal:0 (met:15 violated:0) rev:6
+ 1057.2s | [dream] @LAT91LON5 peer:0x11 ble conf:158 sal:0 (met:15 violated:0) rev:6
+ 1057.3s | [dream] @LAT91LON6 peer:0x12 ble conf:156 sal:0 (met:14 violated:0) rev:6
+ 1057.3s | [dream] @LAT91LON7 peer:0x12 espnow conf:156 sal:0 (met:14 violated:0) rev:6
+ 1057.3s | [dream] reconciled 17 outcome record(s) -> 8 belief(s), TTDB 53348B
+ 1057.4s | [dream] TIMING fold 110ms rewrite 537ms append 442ms TOTAL 1089ms (53347B -> 53348B, 86 records)
+ 1074.4s | [loop] worst pass 1097ms (render 0ms, widest section linkperc 1089ms) | worst render 18ms | frames 230 | maxalloc 15K
+ 1104.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 15K
+ 1104.4s | [link] percept window -> @LAT97LON18 (TTDB 54113B)
+ 1104.4s | [learn] outcome -> @LAT92LON17 met:8 violated:0 streak:0 (1548B, TTDB 55661B)
+ 1104.5s | [motion] percept window -> @LAT95LON18 (TTDB 55870B)
+ 1104.5s | [learn] expectation armed from @LAT95LON18 (still): peers hold within +/-6 dBm
+ 1104.5s | [acoustic] percept window -> @LAT94LON18 (TTDB 56074B)
+ 1134.3s | [loop] worst pass 159ms (render 0ms, widest section linkperc 72ms) | worst render 18ms | frames 240 | maxalloc 14K
+ 1164.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 14K
+ 1164.4s | [link] percept window -> @LAT97LON19 (TTDB 56839B)
+ 1164.4s | [learn] outcome -> @LAT92LON18 met:8 violated:0 streak:0 (1548B, TTDB 58387B)
+ 1164.6s | [motion] percept window -> @LAT95LON19 (TTDB 58596B)
+ 1164.6s | [learn] expectation armed from @LAT95LON19 (still): peers hold within +/-6 dBm
+ 1164.6s | [acoustic] percept window -> @LAT94LON19 (TTDB 58851B)
+ 1185.0s | [wifi] scan: 6 AP(s) folded into @LAT96 window
+ 1185.1s | [entity] percept window -> @LAT96LON2 (TTDB 59300B)
+ 1194.3s | [loop] worst pass 204ms (render 0ms, widest section linkperc 124ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1224.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1224.4s | [link] percept window -> @LAT97LON20 (TTDB 59983B)
+ 1224.4s | [learn] outcome -> @LAT92LON19 met:6 violated:1 streak:1 (1536B, TTDB 61519B)
+ 1224.6s | [motion] percept window -> @LAT95LON20 (TTDB 61728B)
+ 1224.6s | [learn] expectation armed from @LAT95LON20 (still): peers hold within +/-6 dBm
+ 1224.7s | [acoustic] percept window -> @LAT94LON20 (TTDB 61979B)
+ 1237.0s | [dream] @LAT91LON0 peer:0x10 ble conf:132 sal:16 (met:18 violated:2) rev:7
+ 1237.1s | [dream] @LAT91LON1 peer:0x200 ble conf:54 sal:48 (met:11 violated:6 CONTRADICTION) rev:7
+ 1237.1s | [dream] @LAT91LON2 peer:0x10 espnow conf:132 sal:16 (met:18 violated:2) rev:7
+ 1237.2s | [dream] @LAT91LON3 peer:0x200 espnow conf:40 sal:56 (met:12 violated:7 CONTRADICTION) rev:7
+ 1237.2s | [dream] @LAT91LON4 peer:0x11 espnow conf:164 sal:0 (met:18 violated:0) rev:7
+ 1237.3s | [dream] @LAT91LON5 peer:0x11 ble conf:164 sal:0 (met:18 violated:0) rev:7
+ 1237.4s | [dream] @LAT91LON6 peer:0x12 ble conf:162 sal:0 (met:17 violated:0) rev:7
+ 1237.4s | [dream] @LAT91LON7 peer:0x12 espnow conf:162 sal:0 (met:17 violated:0) rev:7
+ 1237.4s | [dream] reconciled 20 outcome record(s) -> 8 belief(s), TTDB 61980B
+ 1237.5s | [dream] TIMING fold 66ms rewrite 703ms append 445ms TOTAL 1214ms (61979B -> 61980B, 99 records)
+ 1254.3s | [loop] worst pass 1214ms (render 0ms, widest section linkperc 1214ms) | worst render 18ms | frames 228 | maxalloc 13K
+ 1284.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1284.4s | [link] percept window -> @LAT97LON21 (TTDB 62663B)
+ 1284.5s | [learn] outcome -> @LAT92LON20 met:6 violated:1 streak:2 (1408B, TTDB 64071B)
+ 1284.5s | [motion] percept window -> @LAT95LON21 (TTDB 64280B)
+ 1284.5s | [learn] expectation armed from @LAT95LON21 (still): peers hold within +/-6 dBm
+ 1284.6s | [acoustic] percept window -> @LAT94LON21 (TTDB 64531B)
+ 1314.4s | [loop] worst pass 224ms (render 0ms, widest section linkperc 108ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1344.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1344.5s | [link] percept window -> @LAT97LON22 (TTDB 65214B)
+ 1344.6s | [learn] outcome -> @LAT92LON21 met:7 violated:0 streak:0 (1404B, TTDB 66618B)
+ 1344.6s | [motion] percept window -> @LAT95LON22 (TTDB 66827B)
+ 1344.6s | [learn] expectation armed from @LAT95LON22 (still): peers hold within +/-6 dBm
+ 1344.7s | [acoustic] percept window -> @LAT94LON22 (TTDB 67032B)
+ 1374.4s | [loop] worst pass 345ms (render 0ms, widest section linkperc 257ms) | worst render 18ms | frames 238 | maxalloc 13K
+ 1404.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 13K
+ 1404.4s | [link] percept window -> @LAT97LON23 (TTDB 67715B)
+ 1404.4s | [learn] outcome -> @LAT92LON22 met:7 violated:0 streak:0 (1403B, TTDB 69118B)
+ 1404.5s | [motion] percept window -> @LAT95LON23 (TTDB 69327B)
+ 1404.5s | [learn] expectation armed from @LAT95LON23 (still): peers hold within +/-6 dBm
+ 1404.7s | [acoustic] percept window -> @LAT94LON23 (TTDB 69531B)
+ 1417.4s | [dream] @LAT91LON0 peer:0x10 ble conf:138 sal:16 (met:21 violated:2) rev:8
+ 1417.4s | [dream] @LAT91LON1 peer:0x200 ble conf:42 sal:56 (met:13 violated:7 CONTRADICTION) rev:8
+ 1417.5s | [dream] @LAT91LON2 peer:0x10 espnow conf:138 sal:16 (met:21 violated:2) rev:8
+ 1417.5s | [dream] @LAT91LON3 peer:0x200 espnow conf:40 sal:56 (met:12 violated:7 CONTRADICTION) rev:8
+ 1417.6s | [dream] @LAT91LON4 peer:0x11 espnow conf:170 sal:0 (met:21 violated:0) rev:8
+ 1417.7s | [dream] @LAT91LON5 peer:0x11 ble conf:170 sal:0 (met:21 violated:0) rev:8
+ 1417.8s | [dream] @LAT91LON6 peer:0x12 ble conf:168 sal:0 (met:20 violated:0) rev:8
+ 1417.9s | [dream] @LAT91LON7 peer:0x12 espnow conf:168 sal:0 (met:20 violated:0) rev:8
+ 1417.9s | [dream] reconciled 23 outcome record(s) -> 8 belief(s), TTDB 69531B
+ 1417.9s | [dream] TIMING fold 152ms rewrite 946ms append 575ms TOTAL 1673ms (69531B -> 69531B, 111 records)
+ 1434.4s | [loop] worst pass 1680ms (render 0ms, widest section linkperc 1674ms) | worst render 18ms | frames 225 | maxalloc 7K
+ 1464.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 243 | maxalloc 7K
+ 1464.4s | [link] percept window -> @LAT97LON24 (TTDB 70214B)
+ 1464.4s | [learn] outcome -> @LAT92LON23 met:7 violated:0 streak:0 (1403B, TTDB 71617B)
+ 1464.5s | [motion] percept window -> @LAT95LON24 (TTDB 71827B)
+ 1464.5s | [learn] expectation armed from @LAT95LON24 (still): peers hold within +/-6 dBm
+ 1464.5s | [acoustic] percept window -> @LAT94LON24 (TTDB 72078B)
+ 1494.4s | [loop] worst pass 200ms (render 0ms, widest section linkperc 92ms) | worst render 18ms | frames 240 | maxalloc 7K
+ 1524.4s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 7K
+ 1524.4s | [link] percept window -> @LAT97LON25 (TTDB 72761B)
+ 1524.5s | [learn] outcome DROPPED - @LAT92 lane full (24): the loop is still predicting but no longer testifying
+ 1524.5s | [motion] percept window -> @LAT95LON25 (TTDB 72970B)
+ 1524.5s | [learn] expectation armed from @LAT95LON25 (still): peers hold within +/-6 dBm
+ 1524.6s | [acoustic] percept window -> @LAT94LON25 (TTDB 73175B)
+ 1554.4s | [loop] worst pass 178ms (render 0ms, widest section mic 60ms) | worst render 18ms | frames 240 | maxalloc 7K
+ 1584.3s | [loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 7K
+ 1584.4s | [link] percept window -> @LAT97LON26 (TTDB 73858B)
+ 1584.4s | [learn] outcome DROPPED - @LAT92 lane full (24): the loop is still predicting but no longer testifying
+ 1584.6s | [motion] percept window -> @LAT95LON26 (TTDB 74067B)
+ 1584.6s | [learn] expectation armed from @LAT95LON26 (still): peers hold within +/-6 dBm
+ 1584.6s | [acoustic] percept window -> @LAT94LON26 (TTDB 74272B)
+ 1597.6s | [dream] @LAT91LON0 peer:0x10 ble conf:140 sal:16 (met:22 violated:2) rev:9
+ 1597.6s | [dream] @LAT91LON1 peer:0x200 ble conf:44 sal:56 (met:14 violated:7 CONTRADICTION) rev:9
+ 1597.7s | [dream] @LAT91LON2 peer:0x10 espnow conf:140 sal:16 (met:22 violated:2) rev:9
+ 1597.8s | [dream] @LAT91LON3 peer:0x200 espnow conf:40 sal:56 (met:12 violated:7 CONTRADICTION) rev:9
+ 1597.8s | [dream] @LAT91LON4 peer:0x11 espnow conf:172 sal:0 (met:22 violated:0) rev:9
+ 1597.9s | [dream] @LAT91LON5 peer:0x11 ble conf:172 sal:0 (met:22 violated:0) rev:9
+ 1597.9s | [dream] @LAT91LON6 peer:0x12 ble conf:170 sal:0 (met:21 violated:0) rev:9
+ 1598.0s | [dream] @LAT91LON7 peer:0x12 espnow conf:170 sal:0 (met:21 violated:0) rev:9
+ 1598.0s | [dream] reconciled 24 outcome record(s) -> 8 belief(s), TTDB 74272B
+ 1598.0s | [dream] TIMING fold 197ms rewrite 999ms append 561ms TOTAL 1757ms (74272B -> 74272B, 121 records)
+ 1614.4s | [loop] worst pass 1757ms (render 0ms, widest section linkperc 1757ms) | worst render 18ms | frames 226 | maxalloc 7K
+ 1644.3s | [loop] worst pass 20ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | maxalloc 7K
+ 1644.4s | [link] percept window -> @LAT97LON27 (TTDB 74955B)
+ 1644.4s | [learn] outcome DROPPED - @LAT92 lane full (24): the loop is still predicting but no longer testifying
+ 1644.4s | [motion] percept window -> @LAT95LON27 (TTDB 75164B)
+ 1644.5s | [learn] expectation armed from @LAT95LON27 (still): peers hold within +/-6 dBm
+ 1644.5s | [acoustic] percept window -> @LAT94LON27 (TTDB 75369B)
+ 1674.3s | [loop] worst pass 159ms (render 0ms, widest section imu 53ms) | worst render 18ms | frames 240 | maxalloc 7K
