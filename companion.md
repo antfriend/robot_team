@@ -3211,6 +3211,43 @@ If a fact lives in one of these, link to it from here — don't copy it.
   core's name, not the sketch's, and its `date/time` is the core's build date. Only the
   sketch's own string literals distinguish the boards.
 
+- 📋 **2026-08-03 — NEXT SESSION'S WORK ORDER: [semantic-logging-handoff.md](semantic-logging-handoff.md)**
+  (authored against `6abc919`, clean tree). It supersedes `timestream-handoff.md`'s Part 3,
+  reordering it after reading the code: **A** recency becomes a time window
+  (`--last N` → `--since`), **B** `@LAT95` change-triggered, **C** `@LAT96` change-triggered,
+  **D** the two Part-2 closeouts, **E** the TTE return report. Two findings surfaced while
+  writing it, neither previously known:
+  ⚠ **FINDING A.1 — `proximity --last N` is SILENTLY NOT APPLIED to the entity tier.**
+  `consolidate_entity_jaccard()` accepts a `last` parameter (companion.py:1962) and its
+  **only call site does not pass one** (companion.py:2391). So `--last 6` narrows the RSSI
+  evidence to six windows while the entity cap that bounds it **from above** is computed
+  over the node's whole history. A node carried across the house keeps every AP it ever saw
+  in its Jaccard set, so the pair still looks co-located and the bound stays tight — i.e.
+  the flag fails on precisely the case the operator passes it for (a node that moved). Never
+  reported because a too-tight bound yields a plausible number, not an error. Pre-existing,
+  unrelated to the time stream.
+  ⚠ **FINDING B.3 — `MOTIONPERCEPT_MOVING_MG 60` is CHOSEN, not derived**, unlike
+  `PERCEPTLEARN_RSSI_BAND 6` which is the measured p90 of 33 quiet windows with its
+  derivation table in the header. The 60 mg comes from published hand-tremor / walking-stride
+  figures, **never checked against this BMI270 on this board**. Every `still` claim the
+  learning loop rests on rests on that line. Measure it the way `PerceptLearn.h` did before
+  change-triggering the lane; a confirmed constant is worth more than an assumed one.
+  📎 **The coupling that makes Part B bigger than it looks:** `PerceptLearn::arm(int
+  motion_lane)` stores `acting_lane_` — "the @LAT95 record whose `still` claim armed this"
+  (PerceptLearn.h:159/196) — and the sketch arms from the record it just wrote
+  (cardputer_console.ino:3513). So an expectation is **provenanced to a specific @LAT95
+  record**. Change-trigger the lane naively and a `still` window that matches its
+  predecessor writes nothing, leaving nothing to cite; arming anyway would produce testimony
+  with **false provenance** that `@LAT92`'s tally then inherits. The resolution is the same
+  as the one `@LAT92` needs — explicit run-length (`windows_since_last:N`) — so decide both
+  together.
+  📊 State at handoff: native **419 checks / 0 failures** (`bash scratchpad/t.sh`, rc=0;
+  counting convention varies between suites so that is `grep -ciE "^\s*(pass|ok)[: ]"`),
+  Python 7/7. `TIMESTREAM_MAX_LANE 16` is **not close to binding** — post-fix a reboot onto
+  the stream the node is already on writes nothing (T-Deck 9 records, all pre-fix churn; the
+  three V4s 1 each after resets and full pulls) — so do not raise it; only the
+  what-happens-when-full policy is still open.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
