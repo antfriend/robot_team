@@ -97,6 +97,31 @@ check(c.fmt_stream(sw[1]) == "5ea51de7*" and c.fmt_stream(sw[0]) == "-"
       and c.fmt_stream(wins[1]) == "?",
       "fmt_stream distinguishes anchored / none / unknowable")
 
+# 1c) FIELD ORDER. The seven percept formats render the triplet through
+# timestream::buildStamp (`t_ms: stream: wall:`), but the @LAT90 lane leads with the
+# stream, because there the stream is the SUBJECT — "this node moved to timeline X" —
+# not the time an observation was taken. An order-anchored regex returned None for it,
+# so companion.py could not read the one lane the time stream exists to write, and
+# said nothing about it. Real lines, copied off V4-A's flash after the 2026-08-03 flash.
+lat90 = c.parse_time_fields(
+    "**STREAM-ADOPTED** stream:0x59fb8ce8 wall:0 t_ms:1672837 node:0x10 from:0x200")
+check(lat90 is not None and lat90["t_ms"] == 1672837
+      and lat90["stream"] == 0x59fb8ce8 and lat90["wall"] == 0,
+      "the @LAT90 verb line parses even though it leads with the stream, not t_ms")
+# A REMAP names ONLY the stream the node LEFT. Reporting that as the record's timeline
+# would be worse than reporting nothing: it would silently re-file a merge under the
+# loser. \b does not save you here — it matches inside `prev_stream:` — so the reader
+# excludes it explicitly, the same reason the firmware's dedup needle leads with a space.
+check(c.parse_time_fields(
+        "**REMAP** prev_stream:0x15ecaee3 prev_t_ms:1570668 offset_ms:-3956818 "
+        "rule:older_stream_wins") is None,
+      "a REMAP line yields no timeline — prev_stream: is the one the node ABANDONED")
+# The @LAT99 sync lane predates all of this and carries an epoch t_ms with no timeline
+# field at all. It must read as "no timeline", never as a fabricated one.
+check(c.parse_time_fields(
+        "**SYNC** id:3 t_ms:1782429925125 recv_ms:45601 offset_ms:1782429879524") is None,
+      "the old @LAT99 SYNC lane has no timeline field and is not given one")
+
 # ---------------------------------------------------------------------------
 # 2) consolidate_proximity: two directions fuse into one pair belief;
 #    the orchestrator pseudo-peer (0x1) is excluded.

@@ -126,9 +126,30 @@ powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
 The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4. Both V4 sketches are at **93–94% of the
-default app partition** — near the ceiling the T-Deck hit, so the next feature added to
-them probably needs `huge_app` first.
+so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **94% of the
+default app partition** (~71–74 KB left) — near the ceiling the T-Deck hit, so the next
+feature added to them probably needs `huge_app` first.
+
+⚠ **The three V4s are indistinguishable from the outside, and flashing the wrong sketch
+to one is silent. Identify a board by READING ITS APP IMAGE, never by inferring from the
+mesh.** COM numbers move between plug-ins, and a `companion.py intero`/`ping` reply can
+arrive **over the air** from a battery-powered node, so an answer on a port proves
+nothing about which board that port is. These boards also print **nothing** on serial at
+any DTR/RTS setting and do not visibly reset when the port is opened, so there is no
+banner to read. What works (~17 s):
+
+```bash
+python -m esptool --chip esp32s3 --port COMx --baud 921600 \
+       read-flash 0x10000 0x140000 app.bin
+# grep the image for the sketch's own banner literal:
+#   "V4-A bridge" | "V4-B relay" | "V4-C edge"
+# and for "older_stream_wins" to tell whether it predates the time stream.
+```
+
+⚠ The obvious shortcut does **not** work: `esp_app_desc_t.project_name` (at
+`0x10000+0x50`) reads **`arduino-lib-builder`** on every arduino-cli build — that is the
+*core's* name, not the sketch's, and the adjacent `date/time` is the core's build date.
+Only the sketch's own string literals tell the boards apart.
 
 ⚠ **`pull` a V4 over its OWN cable, not through the V4-A bridge.** The bridged path
 (laptop → V4-A → air → V4-B) now fails on a full TTDB: no data, or a truncated/gappy
@@ -162,7 +183,12 @@ Every node shows a multi-second stall reliably at boot and occasionally later, t
 or double-digit ms; a series started at 77 s of uptime misses it entirely and looks like a
 fix. State the uptime range with any claim about it. `companion.py intero` also **resets the
 node on port open**, so looping it can never see past the ~8 s settle — watch windowed
-numbers over one held connection (`scratchpad/intero_watch.py`).
+numbers over one held connection (`scratchpad/intero_watch.py`). ⚠ **But that reset is not
+universal: on a V4 the port open did NOT reset the board** (2026-08-03, n=1 — V4-C reported
+`up 4m12s` and `lp 35 ms` on a connection opened minutes after it was plugged in, and no V4
+reprinted a banner at any DTR/RTS setting). So on a V4, `intero`'s uptime is real and the
+~8 s-settle caveat does not apply; on the handhelds it does. Do not assume either way —
+check the reported uptime against when you plugged the board in.
 
 ⚠ **That stall is NOT in any sketch's loop body — stop looking there.** The Cardputer's
 section profiler caught `worst pass 2009ms (widest section render 6ms)`: the nine sections
@@ -180,9 +206,14 @@ at the wrong offset drops the LittleFS superblock in the app region and garbage 
 real spiffs partition, so the mount fails silently and the node boots to an **empty
 globe / "(no record selected)"** with the app otherwise fine — recover by re-flashing
 with the correct Tdeck script. Plus three T-Deck-specific rules: (1) **flashing
-needs manual bootloader entry** (native-USB auto-reset is flaky) — hold the
+may need manual bootloader entry** (native-USB auto-reset is flaky) — hold the
 trackball-click (GPIO0/BOOT) + tap RST to enter download mode (the port
-re-enumerates), then tap RST alone to boot the app; (2) its **ST7789 display uses
+re-enumerates), then tap RST alone to boot the app. ⚠ **But TRY THE AUTOMATIC PATH
+FIRST:** on 2026-08-03 `esptool --chip esp32s3 --port COMx chip-id` entered the
+bootloader unaided and `arduino-cli compile --upload` then flashed hands-free. One clean
+success does not disprove intermittence, so keep the dance as the fallback — just don't
+reach for it by default, and don't ask the operator to hold a button before trying;
+(2) its **ST7789 display uses
 Adafruit_ST7789 with runtime pins** (`arduino-cli lib install "Adafruit ST7735 and
 ST7789 Library"`), deliberately NOT TFT_eSPI, so it never touches the K10's shared
 `User_Setup.h`; (3) **GPIO10 must be driven HIGH** first or the LCD/keyboard/LoRa/SD
@@ -301,14 +332,28 @@ to walk the story and where the grief gate is.
 record formats (**LINKWIN · ENTWIN · MOTIONWIN · TRANSITION · ACOUSTICWIN · TRANSIENT ·
 OUTCOME**). The one bit conflated two facts — *we agree with each other* and *we know
 what day it is* — so a fleet in a garden with a perfectly good shared timeline reported
-`synced:0` and threw its timestamps away. Rendered by **one** function,
-`timestream::buildStamp`; do not hand-write the triplet in an eighth place.
+`synced:0` and threw its timestamps away. Those seven are rendered by **one** function,
+`timestream::buildStamp`; do not hand-write the triplet in an eighth *observation*
+format.
+
+⚠ **BUT `@LAT90` DELIBERATELY LEADS WITH THE STREAM — `stream: wall: t_ms:` — AND EVERY
+READER MUST BE ORDER-INDEPENDENT.** That lane is not an observation; it is a statement
+about the timeline itself ("this node moved to timeline X"), so the stream is the subject
+of the sentence and `buildStreamRecord` writes it first on purpose. `companion.py`'s
+first reader was anchored on `t_ms:` and therefore returned `None` for **every record in
+the one lane the time stream exists to write**, silently (found 2026-08-03 while flashing
+the V4s). It now matches `t_ms:`/`synced:`/`stream:`/`wall:` independently. ⚠ It also
+**strips `prev_stream:0x…` first** — `\b` does not help, it matches *inside*
+`prev_stream:` — so a REMAP line yields no timeline rather than the stream the node
+**left**. Same trap, same shape, as the dedup needle's leading space below.
 
 ⚠ **BOTH FORMATS ARE LIVE AND BOTH MUST PARSE.** A node's TTDB is appended to for its
 whole life, so pre-2026-08-03 records sit on the same flash as post-. `companion.py
 parse_time_fields()` handles both, and an old `synced:1` reads back as **stream `None`**
 ("some clock, unnameable") rather than a fabricated id. Do not "clean this up" by
-dropping the old branch — that silently folds a subset of every existing lane.
+dropping the old branch — that silently folds a subset of every existing lane. Verified
+on four boards: V4-A carries 68 old-format records, V4-B 81, with new-format records
+appended directly beneath them.
 
 `stream:0x00000000` is **meaningful, not an error**: the timestamp is local `millis()`
 and comparable with nothing but that node's own records.
@@ -337,15 +382,24 @@ New **`@LAT90`** lane logs timeline CHANGES (`STREAM-ORIGIN`/`ADOPTED`/`RECONCIL
 `ANCHORED`) with a **REMAP** line carrying the offset, so records stamped with a stream
 that later lost stay interpretable. A routine drift correction writes nothing.
 
-⚠ **`@LAT90` currently grows ONE RECORD PER REBOOT, and `companion.py` reboots the
-cabled node on every invocation** — so ordinary orchestration fills the 16-record cap in
-~16 commands (measured 2026-08-03: T-Deck 0 → 7 in one session; three idle minutes added
-exactly one, so it is resets, not a crash loop). Most of those records should not exist:
-a node that reboots and rejoins **the stream it was already on** has had no timeline
-change. Fix candidate, recorded but NOT built — persist the last stream id in NVS and
-write `ADOPTED` only when the stream actually differs. Until then, `TIMESTREAM_MAX_LANE
-16` reads as a reboot counter rather than the flapping detector it was meant to be;
-don't raise it, fix the write condition.
+A reboot that rejoins **the stream the node was already on** writes nothing: the lane is
+deduped by stream id, read back off flash. ⚠ **The needle is `" stream:0x%08lx"` WITH THE
+LEADING SPACE** — a RECONCILED record also carries `prev_stream:0x<old>`, so a bare
+`strstr("stream:0x")` matches a stream the node has **left**. `ORIGIN` and `RECONCILED`
+are never suppressed; an `ANCHORED` is only suppressed when `wall_conflict_ms == 0`.
+
+⚠ **The listen window is measured from `begin()`, NOT from `millis()`.** A first cut used
+absolute `millis()`, which silently assumes `setup()` is short — and on the Cardputer
+`setup()` takes **over six seconds** (BLE + WiFi + codec + display), so the node
+originated a stream on its first loop pass having never listened with its radio up, then
+reconciled onto its peer's a second later: **two `@LAT90` records for a reboot that should
+write none.** `pulse::Engine` gets this right (`now_ms - boot_ms_`); copy that shape for
+any future listen/settle window on these boards. Native tests could not catch it — each
+record was individually correct — only a serial trace showed the pair firing every boot.
+
+`TIMESTREAM_MAX_LANE 16`'s refusal-on-full policy is still unexamined: a full lane means
+the next stream's records carry an id nothing explains. Don't raise the cap; decide the
+policy against the post-fix accumulation rate.
 
 Cost, measured against a HEAD worktree: **V4 +3728 B flash (+0.28%), +416 B RAM**, so
 the three V4s sit at **94% with ~74.5 KB left**. Cardputer 41%, T-Deck 40%, K10 20%.

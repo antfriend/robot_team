@@ -175,12 +175,14 @@ flashed.
 > booting node's radio is not up inside its own listen window, so it originates and then
 > yields ~1.3 s later). Both nodes ended up stamping records with one shared stream id,
 > and the Cardputer got its own timeline handed back by the T-Deck across a reset.
-> ⚠ **One defect found and NOT fixed: `@LAT90` grows one record per reboot** and
-> `companion.py` reboots the cabled node on every invocation — 0 → 7 records in a
-> session against a cap of 16. A node that rejoins the stream it was already on has had
-> no timeline change and should not write one. Fix candidate (persist the last stream id
-> in NVS, write `ADOPTED` only on a genuine difference) is recorded in companion.md §6,
-> deliberately not built blind.
+> ✅ **The `@LAT90` churn defect found in that run is FIXED and re-verified**: the lane is
+> deduped by stream id read off flash, and — the bigger catch — the listen window is now
+> measured from `begin()` rather than absolute `millis()`, because `setup()` on the
+> Cardputer exceeds it and the node was originating a stream having never listened.
+> Lane held at 10 across three reboots, versus 1–2 per reboot before. companion.md §6.
+> ⚠ **The T-Deck still runs the mid-session build** (wire-compatible, so it worked as the
+> peer throughout, but its own lane will still churn until reflashed). And
+> `TIMESTREAM_MAX_LANE`'s refusal-on-full policy is deliberately still unexamined.
 
 ### 2.1 The problem, stated precisely
 

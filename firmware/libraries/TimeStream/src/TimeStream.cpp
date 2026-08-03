@@ -275,6 +275,37 @@ size_t buildStamp(char* out, size_t cap, const Stamp& s) {
   return (size_t)m;
 }
 
+// --- is this record worth writing? (the @LAT90 dedup) ----------------------
+
+// Bounded substring search: the record body arrives straight from Ttdb::readBytes and
+// is not NUL-terminated, so strstr() would run off the end of the buffer.
+static const char* findIn(const char* hay, size_t n, const char* needle) {
+  const size_t m = strlen(needle);
+  if (m == 0 || n < m) return 0;
+  for (size_t i = 0; i + m <= n; ++i)
+    if (memcmp(hay + i, needle, m) == 0) return hay + i;
+  return 0;
+}
+
+bool recordNamesStream(const char* text, size_t len, uint32_t id) {
+  char needle[32];
+  // The leading space is what keeps this from matching `prev_stream:0x...` — see the
+  // header. buildStreamRecord emits lowercase hex (%08lx), so the needle must too.
+  int m = snprintf(needle, sizeof(needle), " stream:0x%08lx", (unsigned long)id);
+  if (m < 0 || (size_t)m >= sizeof(needle)) return false;
+  return findIn(text, len, needle) != 0;
+}
+
+bool recordIsWallAnchored(const char* text, size_t len) {
+  return findIn(text, len, " wall:1") != 0;
+}
+
+bool recordIsRedundant(const Transition& tr, bool named, bool anchored) {
+  if (tr.ev == EV_ADOPTED) return named;
+  if (tr.ev == EV_ANCHORED) return anchored && tr.wall_conflict_ms == 0;
+  return false;   // ORIGIN cannot match; RECONCILED's REMAP is always news
+}
+
 // --- the @LAT90 record -----------------------------------------------------
 
 size_t buildStreamRecord(char* out, size_t cap, int lane_n, const Transition& tr,

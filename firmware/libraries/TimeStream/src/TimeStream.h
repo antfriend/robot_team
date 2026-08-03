@@ -290,6 +290,58 @@ size_t buildStamp(char* out, size_t cap, const Stamp& s);
 size_t buildStreamRecord(char* out, size_t cap, int lane_n, const Transition& tr,
                          uint32_t node_id, uint32_t t_sec);
 
+// ---------------------------------------------------------------------------
+// IS THIS RECORD WORTH WRITING? (the @LAT90 dedup, added 2026-08-03)
+// ---------------------------------------------------------------------------
+// The lane is specified as "timeline CHANGES, not time", and the first two-node run
+// showed it was not living up to that: it grew ONE RECORD PER REBOOT, and
+// `companion.py` reboots the cabled node on every invocation — 0 to 7 records in one
+// session against a cap of 16 (companion.md §6). Most of those said nothing: a node
+// that reboots and rejoins THE STREAM IT WAS ALREADY ON has not changed timeline. The
+// clearest case was a node re-adopting, from its peer, a stream it had itself
+// originated four records earlier.
+//
+// The fix is to ask the STORE, not a counter and not NVS: the lane already knows which
+// streams it has explained, so read it back before appending. Same discipline as Stage
+// D's fold — a RAM flag would be cheaper, would survive no reboot, and is exactly the
+// thing that reboot broke.
+//
+// ⚠ **A SOLO REBOOT'S `STREAM-ORIGIN` IS NOT THE DEFECT AND MUST KEEP BEING WRITTEN.**
+// A node that boots alone genuinely IS on a new timeline — its clock restarts at 0 and
+// its next records carry an id nothing else explains. (Persisting the id and RESUMING
+// the old stream is the tempting alternative and it is wrong: the node cannot know how
+// long it was powered off, so it would stamp records with times earlier than what a
+// peer wrote during the downtime and break ordering at the stream level. Starting fresh
+// is honest, and the merge restores continuity with a REMAP the moment a peer is heard.)
+
+// Does this @LAT90 record body name `id` as a stream the node was ON?
+//
+// ⚠ **THE LEADING SPACE IN THE NEEDLE IS LOAD-BEARING.** A STREAM-RECONCILED record
+// carries both `stream:0x<new>` and, on its REMAP line, `prev_stream:0x<old>`. A bare
+// search for "stream:0x" matches the second, so an id the node had LEFT would read as
+// one it still holds — and the record explaining a genuine return to it would be
+// suppressed. `text` comes straight off flash and is not NUL-terminated, so the search
+// is bounded by `len`.
+bool recordNamesStream(const char* text, size_t len, uint32_t id);
+
+// Does this @LAT90 record carry a wall anchor (`wall:1`)? Distinct from naming the
+// stream: a lane can explain a stream without the date ever having been known.
+bool recordIsWallAnchored(const char* text, size_t len);
+
+// Would writing `tr` say anything the @LAT90 lane does not already say?
+//   `named`    — some record in the lane already names tr.new_id
+//   `anchored` — ...and at least one of those carries wall:1
+//
+// Suppresses exactly two things, and nothing else:
+//   * ADOPTED onto a stream already explained — the rejoin case, i.e. the defect.
+//   * ANCHORED on an already-anchored stream WITH NO CONFLICT. A conflicting anchor is
+//     the most interesting record this lane can hold (two sources, or a stale anchor
+//     carried across a merge), so it is always written.
+// ORIGIN can never match (its id is new by construction) and RECONCILED is never
+// suppressed: its REMAP offset is specific to that merge, and two merges onto one
+// stream from different priors are different facts.
+bool recordIsRedundant(const Transition& tr, bool named, bool anchored);
+
 #ifndef TIMESTREAM_BUF
 // Measured against the widest form (STREAM-RECONCILED, which carries both stream
 // ids, both clocks, the offset, a wall conflict and the provenance line): 512 B is

@@ -27,7 +27,7 @@ logpath = sys.argv[3] if len(sys.argv) > 3 else None
 
 # Lines the gate actually turns on. Everything else is still logged, just not echoed
 # to the summary at the end.
-KEY = re.compile(r"\[(dream|learn|motion|loop|link)\]")
+KEY = re.compile(r"\[(dream|learn|motion|loop|link|stream)\]")
 
 do_reset = len(sys.argv) > 4 and sys.argv[4] == "reset"
 if do_reset:

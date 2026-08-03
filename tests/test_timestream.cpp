@@ -370,6 +370,109 @@ int main() {
           "a too-small buffer writes NOTHING rather than a half record");
   }
 
+  // --- the @LAT90 dedup -----------------------------------------------------
+  // Fixtures are the EXACT record text the two-node run put on flash 2026-08-03
+  // (master/timestream-2026-08-03/), not a synthetic approximation — the defect this
+  // guards against is a substring collision, and a hand-written fixture is precisely
+  // where such a collision would be smoothed away without anyone noticing.
+  {
+    const char kOrigin[] =
+        "\n---\n\n@LAT90LON0 | created:0 | updated:0 | relates:describes@LAT0LON0\n\n"
+        "**STREAM-ORIGIN** stream:0x15ecaee3 wall:0 t_ms:0 node:0x200 from:0x200\n"
+        "**PROVENANCE** rule:TimeStream/older_stream_wins src:TTN-RFC-0008 "
+        "basis:elapsed_since_stream_origin event:origin\n";
+    const char kReconciled[] =
+        "\n---\n\n@LAT90LON1 | created:0 | updated:0 | relates:describes@LAT0LON0\n\n"
+        "**STREAM-RECONCILED** stream:0x26a1b82d wall:0 t_ms:1570668 node:0x200 "
+        "from:0x300\n"
+        "**REMAP** prev_stream:0x15ecaee3 prev_t_ms:7353 offset_ms:1563315 "
+        "rule:older_stream_wins\n";
+    const char kAnchored[] =
+        "\n---\n\n@LAT90LON3 | created:1785774270 | updated:1785774270 | "
+        "relates:describes@LAT0LON0\n\n"
+        "**STREAM-ANCHORED** stream:0x10578c80 wall:1 t_ms:4028054 node:0x300 "
+        "from:0x1\n"
+        "**WALL** unix_ms:1785774270662 wall_conflict_ms:0\n";
+
+    CHECK(recordNamesStream(kOrigin, sizeof(kOrigin) - 1, 0x15ecaee3u),
+          "a record names the stream it is about");
+    CHECK(!recordNamesStream(kOrigin, sizeof(kOrigin) - 1, 0x26a1b82du),
+          "and not some other stream");
+    CHECK(recordNamesStream(kReconciled, sizeof(kReconciled) - 1, 0x26a1b82du),
+          "RECONCILED names the stream it joined");
+
+    // ⚠ THE TRAP. The same record carries `prev_stream:0x15ecaee3` on its REMAP line.
+    // A bare strstr("stream:0x") matches it, and an id the node had LEFT would read as
+    // one it still holds — suppressing the record explaining a genuine return to it.
+    CHECK(!recordNamesStream(kReconciled, sizeof(kReconciled) - 1, 0x15ecaee3u),
+          "but it does NOT name the stream it ABANDONED — `prev_stream:0x...` must not "
+          "match, and it is the leading space in the needle that stops it");
+
+    CHECK(recordIsWallAnchored(kAnchored, sizeof(kAnchored) - 1),
+          "an ANCHORED record reads as wall-anchored");
+    CHECK(!recordIsWallAnchored(kOrigin, sizeof(kOrigin) - 1),
+          "a wall:0 ORIGIN does not — `**WALL**` is not ` wall:1`");
+
+    // Not NUL-terminated: this is what Ttdb::readBytes hands over.
+    char raw[64];
+    memcpy(raw, "xx **STREAM-ADOPTED** stream:0x26a1b82d wall:0 t_ms:1", 53);
+    CHECK(recordNamesStream(raw, 53, 0x26a1b82du),
+          "the search is bounded by len, not by a NUL that flash does not provide");
+    CHECK(!recordNamesStream(raw, 20, 0x26a1b82du),
+          "and a short read cannot match past its own end");
+
+    // The decision table.
+    Transition t;
+    t.new_id = 0x26a1b82du;
+    t.ev = EV_ADOPTED;
+    CHECK(recordIsRedundant(t, true, false),
+          "ADOPTED onto an already-explained stream is REDUNDANT — the defect: a node "
+          "that reboots and rejoins the stream it was already on changed no timeline");
+    CHECK(!recordIsRedundant(t, false, false),
+          "but ADOPTED onto a stream the lane has never named IS written");
+
+    t.ev = EV_ORIGIN;
+    CHECK(!recordIsRedundant(t, true, true),
+          "ORIGIN is never suppressed — a solo reboot really is a new timeline, and "
+          "its id is new by construction so it could not match anyway");
+
+    t.ev = EV_RECONCILED;
+    CHECK(!recordIsRedundant(t, true, true),
+          "RECONCILED is never suppressed — its REMAP offset is specific to THAT merge");
+
+    t.ev = EV_ANCHORED;
+    t.wall_conflict_ms = 0;
+    CHECK(recordIsRedundant(t, true, true),
+          "a second clean anchor on an already-anchored stream says nothing new");
+    CHECK(!recordIsRedundant(t, true, false),
+          "but anchoring a stream the lane explains WITHOUT a date is real news — "
+          "`named` is not `anchored`");
+    t.wall_conflict_ms = 7000;
+    CHECK(!recordIsRedundant(t, true, true),
+          "and a CONFLICTING anchor is always written: it is the most interesting "
+          "record this lane can hold");
+
+    // The two captures, replayed: what the lane would have held with this in place.
+    // T-Deck ran ORIGIN, RECONCILED, then ADOPTED x4 onto the reconciled stream.
+    int kept = 0;
+    const uint8_t seq[] = {EV_ORIGIN, EV_RECONCILED, EV_ADOPTED, EV_ADOPTED,
+                           EV_ADOPTED, EV_ADOPTED};
+    bool have_new = false;
+    for (size_t i = 0; i < sizeof(seq); ++i) {
+      Transition x;
+      x.ev = seq[i];
+      x.new_id = (seq[i] == EV_ORIGIN) ? 0x15ecaee3u : 0x26a1b82du;
+      const bool nm = (x.new_id == 0x26a1b82du) && have_new;
+      if (!recordIsRedundant(x, nm, false)) {
+        ++kept;
+        if (x.new_id == 0x26a1b82du) have_new = true;
+      }
+    }
+    CHECK(kept == 2,
+          "the T-Deck's real 6-record run collapses to 2 — ORIGIN and RECONCILED, the "
+          "only two that said anything (got %d)", kept);
+  }
+
   printf("\n%s (%d failures)\n", fails ? "FAILURES" : "ALL PASS", fails);
   return fails ? 1 : 0;
 }

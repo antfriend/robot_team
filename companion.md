@@ -3031,14 +3031,87 @@ If a fact lives in one of these, link to it from here — don't copy it.
   is NOT crash-looping, every record is a real reset, and ordinary orchestration alone
   will fill the lane in ~16 commands. Compounds the documented
   [[looping-companion-py-resets-bridge]] trap.
-  🔎 **And most of those records arguably should not exist.** A node that reboots and
-  rejoins **the stream it was already on** has had no timeline change — the Cardputer's
+  🔎 **And most of those records should not exist.** A node that reboots and rejoins
+  **the stream it was already on** has had no timeline change — the Cardputer's
   `STREAM-ADOPTED … from:0x200` is it re-adopting a stream *it had itself originated*.
   The lane is specified as "timeline CHANGES, not time", and a plain rejoin is not one.
-  **Fix candidate (NOT built — recorded first, deliberately): persist the last stream id
-  in NVS and write `ADOPTED` only when the stream actually differs from the one this node
-  left.** That also makes the cap mean what it was documented to mean (a flapping
-  detector) instead of a reboot counter.
+
+- ✅ **2026-08-03 (later) — THE @LAT90 CHURN IS FIXED, AND FIXING IT TURNED UP THE
+  ACTUAL ROOT CAUSE, WHICH WAS NOT THE THING BEING FIXED.**
+  **① The dedup (the intended fix).** `writeRecord()` now asks the STORE, not a counter
+  and not NVS: one pass over the `@LAT90` lane answers both "how full is it" and "has it
+  already explained this stream". Suppresses exactly two things — an `ADOPTED` onto an
+  already-explained stream, and an `ANCHORED` on an already-anchored stream **with zero
+  conflict**. `ORIGIN` can never match (its id is new by construction) and `RECONCILED`
+  is never suppressed, because its REMAP offset is specific to that merge.
+  ⚠ **The needle is `" stream:0x%08lx"` WITH THE LEADING SPACE.** A RECONCILED record
+  carries both `stream:0x<new>` and `prev_stream:0x<old>`; a bare `strstr("stream:0x")`
+  matches the second, so an id the node had **left** would read as one it still holds and
+  the record explaining a genuine return to it would be suppressed. Native-tested against
+  the exact record text off flash, because a hand-written fixture is precisely where a
+  substring collision gets smoothed away unnoticed.
+  📎 Suppression **prints**. A record that is not written must still say so on serial, or
+  the lane starts lying about what the node did.
+  **② 🔎 THE ROOT CAUSE, FOUND ONLY BECAUSE THE FIX DIDN'T FULLY WORK.** After the dedup,
+  a reboot still cost TWO records — serial showed `[stream] origin` immediately followed
+  by `[stream] reconciled … offset=3956818ms`. The node was **forking a stream and then
+  merging back**, every boot. Cause: the listen window was `now_ms >= TIMESTREAM_LISTEN_MS`
+  — **absolute `millis()`, not measured from `begin()`**. On the Cardputer `setup()` takes
+  **over six seconds** (BLE + WiFi + codec + display), so millis() was already past the
+  window on the first loop pass: **the node originated a stream having never once listened
+  with its radio up.** `pulse::Engine` has always done this correctly
+  (`now_ms - boot_ms_`); this did not, and that single difference turned every quiet
+  rejoin into a fork-and-merge. Now `(uint32_t)(now_ms - begin_ms_)`.
+  📎 Neither the dedup nor any native test could have found this — the records it produced
+  were individually *correct* (a fork really is a new timeline; the merge really is news).
+  Only the serial trace showed the two firing 1.3 s apart on every boot.
+  **③ VERIFIED ON HARDWARE, A/B, with the T-Deck up and holding one stream.** Two
+  consecutive Cardputer reboots:
+  ```
+  [stream] adopted stream=0x59fb8ce8 t_ms=224806 wall=0 from=0x200 offset=0ms
+  [stream] adopted adds nothing: @LAT90 already explains stream 0x59fb8ce8
+           - no record written (the node still rejoined; only the log line is deduped)
+  ```
+  **`adopted` still fires** — the node rejoins and its clock is right; only the log line
+  is deduped. That distinction is the whole check: an absent record could equally have
+  meant the node stopped adopting, which would be a far worse bug than the one being
+  fixed. And it now `adopted` where before the fix it `origin`ed then `reconciled` —
+  ②'s fix, visible in the same trace.
+  **Lane held at 10 across three further reboots** (two A/B + a pull's reset), against
+  1–2 per reboot before. The lane's own tail is the before/after:
+  `ADOPTED 0x26a1b82d` (redundant, pre-fix) · `ORIGIN 0x44574814` + `RECONCILED
+  0x26a1b82d` (one reboot, the fork-and-merge bug) · `ORIGIN 0x59fb8ce8` (legitimate —
+  the T-Deck genuinely was not audible) · then three reboots that wrote **nothing**.
+  📎 Cost: +524 B flash on the V4s (still 94%), Cardputer 41%. Native suite 10 tests /
+  0 failures, `test_timestream` now **102 checks**.
+  **④ T-DECK REFLASHED WITH BOTH FIXES — and it demonstrated them on its first boot:**
+  `[stream] adopted stream=0x59fb8ce8 from=0x300` immediately followed by
+  `adopted adds nothing: @LAT90 already explains stream 0x59fb8ce8`. It **adopted**
+  rather than forking-and-merging (the window fix) and wrote nothing (the dedup), in one
+  trace. **Lane held at 9 across two further reboots.**
+  📎 Its lane is now a complete artifact of the day, and worth keeping unpruned as
+  evidence: `ORIGIN 0x15ecaee3` (the fork the window bug caused) · `RECONCILED
+  0x26a1b82d` (the headline merge, with its REMAP) · **`ADOPTED 0x26a1b82d` ×6 — the
+  churn, every one a reboot, every one redundant** · `ADOPTED 0x59fb8ce8` (a genuinely
+  new stream, correctly written) · then reboots that write nothing.
+  ⚠ **CORRECTION TO A DOCUMENTED BUILD RULE: the T-Deck did NOT need the manual BOOT/RST
+  dance.** `esptool --chip esp32s3 --port COMx chip-id` entered the bootloader by itself,
+  and `arduino-cli compile --upload` then flashed hands-free. CLAUDE.md has called
+  native-USB auto-reset "flaky" on this board since bring-up. One clean success does not
+  disprove intermittence — **try the automatic path first, keep the trackball-click + RST
+  dance as the fallback** rather than reaching for it by default.
+  ⚠ **`TIMESTREAM_MAX_LANE 16`'s refusal policy is still unexamined** and deliberately
+  so: a full lane means the next stream's records are stamped with an id nothing
+  explains, which is this project's signature failure. The right policy depends on the
+  post-fix accumulation rate, which is only now measurable.
+  📎 **Trap that cost several attempts and belongs with
+  [[usb-uart-chip-reset-not-a-crash]]: asserting DTR *and* RTS together is esptool's
+  bootloader-entry sequence, not a reset.** Doing it to read serial put the Cardputer
+  into `rst:0x15 … boot:0x3 (DOWNLOAD)` — "waiting for download", silent, and looking
+  exactly like a dead node. Recover with `esptool --after hard-reset chip-id`. The
+  correct passive read is `companion.py open_serial_no_reset`; to reset deliberately,
+  pulse **RTS only**. Several "0 bytes on serial" readings earlier in the session were
+  this, not silent firmware.
   📎 Not pinned down: one cluster of three ADOPTED records 22 s / 4 s / 6 s apart, during
   a window in which the port was opened and closed repeatedly. Consistent with pyserial
   toggling DTR on close as well as open (**[[usb-uart-chip-reset-not-a-crash]]** — on S3
@@ -3046,15 +3119,97 @@ If a fact lives in one of these, link to it from here — don't copy it.
   raw serial capture returned 0 bytes on both settings and the TTDB had to be the
   instrument). Per-record attribution to individual resets was not established; the
   no-looping result above does not depend on it.
-  📎 **The boot Dream Cycle took 21128 ms** (`widest section linkperc 19013ms`) on the
-  now-123 KB TTDB. That is 1.1's O(file) law extrapolated and confirmed: 8.6 KB→150 ms,
-  74 KB→1757 ms, **123 KB→~19 s**. Steady-state passes were 107 ms. The lane caps mean
-  `@LAT92` cannot grow, so beliefs no longer change and the cycle takes the no-op path —
-  which is the only reason this node is usable. **1.1's second bullet is still open and
-  this is now the strongest argument for it.**
+  📎 The first boot pass took **21128 ms** (`widest section linkperc 19013ms`) on the
+  now-123 KB TTDB. ⚠ **CORRECTION — this was first written up here as "1.1's O(file) law
+  confirmed at 123 KB → ~19 s", and that was WRONG.** The Dream Cycle later printed its
+  own timing on a 130 KB file: **`fold 128ms rewrite 1815ms append 517ms TOTAL 2460ms`**
+  — 1815 ms of rewrite at 130 KB is ~14 µs/byte, squarely on the recorded 10–13 µs/byte
+  law, and the whole cycle is 2.5 s, not 19 s. So **the 19 s belongs to something else on
+  the first pass** — `gDb.begin()`'s index scan over 238 records and/or the LittleFS
+  mount are the candidates — and it has never been attributed. The section profiler
+  charges it to `linkperc` because that is the section the boot Dream Cycle sits in,
+  which is exactly the "a section that quietly carries somebody else's cost" trap noted
+  on 2026-08-02. **Do not repeat the 19 s figure as a Dream Cycle number.** 1.1's second
+  bullet is still open; this neither strengthens nor weakens it.
   📎 Unrelated observation while identifying ports: the Cardputer reported **`mind: 7 KB`
   largest contiguous block** at 25 min uptime (memory records ~45 KB once WiFi/BLE are
   up). Not investigated. If it is real it is a much bigger problem than anything here.
+
+- ✅ **2026-08-03 (later still) — THE SPINE JOINED THE STREAM, AND THE FLEET CARRIED IT
+  WITHOUT THE LAPTOP.** V4-A (`0x10`, COM6) and V4-B (`0x11`, COM9) flashed app-only
+  (LittleFS untouched), 94% flash / 74 KB headroom each, hash verified.
+  **① BOTH ADOPTED THE SAME STREAM `0x59fb8ce8`, AND BOTH GOT IT `from:0x200` — THE
+  T-DECK, WHICH WAS NOT CABLED.** It was sitting on battery on the mesh; the laptop
+  did not relay anything. That is Part 2's whole claim demonstrated rather than argued:
+  a timeline that survives the laptop's absence, propagated node→node. The Cardputer
+  originated it, the T-Deck carried it, the two V4s took it up.
+  **② ONE `@LAT90` RECORD EACH — no fork-and-merge on either board**, despite two boards
+  whose `setup()` timings differ from the Cardputer's. The listen-window fix generalises;
+  it was not tuned to one board. Each pull also resets the node, and still one record.
+  **③ THE CLOCKS AGREE TO THE MILLISECOND.** V4-A joined at `t_ms:1672837`, V4-B at
+  `t_ms:1740837` — **exactly 68000 ms apart, which is the gap between the two flashes.**
+  Two independent crystals, two independent boots, one shared timeline.
+  **④ MIXED CORPUS CONFIRMED ON A THIRD AND FOURTH BOARD.** V4-A: 68 old `synced:`
+  records, then new-format ones; V4-B: 81. On V4-A the record immediately below the join
+  is `**ENTWIN** t_ms:1731254 stream:0x59fb8ce8 wall:0` — the two formats are literally
+  adjacent on one flash and both parse. Captures: `master/timestream-2026-08-03/
+  v4a_after.md`, `v4b_after.md`.
+  ⚠⚠ **THE FINDING THIS RUN PRODUCED: `companion.py` COULD NOT READ THE ONE LANE THE TIME
+  STREAM EXISTS TO WRITE, AND SAID NOTHING ABOUT IT.** Running both corpora through
+  `parse_time_fields` returned `None` for every `@LAT90` verb line. Cause: the seven
+  percept formats render the triplet through `timestream::buildStamp` (`t_ms: stream:
+  wall:`), but `buildStreamRecord` **hand-writes it in a different order** —
+  `stream: wall: t_ms:` — because on that line the stream is the SUBJECT of the sentence
+  ("this node moved to timeline X"), not the time an observation was taken. The regex was
+  anchored on `t_ms:` first. **The ordering difference is defensible; the order-anchored
+  reader was not.** Fixed on the reader side, not the writer: four boards already carry
+  records in that order, and matching the fields independently costs nothing. Now:
+  `T_MS_RE` / `SYNCED_RE` / `STREAM_RE` / `WALL_RE` matched separately, with
+  `prev_stream:0x…` **stripped first** — `\b` does not save you, it matches *inside*
+  `prev_stream:`, the same trap the firmware's dedup needle solves with a leading space.
+  A `REMAP` line therefore yields no timeline at all rather than the stream the node
+  **left**, which would have silently re-filed a merge under the loser. Three new checks
+  in `test_prox_py.py` use the exact lines off V4-A's flash. All 7 Python suites pass.
+  📎 **This narrows the CLAUDE.md rule "rendered by ONE function, do not hand-write the
+  triplet in an eighth place."** That rule is right for the seven *observation* formats.
+  `@LAT90` is not an observation — it is a statement about the timeline itself — and it
+  gets a different word order for a reason. The obligation it inherits is not "use
+  buildStamp" but **"every reader must be order-independent."**
+  📎 Serial was silent on both V4s at every DTR/RTS setting tried, including the plain
+  `serial.Serial(port, baud)` open that `companion.py`'s own readers use — yet `ping`
+  ACKed on the first attempt over the same port, so `Serial` *is* the CDC and the link
+  *is* good. Unexplained; the TTDB was used as the instrument instead, as on the
+  Cardputer. `scratchpad/banner.py` records the three attempts so the next session does
+  not repeat them.
+  ⏳ Still unflashed: **V4-C and the K10** (neither plugged in). They send 0-byte HELLOs
+  and are non-participants — wire-compatible, just not on the timeline.
+
+- ✅ **2026-08-03 (V4-C) — THE STREAM SPREAD MULTI-HOP, AND FROM A DIFFERENT PARENT.**
+  V4-C (`0x12`, COM13) flashed app-only, 94% / 71719 B headroom, hash verified. It
+  adopted the same stream `0x59fb8ce8` — but **`from:0x11`, V4-B, which was UNPLUGGED
+  from USB and running on its battery.** So the timeline has now propagated
+  Cardputer → T-Deck → V4-A/V4-B → V4-C, over several hops, choosing whichever neighbour
+  it heard first rather than any fixed parent, with the laptop in none of the paths.
+  **Five nodes on one stream: `0x300` · `0x200` · `0x10` · `0x11` · `0x12`.** One
+  `@LAT90` record, no fork-and-merge, on a third differently-timed board. Across all
+  three V4 corpora: **227 old-format records and 5 new-format, 0 unparsed.**
+  📎 **HOW TO IDENTIFY WHICH BOARD IS ON A PORT — read the app image, don't infer from
+  the mesh.** COM9 vanished and COM13 appeared, and `intero --node v4c_edge --port COM13`
+  answered `up 4m12s` — but that reply can arrive **over the air** from a battery-powered
+  node, so it identifies nothing. (It also can't be cross-checked by uptime: contrary to
+  the note in §6, **opening a V4's port does not appear to reset it** — these boards were
+  silent on serial at every DTR/RTS setting *and* never reprinted a banner.) What is
+  definitive:
+  ```
+  python -m esptool --chip esp32s3 --port COMx --baud 921600 \
+         read-flash 0x10000 0x140000 app.bin        # ~17 s
+  # then grep the image for the sketch's own banner: "V4-A bridge" / "V4-B relay" /
+  # "V4-C edge", and for "older_stream_wins" to see if it predates the time stream.
+  ```
+  ⚠ **The obvious shortcut does NOT work:** `esp_app_desc_t.project_name` at
+  `0x10000+0x50` reads **`arduino-lib-builder`** on every arduino-cli build — it is the
+  core's name, not the sketch's, and its `date/time` is the core's build date. Only the
+  sketch's own string literals distinguish the boards.
 
 Keep this section current. It is the first thing the next session reads.
 

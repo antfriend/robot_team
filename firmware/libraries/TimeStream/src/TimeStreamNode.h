@@ -53,6 +53,7 @@ class Node {
   void begin(uint32_t node_id, Ttdb* db, uint32_t now_ms) {
     node_id_ = node_id;
     db_ = db;
+    begin_ms_ = now_ms;      // the listen window starts HERE, when the radio is up
     e_.begin(node_id, now_ms);
     head_ = tail_ = 0;
     owed_ = false;
@@ -103,7 +104,19 @@ class Node {
     }
 
     // Heard nothing worth joining in TIMESTREAM_LISTEN_MS: start one and say so.
-    if (!e_.have() && now_ms >= TIMESTREAM_LISTEN_MS) {
+    //
+    // ⚠ MEASURED FROM begin(), NOT FROM BOOT — and the difference is not cosmetic.
+    // A first pass at this compared `now_ms` (i.e. millis()) against the window
+    // directly, which silently assumes setup() is short. On the Cardputer setup()
+    // takes OVER SIX SECONDS (BLE + WiFi + codec + display), so millis() was already
+    // past the window on the very first loop pass: the node originated a stream
+    // having never once listened with its radio up, then reconciled onto its peer's
+    // a moment later — TWO @LAT90 records for a reboot that should have written
+    // none. Observed on hardware 2026-08-03 (`[stream] origin` immediately followed
+    // by `[stream] reconciled ... offset=3956818ms`).
+    // pulse::Engine has always done it this way (`now_ms - boot_ms_`); this did not,
+    // and that one difference is what turned a quiet rejoin into a fork-and-merge.
+    if (!e_.have() && (uint32_t)(now_ms - begin_ms_) >= TIMESTREAM_LISTEN_MS) {
       if (e_.origin(now_ms, esp_random())) owed_ = true;
     }
 
@@ -154,9 +167,39 @@ class Node {
                     "stale anchor carried across a merge\n",
                     (long long)tr.wall_conflict_ms);
     if (!db_) return;
+
+    // ONE pass over the lane answers both questions: how full is it, and has it already
+    // explained this stream? Reading bodies is file I/O, but a stream event happens at
+    // boot and at a merge — never per frame — so this is nowhere near the per-frame
+    // read that cost 767 ms/repaint in the edgesAt defect.
     int n = 0;
-    for (int i = 0; i < db_->recordCount(); ++i)
-      if (db_->record(i).lat == TIMESTREAM_LANE) ++n;
+    bool named = false, anchored = false;
+    // A @LAT90 record's header line plus its verb line is ~180 B, and both ` stream:`
+    // and ` wall:` sit on the verb line, so a prefix read is enough — the REMAP,
+    // WALL and PROVENANCE lines below it carry nothing this decision needs.
+    char body[320];
+    for (int i = 0; i < db_->recordCount(); ++i) {
+      if (db_->record(i).lat != TIMESTREAM_LANE) continue;
+      ++n;
+      size_t off = 0, len = 0;
+      if (!db_->recordSpan(i, off, len)) continue;
+      const size_t want = len < sizeof(body) ? len : sizeof(body);
+      const size_t got = db_->readBytes(off, (uint8_t*)body, want);
+      if (!recordNamesStream(body, got, tr.new_id)) continue;
+      named = true;
+      if (recordIsWallAnchored(body, got)) anchored = true;
+    }
+
+    // Say nothing new, write nothing — but SAY that on serial. A suppression nobody
+    // prints is how this lane would start lying about what the node did.
+    if (recordIsRedundant(tr, named, anchored)) {
+      Serial.printf("[stream] %s adds nothing: @LAT%d already explains stream 0x%08lx "
+                    "— no record written (the node still rejoined; only the log line "
+                    "is deduped)\n",
+                    eventName(tr.ev), TIMESTREAM_LANE, (unsigned long)tr.new_id);
+      return;
+    }
+
     if (n >= TIMESTREAM_MAX_LANE) {
       Serial.printf("[stream] @LAT%d lane FULL at %d — the timeline is flapping, not "
                     "settling. Go and look; do not raise the cap.\n",
@@ -172,6 +215,7 @@ class Node {
   Engine e_;
   Ttdb* db_ = nullptr;
   uint32_t node_id_ = 0;
+  uint32_t begin_ms_ = 0;
 
   Anchor q_[TIMESTREAM_ANCHOR_QUEUE];
   uint32_t src_[TIMESTREAM_ANCHOR_QUEUE] = {0};

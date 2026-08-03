@@ -1755,23 +1755,42 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
 # `synced:1` becomes "on SOME shared clock, identity unknown" — which is the exact
 # limitation that motivated the change, so it is represented honestly as stream None
 # rather than invented. `synced:0` maps to stream 0 (local millis()).
-TIME_FIELDS_RE = re.compile(
-    r"t_ms:(\d+)\s+(?:synced:([01])|stream:0x([0-9a-fA-F]{1,8})\s+wall:([01]))")
+# The seven percept formats render the triplet through timestream::buildStamp, which
+# always emits `t_ms: stream: wall:` IN THAT ORDER. The @LAT90 lane does NOT: its verb
+# line leads with the stream, because there the stream is the SUBJECT of the sentence
+# ("this node moved to timeline X") rather than the time an observation was taken.
+# That is a defensible difference, but an order-anchored regex silently returned None
+# for it — i.e. companion.py could not read the one lane the time stream exists to
+# write, and said nothing. So the fields are matched INDEPENDENTLY of order.
+T_MS_RE = re.compile(r"\bt_ms:(\d+)")
+SYNCED_RE = re.compile(r"\bsynced:([01])\b")
+STREAM_RE = re.compile(r"\bstream:0x([0-9a-fA-F]{1,8})")
+WALL_RE = re.compile(r"\bwall:([01])\b")
+# ⚠ `prev_stream:0x...` on a REMAP line names the stream the node LEFT. `\b` does not
+# help — it matches inside `prev_stream:` — so it is excluded explicitly, exactly as
+# the firmware's dedup needle carries a leading space for the same reason.
+PREV_STREAM_RE = re.compile(r"prev_stream:0x([0-9a-fA-F]{1,8})")
 
 
 def parse_time_fields(line):
     """-> {t_ms, stream, wall, synced} for either record format, or None."""
-    m = TIME_FIELDS_RE.search(line)
-    if not m:
+    mt = T_MS_RE.search(line)
+    if not mt:
         return None
-    t_ms = int(m.group(1))
-    if m.group(2) is not None:                       # old: synced:<0|1>
-        synced = int(m.group(2))
+    t_ms = int(mt.group(1))
+    ms = SYNCED_RE.search(line)
+    if ms is not None:                               # old: synced:<0|1>
+        synced = int(ms.group(1))
         # stream None = "some clock, unnameable"; 0 = "no clock at all".
         return {"t_ms": t_ms, "stream": None if synced else 0,
                 "wall": synced, "synced": synced}
-    stream = int(m.group(3), 16)
-    wall = int(m.group(4))
+    line_wo_prev = PREV_STREAM_RE.sub("", line)
+    mst = STREAM_RE.search(line_wo_prev)
+    mw = WALL_RE.search(line_wo_prev)
+    if mst is None or mw is None:
+        return None
+    stream = int(mst.group(1), 16)
+    wall = int(mw.group(1))
     # `synced` is kept for every existing caller and means what it always meant:
     # is this timestamp comparable with another node's? On a stream, yes.
     return {"t_ms": t_ms, "stream": stream, "wall": wall,
