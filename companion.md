@@ -3379,6 +3379,66 @@ If a fact lives in one of these, link to it from here — don't copy it.
   bridge node's collection rate during a session that talks through it; give it one quiet
   interval and one pull instead.
 
+- ✅ **2026-08-03 (Part B opens) — LANE GENERATIONS: A PRUNE NOW WRITES DOWN ITS OWN
+  BOUNDARY (`@LAT100`).** Verified on hardware, on V4-A:
+  ```
+  @LAT100LON0 | created:0 | updated:0 | relates:prunes@LAT0LON0
+  **LANE-PRUNED** lane:97 gen:1 removed:47 last_lon:46 t_ms:9913863 stream:0x59fb8ce8 wall:0 node:0x00000010
+  ```
+  **The defect it closes was created by this session's own prune.** A citation here is an
+  ORDINAL — `@LAT92LON0`'s header says `derived_from@LAT97LON1`, and `PerceptLearn` keeps
+  the same numbers as `acting_lane_`/`staged_lane_`/`scored_lane_`. A prune resets the
+  count, the lane refills, and every pre-existing citation silently starts resolving to a
+  **different record with the same index** — not a dangling pointer, which is honest and
+  detectable, but a live pointer to the wrong thing. Clearing `@LAT97` re-pointed **all 32
+  citing records on the Cardputer** (24 `@LAT92` + 8 `@LAT91`) in one CMD. Nothing resolves
+  those edges today, so no output was wrong — but the corpus IS the deliverable.
+  The fix is the move `@LAT90`'s REMAP already makes for a superseded timeline: write the
+  supersession down. Same idea, one level lower.
+  📎 **Three placements were checked and rejected, and the reasons are the design:**
+  (1) NOT inside the lane it prunes — the *next* prune of that lane would delete its own
+  history; (2) NOT `@LAT90`, however close the concept sits — that lane's dedup scans it
+  and asks `recordNamesStream()`, so a prune record carrying the standard stamp would
+  answer YES and **suppress a later, legitimate STREAM-ADOPTED record as "already
+  explained"**, i.e. the timeline lane would go quiet about a real change because of an
+  unrelated prune (same needle-collision shape as `prev_stream:`); (3) NOT `@LAT89` —
+  `isNodeRecord()` is `lat > -90 && lat < 90` on both consoles, so 89 would appear as a
+  navigable place on the globes, with an eyeball. 90–99 are all taken, so the machinery
+  block continues upward to 100, which the globes' `lat < 90` filter ignores.
+  🔒 **The invariant is NO PRUNE WITHOUT A MARKER.** Marker-lane capacity is checked
+  *before* the rewrite; a boundary that cannot be recorded stops the prune. `LANEGEN_MAX_LANE
+  32`'s full-policy is **decided** (refuse + say why), unlike `TIMESTREAM_MAX_LANE`'s — and
+  the cost is stated in the header: a node whose marker lane fills stops being able to open
+  its percept lanes and will eventually go blind. That is the deliberate trade, because the
+  alternative is the silent prune this exists to remove.
+  📊 **Hardware verification on V4-A** (COM6, identified by reading its app image — the
+  ports had shuffled again, and a USB *instance path* names a socket, not a board):
+  `removed:47` matched the 47 records counted before, `last_lon:46`, stamped on the fleet
+  stream, `@LAT96` untouched by a lane-97 prune. Then a `--lane 0` (all lanes) prune wrote
+  **one** marker for `@LAT96` and **none** for the already-empty `@LAT97` — an empty lane is
+  not a prune, which is also what keeps the CMD safe to retry after a lost ACK.
+  💻 **Laptop side:** `companion.py prunes --file <ttdb>` prints the generations and the
+  citations they invalidated. ⚠ Its first cut was **wrong in a way the test caught**: it
+  took the boundary with the highest `last_lon` per lane, which hides a *later* prune of a
+  shorter generation behind an earlier, bigger one. The rule is per-citation — was there any
+  prune of that lane, at or after this record was written, that covered this index — and it
+  reports the **earliest** such prune, the one that actually destroyed the record cited.
+  ⚠ It also uses the **time stream** to avoid crying wolf: a record written AFTER a prune,
+  citing the new generation's `@LAT97LON1`, has a low index too. Citing t_ms > boundary t_ms
+  on the same stream ⇒ live; ≤ ⇒ stale; no comparable time ⇒ **`unknown`**, reported as its
+  own verdict rather than guessed either way (pre-2026-08-03 `synced:1` records are genuinely
+  unplaceable). Run against the Cardputer it says the honest thing: *no `@LAT100` records —
+  this node has never pruned, OR it pruned before lane generations existed and nothing
+  recorded it; those two are indistinguishable after the fact, which is the whole reason the
+  lane exists.*
+  📊 Tests: native **lanegen 18/18** (suite all green), Python **8 files** (`test_lanegen_py`
+  14 checks). Cost measured against a HEAD worktree: **V4-A +1748 B flash (+0.13%), +0 B
+  RAM** — 94%, **72295 B free**. All five sketches compile (V4-B/V4-C 94%, T-Deck 40%,
+  Cardputer 41%).
+  ⏳ **ONLY V4-A IS FLASHED.** The other four still prune silently — their next
+  `clear-percepts` re-points citations with nothing written down. Reflash before the next
+  prune, and specifically before Part B's `@LAT95` work, which opens with one.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

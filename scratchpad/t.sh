@@ -16,7 +16,7 @@ ZIG="${ZIG:-/c/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe}"
 LIB=firmware/libraries
 INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src
      -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
-     -I$LIB/TimeStream/src"
+     -I$LIB/TimeStream/src -I$LIB/LaneGen/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
 
 # name : extra sources (test_<name>.cpp is implied)
@@ -27,7 +27,7 @@ build_one() {
 }
 
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn
-                  rfc_ttdb symmetric_edges nmea pulse timestream)
+                  rfc_ttdb symmetric_edges nmea pulse timestream lanegen)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [linkpercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/LinkPercept/src/LinkPercept.cpp"
@@ -39,6 +39,7 @@ declare -A SRCS=(
   [nmea]="$LIB/Gps/src/Nmea.cpp"
   [pulse]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/Pulse/src/Pulse.cpp"
   [timestream]="$LIB/TimeStream/src/TimeStream.cpp"
+  [lanegen]="$LIB/TimeStream/src/TimeStream.cpp $LIB/LaneGen/src/LaneGen.cpp"
 )
 
 if [ $# -gt 0 ]; then NAMES=("$@"); fi

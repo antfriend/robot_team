@@ -29,6 +29,7 @@
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
@@ -846,7 +847,7 @@ void loop() {
           // SP1 prune. Serial CMDs already run in loop(), so the TTDB rewrite
           // is safe here. ACK only on success (a failed prune must be loud).
           uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
-          ok = gDb.removePerceptLanes(lane);
+          ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
           if (ok)
             Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
                           lane ? String(lane).c_str() : "ALL",

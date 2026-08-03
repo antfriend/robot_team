@@ -1808,6 +1808,155 @@ def fmt_stream(w):
     return "%08x%s" % (s, "*" if w.get("wall") else "")
 
 
+# --- Lane generations: reading the boundary a prune leaves behind ------------
+# A citation in this corpus is an ORDINAL (`derived_from@LAT97LON1`), so a prune
+# resets the count and every pre-existing citation silently starts resolving to a
+# different record with the same index — a live pointer to the wrong thing, not
+# an honest dangle. @LAT100 records the boundary so those citations read as
+# "generation N, pruned" instead. See firmware/libraries/LaneGen.
+PRUNE_LANE = 100
+PRUNE_RE = re.compile(
+    r"\*\*LANE-PRUNED\*\*\s+lane:(\d+)\s+gen:(\d+)\s+removed:(\d+)\s+"
+    r"last_lon:(-?\d+)")
+# Any `<verb>@LAT<lane>LON<n>` edge in a record header — how a citation is spelt.
+CITATION_RE = re.compile(r"(\w+)@LAT(\d+)LON(\d+)")
+
+
+def parse_prune_markers(text):
+    """-> [{lane, gen, removed, last_lon, t_ms, stream, wall, synced}] for the
+    @LAT100 lane, oldest first. An empty list means this node has never pruned —
+    which is NOT the same as "its citations are safe": a node flashed before
+    2026-08-03 pruned without recording anything, and that silence is exactly
+    what cannot be distinguished after the fact."""
+    out = []
+    for line in text.splitlines():
+        m = PRUNE_RE.search(line)
+        if not m:
+            continue
+        rec = {"lane": int(m.group(1)), "gen": int(m.group(2)),
+               "removed": int(m.group(3)), "last_lon": int(m.group(4))}
+        rec.update(parse_time_fields(line) or
+                   {"t_ms": None, "stream": None, "wall": None, "synced": None})
+        out.append(rec)
+    return out
+
+
+def _records(text):
+    """-> [(header_line, [body_line, ...])] in file order."""
+    blocks, cur = [], None
+    for line in text.splitlines():
+        if line.startswith("@LAT"):
+            cur = (line, [])
+            blocks.append(cur)
+        elif cur is not None:
+            cur[1].append(line)
+    return blocks
+
+
+def stale_citations(text):
+    """Citations a recorded prune has invalidated -> [{citing, verb, lane, lon,
+    gen, boundary, verdict}], verdict in {"stale", "unknown"}.
+
+    A citation `@LAT97LON5` is stale when a @LAT100 marker says lane 97's
+    generation ended at `last_lon >= 5`: the record it named is gone, and index 5
+    now belongs to the generation that followed. This REPORTS what the boundary
+    makes knowable; it repairs nothing, because a citation cannot be honestly
+    rewritten after the fact — the record said what it said.
+
+    ⚠ The naive form of this check is wrong in a way that would discredit it: a
+    record written AFTER the prune, citing the NEW generation's `@LAT97LON1`, has
+    an index below the boundary too. Flagging those would make the report noise,
+    and a noisy correctness check gets ignored. So the citing record's own
+    timestamp decides, on the timeline the marker was written on:
+
+      * citing t_ms  >  the boundary's t_ms  -> it cites the live generation, fine
+      * citing t_ms <=  the boundary's t_ms  -> stale
+      * no comparable time (no stamp, or a different stream)   -> "unknown"
+
+    "unknown" is reported as its own verdict rather than folded into either
+    answer. Pre-2026-08-03 records carry `synced:1` and no stream id, so they are
+    genuinely unplaceable against a boundary, and saying so is the honest output.
+    """
+    markers = parse_prune_markers(text)
+    if not markers:
+        return []
+    # ⚠ NOT "the boundary with the highest last_lon per lane". That was the first
+    # cut and it is wrong: a later prune of a SHORTER generation (say last_lon 5)
+    # still destroyed index 1, but a max() over last_lon hides it behind the
+    # earlier, bigger boundary and reports the citation as live. The rule is
+    # per-citation — was there any prune of that lane, at or after this record was
+    # written, that covered this index — and the marker reported is the earliest
+    # such prune, i.e. the one that actually destroyed the record cited.
+    by_lane = {}
+    for mk in markers:
+        by_lane.setdefault(mk["lane"], []).append(mk)
+    out = []
+    for header, body in _records(text):
+        m = re.match(r"@LAT(\d+)LON(\d+)", header)
+        if not m or int(m.group(1)) == PRUNE_LANE:
+            continue
+        citing = f"@LAT{m.group(1)}LON{m.group(2)}"
+        tf = None
+        for line in body:
+            tf = parse_time_fields(line)
+            if tf:
+                break
+        for verb, lane_s, lon_s in CITATION_RE.findall(header):
+            lane, lon = int(lane_s), int(lon_s)
+            hit = None
+            for mk in sorted(by_lane.get(lane, []), key=lambda m: m["gen"]):
+                if lon > mk["last_lon"]:
+                    continue                  # never in that generation
+                comparable = (tf and mk["t_ms"] is not None
+                              and tf["stream"] == mk["stream"] and mk["stream"])
+                if comparable and tf["t_ms"] > mk["t_ms"]:
+                    continue                  # written after this prune; not it
+                hit = (mk, "stale" if comparable else "unknown")
+                break                         # earliest prune that covers it
+            if hit:
+                mk, verdict = hit
+                out.append({"citing": citing, "verb": verb, "lane": lane,
+                            "lon": lon, "gen": mk["gen"],
+                            "boundary": mk["last_lon"], "verdict": verdict})
+    return out
+
+
+def prunes(path):
+    """Print a node's prune history and what it did to the node's own citations."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    markers = parse_prune_markers(text)
+    if not markers:
+        print(f"{path}: no @LAT{PRUNE_LANE} records — this node has never pruned, "
+              f"OR it pruned before lane generations existed (2026-08-03) and "
+              f"nothing recorded it. Those two are indistinguishable after the "
+              f"fact, which is the whole reason the lane exists.")
+        return
+    print(f"{path}: {len(markers)} lane generation(s) closed")
+    print(f"{'lane':>5}  {'gen':>4}  {'removed':>8}  {'last_lon':>9}  "
+          f"{'t_ms':>14}  {'stream':>9}")
+    for mk in markers:
+        print(f"{mk['lane']:>5}  {mk['gen']:>4}  {mk['removed']:>8}  "
+              f"{mk['last_lon']:>9}  "
+              f"{('-' if mk['t_ms'] is None else mk['t_ms']):>14}  "
+              f"{fmt_stream(mk):>9}")
+    stale = stale_citations(text)
+    if not stale:
+        print("\nno citation into a pruned generation — nothing was re-pointed")
+        return
+    n_stale = sum(1 for s in stale if s["verdict"] == "stale")
+    n_unk = len(stale) - n_stale
+    print(f"\n{len(stale)} citation(s) into a pruned generation "
+          f"({n_stale} stale, {n_unk} unplaceable in time):")
+    for s in stale:
+        mark = "STALE  " if s["verdict"] == "stale" else "unknown"
+        print(f"  {mark} {s['citing']:<14} {s['verb']}@LAT{s['lane']}LON{s['lon']}"
+              f"   (gen {s['gen']} ended at LON{s['boundary']})")
+    print("\nThese are NOT repaired: a citation cannot be honestly rewritten after "
+          "the fact. The boundary is what makes them readable as history rather "
+          "than resolving into the generation that followed.")
+
+
 # --- Recency: a TIME window, not a record count -----------------------------
 # `--last N` is a slice (`wins[-N:]`). Under PERIODIC logging N records ~ N
 # minutes, so counting was a passable proxy for time. Under CHANGE-TRIGGERED
@@ -3549,6 +3698,13 @@ def main():
     ec.add_argument("--save", default=None,
                     help="also write the pulled TTDB to this path")
 
+    pr = sub.add_parser(
+        "prunes",
+        help="read a TTDB's @LAT100 lane: which lane generations ended, and "
+             "which citations they invalidated")
+    pr.add_argument("--file", required=True,
+                    help="a pulled TTDB (master/<node>.md)")
+
     px = sub.add_parser(
         "proximity",
         help="SP1: fuse fleet @LAT97 percepts into @BELIEF:PROXIMITY per pair")
@@ -3713,6 +3869,8 @@ def main():
                  scene=args.scene, lane=args.lane)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
+    elif args.cmd == "prunes":
+        prunes(args.file)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":

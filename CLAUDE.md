@@ -34,6 +34,11 @@ firmware/
                         (makes "the observer held still" checkable, not assumed)
     AcousticPercept/    SP0 acoustic tier: mic windows -> @LAT94, incl. the fleet-clock
                         timestamp of the loudest transient (Phase 3 TDoA groundwork)
+    LaneGen/            Lane generations (@LAT100): a prune writes down the boundary it
+                        creates, so the ordinal citations into the pruned lane
+                        (`derived_from@LAT97LON1`) stay readable as history instead of
+                        silently resolving into the generation that followed.
+                        LaneGenNode.h is the Arduino glue (one copy, five sketches).
     TimeStream/         The team time stream: a fleet-owned timeline that survives the
                         laptop's absence. `stream:<id>` + `wall:<0|1>` replacing the old
                         single `synced` bit; anchors ride on HELLO; @LAT90 logs timeline

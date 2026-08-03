@@ -55,6 +55,7 @@
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
+#include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
 
@@ -733,7 +734,7 @@ static void toneI2S(float freq, uint32_t ms, float amp);
 // stitched-pull hazard, companion.md §6). removePerceptLanes() does it in ONE rewrite.
 // `lane` is the wire byte: 0 = every percept lane, else exactly that one.
 static bool clearPerceptLanes(uint8_t lane) {
-  bool ok = gDb.removePerceptLanes(lane);
+  bool ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
   if (ok)
     Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
                   lane ? String(lane).c_str() : "ALL (94-97)",
