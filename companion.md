@@ -2617,15 +2617,16 @@ If a fact lives in one of these, link to it from here — don't copy it.
      transition ordering is unexercised and, per the quantization finding above, needs a
      sub-window timestamp before it would mean anything.
 
-- 📋 **NEXT SESSION STARTS HERE: [timestream-handoff.md](timestream-handoff.md)** (written
-  2026-08-02 against `33a7a02`). Three parts, and the order matters:
-  **Part 1 is a VERIFICATION GATE** — everything built on 2026-08-02 that has not been
-  proven on hardware, and **`percept-learning-return.md` does NOT go to TTE until it
-  passes.** Highest item: ⚠ **`reconcileBeliefs()` calls `removeLane()`, which rewrites the
-  whole ~46 KB TTDB from `loop()`, and has NEVER BEEN TIMED** — a plausible new source of a
-  multi-second stall that would be indistinguishable from the existing unexplained one.
-  Second: **the `+2/−16` and `K = 3` verdicts rest on n=1** (a single walk), against this
-  repo's own written rule that n=1 here is noise.
+- 📋 **THE HANDOFF: [timestream-handoff.md](timestream-handoff.md)** (written 2026-08-02
+  against `33a7a02`). Three parts, and the order matters:
+  ✅ **Part 1 (the VERIFICATION GATE) IS COMPLETE — 1.1 through 1.6 all pass**, later the
+  same day; see the four entries below for the results and the two defects it flushed out.
+  **`percept-learning-return.md` is now CLEARED to go to TTE**, and **no §0b verdict
+  changed**: `+2/−16` and `K = 3` both survived re-testing at n≥3.
+  *(Historical, for the record — the two things the gate was most worried about:
+  `reconcileBeliefs()`'s untimed whole-TTDB rewrite, now measured at 150 ms→1757 ms and
+  O(file); and the `+2/−16` / `K = 3` verdicts resting on n=1, now n≥3 with a control
+  group.)*
   **Part 2 is the team time stream** — `stream:<id>` + `wall:<0|1>` replacing the single
   `synced` bit, riding on Pulse's existing era/conductor rather than a new subsystem. The
   headline reason: **`touched:0` makes TBEW recency inert**, so `@LAT91`'s `sal:24` can
@@ -2853,7 +2854,31 @@ If a fact lives in one of these, link to it from here — don't copy it.
   end goal is the **rendered** proof leg (SP6), that is a gap rather than an oversight.
   **DECIDED (operator, 2026-08-02): `@LAT91` gets its own view** rather than being promoted
   into the navigable globe range — the globe is a map of places, a belief is not a place.
-  **Not yet built.**
+- ✅ **2026-08-02 — THE BELIEF VIEW IS ON THE GLASS (`FACE_BELIEF`, Cardputer key `4`).**
+  A fourth representor view, joining eye / scope / interoception — and it belongs in that
+  stack for the same reason interoception does: both are the node reporting on itself.
+  **Interoception is the body; this is what the body has learned.** One row per
+  (peer, proto): peer · proto · a `conf` bar over 0–255 · the number · `met/violated` · `!`
+  for the contradiction flag. Colour carries meaning rather than decoration — **red is not
+  "low", it is "the world contradicted this twice running"**. Operator-confirmed on device;
+  41% flash / 38% RAM.
+  📎 It re-reads the lane **only when `gBeliefRev` changes or the view is entered**, never
+  per frame: 8 records × (`recordSpan` + `readBytes`) per frame is exactly the per-frame
+  file I/O that cost 767 ms/repaint in the `edgesAt` defect ([[globe-edgesat-per-frame-trap]]).
+  📎 **An empty lane SAYS WHY** ("the Dream Cycle writes @LAT91 from @LAT92 testimony; needs
+  a still window + a peer, then ≤3 min") instead of drawing a blank panel. On a freshly
+  imaged filesystem empty is the CORRECT state, and a blank panel is indistinguishable from
+  a broken view — the failure mode this week kept producing.
+  ⚠ **The T-Deck cannot have this view, and the reason is structural, not a missing
+  keybinding.** `@LAT91` is written by `PerceptLearn`, and Rule 1 only arms an expectation
+  off a **`still` `@LAT95` motion window** — the node positively claiming it was anchored.
+  **Only the Cardputer has an IMU**, so the T-Deck can never author a belief of its own.
+  **NEXT INCREMENT (agreed, not built): `CMD_GET_BELIEF`**, mirroring `CMD_GET_INTERO` —
+  the T-Deck already renders another node's interoception from a polled 21-byte payload
+  under the rule *transmit the numbers, never the pixels*, and beliefs want exactly that
+  treatment. **Deliberately deferred until after Part 2**: the time stream is going to change
+  `@LAT91`'s shape anyway (`touched:0` makes `sal` undecayable), so fixing a wire format for
+  it now would mean designing it twice.
 
 Keep this section current. It is the first thing the next session reads.
 

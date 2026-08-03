@@ -241,6 +241,25 @@ not widen it to the hero's-arc song, where the gate stops a self-appointed node 
 phase. Confirm a duet by the partner's **`INTERO_VOICING`** bit (pane footer shows `SINGING`),
 never by an ACK — a blocking tone call eats the ACK window.
 
+**Record pane paging (both handhelds, 2026-08-02).** `renderRecord` used to read a record
+body into a **520 B buffer** — a *read* limit, not a scroll limit: bytes past it never left
+flash. RFC-globe records average 1036 B and reach **2666 B**, so the T-Deck showed the first
+~40% of one and the Cardputer (four lines × 39 cols) ~15%, **with nothing on screen saying
+the record continued**. Both now read 3 KB, wrap the whole body, and show `pg n/m` (a `+`
+means even 3 KB was not enough). **`1` pages forward, `2` back, both wrapping.** ⚠ On the
+**Cardputer those keys are context-sensitive** — with the FACE up `1`/`2` are §5's modality
+pins (eye/scope), with the GLOBES up they page; this follows the rule `ENTER` already uses in
+that sketch. **`3` (intero) and `4` (beliefs) work from either stack.** General rule this
+cost a gate check to learn: *if a view can show less than all of a record, it must say so
+on screen.*
+
+**`FACE_BELIEF` is Cardputer-only, structurally.** The `@LAT91` belief lane is written by
+`PerceptLearn`, whose Rule 1 arms only off a **`still` `@LAT95` motion window** — and only
+the Cardputer has an IMU, so no other node can author a belief. The globes cannot show these
+lanes either: `isNodeRecord()` bounds navigation to `lat > -90 && lat < 90`, which excludes
+90–93 along with the percept/belief/sync lanes it was written for. Showing them on the T-Deck
+needs a `CMD_GET_BELIEF` op mirroring `CMD_GET_INTERO`, not a keybinding.
+
 ⚠ **`CMD_DUET` is NOT sent once — a live duet is re-asserted every 2 s and a dismissal repeated
 3×** (`serviceDuet`). A single ESP-NOW invitation gets dropped, and when it does the console sings
 the lead alone at a partner that never heard the ask (observed on hardware). Repeating idempotent
