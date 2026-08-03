@@ -3435,9 +3435,70 @@ If a fact lives in one of these, link to it from here — don't copy it.
   14 checks). Cost measured against a HEAD worktree: **V4-A +1748 B flash (+0.13%), +0 B
   RAM** — 94%, **72295 B free**. All five sketches compile (V4-B/V4-C 94%, T-Deck 40%,
   Cardputer 41%).
-  ⏳ **ONLY V4-A IS FLASHED.** The other four still prune silently — their next
-  `clear-percepts` re-points citations with nothing written down. Reflash before the next
-  prune, and specifically before Part B's `@LAT95` work, which opens with one.
+  ✅ **T-Deck and Cardputer flashed and verified the same session** (COM10/COM14, both
+  identified by app image — `ES8311 not found` is the Cardputer-only literal; both carry
+  `SemPos`). The T-Deck's **automatic bootloader entry worked again, hands-free** — second
+  clean success, so keep the trackball+RST dance as fallback only.
+  ```
+  **LANE-PRUNED** lane:97 gen:1 removed:48 last_lon:47 t_ms:418673 stream:0xbdc62024 node:0x00000300  (Cardputer)
+  **LANE-PRUNED** lane:97 gen:1 removed:48 last_lon:47 t_ms:463764 stream:0xbdc62024 node:0x00000200  (T-Deck)
+  ```
+  ⚠ **`removed:48` ON BOTH — THE LANES WERE ALREADY FULL AGAIN.** They were pruned to
+  empty earlier the SAME afternoon; at `LINKPERCEPT_FLUSH_MS 60000` a 48-record cap refills
+  in 48 minutes and then discards in silence. So the morning's fleet-wide prune bought
+  under an hour of collection per node, and both consoles had been throwing away link
+  windows again before this prune. **This is the argument for Part B in one line: with
+  periodic logging, pruning is a treadmill, not a fix.**
+  📊 **The reader, on real hardware data.** `prunes` against the Cardputer found all **32**
+  citations (24 `@LAT92` + 8 `@LAT91`) — and reported every one as **`unknown`, not
+  `stale`**, which is the correct and honest answer: those records carry the pre-2026-08-03
+  `synced:` stamp, so they cannot be placed against a boundary in time. They ARE stale in
+  fact (re-pointed twice today), and the node cannot prove it. ⚠ Note also the marker says
+  `gen:1` on a lane that has now been pruned at least three times — generations count only
+  what was RECORDED, and the two earlier prunes predate the firmware. Both limits are the
+  same one, stated plainly rather than papered over.
+  ✅ **V4-B and V4-C flashed and verified too — THE WHOLE FLEET NOW RECORDS ITS PRUNES.**
+  Both identified by reading their app images (`V4-B relay` / `V4-C edge`), which is the
+  only way to tell two V4s apart, and each flashed with its own sketch.
+  ```
+  **LANE-PRUNED** lane:97 gen:1 removed:48 last_lon:47 t_ms:832981 stream:0xbdc62024 node:0x00000011
+  **LANE-PRUNED** lane:97 gen:1 removed:48 last_lon:47 t_ms:846755 stream:0xbdc62024 node:0x00000012
+  ```
+  🎯 **ALL FIVE MARKERS SAY `removed:48`.** V4-A (47, pruned an hour earlier than the rest),
+  V4-B 48, V4-C 48, T-Deck 48, Cardputer 48 — **every node in the fleet had refilled to its
+  cap and gone back to discarding within one afternoon of being emptied.** That is no longer
+  an argument about periodic logging, it is a fleet-wide measurement of it: 5/5 nodes, one
+  afternoon. Part B's remaining work (change-triggered `@LAT95`, then `@LAT96`) is what stops
+  the treadmill; until then a prune buys 48 minutes.
+  📎 And the fleet re-converged on **one stream (`0xbdc62024`) across all five nodes**,
+  through three separate reflash rounds, with the laptop in none of the adoption paths.
+
+- ⚠ **2026-08-03 — `TIMESTREAM_MAX_LANE 16` IS NO LONGER "NOT CLOSE TO BINDING": THE
+  CARDPUTER IS AT 13/16.** (T-Deck 10/16; measured on the post-flash pulls.) This morning's
+  reading — T-Deck 9, the three V4s 1 each — was taken on a **settled** fleet, and the
+  accumulation rate of a settled fleet is not the rate that matters. A **flashing session**
+  is the pathological case: a board reboots hearing NO peer inside its listen window,
+  **originates a new stream** (an ORIGIN is never suppressed — correctly, it is a real
+  timeline change), and then writes a second record when it later adopts whatever the fleet
+  settled on. The Cardputer's lane shows it: `STREAM-ORIGIN 0x59fb8ce8` → `ORIGIN
+  0x450f0e1c` → `ORIGIN 0x2434b81f` → `STREAM-ADOPTED 0xbdc62024 from:0x10`.
+  📊 **The rate depends on whether anything else is powered, and that was measured too:**
+  V4-B and V4-C, flashed while both consoles were live and in range, adopted straight away
+  and wrote **1 record each (2/16 total)** — no ORIGIN at all. So it is ~1 record per board
+  when the fleet is up around it and ~2 when the board boots alone, which is exactly why
+  the consoles (flashed across rounds where they were often the only node awake) are the
+  two sitting at 13 and 10. **Flash with the fleet powered** and the lane grows half as
+  fast — a free mitigation available today, ahead of whatever the real fix turns out to be.
+  So **D.1's conclusion ("do not raise it") stands, but its evidence does not** — the cap
+  is ~3 reflashes away on the Cardputer, and what happens when it fills is still the
+  undecided policy (refuse + print, leaving the next stream's records carrying an id
+  nothing explains). The likely right answer is not a bigger cap but not writing an ORIGIN
+  that an adoption supersedes seconds later — i.e. the same "one record per settled state,
+  not one per hop" rule the lane already claims, applied across the settle window rather
+  than within one drain. **Decide it before the next fleet reflash, not after.**
+  📎 Fleet timeline as of this entry: **`0xbdc62024`**, originated by V4-A after its flash
+  and adopted by both consoles. The morning's `0x59fb8ce8` is gone — every node holding it
+  rebooted.
 
 Keep this section current. It is the first thing the next session reads.
 
