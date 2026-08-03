@@ -28,6 +28,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // the shared time stamp every record carries
 
 #ifndef ACOUSTICPERCEPT_FLUSH_MS
 #define ACOUSTICPERCEPT_FLUSH_MS 60000   // one window per link-percept window
@@ -54,9 +55,11 @@ class Log {
   Log() { reset(0); }
 
   // Fold in one block of 16-bit mono PCM. `t_ms` is the block's timestamp on the
-  // best clock the node has (the fleet-synced epoch when synced, else millis()) —
-  // this is what makes a transient comparable ACROSS nodes, so pass the synced value
-  // whenever gSynced is true. `now_ms` is local millis() for window bookkeeping.
+  // best clock the node has — the TEAM TIME STREAM's clock whenever the node is on a
+  // stream, else local millis(). This is what makes a transient comparable ACROSS
+  // nodes, so pass the stream value whenever there is one and make sure the same
+  // stream id reaches buildRecord: an instant is worthless without the clock it was
+  // read from. `now_ms` is local millis() for window bookkeeping.
   void addBlock(const int16_t* samples, size_t n, uint64_t t_ms, uint32_t now_ms);
 
   bool due(uint32_t now_ms) const;
@@ -73,12 +76,12 @@ class Log {
 
   // Render a complete TTDB record block and start a new window:
   //   \n---\n\n@LAT94LON<lane_n> | created:<t_sec> | ... | relates:hears@LAT0LON0
-  //   \n\n**ACOUSTICWIN** t_ms:.. synced:<0|1> window_ms:.. blocks:.. rate:..
+  //   \n\n**ACOUSTICWIN** t_ms:.. stream:0x<id> wall:<0|1> window_ms:.. blocks:.. rate:..
   //   \n**ACOUSTIC** rms_mean:.. rms_max:.. peak:.. transients:..
-  //   \n**TRANSIENT** t_ms:.. rms:..            (only when one was heard)
+  //   \n**TRANSIENT** t_ms:.. stream:0x<id> wall:<0|1> rms:..   (only when one was heard)
   // Returns bytes written, or 0 if the window was empty (still resets).
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     uint64_t t_ms, bool synced, uint32_t now_ms,
+                     const timestream::Stamp& ts, uint32_t now_ms,
                      uint32_t sample_rate);
 
   void reset(uint32_t now_ms);

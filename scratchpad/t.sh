@@ -15,7 +15,8 @@ ZIG="${ZIG:-/c/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe}"
 [ -x "$ZIG" ] || { echo "no zig at $ZIG"; exit 1; }
 LIB=firmware/libraries
 INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src
-     -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src"
+     -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
+     -I$LIB/TimeStream/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
 
 # name : extra sources (test_<name>.cpp is implied)
@@ -26,17 +27,18 @@ build_one() {
 }
 
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn
-                  rfc_ttdb symmetric_edges nmea pulse)
+                  rfc_ttdb symmetric_edges nmea pulse timestream)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
-  [linkpercept]="$LIB/LinkPercept/src/LinkPercept.cpp"
-  [entitypercept]="$LIB/EntityPercept/src/EntityPercept.cpp"
-  [motionpercept]="$LIB/MotionPercept/src/MotionPercept.cpp"
-  [perceptlearn]="$LIB/PerceptLearn/src/PerceptLearn.cpp"
+  [linkpercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/LinkPercept/src/LinkPercept.cpp"
+  [entitypercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/EntityPercept/src/EntityPercept.cpp"
+  [motionpercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/MotionPercept/src/MotionPercept.cpp"
+  [perceptlearn]="$LIB/TimeStream/src/TimeStream.cpp $LIB/PerceptLearn/src/PerceptLearn.cpp"
   [rfc_ttdb]="$LIB/TTDB/src/TtdbParse.cpp"
   [symmetric_edges]="$LIB/TTDB/src/TtdbParse.cpp"
   [nmea]="$LIB/Gps/src/Nmea.cpp"
   [pulse]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/Pulse/src/Pulse.cpp"
+  [timestream]="$LIB/TimeStream/src/TimeStream.cpp"
 )
 
 if [ $# -gt 0 ]; then NAMES=("$@"); fi

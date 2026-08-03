@@ -84,23 +84,24 @@ int32_t Log::rmsMean() const {
 }
 
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                        uint64_t t_ms, bool synced, uint32_t now_ms,
+                        const timestream::Stamp& ts, uint32_t now_ms,
                         uint32_t sample_rate) {
   if (blocks_ == 0) {
     reset(now_ms);
     return 0;
   }
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) { reset(now_ms); return 0; }
   uint32_t window_ms = now_ms - window_start_ms_;
   size_t w = 0;
   int m = snprintf(out + w, cap - w,
                    "\n---\n\n@LAT94LON%d | created:%lu | updated:%lu | "
                    "relates:hears@LAT0LON0\n\n"
-                   "**ACOUSTICWIN** t_ms:%llu synced:%d window_ms:%lu blocks:%ld "
+                   "**ACOUSTICWIN** %s window_ms:%lu blocks:%ld "
                    "rate:%lu\n"
                    "**ACOUSTIC** rms_mean:%ld rms_max:%ld peak:%ld transients:%ld\n",
                    lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
-                   (unsigned long long)t_ms, synced ? 1 : 0,
-                   (unsigned long)window_ms, (long)blocks_,
+                   stamp, (unsigned long)window_ms, (long)blocks_,
                    (unsigned long)sample_rate, (long)rmsMean(), (long)rms_max_,
                    (long)peak_, (long)transients_);
   if (m < 0 || (size_t)m >= cap - w) {
@@ -112,10 +113,17 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   // The transient line is the whole point of the tier, so it is emitted separately
   // and only when there is one — an empty line would read as a heard event.
   if (transients_ > 0) {
-    m = snprintf(out + w, cap - w, "**TRANSIENT** t_ms:%llu rms:%ld synced:%d\n",
-                 (unsigned long long)loudest_t_ms_, (long)loudest_rms_,
-                 synced ? 1 : 0);
-    if (m > 0 && (size_t)m < cap - w) w += (size_t)m;
+    // Its own instant, the SAME timeline: the transient's t_ms is what makes two
+    // nodes' captures of one clap comparable, and it is worthless without the
+    // stream id beside it saying which clock that instant was read from.
+    timestream::Stamp tt = ts;
+    tt.t_ms = loudest_t_ms_;
+    char tstamp[64];
+    if (timestream::buildStamp(tstamp, sizeof(tstamp), tt)) {
+      m = snprintf(out + w, cap - w, "**TRANSIENT** %s rms:%ld\n", tstamp,
+                   (long)loudest_rms_);
+      if (m > 0 && (size_t)m < cap - w) w += (size_t)m;
+    }
   }
   reset(now_ms);
   return w;

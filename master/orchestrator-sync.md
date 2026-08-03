@@ -60,3 +60,9 @@ lon: 0
 @LAT99LON6 | created:1785190035 | updated:1785190035 | relates:logs@LAT0LON0
 
 **SYNC** id:7 t_ms:1785190035995 recv_ms:1785190035995 offset_ms:0
+
+---
+
+@LAT99LON7 | created:1785774270 | updated:1785774270 | relates:logs@LAT0LON0
+
+**SYNC** id:8 t_ms:1785774270662 recv_ms:1785774270662 offset_ms:0

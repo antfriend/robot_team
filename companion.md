@@ -2880,6 +2880,182 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `@LAT91`'s shape anyway (`touched:0` makes `sal` undecayable), so fixing a wire format for
   it now would mean designing it twice.
 
+- ✅ **2026-08-03 — PART 2, THE TEAM TIME STREAM: BUILT, NATIVE-TESTED, WHOLE FLEET
+  COMPILES. NOT YET ON HARDWARE.**
+  [timestream-handoff.md](timestream-handoff.md) Part 2. New library
+  `firmware/libraries/TimeStream/` (+ `TimeStreamNode.h`, the Arduino glue), the
+  `synced:` → `stream:`/`wall:` migration across all 7 record formats, `companion.py`
+  reading both, and all six sketches wired and building.
+  **① THE DESIGN COLLAPSED TO ONE IDEA, AND IT MADE TWO OF THE HANDOFF'S THREE HAZARDS
+  DISAPPEAR RATHER THAN BE HANDLED.** A stream's clock reads **elapsed-since-its-own-
+  origin** — it starts at 0 when a node finds no stream to join. From that one choice:
+  - the merge rule the handoff asked for (**OLDER STREAM WINS**, because it preserves
+    more history) becomes simply *the larger clock wins*;
+  - **MONOTONICITY is free.** The handoff lists it separately (§2.2.3: "adopting a
+    stream can move the clock BACKWARD, putting already-written records out of
+    order"). It cannot happen: yielding to an older stream always moves the clock
+    FORWARD, because that is what "older" means. **The merge rule IS the monotonicity
+    guarantee** — not two mechanisms that have to agree;
+  - a foreign stream and a drifting peer on our own reduce to the SAME comparison
+    (*is the sender ahead of me?*), so `onAnchor` is one rule, not a table.
+  📎 Stated because it is a real property: the stream clock is a **ratchet**. It runs at
+  the rate of the fastest crystal ever heard on it and never goes backward on any node.
+  Right for ordering and recency; for a DURATION use the node's own `millis()` delta,
+  which is what `MotionPercept`'s `dt_ms` already does.
+  **② IT RIDES ON HELLO, NOT ON PULSE — AND THAT IS THE LOAD-BEARING CHOICE.** PULSE is
+  the obvious carrier and is wrong: **only the conductor emits one, and the conductor is
+  elected by lowest id**, so the node holding the oldest stream usually is not allowed
+  to speak. A stream only the conductor can announce cannot win the merge it exists to
+  win. HELLO is every node, every 2 s, and its payload was **empty**, so this is purely
+  additive — an un-reflashed node sends 0 bytes and is a non-participant, not a parse
+  error. ⚠ **The pulse clock is deliberately NOT reused as the stream** for the same
+  reason plus one more: the band is measured tight (±9 ms, three runs) and is the one
+  fully-working subsystem here; hanging record timestamps off it would put every future
+  timeline change in the blast radius of the beat.
+  **③ THE RECENCY ANCHOR IS WRITTEN TWICE, AND THE REASON IS A SPEC FINDING FOR TTE.**
+  **TTDB-RFC-0005 §4 defines `touched` as Unix epoch seconds**, and its decay note
+  ("entries untouched for long periods SHOULD have `conf` decremented") assumes an agent
+  that can read a wall clock. A fleet with no laptop cannot — so `touched:0`, so `sal`
+  never fades, so EPS `= sal×(255−conf)/255` has no time term. **RFC-0005's recency
+  machinery is unusable on exactly the class of device the RFC was written for.** So
+  `@LAT91` now emits `touched:` spec-conformant (Unix seconds, 0 = unknown) AND a
+  **`**TOUCHED** t_ms:<stream ms> stream:0x<id> wall:<0|1> unix_s:<s>`** body line —
+  the same instant in two frames, and the second is the one that always exists. That is
+  the third item for `percept-learning-return.md` §Part 4, alongside "Rule 3 says how
+  `sal` RISES and never says what makes it fall".
+  **④ ONE DEFECT THE MIGRATION EXPOSED, IN A NUMBER NOBODY WOULD HAVE QUESTIONED.**
+  `@LAT93`'s `dt_ms` is `after.t_ms − before.t_ms`. A stream merge between those two
+  windows moves the clock forward by the offset it adopted, **and that offset lands in
+  the subtraction and reads as elapsed time that never happened.** It is not detectable
+  from the numbers (a minute-long gap looks like a minute-long gap), so the record now
+  carries **`dt_across_merge:<0|1>`**. It is recoverable, not lost: a merge only ever
+  moves the clock forward, so `dt_ms` over-reads by exactly the offset the `@LAT90`
+  **REMAP** line wrote down. Native-tested both ways.
+  **⑤ WHAT IS ON FLASH NOW.** `t_ms:<ms> stream:0x<id> wall:<0|1>` replaces
+  `t_ms:<ms> synced:<0|1>` in **LINKWIN · ENTWIN · MOTIONWIN · TRANSITION · ACOUSTICWIN
+  · TRANSIENT · OUTCOME**. Rendered by **one** function (`timestream::buildStamp`) —
+  seven format strings that must agree is seven chances to drift. `stream:0x00000000` is
+  meaningful and is not an error: *this timestamp is local `millis()`, comparable with
+  nothing but my own records* — what `synced:0` always meant. The difference is that
+  `stream:` also **names** the clock when there is one, which `synced:1` never could,
+  and after a merge that is otherwise unanswerable.
+  ⚠ **BOTH FORMATS ARE LIVE IN THE CORPUS AND BOTH MUST PARSE.** A node's TTDB is
+  appended to for its whole life, so pre-2026-08-03 records sit on the same flash as
+  post. `companion.py parse_time_fields()` handles both and **does not fabricate an id
+  for an old `synced:1`** — it reads back as "some clock, unnameable", which is exactly
+  the limitation that motivated the change. `test_perceptlearn` deliberately keeps its
+  fixture in the OLD format so the reader is pinned against it.
+  **⑥ NEW `@LAT90` LANE — timeline CHANGES, not time.** `STREAM-ORIGIN` /
+  `STREAM-ADOPTED` / `STREAM-RECONCILED` / `STREAM-ANCHORED`, plus a **REMAP** line
+  carrying `prev_stream` + `prev_t_ms` + `offset_ms` so records written under an
+  abandoned stream stay interpretable instead of orphaned. A routine drift correction
+  (`EV_SLEW`) writes **nothing** — it would flood the lane. Cap `TIMESTREAM_MAX_LANE 16`
+  is a **pathology guard, not a ceiling**: if it fills, two nodes are flapping between
+  streams and that IS the finding. Do not raise it.
+  📎 A wall-anchor disagreement is **reported, not resolved**: `wall_conflict_ms` on the
+  record and a `⚠` on serial. Two laptops, or a stale anchor carried across a merge, is
+  a real condition, and the fleet's signature failure is the one nobody printed.
+  📎 The date **survives a merge**: a node that knows the date and then joins a
+  longer-running blind stream still knows it, to the millisecond, and then propagates it
+  back. Native-tested.
+  **⑦ NUMBERS.** Native suite **10 tests, 0 failures**, `test_timestream` adding
+  **86 checks** (merge, monotonicity across four paths, tie convergence, slew-is-not-a-
+  ratchet, wall carry, the 49.7-day `millis()` wrap). Python suite 7/7 with new
+  both-format coverage in `test_prox_py`. Flash: Cardputer **41%**, T-Deck **40%**,
+  K10 **20%**, all three V4s **94%**. ⚠ Measured against a HEAD worktree, the V4 cost is
+  **+3728 B (+0.28% of the partition), +416 B RAM — 74.5 KB of headroom left**. Small,
+  but they were already the constrained boards.
+  **⑧ ON HARDWARE (Cardputer 0x300, COM14, app-only flash so the existing 121 KB TTDB
+  was PRESERVED — the mixed corpus is the point).** Captures in
+  `master/timestream-2026-08-03/`.
+  - **`@LAT90` STREAM-ORIGIN written on a node with no laptop**: `stream:0x0ad62c42
+    wall:0 t_ms:0`, `created:0`. It has a timeline and correctly declines to name the
+    date. That is the state the old `synced:0` could not express.
+  - **`companion.py sync` → `@LAT90LON3` STREAM-ANCHORED** `stream:0x10578c80 wall:1
+    t_ms:4028054 from:0x1` + `**WALL** unix_ms:1785774270662 wall_conflict_ms:0`, and
+    its header carries **`created:1785774270`** while the three ORIGIN records above it
+    in the same lane still read `created:0`. **The two facts, side by side, in one lane.**
+  - 🔎 **THE BEST EVIDENCE CAME FROM CHECKING A NUMBER THAT LOOKED WRONG.**
+    `t_ms:4028054` (67 min) looked impossible for a node that had just been flashed, so
+    it was checked rather than accepted: the six `@LAT96` windows on that stream read
+    `47888 · 633274 · 1233273 · 1833273 · 2433274 · 3033273 · 3633271`, whose deltas are
+    `585386 · 599999 · 600000 · 600001 · 599999 · 599998` — **matching each record's own
+    `window_ms` to the millisecond.** The clock ticks at real time; three full 123 KB
+    pulls simply take longer than expected. The suspicion was wrong and the check is
+    now the proof that the stream clock is real.
+  - ⚠⚠ **AND IN THAT SAME SERIES IS THE WHOLE ARGUMENT FOR `stream:`, BY ACCIDENT.**
+    Two `@LAT96` records read `t_ms:47583 stream:0x0ad62c42` and `t_ms:47888
+    stream:0x10578c80` — **305 ms apart on their clocks, an hour apart in the world**,
+    because a reboot between them started a new timeline. Under the old format BOTH
+    would say `synced:0 t_ms:~47700` and be indistinguishable. This is exactly the
+    retroactive ambiguity §2.2.1 predicted, caught on real flash on the first run.
+  - **The reboot rule works**: three boots, three DIFFERENT stream ids
+    (`0ad62c42`/`fc36a38c`/`10578c80`). A reboot really is a new timeline, not a reused
+    id with its clock reset to 0. 📎 Consequence to watch: a node rebooting ALONE writes
+    one ORIGIN each time, so 16 solo reboots fill the lane. In a live fleet it is
+    self-limiting — a rebooting node ADOPTS the peer's older stream instead.
+  - **The mixed corpus parses**: `parse_link_percepts` + `parse_entity_percepts` over
+    the real 123 KB file give **48 + 36 windows, 0 unparsed time fields**, 83 old records
+    reading `-` (stream 0) and the new one reading `0ad62c42`.
+  **⑨ TWO-NODE RUN (T-Deck 0x200 on COM10 flashed too, app-only). THE MERGE FIRED ON
+  HARDWARE WITHOUT BEING STAGED.** Captures: `master/timestream-2026-08-03/`
+  (`tdeck_final.md`, `cardputer_final.md`).
+  - The T-Deck booted, heard nothing in its 6 s listen window, **originated its own
+    stream** `0x15ecaee3` — and **1.35 s later heard the Cardputer's 26-minute-old one
+    and yielded**:
+    ```
+    @LAT90LON1  **STREAM-RECONCILED** stream:0x26a1b82d wall:0 t_ms:1570668 from:0x300
+                **REMAP** prev_stream:0x15ecaee3 prev_t_ms:7353 offset_ms:1563315
+                          rule:older_stream_wins
+    ```
+    **Older stream won, the clock moved FORWARD by 1563 s, and the mapping back to the
+    abandoned timeline is on flash.** That is the whole of §2.2.2 + §2.2.3, and it did
+    not need the staged walk-out-of-range — the T-Deck's radio simply is not up inside
+    its own listen window.
+  - **THE PROPERTY THE FEATURE EXISTS FOR, DEMONSTRATED BY ACCIDENT.** The Cardputer's
+    own lane ends `**STREAM-ORIGIN** stream:0x26a1b82d` … `**STREAM-ADOPTED**
+    stream:0x26a1b82d from:0x200`. It **originated that stream, was reset, and got its
+    own timeline handed back by the T-Deck.** Killing the node that was counting did not
+    lose the fleet's place — TTN-RFC-0010's property, now for the log as well as the beat.
+  - **Both nodes stamp ONE shared id**: the Cardputer's newest `@LAT96` reads
+    `t_ms:1888655 stream:0x26a1b82d wall:0`, on the same stream the T-Deck reconciled
+    onto. Cross-node comparability, which `synced:1` could never express.
+  - 📎 The T-Deck wrote **no** new percept records: its `@LAT96` and `@LAT97` are both at
+    the 48 cap. Its only new records are `@LAT90`. Not a defect — but it means the
+    Cardputer is the only node that has demonstrated the new percept stamp.
+  ⚠⚠ **THE FINDING THIS RUN PRODUCED: `@LAT90` GROWS ONE RECORD PER REBOOT, AND
+  `companion.py` REBOOTS THE CABLED NODE ON EVERY INVOCATION.** The T-Deck went **0 → 7
+  records in one session** against a cap of 16; the Cardputer reached 6. Confirmed by
+  measurement, not inferred: a pull adds exactly one record (5→6 across one pull, 138 s
+  apart), and **three minutes left completely untouched added exactly one** — so the node
+  is NOT crash-looping, every record is a real reset, and ordinary orchestration alone
+  will fill the lane in ~16 commands. Compounds the documented
+  [[looping-companion-py-resets-bridge]] trap.
+  🔎 **And most of those records arguably should not exist.** A node that reboots and
+  rejoins **the stream it was already on** has had no timeline change — the Cardputer's
+  `STREAM-ADOPTED … from:0x200` is it re-adopting a stream *it had itself originated*.
+  The lane is specified as "timeline CHANGES, not time", and a plain rejoin is not one.
+  **Fix candidate (NOT built — recorded first, deliberately): persist the last stream id
+  in NVS and write `ADOPTED` only when the stream actually differs from the one this node
+  left.** That also makes the cap mean what it was documented to mean (a flapping
+  detector) instead of a reboot counter.
+  📎 Not pinned down: one cluster of three ADOPTED records 22 s / 4 s / 6 s apart, during
+  a window in which the port was opened and closed repeatedly. Consistent with pyserial
+  toggling DTR on close as well as open (**[[usb-uart-chip-reset-not-a-crash]]** — on S3
+  native USB, asserted DTR resets and deasserted reads back NOTHING, which is also why
+  raw serial capture returned 0 bytes on both settings and the TTDB had to be the
+  instrument). Per-record attribution to individual resets was not established; the
+  no-looping result above does not depend on it.
+  📎 **The boot Dream Cycle took 21128 ms** (`widest section linkperc 19013ms`) on the
+  now-123 KB TTDB. That is 1.1's O(file) law extrapolated and confirmed: 8.6 KB→150 ms,
+  74 KB→1757 ms, **123 KB→~19 s**. Steady-state passes were 107 ms. The lane caps mean
+  `@LAT92` cannot grow, so beliefs no longer change and the cycle takes the no-op path —
+  which is the only reason this node is usable. **1.1's second bullet is still open and
+  this is now the strongest argument for it.**
+  📎 Unrelated observation while identifying ports: the Cardputer reported **`mind: 7 KB`
+  largest contiguous block** at 25 min uptime (memory records ~45 KB once WiFi/BLE are
+  up). Not investigated. If it is real it is a much bigger problem than anything here.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

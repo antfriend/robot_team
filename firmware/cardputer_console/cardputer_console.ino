@@ -54,6 +54,7 @@
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
+#include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
 
@@ -331,11 +332,24 @@ static inline void sectMark() {
   if (gSectN <= kNumSections) gSectMark[gSectN++] = millis();
 }
 
-// --- wall clock (TTN-RFC-0008) ----------------------------------------------
-static int64_t gClockOffsetMs = 0;
-static bool gSynced = false;
+// --- the team time stream (TimeStream.h) + the wall clock (TTN-RFC-0008) -----
+// gStream owns BOTH facts now: which shared timeline this node is on, and whether that
+// timeline knows the date. The old single `synced` bit could only ever answer the
+// second, and answered it "no" for a fleet in a garden that was in perfect agreement
+// with itself.
+static timestream::Node gTs;
+
+// Shorthands, so the tiers below read the way they always did. gStamp is the ONE
+// snapshot every record in a pass is stamped from — four tiers flushing in the same
+// loop() pass carry the same instant, rather than four readings of a clock that moved
+// between them.
+#define gStamp         (gTs.stamp())
+#define gStreamWallSec (gTs.wallSec())
+#define gSynced        (gTs.wall())
+#define gClockOffsetMs (gTs.clockOffsetMs())
+static inline int64_t nowEpochMs() { return gTs.nowEpochMs(); }
+
 static uint32_t gLastSyncId = 0;
-static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
 static volatile bool gSyncPending = false;
 static uint32_t gPendSyncId = 0;
 static uint64_t gPendEpochMs = 0;
@@ -882,11 +896,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       if (toot::parseTimeSync(t, sid, ems)) {
         uint32_t recv_ms = millis();
         if (!gSynced || sid > gLastSyncId) {
-          gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
-          gSynced = true;
+          // The laptop supplies the DATE. It does not supply the timeline — the fleet
+          // already has one — so this anchors the stream rather than replacing its
+          // clock. gTs.onTimeSync() only latches; gTs.service() applies it from loop(),
+          // because it mutates gStream and this runs in the WiFi task.
           gLastSyncId = sid;
           gPendSyncId = sid; gPendEpochMs = ems; gPendRecvMs = recv_ms;
-          gSyncPending = true;       // append @LAT99 log from loop()
+          gTs.onTimeSync(ems, recv_ms, t.src_node_id);
+          gSyncPending = true;       // append the @LAT99 log from loop()
         }
         accepted = true;             // ACK the want_ack TIME_SYNC (idempotent)
       }
@@ -918,6 +935,13 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
     default:
       break;
   }
+
+  // The time-stream anchor rides on HELLO — every node emits one every 2 s, and its
+  // payload was empty until now, so this is purely additive: a node still on old
+  // firmware sends 0 bytes and parseAnchor declines, which makes it a non-participant
+  // rather than a parse error. Handled OUTSIDE the USE_PULSE guard on purpose: the
+  // band is optional, a shared timeline is not.
+  gTs.onHello(t, millis());
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -966,6 +990,10 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
 // Append an @LAT99 sync-log record (deferred from the recv path). n = count of existing
 // lat-99 records so each is unique under collision_policy: reject.
 static void appendSyncRecord() {
+  // The stream is anchored to the date by gTs.service() (which ran before this, at
+  // the top of loop()), so `created:` below is already real. Note the laptop is
+  // telling the fleet what DAY it is, not what TIME it is — those became separate
+  // facts on 2026-08-03, and only the first is the laptop's to say.
   int n = 0;
   for (int i = 0; i < gDb.recordCount(); ++i)
     if (gDb.record(i).lat == 99) ++n;
@@ -1084,10 +1112,13 @@ static void reconcileBeliefs() {
     return;
   }
   const uint32_t t_rm = millis();
-  uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
+  // `touched:` (Unix seconds, TTDB-RFC-0005) and the **TOUCHED** stream stamp are the
+  // same instant in two frames. The second is the one that works with no laptop, which
+  // is the whole reason the belief can now decay at all.
   static char brec[PERCEPTLEARN_BUF];
   for (int i = 0; i < n; ++i) {
-    size_t m = gRecon.buildBelief(brec, sizeof(brec), i, i, t_sec, kNodeId, gBeliefRev);
+    size_t m = gRecon.buildBelief(brec, sizeof(brec), i, i, gStreamWallSec, kNodeId,
+                                  gBeliefRev, gStamp);
     if (m && gDb.appendRecord(brec, m)) {
       const perceptlearn::Belief& b = gRecon.belief(i);
       Serial.printf("[dream] @LAT%dLON%d peer:0x%lx %s conf:%ld sal:%ld "
@@ -1607,7 +1638,10 @@ static void serviceMic(uint32_t now) {
   }
 
   // These samples end NOW; every block still behind them is that many frames older.
-  const uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
+  // The transient timestamp is the Phase-3 TDoA datum, so it rides the TEAM TIME
+  // STREAM rather than the wall clock: two nodes agreeing with each other is what
+  // makes a cross-correlation possible, and knowing the date is not.
+  const uint64_t t_ms = gStamp.t_ms ? gStamp.t_ms : (uint64_t)now;
   while (gMicCarryN >= MIC_TIER_FRAMES) {
     size_t rest = gMicCarryN - MIC_TIER_FRAMES;
     uint64_t blk_t = t_ms - (uint64_t)((rest * 1000) / I2S_RATE);
@@ -3274,6 +3308,12 @@ void setup() {
   gPulse.begin(kNodeId, millis());   // highest id in the fleet: a follower by default
 #endif
 
+  // The time stream starts EMPTY, not with a stream of our own: this node listens for
+  // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is
+  // free and forking one costs a merge. Independent of USE_PULSE — the band is
+  // optional, a shared timeline is not.
+  gTs.begin(kNodeId, &gDb, millis());
+
 #if USE_BLE
   blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
   Serial.println("BLE near-range tier up (advert + passive scan)");
@@ -3304,6 +3344,12 @@ void loop() {
   const uint32_t now = millis();
   gSectN = 0;
   sectMark();                       // [0] top of the pass
+
+  // FIRST, before anything reads a clock: settle which timeline this node is on and
+  // refresh gStamp. Every tier below stamps from that one snapshot, so four records
+  // flushed in one pass carry the same instant instead of four readings of a clock
+  // that moved between them.
+  gTs.service(now);
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Trusted, un-deduped link.
@@ -3357,9 +3403,8 @@ void loop() {
                       "are NOT missing peers\n",
                       gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms, gSynced, now);
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, now);
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -3368,7 +3413,7 @@ void loop() {
       // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
       // doing it from the live loop is the exact violation Rule 2 names (and the one
       // LOCUS committed).
-      if (gLearn.score(t_ms, gSynced) && gLearn.outcomePending()) {
+      if (gLearn.score(gStamp, gStreamWallSec) && gLearn.outcomePending()) {
         int olane = laneCount(PERCEPTLEARN_LANE);
         if (olane >= PERCEPTLEARN_MAX_LANE) {
           Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
@@ -3411,9 +3456,8 @@ void loop() {
       gEntityLog.reset(now);
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms, gSynced, now);
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                        gStamp, now);
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -3447,9 +3491,8 @@ void loop() {
       gLearn.disarm();   // no acting record to cite; make no claim
     } else {
       char rec[320];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
-      size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms, gSynced, now);
+      size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                        gStamp, now);
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[motion] percept window -> @LAT95LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -3509,10 +3552,8 @@ void loop() {
       gAcousticLog.reset(now);
     } else {
       char rec[400];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)now;
-      size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms, gSynced,
-                                          now, I2S_RATE);
+      size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                          gStamp, now, I2S_RATE);
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[acoustic] percept window -> @LAT94LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -3750,11 +3791,16 @@ void loop() {
 
   sectMark();                       // [8] end of "intero": battery + die temp + heap
 
-  // Periodic HELLO beacon.
+  // Periodic HELLO beacon — now also the carrier for the time-stream anchor. The
+  // anchor is sampled HERE rather than reused from gStamp so `stream_ms` is the value
+  // at transmit: a receiver adopts (stream_ms - its recv millis), and any staleness in
+  // the number lands directly in its clock as an error.
   static uint32_t lastBeacon = 0;
   if (now - lastBeacon >= 2000) {
     lastBeacon = now;
-    emit(toot::HELLO, nullptr, 0, sendEspNow, nullptr);
+    uint8_t body[timestream::ANCHOR_LEN];
+    size_t bn = gTs.helloPayload(body, sizeof(body), millis());
+    emit(toot::HELLO, bn ? body : nullptr, bn, sendEspNow, nullptr);
   }
 
 #if USE_CARD_HW

@@ -19,6 +19,19 @@ static int g_fail = 0;
     }                                                      \
   } while (0)
 
+// The old API took `(t_ms, bool synced)`. It now takes a timestream::Stamp, and the
+// migration is exactly: `synced:1` meant "on SOME shared clock, identity unknown" —
+// which is a stream with a wall anchor. `synced:0` meant "local millis()", which is
+// stream 0. These tests keep their original intent under the new field.
+static const uint32_t kStream = 0x5EA51DE7u;
+static timestream::Stamp ST(uint64_t t_ms, bool synced) {
+  timestream::Stamp s;
+  s.t_ms = t_ms;
+  s.stream_id = synced ? kStream : 0;
+  s.wall = synced;
+  return s;
+}
+
 static const uint8_t AP1[6] = {0xa4, 0x2b, 0xb0, 0x11, 0x22, 0x33};
 static const uint8_t AP2[6] = {0xde, 0xad, 0xbe, 0xef, 0x00, 0x01};
 
@@ -53,13 +66,14 @@ int main() {
 
   // --- record format: @LAT96 lane, ENTWIN header + one ENTITY line per AP -
   char rec[512];
-  size_t m = log.buildRecord(rec, sizeof(rec), 3, 1780000000, 1780000000123ULL,
-                             true, 61000);
+  size_t m = log.buildRecord(rec, sizeof(rec), 3, 1780000000,
+                             ST(1780000000123ULL, true), 61000);
   CHECK(m > 0, "buildRecord wrote bytes");
   std::string s(rec, m);
   CHECK(s.find("@LAT96LON3") != std::string::npos, "record on @LAT96 lane");
-  CHECK(s.find("**ENTWIN** t_ms:1780000000123 synced:1 window_ms:60000 entities:2")
-            != std::string::npos, "ENTWIN context line");
+  CHECK(s.find("**ENTWIN** t_ms:1780000000123 stream:0x5ea51de7 wall:1 "
+               "window_ms:60000 entities:2") != std::string::npos,
+        "ENTWIN context line");
   CHECK(s.find("**ENTITY** kind:wifi_ap id:a42bb0112233 n:3 rssi:-60")
             != std::string::npos, "AP1 ENTITY line (lowercase hex, no colons)");
   CHECK(s.find("id:deadbeef0001 n:1 rssi:-50") != std::string::npos,
@@ -71,7 +85,7 @@ int main() {
   CHECK(log.entityCount() == 0 && log.totalObs() == 0, "buildRecord reset the window");
 
   // --- empty window flushes nothing --------------------------------------
-  m = log.buildRecord(rec, sizeof(rec), 4, 1780000100, 1780000100000ULL, false, 122000);
+  m = log.buildRecord(rec, sizeof(rec), 4, 1780000100, ST(1780000100000ULL, false), 122000);
   CHECK(m == 0, "empty window -> 0 bytes");
 
   // --- due(): needs the window to elapse AND an observation --------------

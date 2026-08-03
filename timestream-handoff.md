@@ -158,6 +158,30 @@ flashed.
 
 ## Part 2 — The team time stream
 
+> **STATUS 2026-08-03: BUILT, NATIVE-TESTED, ALL SIX SKETCHES COMPILE. NOT ON HARDWARE.**
+> See companion.md §6. Two of the three hazards in §2.2 turned out to be **the same
+> mechanism**: because a stream's clock reads elapsed-since-its-own-origin, "older
+> stream wins" (§2.2.2) and "never move backward" (§2.2.3) are one rule, not two that
+> must agree. §2.2.1 (`stream:` on every record) was built as specified.
+> Two deviations from the sketch below, both deliberate and both explained in
+> companion.md §6: the anchor rides on **HELLO, not PULSE** (only the conductor emits a
+> PULSE, and the conductor is elected by id, so the oldest stream usually cannot speak);
+> and `touched:` stays **Unix seconds per TTDB-RFC-0005** with the stream frame added
+> beside it on a `**TOUCHED**` line, rather than having its unit redefined — the RFC
+> defines that field in Unix seconds, and that is itself the spec finding (§4.1).
+> **HARDWARE RUN DONE (Cardputer 0x300 + T-Deck 0x200, both flashed app-only so the
+> existing TTDBs were preserved).** ORIGIN, ANCHORED, ADOPTED and **RECONCILED with its
+> REMAP mapping** all fired on real flash; the merge did not even need staging (a
+> booting node's radio is not up inside its own listen window, so it originates and then
+> yields ~1.3 s later). Both nodes ended up stamping records with one shared stream id,
+> and the Cardputer got its own timeline handed back by the T-Deck across a reset.
+> ⚠ **One defect found and NOT fixed: `@LAT90` grows one record per reboot** and
+> `companion.py` reboots the cabled node on every invocation — 0 → 7 records in a
+> session against a cap of 16. A node that rejoins the stream it was already on has had
+> no timeline change and should not write one. Fix candidate (persist the last stream id
+> in NVS, write `ADOPTED` only on a genuine difference) is recorded in companion.md §6,
+> deliberately not built blind.
+
 ### 2.1 The problem, stated precisely
 
 Every record the Cardputer wrote on 2026-08-02 carries `synced:0`, `created:0`,

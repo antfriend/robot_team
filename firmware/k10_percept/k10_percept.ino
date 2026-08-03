@@ -25,6 +25,7 @@
 #include <LinkPercept.h>  // SP0: link-percept histograms -> @LAT97 records
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan (K10's FIRST direct percept)
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
+#include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <RobotTeamConfig.h>
 
 // Real UNIHIKER K10 onboard hardware (DFRobot `unihiker_k10` library). Set to 0
@@ -125,10 +126,20 @@ uint32_t gSeq = 1;
 // No RTC: synthesize epoch ms from millis() + an offset adopted on TIME_SYNC.
 // Unsynced until the first TIME_SYNC; exactly-once adoption is gated on a
 // monotonic sync_id (not transport dedup), so the un-deduped paths stay correct.
-static int64_t gClockOffsetMs = 0;
-static bool gSynced = false;
+// --- the team time stream (TimeStreamNode.h) --------------------------------
+// gTs owns BOTH facts now: which shared timeline this node is on, and whether that
+// timeline knows the date. The old single `synced` bit could only ever answer the
+// second, and answered it "no" for a fleet in perfect agreement with itself. The
+// macros keep every reader below reading the way it always did; the difference is
+// that they are callback-safe scalars refreshed once per loop(), never live reads of
+// an engine the WiFi task must not touch.
+static timestream::Node gTs;
+#define gStamp         (gTs.stamp())
+#define gStreamWallSec (gTs.wallSec())
+#define gSynced        (gTs.wall())
+#define gClockOffsetMs (gTs.clockOffsetMs())
 static uint32_t gLastSyncId = 0;
-static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
+static inline int64_t nowEpochMs() { return gTs.nowEpochMs(); }
 
 // A TIME_SYNC adopts the offset in the recv path (for timing accuracy) but defers
 // the TTDB log-append to loop() (flash write + re-index, like the TTDB reply).
@@ -675,8 +686,10 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       if (toot::parseTimeSync(t, sid, ems)) {
         uint32_t recv_ms = millis();
         if (!gSynced || sid > gLastSyncId) {
-          gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
-          gSynced = true;
+          // The laptop supplies the DATE. It does not supply the timeline — the fleet
+          // already has one — so this ANCHORS the stream instead of replacing its
+          // clock. Latched here, applied by gTs.service() from loop().
+          gTs.onTimeSync(ems, recv_ms, t.src_node_id);
           gLastSyncId = sid;
           gPendSyncId = sid;
           gPendEpochMs = ems;
@@ -731,6 +744,13 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   // TTN-RFC-0007: acknowledge an accepted want_ack toot exactly once on this path.
   // A replay arriving over the radio is re-ACKed in onEspNowRecv without reaching
   // here (§5), so the body is processed once and the ACK stays idempotent.
+  // The time-stream anchor rides on HELLO — every node emits one every 2 s and its
+  // payload was EMPTY until now, so this is purely additive: a node still on old
+  // firmware sends 0 bytes and parseAnchor declines, making it a non-participant
+  // rather than a parse error. Outside the USE_PULSE guard on purpose: the band is
+  // optional, a shared timeline is not.
+  gTs.onHello(t, millis());
+
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -871,10 +891,22 @@ void setup() {
 #if USE_PULSE
   gPulse.begin(kNodeId, millis());  // first node up conducts after the listen window
 #endif
+
+  // The time stream starts EMPTY, not with a stream of our own: this node listens for
+  // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
+  // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
+  // shared timeline is not.
+  gTs.begin(kNodeId, &gDb, millis());
   Serial.printf("K10 percept node 0x%08X online\n", kNodeId);
 }
 
 void loop() {
+
+  // FIRST, before anything reads a clock: settle which timeline this node is on and
+  // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed
+  // in the same pass carry the same instant rather than separate readings of a clock
+  // that moved between them.
+  gTs.service(millis());
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC.
   uint8_t buf[toot::MAX_FRAME];
   size_t n = 0;
@@ -983,10 +1015,8 @@ void loop() {
       gLinkLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                      gSynced, millis());
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -1007,10 +1037,8 @@ void loop() {
       gEntityLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                        gSynced, millis());
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -1110,6 +1138,8 @@ void loop() {
 #if USE_K10_HW
     renderScreen(gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f);
 #endif
-    emit(toot::HELLO, nullptr, 0, sendEspNow, nullptr);
+    uint8_t hb[timestream::ANCHOR_LEN];
+    size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
+    emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
   }
 }

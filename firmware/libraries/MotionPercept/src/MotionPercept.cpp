@@ -88,11 +88,13 @@ bool Log::moving(uint32_t now_ms, uint32_t recent_ms) const {
 }
 
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                        uint64_t t_ms, bool synced, uint32_t now_ms) {
+                        const timestream::Stamp& ts, uint32_t now_ms) {
   if (n_ == 0) {
     reset(now_ms);
     return 0;
   }
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) { reset(now_ms); return 0; }
   uint32_t window_ms = now_ms - window_start_ms_;
   int permille = movingPermille();
   // The window's verdict. A handful of stray samples is noise, not a journey: the
@@ -101,11 +103,11 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   int m = snprintf(out, cap,
                    "\n---\n\n@LAT95LON%d | created:%lu | updated:%lu | "
                    "relates:senses@LAT0LON0\n\n"
-                   "**MOTIONWIN** t_ms:%llu synced:%d window_ms:%lu n:%ld\n"
+                   "**MOTIONWIN** %s window_ms:%lu n:%ld\n"
                    "**MOTION** state:%s moving_permille:%d dev_mean_mg:%d "
                    "dev_max_mg:%ld moving_ms:%lu\n",
                    lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
-                   (unsigned long long)t_ms, synced ? 1 : 0,
+                   stamp,
                    (unsigned long)window_ms, (long)n_, state, permille,
                    devMeanMg(), (long)dev_max_mg_, (unsigned long)moving_ms_);
   if (m < 0 || (size_t)m >= cap) {
@@ -117,7 +119,7 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   // clears the chain, then re-arm the chain with it as the new `after` candidate.
   Window cur;
   cur.moving = (permille >= 100);
-  cur.synced = synced;
+  cur.stamp = ts;
   cur.lane = (int16_t)lane_n;
   cur.n = n_;
   cur.permille = permille;
@@ -126,7 +128,6 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   cur.moving_ms = moving_ms_;
   cur.window_ms = window_ms;
   cur.t_sec = t_sec;
-  cur.t_ms = t_ms;
 
   const Window prev = prev_;
   const bool had_prev = prev_valid_;
@@ -150,10 +151,22 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
 
   const Window& b = before_;
   const Window& a = prev_;
-  // Elapsed between the two windows' close stamps. Both come from the same clock on
-  // the same node, so this is a real duration even when the fleet clock is unsynced —
-  // `synced` on each half says whether it is comparable with another node's.
-  const uint64_t dt_ms = (a.t_ms > b.t_ms) ? (a.t_ms - b.t_ms) : 0;
+  // Elapsed between the two windows' close stamps. Both come from the same node, so
+  // this is a real duration — UNLESS the node changed timelines between them. A stream
+  // merge moves the clock forward by the offset it adopted, and that offset would land
+  // in this subtraction and read as elapsed time that never happened. It is not
+  // detectable from the numbers (a minute-long gap looks like a minute-long gap), so
+  // the record says so instead: `dt_across_merge:1` means do not trust `dt_ms`.
+  //
+  // It is recoverable rather than lost: a merge only ever moves the clock FORWARD, so
+  // dt_ms is an over-estimate by exactly the offset the @LAT90 STREAM-RECONCILED record
+  // wrote down. A reader with both records can subtract it back out.
+  const uint64_t at = a.stamp.t_ms, bt = b.stamp.t_ms;
+  const uint64_t dt_ms = (at > bt) ? (at - bt) : 0;
+  const bool across_merge = (a.stamp.stream_id != b.stamp.stream_id);
+
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), a.stamp)) return 0;
 
   // NOTE: the two `@PERCEPT:` lines are indented by two spaces ON PURPOSE. See the
   // header — an unindented '@' at line start IS a record header to Ttdb::begin(), and
@@ -162,7 +175,7 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
       "relates:senses@LAT0LON0,derived_from@LAT95LON%d,derived_from@LAT95LON%d\n\n"
-      "**TRANSITION** t_ms:%llu synced:%d node:0x%lx from:%s to:%s dt_ms:%llu\n"
+      "**TRANSITION** %s node:0x%lx from:%s to:%s dt_ms:%llu dt_across_merge:%d\n"
       "  @PERCEPT:before state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
       "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d\n"
       "  @PERCEPT:after state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
@@ -170,13 +183,13 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
       "**DELTA** edge:became d_permille:%ld d_dev_mean_mg:%ld d_dev_max_mg:%ld\n",
       MOTIONPERCEPT_TRANSITION_LANE, lane_n,
       (unsigned long)a.t_sec, (unsigned long)a.t_sec, (int)b.lane, (int)a.lane,
-      (unsigned long long)a.t_ms, a.synced ? 1 : 0, (unsigned long)node_id,
+      stamp, (unsigned long)node_id,
       b.moving ? "moving" : "still", a.moving ? "moving" : "still",
-      (unsigned long long)dt_ms,
-      b.moving ? "moving" : "still", (unsigned long long)b.t_ms,
+      (unsigned long long)dt_ms, across_merge ? 1 : 0,
+      b.moving ? "moving" : "still", (unsigned long long)bt,
       (unsigned long)b.window_ms, (long)b.n, (long)b.permille,
       (long)b.dev_mean_mg, (long)b.dev_max_mg, (unsigned long)b.moving_ms, (int)b.lane,
-      a.moving ? "moving" : "still", (unsigned long long)a.t_ms,
+      a.moving ? "moving" : "still", (unsigned long long)at,
       (unsigned long)a.window_ms, (long)a.n, (long)a.permille,
       (long)a.dev_mean_mg, (long)a.dev_max_mg, (unsigned long)a.moving_ms, (int)a.lane,
       (long)(a.permille - b.permille), (long)(a.dev_mean_mg - b.dev_mean_mg),

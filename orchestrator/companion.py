@@ -1743,8 +1743,53 @@ def push(port, baud, node, src_master, belief_log, out_path, settle, rto0, attem
 # A node's @LAT97 lane holds one record per flush window, each with a **LINKWIN**
 # context line and one **LINK** line per (peer, proto). This is the raw evidence
 # SP1 consolidates into @BELIEF:PROXIMITY.
-LINKWIN_RE = re.compile(
-    r"\*\*LINKWIN\*\*\s+t_ms:(\d+)\s+synced:([01])\s+window_ms:(\d+)")
+# The time fields every percept record carries. TWO formats are live in the corpus
+# and both must parse, because a TTDB is appended to for the life of a node — the
+# records written before the team time stream (2026-08-03) are still on the same
+# flash as the ones written after, and a reader that handles only one silently drops
+# half the lane:
+#
+#   OLD   t_ms:<ms> synced:<0|1>                    (through 2026-08-02)
+#   NEW   t_ms:<ms> stream:0x<id> wall:<0|1>        (from 2026-08-03)
+#
+# `synced:1` becomes "on SOME shared clock, identity unknown" — which is the exact
+# limitation that motivated the change, so it is represented honestly as stream None
+# rather than invented. `synced:0` maps to stream 0 (local millis()).
+TIME_FIELDS_RE = re.compile(
+    r"t_ms:(\d+)\s+(?:synced:([01])|stream:0x([0-9a-fA-F]{1,8})\s+wall:([01]))")
+
+
+def parse_time_fields(line):
+    """-> {t_ms, stream, wall, synced} for either record format, or None."""
+    m = TIME_FIELDS_RE.search(line)
+    if not m:
+        return None
+    t_ms = int(m.group(1))
+    if m.group(2) is not None:                       # old: synced:<0|1>
+        synced = int(m.group(2))
+        # stream None = "some clock, unnameable"; 0 = "no clock at all".
+        return {"t_ms": t_ms, "stream": None if synced else 0,
+                "wall": synced, "synced": synced}
+    stream = int(m.group(3), 16)
+    wall = int(m.group(4))
+    # `synced` is kept for every existing caller and means what it always meant:
+    # is this timestamp comparable with another node's? On a stream, yes.
+    return {"t_ms": t_ms, "stream": stream, "wall": wall,
+            "synced": 1 if stream else 0}
+
+
+def fmt_stream(w):
+    """Short human form of a window's timeline: '-' none, '<id>' stream, '<id>*'
+    when it is also wall-anchored, '?' for an old synced:1 record with no id."""
+    s = w.get("stream")
+    if s is None:
+        return "?"
+    if s == 0:
+        return "-"
+    return "%08x%s" % (s, "*" if w.get("wall") else "")
+
+
+LINKWIN_WINDOW_RE = re.compile(r"\*\*LINKWIN\*\*.*?\swindow_ms:(\d+)")
 LINK_RE = re.compile(
     r"\*\*LINK\*\*\s+peer:0x([0-9A-Fa-f]{8})\s+proto:(\w+)\s+n:(\d+)\s+"
     r"rssi_min:(-?\d+)\s+rssi_med:(-?\d+)\s+rssi_max:(-?\d+)")
@@ -1752,14 +1797,15 @@ LINK_RE = re.compile(
 
 def parse_link_percepts(text):
     """Parse a TTDB's @LAT97 lane into a list of windows:
-    {lane, t_ms, synced, window_ms, links: [{peer, proto, n, min, med, max}]}."""
+    {lane, t_ms, stream, wall, synced, window_ms,
+     links: [{peer, proto, n, min, med, max}]}."""
     windows = []
     cur = None
     for line in text.splitlines():
         if line.startswith("@LAT97LON"):
             lane = int(re.match(r"@LAT97LON(\d+)", line).group(1))
-            cur = {"lane": lane, "t_ms": None, "synced": None,
-                   "window_ms": None, "links": []}
+            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
+                   "synced": None, "window_ms": None, "links": []}
             windows.append(cur)
             continue
         if line.startswith("@"):     # any other record header ends the window
@@ -1767,11 +1813,13 @@ def parse_link_percepts(text):
             continue
         if cur is None:
             continue
-        m = LINKWIN_RE.search(line)
-        if m:
-            cur["t_ms"] = int(m.group(1))
-            cur["synced"] = int(m.group(2))
-            cur["window_ms"] = int(m.group(3))
+        if line.startswith("**LINKWIN**"):
+            tf = parse_time_fields(line)
+            if tf:
+                cur.update(tf)
+            m = LINKWIN_WINDOW_RE.search(line)
+            if m:
+                cur["window_ms"] = int(m.group(1))
             continue
         m = LINK_RE.search(line)
         if m:
@@ -1810,13 +1858,13 @@ def percepts(port, baud, node, save):
         print("no @LAT97 records yet — leave the mesh chattering for a window "
               "(default 60 s) and re-run")
         return
-    print(f"{'lane':>4}  {'t_ms':>14}  {'sync':>4}  {'win_ms':>7}  "
+    print(f"{'lane':>4}  {'t_ms':>14}  {'stream':>9}  {'win_ms':>7}  "
           f"{'peer':>10}  {'proto':6}  {'n':>5}  {'min':>4}  {'med':>4}  {'max':>4}")
     for w in windows:
         first = True
         for l in w["links"]:
-            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {w['synced']:>4}  "
-                    f"{w['window_ms']:>7}") if first else " " * 35
+            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {fmt_stream(w):>9}  "
+                    f"{w['window_ms']:>7}") if first else " " * 40
             first = False
             print(f"{lead}  0x{l['peer']:08X}  {l['proto']:6}  {l['n']:>5}  "
                   f"{l['min']:>4}  {l['med']:>4}  {l['max']:>4}")
@@ -1827,9 +1875,7 @@ def percepts(port, baud, node, save):
 # **ENTWIN** context line and one **ENTITY** line per visible BSSID. Two nodes
 # seeing the same APs are probably near each other (ttn-semantic-positioning.md
 # §2.2): the Jaccard overlap of their BSSID sets is a coarse proximity BOUND.
-ENTWIN_RE = re.compile(
-    r"\*\*ENTWIN\*\*\s+t_ms:(\d+)\s+synced:([01])\s+window_ms:(\d+)"
-    r"(?:\s+entities:(\d+))?")
+ENTWIN_WINDOW_RE = re.compile(r"\*\*ENTWIN\*\*.*?\swindow_ms:(\d+)")
 ENTITY_RE = re.compile(
     r"\*\*ENTITY\*\*\s+kind:(\w+)\s+id:([0-9a-fA-F]{12})\s+n:(\d+)\s+rssi:(-?\d+)")
 
@@ -1841,15 +1887,15 @@ ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
 
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
-    {lane, t_ms, synced, window_ms, entities: [{kind, id, n, rssi}]}.
+    {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}]}.
     `id` is the 12-hex BSSID string (lowercased)."""
     windows = []
     cur = None
     for line in text.splitlines():
         if line.startswith("@LAT96LON"):
             lane = int(re.match(r"@LAT96LON(\d+)", line).group(1))
-            cur = {"lane": lane, "t_ms": None, "synced": None,
-                   "window_ms": None, "entities": []}
+            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
+                   "synced": None, "window_ms": None, "entities": []}
             windows.append(cur)
             continue
         if line.startswith("@"):     # any other record header ends the window
@@ -1857,11 +1903,13 @@ def parse_entity_percepts(text):
             continue
         if cur is None:
             continue
-        m = ENTWIN_RE.search(line)
-        if m:
-            cur["t_ms"] = int(m.group(1))
-            cur["synced"] = int(m.group(2))
-            cur["window_ms"] = int(m.group(3))
+        if line.startswith("**ENTWIN**"):
+            tf = parse_time_fields(line)
+            if tf:
+                cur.update(tf)
+            m = ENTWIN_WINDOW_RE.search(line)
+            if m:
+                cur["window_ms"] = int(m.group(1))
             continue
         m = ENTITY_RE.search(line)
         if m:
@@ -1944,13 +1992,13 @@ def entities(port, baud, node, save):
         print("no @LAT96 records yet — needs a node built with USE_WIFI_SCAN and a "
               "scan window (default 60 s); re-run after one elapses")
         return
-    print(f"{'lane':>4}  {'t_ms':>14}  {'sync':>4}  {'win_ms':>7}  "
+    print(f"{'lane':>4}  {'t_ms':>14}  {'stream':>9}  {'win_ms':>7}  "
           f"{'kind':7}  {'bssid':12}  {'n':>4}  {'rssi':>5}")
     for w in windows:
         first = True
         for e in w["entities"]:
-            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {w['synced']:>4}  "
-                    f"{w['window_ms']:>7}") if first else " " * 35
+            lead = (f"{w['lane']:>4}  {w['t_ms']:>14}  {fmt_stream(w):>9}  "
+                    f"{w['window_ms']:>7}") if first else " " * 40
             first = False
             print(f"{lead}  {e['kind']:7}  {e['id']:12}  {e['n']:>4}  {e['rssi']:>5}")
 

@@ -28,6 +28,7 @@
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
+#include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
@@ -296,10 +297,20 @@ static uint32_t gSeq = 1;
 // Wall clock (TTN-RFC-0008): the bridge adopts TIME_SYNC like any node. It hears
 // the sync over the un-deduped USB link, so exactly-once adoption/append is gated
 // on a monotonic sync_id (§3.1), not on transport dedup.
-static int64_t gClockOffsetMs = 0;
-static bool gSynced = false;
+// --- the team time stream (TimeStreamNode.h) --------------------------------
+// gTs owns BOTH facts now: which shared timeline this node is on, and whether that
+// timeline knows the date. The old single `synced` bit could only ever answer the
+// second, and answered it "no" for a fleet in perfect agreement with itself. The
+// macros keep every reader below reading the way it always did; the difference is
+// that they are callback-safe scalars refreshed once per loop(), never live reads of
+// an engine the WiFi task must not touch.
+static timestream::Node gTs;
+#define gStamp         (gTs.stamp())
+#define gStreamWallSec (gTs.wallSec())
+#define gSynced        (gTs.wall())
+#define gClockOffsetMs (gTs.clockOffsetMs())
 static uint32_t gLastSyncId = 0;
-static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
+static inline int64_t nowEpochMs() { return gTs.nowEpochMs(); }
 
 static bool sendEspNow(const uint8_t* frame, size_t len, void*) {
   return esp_now_send(kBroadcast, frame, len) == ESP_OK;
@@ -358,8 +369,10 @@ static void adoptTimeSync(const toot::Toot& t) {
   if (!toot::parseTimeSync(t, sid, ems)) return;
   uint32_t recv_ms = millis();
   if (gSynced && sid <= gLastSyncId) return;
-  gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
-  gSynced = true;
+  // The laptop supplies the DATE. It does not supply the timeline — the fleet already
+  // has one — so this ANCHORS the stream rather than replacing its clock. Latched
+  // here, applied by gTs.service() from loop().
+  gTs.onTimeSync(ems, recv_ms, t.src_node_id);
   gLastSyncId = sid;
   int n = 0;
   for (int i = 0; i < gDb.recordCount(); ++i)
@@ -640,6 +653,13 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
     if (neighborNeedsLock(t.src_node_id, millis())) gPulse.noteNeighbor(millis());
   }
 #endif
+
+  // The time-stream anchor rides on HELLO — every node emits one every 2 s and its
+  // payload was EMPTY until now, so this is purely additive: a node still on old
+  // firmware sends 0 bytes and parseAnchor declines, making it a non-participant
+  // rather than a parse error. Outside the USE_PULSE guard on purpose: the band is
+  // optional, a shared timeline is not.
+  gTs.onHello(t, millis());
 }
 
 // Render the live bridge status onto the OLED (called from loop(), never the cb).
@@ -740,6 +760,12 @@ void setup() {
   gPulse.begin(kNodeId, millis());   // lowest id -> usually conducts the band
 #endif
 
+  // The time stream starts EMPTY, not with a stream of our own: this node listens for
+  // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
+  // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
+  // shared timeline is not.
+  gTs.begin(kNodeId, &gDb, millis());
+
 #if USE_BLE
   // Near-range tier: advertise this node + passively scan peers over BLE, feeding RSSI
   // into the same @LAT97 lane as ESP-NOW (proto:ble). Starts after WiFi/ESP-NOW so the
@@ -753,6 +779,12 @@ void setup() {
 }
 
 void loop() {
+
+  // FIRST, before anything reads a clock: settle which timeline this node is on and
+  // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed
+  // in the same pass carry the same instant rather than separate readings of a clock
+  // that moved between them.
+  gTs.service(millis());
   const uint32_t loop_t0 = millis();
 
   // The body's own senses. Cheap and rare (four ADC reads + a die-temperature read once
@@ -898,7 +930,9 @@ void loop() {
     // are heard if a lower-id node ever appears). Cheap; ~every 2 s.
     if (pnow - gHelloAt >= 2000) {
       gHelloAt = pnow;
-      emitMesh(toot::HELLO, nullptr, 0);
+      uint8_t hb[timestream::ANCHOR_LEN];
+      size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
+      emitMesh(toot::HELLO, hn ? hb : nullptr, hn);
     }
     // Emit a chart beacon only when due (drift-paced) or to fast-lock a newcomer —
     // never one per beat (§5).
@@ -1004,10 +1038,8 @@ void loop() {
       gLinkLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                      gSynced, millis());
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -1026,10 +1058,8 @@ void loop() {
       gEntityLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                        gSynced, millis());
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());

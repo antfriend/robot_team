@@ -35,8 +35,8 @@ void Loop::reset() {
   pending_ = false;
   met_ = violated_ = unobserved_ = 0;
   scored_lane_ = -1;
-  scored_t_ms_ = 0;
-  scored_synced_ = false;
+  scored_stamp_ = timestream::Stamp();
+  scored_wall_sec_ = 0;
   streak_ = 0;
 }
 
@@ -69,7 +69,7 @@ int Loop::findStaged(uint32_t peer, uint8_t proto) const {
   return -1;
 }
 
-int Loop::score(uint64_t t_ms, bool synced) {
+int Loop::score(const timestream::Stamp& ts, uint32_t wall_sec) {
   if (!armed_ || claims_n_ == 0) return 0;
 
   met_ = violated_ = unobserved_ = 0;
@@ -105,8 +105,8 @@ int Loop::score(uint64_t t_ms, bool synced) {
   armed_ = false;   // one expectation, scored once
   const int n = claims_n_;
   scored_lane_ = staged_lane_;
-  scored_t_ms_ = t_ms;
-  scored_synced_ = synced;
+  scored_stamp_ = ts;
+  scored_wall_sec_ = wall_sec;
   pending_ = true;
   return n;
 }
@@ -140,18 +140,23 @@ size_t Loop::buildOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) {
   if (!pending_) return 0;
   pending_ = false;   // one record per scoring, success or not
 
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), scored_stamp_)) return 0;
+  // `created:`/`updated:` stay Unix seconds per TTDB-RFC-0001, and stay 0 when the
+  // fleet has no wall anchor. The stream frame lives in the body, where it can say
+  // WHICH clock without redefining a format-level field's unit.
+  const unsigned long t_sec = (unsigned long)scored_wall_sec_;
+
   size_t off = 0;
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
       "relates:testifies_about@LAT95LON%d,derived_from@LAT97LON%d,senses@LAT0LON0\n\n"
-      "**OUTCOME** t_ms:%llu synced:%d node:0x%lx acting:@LAT95LON%d "
+      "**OUTCOME** %s node:0x%lx acting:@LAT95LON%d "
       "observed_in:@LAT97LON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n",
-      PERCEPTLEARN_LANE, lane_n,
-      (unsigned long)(scored_synced_ ? (uint32_t)(scored_t_ms_ / 1000) : 0),
-      (unsigned long)(scored_synced_ ? (uint32_t)(scored_t_ms_ / 1000) : 0),
+      PERCEPTLEARN_LANE, lane_n, t_sec, t_sec,
       acting_lane_, scored_lane_,
-      (unsigned long long)scored_t_ms_, scored_synced_ ? 1 : 0,
+      stamp,
       (unsigned long)node_id, acting_lane_, scored_lane_,
       PERCEPTLEARN_RSSI_BAND, met_, violated_, unobserved_, streak_);
   if (m < 0 || (size_t)m >= cap) return 0;
@@ -304,9 +309,12 @@ int Reconciler::foldRecord(const char* text, size_t len) {
 }
 
 size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
-                               uint32_t node_id, int rev) const {
+                               uint32_t node_id, int rev,
+                               const timestream::Stamp& ts) const {
   if (i < 0 || i >= n_) return 0;
   const Belief& b = b_[i];
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) return 0;
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
@@ -318,6 +326,7 @@ size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t
       "touched:%lu\n"
       "[/ew]\n\n"
       "**LINK-STABLE** peer:0x%08lx proto:%s node:0x%lx\n"
+      "**TOUCHED** %s unix_s:%lu\n"
       "**TALLY** met:%ld violated:%ld unobserved:%ld baseline_conf:%d "
       "rule:+%d/-%d max_streak:%ld contradiction:%d\n"
       "**PROVENANCE** rule:LearningFromAction/Rule3 src:@LAT20LON3 "
@@ -325,6 +334,7 @@ size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t
       PERCEPTLEARN_BELIEF_LANE, lon, (unsigned long)t_sec, (unsigned long)t_sec,
       (long)b.conf, rev, (long)b.sal, (unsigned long)t_sec,
       (unsigned long)b.peer, protoName(b.proto), (unsigned long)node_id,
+      stamp, (unsigned long)t_sec,
       (long)b.met, (long)b.violated, (long)b.unobserved, PERCEPTLEARN_BASELINE_CONF,
       PERCEPTLEARN_CONF_MET, PERCEPTLEARN_CONF_VIOLATED, (long)b.max_streak,
       b.contradiction ? 1 : 0,

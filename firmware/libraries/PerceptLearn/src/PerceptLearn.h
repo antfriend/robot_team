@@ -75,6 +75,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // the shared time stamp every record carries
 
 #ifndef PERCEPTLEARN_MAX_CLAIMS
 // One per (peer, proto) slot, matching LINKPERCEPT_MAX_PEERS.
@@ -148,7 +149,7 @@ class Loop {
 
   // Score the armed expectation against what was just staged. Returns the number of
   // claims scored, or 0 if nothing was armed. Sets outcomePending() on success.
-  int score(uint64_t t_ms, bool synced);
+  int score(const timestream::Stamp& ts, uint32_t wall_sec);
 
   // --- Rule 1: arm the next expectation, ONLY on a positive anchoring claim -------
   // `motion_lane` is the @LAT95 record making that claim — the acting record.
@@ -198,8 +199,8 @@ class Loop {
   bool  pending_;
   int   met_, violated_, unobserved_;
   int   scored_lane_;      // the @LAT97 record that answered
-  uint64_t scored_t_ms_;
-  bool  scored_synced_;
+  timestream::Stamp scored_stamp_;
+  uint32_t scored_wall_sec_;
   int   streak_;
 };
 
@@ -304,8 +305,21 @@ class Reconciler {
   int claimsDropped() const { return dropped_; }
 
   // Render one @LAT91 belief — the first record on this fleet to carry an [ew] block.
+  //
+  // ⚠ THE RECENCY ANCHOR IS WRITTEN TWICE, ON PURPOSE, AND THAT IS A SPEC FINDING.
+  // TTDB-RFC-0005 §4 defines `touched` as **Unix epoch seconds**, and §4's own decay
+  // note ("entries untouched for long periods SHOULD have conf decremented") assumes
+  // an agent that can read a wall clock. A fleet with no laptop in sight cannot:
+  // `t_sec` is 0, so `touched:0`, so `sal` can never fade and EPS = sal x (255-conf)/255
+  // has no time term at all. **The RFC's recency machinery is unusable on exactly the
+  // class of device the RFC was written for.**
+  //
+  // So `touched:` stays spec-conformant (Unix seconds, 0 = unknown) and the **TOUCHED**
+  // body line carries the same instant in the STREAM frame, which a node always has.
+  // That is what a node decays against. Both are emitted every time; they are the same
+  // moment in two frames, not two moments.
   size_t buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
-                     uint32_t node_id, int rev) const;
+                     uint32_t node_id, int rev, const timestream::Stamp& ts) const;
 
  private:
   int slotFor(uint32_t peer, uint8_t proto);

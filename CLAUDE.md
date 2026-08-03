@@ -34,6 +34,11 @@ firmware/
                         (makes "the observer held still" checkable, not assumed)
     AcousticPercept/    SP0 acoustic tier: mic windows -> @LAT94, incl. the fleet-clock
                         timestamp of the loudest transient (Phase 3 TDoA groundwork)
+    TimeStream/         The team time stream: a fleet-owned timeline that survives the
+                        laptop's absence. `stream:<id>` + `wall:<0|1>` replacing the old
+                        single `synced` bit; anchors ride on HELLO; @LAT90 logs timeline
+                        CHANGES. TimeStreamNode.h is the Arduino glue (one copy, six
+                        sketches).
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
@@ -289,6 +294,61 @@ returning T-Deck) lives in the **shared `Pulse` engine** (`armSong`/`serviceSong
 pacing, so enabling it means **reflashing the whole fleet** (K10 + all three V4s + T-Deck), not
 just the T-Deck — the conductor is whichever node holds the baton, and every node must know how
 to walk the story and where the grief gate is.
+
+## The team time stream (2026-08-03) — `stream:`/`wall:` replaced `synced:`
+
+`t_ms:<ms> synced:<0|1>` became **`t_ms:<ms> stream:0x<id> wall:<0|1>`** in all seven
+record formats (**LINKWIN · ENTWIN · MOTIONWIN · TRANSITION · ACOUSTICWIN · TRANSIENT ·
+OUTCOME**). The one bit conflated two facts — *we agree with each other* and *we know
+what day it is* — so a fleet in a garden with a perfectly good shared timeline reported
+`synced:0` and threw its timestamps away. Rendered by **one** function,
+`timestream::buildStamp`; do not hand-write the triplet in an eighth place.
+
+⚠ **BOTH FORMATS ARE LIVE AND BOTH MUST PARSE.** A node's TTDB is appended to for its
+whole life, so pre-2026-08-03 records sit on the same flash as post-. `companion.py
+parse_time_fields()` handles both, and an old `synced:1` reads back as **stream `None`**
+("some clock, unnameable") rather than a fabricated id. Do not "clean this up" by
+dropping the old branch — that silently folds a subset of every existing lane.
+
+`stream:0x00000000` is **meaningful, not an error**: the timestamp is local `millis()`
+and comparable with nothing but that node's own records.
+
+Three facts worth knowing before touching it:
+
+- **A stream's clock is elapsed-since-its-own-origin.** That single choice makes the
+  merge rule (*older stream wins*) identical to *the larger clock wins*, and makes
+  monotonicity automatic — yielding to an older stream can only move a clock FORWARD.
+  Consequence: the clock is a **ratchet** (fastest crystal heard wins) — fine for
+  ordering/recency, wrong for measuring a duration. Use a local `millis()` delta for
+  that, as `MotionPercept`'s `dt_ms` does.
+- **Anchors ride on HELLO, never on PULSE.** Only the conductor emits a PULSE and the
+  conductor is elected by lowest id, so the node holding the oldest stream usually could
+  not speak. HELLO is every node every 2 s and its payload was empty, so this is purely
+  additive: an un-reflashed node sends 0 bytes and is a non-participant, not a parse
+  error. The pulse clock is deliberately **not** reused — its election would move a
+  clock backward, which is fine for a beat and fatal for a log.
+- **The recv callback must never touch `timestream::Engine`.** `mono()` mutates its
+  49.7-day wrap accounting; a torn write moves the node's clock by seven weeks.
+  `TimeStreamNode` (the glue used by all six sketches) queues anchors in a ring from the
+  callback and mutates only from `service()`, called first in `loop()`. Callback-built
+  STATUS/GPS/TIME_RESP replies read `clockOffsetMs()`, a plain scalar.
+
+New **`@LAT90`** lane logs timeline CHANGES (`STREAM-ORIGIN`/`ADOPTED`/`RECONCILED`/
+`ANCHORED`) with a **REMAP** line carrying the offset, so records stamped with a stream
+that later lost stay interpretable. A routine drift correction writes nothing.
+
+⚠ **`@LAT90` currently grows ONE RECORD PER REBOOT, and `companion.py` reboots the
+cabled node on every invocation** — so ordinary orchestration fills the 16-record cap in
+~16 commands (measured 2026-08-03: T-Deck 0 → 7 in one session; three idle minutes added
+exactly one, so it is resets, not a crash loop). Most of those records should not exist:
+a node that reboots and rejoins **the stream it was already on** has had no timeline
+change. Fix candidate, recorded but NOT built — persist the last stream id in NVS and
+write `ADOPTED` only when the stream actually differs. Until then, `TIMESTREAM_MAX_LANE
+16` reads as a reboot counter rather than the flapping detector it was meant to be;
+don't raise it, fix the write condition.
+
+Cost, measured against a HEAD worktree: **V4 +3728 B flash (+0.28%), +416 B RAM**, so
+the three V4s sit at **94% with ~74.5 KB left**. Cardputer 41%, T-Deck 40%, K10 20%.
 
 ## TTDB on the filesystem, shared over the network
 

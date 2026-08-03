@@ -68,6 +68,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // the shared time stamp every record carries
 
 #ifndef MOTIONPERCEPT_FLUSH_MS
 // Motion changes fast but the CLAIM is about a whole window, so it matches the
@@ -113,7 +114,10 @@ namespace motionpercept {
 // allocation — two of these are the entire cost of remembering the previous window.
 struct Window {
   bool     moving;        // the window's verdict (permille >= 100)
-  bool     synced;        // was t_ms fleet-clock time, or just local millis()?
+  // WHEN, and on WHICH shared timeline. `stamp.stream_id == 0` says t_ms is local
+  // millis() and is comparable with nothing but this node's own records — what the
+  // old `synced:0` meant, except this one also NAMES the clock when there is one.
+  timestream::Stamp stamp;
   int16_t  lane;          // the @LAT95 lane this window was written to
   int32_t  n;             // samples
   int32_t  permille;
@@ -122,7 +126,6 @@ struct Window {
   uint32_t moving_ms;
   uint32_t window_ms;
   uint32_t t_sec;
-  uint64_t t_ms;
 };
 
 class Log {
@@ -150,7 +153,7 @@ class Log {
 
   // Render a complete TTDB record block and start a new window:
   //   \n---\n\n@LAT95LON<lane_n> | created:<t_sec> | ... | relates:senses@LAT0LON0
-  //   \n\n**MOTIONWIN** t_ms:.. synced:<0|1> window_ms:.. n:..
+  //   \n\n**MOTIONWIN** t_ms:.. stream:0x<id> wall:<0|1> window_ms:.. n:..
   //   \n**MOTION** state:<still|moving> moving_permille:.. dev_mean_mg:..
   //     dev_max_mg:.. moving_ms:..
   // Returns bytes written, or 0 if the window was empty (still resets).
@@ -159,7 +162,7 @@ class Log {
   // `after` half, and if the window BEFORE it carried the opposite verdict a paired
   // record is now pending (see transitionPending()).
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     uint64_t t_ms, bool synced, uint32_t now_ms);
+                     const timestream::Stamp& ts, uint32_t now_ms);
 
   // True when the two most recently closed windows disagree, i.e. a state change
   // happened and has not been written down yet. Cleared by buildTransition(), or by

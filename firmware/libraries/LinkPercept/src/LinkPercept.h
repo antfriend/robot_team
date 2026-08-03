@@ -18,6 +18,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // the shared time stamp every record carries
 
 #ifndef LINKPERCEPT_MAX_PEERS
 #define LINKPERCEPT_MAX_PEERS 8      // distinct (peer, proto) slots per window
@@ -79,12 +80,12 @@ class Log {
 
   // Render a complete TTDB record block and start a new window:
   //   \n---\n\n@LAT97LON<lane_n> | created:<t_sec> | ... | relates:observes@LAT0LON0
-  //   \n\n**LINKWIN** t_ms:<t_ms> synced:<0|1> window_ms:<elapsed>
+  //   \n\n**LINKWIN** t_ms:<t_ms> stream:0x<id> wall:<0|1> window_ms:<elapsed>
   //   \n**LINK** peer:0x000000NN proto:espnow n:.. rssi_min:.. rssi_med:.. rssi_max:..
   // Returns bytes written, or 0 if there was nothing to flush (still resets
   // the window). Clears all stats.
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     uint64_t t_ms, bool synced, uint32_t now_ms);
+                     const timestream::Stamp& ts, uint32_t now_ms);
 
   void reset(uint32_t now_ms);
 

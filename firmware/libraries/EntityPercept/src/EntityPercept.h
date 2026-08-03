@@ -21,6 +21,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // the shared time stamp every record carries
 
 #ifndef ENTITYPERCEPT_MAX_ENTITIES
 #define ENTITYPERCEPT_MAX_ENTITIES 12   // distinct entities kept per window
@@ -72,12 +73,12 @@ class Log {
 
   // Render a complete TTDB record block and start a new window:
   //   \n---\n\n@LAT96LON<lane_n> | created:<t_sec> | ... | relates:observes@LAT0LON0
-  //   \n\n**ENTWIN** t_ms:<t_ms> synced:<0|1> window_ms:<elapsed> entities:<count>
+  //   \n\n**ENTWIN** t_ms:<t_ms> stream:0x<id> wall:<0|1> window_ms:<..> entities:<n>
   //   \n**ENTITY** kind:wifi_ap id:<12 lowercase hex> n:.. rssi:..
   // Returns bytes written, or 0 if there was nothing to flush (still resets the
   // window). Clears all stats.
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     uint64_t t_ms, bool synced, uint32_t now_ms);
+                     const timestream::Stamp& ts, uint32_t now_ms);
 
   void reset(uint32_t now_ms);
 

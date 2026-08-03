@@ -34,6 +34,7 @@
 #include <LinkPercept.h>  // SP0: every authenticated reception becomes a percept
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
+#include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <Nmea.h>         // SP2: portable NMEA GGA decode for the roaming GPS anchor
 #include <RobotTeamConfig.h>
 #include <Preferences.h>   // NVS: remember the song on/off across a power-cycle
@@ -396,11 +397,20 @@ static int gSel = -1;
 static int gRecPage = 0;
 static int gRecPages = 1;
 
-// --- wall clock (TTN-RFC-0008) ----------------------------------------------
-static int64_t gClockOffsetMs = 0;
-static bool gSynced = false;
+// --- the team time stream (TimeStreamNode.h) + the wall clock (TTN-RFC-0008) -
+// gTs owns BOTH facts now: which shared timeline this node is on, and whether that
+// timeline knows the date. The old single `synced` bit could only ever answer the
+// second, and answered it "no" for a fleet that was in perfect agreement with itself.
+// The macros keep every existing reader below reading the way it always did; the
+// difference is that they are now callback-safe scalars refreshed once per loop(),
+// never live reads of an engine the WiFi task must not touch.
+static timestream::Node gTs;
+#define gStamp         (gTs.stamp())
+#define gStreamWallSec (gTs.wallSec())
+#define gSynced        (gTs.wall())
+#define gClockOffsetMs (gTs.clockOffsetMs())
 static uint32_t gLastSyncId = 0;
-static inline int64_t nowEpochMs() { return (int64_t)millis() + gClockOffsetMs; }
+static inline int64_t nowEpochMs() { return gTs.nowEpochMs(); }
 static volatile bool gSyncPending = false;
 static uint32_t gPendSyncId = 0;
 static uint64_t gPendEpochMs = 0;
@@ -1047,8 +1057,10 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       if (toot::parseTimeSync(t, sid, ems)) {
         uint32_t recv_ms = millis();
         if (!gSynced || sid > gLastSyncId) {
-          gClockOffsetMs = (int64_t)ems - (int64_t)recv_ms;
-          gSynced = true;
+          // The laptop supplies the DATE. It does not supply the timeline — the fleet
+          // already has one — so this ANCHORS the stream instead of replacing its
+          // clock. Latched here, applied by gTs.service() from loop().
+          gTs.onTimeSync(ems, recv_ms, t.src_node_id);
           gLastSyncId = sid;
           gPendSyncId = sid; gPendEpochMs = ems; gPendRecvMs = recv_ms;
           gSyncPending = true;       // append @LAT99 log from loop()
@@ -1083,6 +1095,13 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
     default:
       break;
   }
+
+  // The time-stream anchor rides on HELLO — every node emits one every 2 s and its
+  // payload was EMPTY until now, so this is purely additive: a node still on old
+  // firmware sends 0 bytes and parseAnchor declines, making it a non-participant
+  // rather than a parse error. Outside the USE_PULSE guard on purpose: the band is
+  // optional, a shared timeline is not.
+  gTs.onHello(t, millis());
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -2061,6 +2080,12 @@ void setup() {
   gPulse.begin(kNodeId, millis());   // silent follower (highest-ish id never conducts)
 #endif
 
+  // The time stream starts EMPTY, not with a stream of our own: this node listens for
+  // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
+  // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
+  // shared timeline is not.
+  gTs.begin(kNodeId, &gDb, millis());
+
 #if USE_GPS
   gpsProbeBaud();   // ~1 s: lock the NMEA baud (SP2 roaming anchor). No fix needed here.
   Serial.printf("GPS UART1 (rx %d tx %d) @ %lu baud\n", PIN_GPS_RX, PIN_GPS_TX,
@@ -2081,6 +2106,12 @@ void setup() {
 }
 
 void loop() {
+
+  // FIRST, before anything reads a clock: settle which timeline this node is on and
+  // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed
+  // in the same pass carry the same instant rather than separate readings of a clock
+  // that moved between them.
+  gTs.service(millis());
   // Time this pass. The toot link is serviced once per loop pass, so the SLOWEST pass is
   // what the mesh feels as rtt — which makes `lp` on the interoception pane this node's own
   // sense of having gone sluggish, rather than something only the laptop can tell it.
@@ -2137,10 +2168,8 @@ void loop() {
       gLinkLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                      gSynced, millis());
+      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -2160,10 +2189,8 @@ void loop() {
       gEntityLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
       char rec[1024];
-      uint32_t t_sec = gSynced ? (uint32_t)(nowEpochMs() / 1000) : 0;
-      uint64_t t_ms = gSynced ? (uint64_t)nowEpochMs() : (uint64_t)millis();
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, t_sec, t_ms,
-                                        gSynced, millis());
+      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                      gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
@@ -2443,7 +2470,9 @@ void loop() {
   static uint32_t lastBeacon = 0;
   if (millis() - lastBeacon >= 2000) {
     lastBeacon = millis();
-    emit(toot::HELLO, nullptr, 0, sendEspNow, nullptr);
+    uint8_t hb[timestream::ANCHOR_LEN];
+    size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
+    emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
   }
 #if USE_TDECK_HW
   // Log new replies into the console ring from loop context (never the recv callback).

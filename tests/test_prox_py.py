@@ -59,6 +59,45 @@ check(wins[0]["links"][0] == {"peer": 0x11, "proto": "espnow", "n": 20,
       "LINK fields")
 
 # ---------------------------------------------------------------------------
+# 1b) THE TEAM TIME STREAM MIGRATION (2026-08-03). `synced:<0|1>` became
+# `stream:0x<id> wall:<0|1>`, and BOTH are live in the corpus: a node's TTDB is
+# appended to for its whole life, so records written before the change sit on the
+# same flash as the ones written after. A reader that handles only one format
+# silently drops half the lane — the exact silent-subset failure the fleet keeps
+# finding — so this asserts the old records still parse, byte for byte.
+TEXT_STREAM = """
+@LAT97LON0 | created:0 | updated:0 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:60000 stream:0x00000000 wall:0 window_ms:60000
+**LINK** peer:0x00000011 proto:espnow n:20 rssi_min:-50 rssi_med:-40 rssi_max:-35
+
+---
+
+@LAT97LON1 | created:1785542400 | updated:1785542400 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:120000 stream:0x5ea51de7 wall:1 window_ms:60000
+**LINK** peer:0x00000011 proto:espnow n:30 rssi_min:-52 rssi_med:-41 rssi_max:-37
+"""
+sw = c.parse_link_percepts(TEXT_STREAM)
+check(len(sw) == 2, "new-format windows parse")
+check(sw[0]["t_ms"] == 60000 and sw[0]["window_ms"] == 60000,
+      "t_ms and window_ms survive the field that moved between them")
+check(sw[0]["stream"] == 0 and sw[0]["wall"] == 0 and sw[0]["synced"] == 0,
+      "stream:0 -> no shared clock (what synced:0 always meant)")
+check(sw[1]["stream"] == 0x5ea51de7 and sw[1]["wall"] == 1 and sw[1]["synced"] == 1,
+      "a real stream id is parsed, and synced stays derivable for old callers")
+check(len(sw[1]["links"]) == 1, "LINK lines still parse alongside")
+# The old format must keep its meaning, and must not INVENT a stream id it does
+# not have: synced:1 said "some clock", never which one — that is precisely the
+# limitation the change exists to fix, so it reads back as unknown, not as a value.
+check(wins[1]["synced"] == 1 and wins[1]["stream"] is None,
+      "an old synced:1 record is 'some clock, unnameable' — not a fabricated id")
+check(wins[0]["stream"] == 0, "and an old synced:0 record is stream 0")
+check(c.fmt_stream(sw[1]) == "5ea51de7*" and c.fmt_stream(sw[0]) == "-"
+      and c.fmt_stream(wins[1]) == "?",
+      "fmt_stream distinguishes anchored / none / unknowable")
+
+# ---------------------------------------------------------------------------
 # 2) consolidate_proximity: two directions fuse into one pair belief;
 #    the orchestrator pseudo-peer (0x1) is excluded.
 TEXT_B = """

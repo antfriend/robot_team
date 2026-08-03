@@ -19,6 +19,19 @@ static int g_fail = 0;
     }                                                      \
   } while (0)
 
+// The old API took `(t_ms, bool synced)`. It now takes a timestream::Stamp, and the
+// migration is exactly: `synced:1` meant "on SOME shared clock, identity unknown" —
+// which is a stream with a wall anchor. `synced:0` meant "local millis()", which is
+// stream 0. These tests keep their original intent under the new field.
+static const uint32_t kStream = 0x5EA51DE7u;
+static timestream::Stamp ST(uint64_t t_ms, bool synced) {
+  timestream::Stamp s;
+  s.t_ms = t_ms;
+  s.stream_id = synced ? kStream : 0;
+  s.wall = synced;
+  return s;
+}
+
 int main() {
   using namespace linkpercept;
 
@@ -63,14 +76,14 @@ int main() {
   // --- buildRecord: format + reset ----------------------------------------
   char rec[1024];
   size_t m = log.buildRecord(rec, sizeof(rec), 3, 1783382400u,
-                             1783382400123ull, true, 1000 + 60000);
+                             ST(1783382400123ull, true), 1000 + 60000);
   CHECK(m > 0 && m < sizeof(rec), "buildRecord wrote");
   std::string s(rec, m);
   CHECK(s.find("@LAT97LON3 | created:1783382400") != std::string::npos,
         "@LAT97 lane header with lane index");
-  CHECK(s.find("**LINKWIN** t_ms:1783382400123 synced:1 window_ms:60000") !=
-            std::string::npos,
-        "LINKWIN window line");
+  CHECK(s.find("**LINKWIN** t_ms:1783382400123 stream:0x5ea51de7 wall:1 "
+               "window_ms:60000") != std::string::npos,
+        "LINKWIN window line NAMES the clock it read, which synced:1 never did");
   CHECK(s.find("**LINK** peer:0x00000010 proto:espnow n:5 rssi_min:-70 "
                "rssi_med:-50 rssi_max:-40") != std::string::npos,
         "LINK line for peer 0x10 espnow");
@@ -82,16 +95,18 @@ int main() {
   CHECK(log.windowStartMs() == 1000 + 60000, "new window starts at flush time");
 
   // --- empty flush: nothing written, window still resets ------------------
-  m = log.buildRecord(rec, sizeof(rec), 4, 0, 0, false, 90000);
+  m = log.buildRecord(rec, sizeof(rec), 4, 0, ST(0, false), 90000);
   CHECK(m == 0, "empty window writes nothing");
   CHECK(!log.due(90000 + LINKPERCEPT_FLUSH_MS + 1), "empty window is never due");
 
-  // --- unsynced record ------------------------------------------------------
+  // --- no stream: the timestamp is local millis() and the record says so ----
   log.add(0x200, -55, PROTO_ESPNOW);
-  m = log.buildRecord(rec, sizeof(rec), 0, 0, 12345, false, 90000 + 60000);
+  m = log.buildRecord(rec, sizeof(rec), 0, 0, ST(12345, false), 90000 + 60000);
   s.assign(rec, m);
-  CHECK(s.find("**LINKWIN** t_ms:12345 synced:0") != std::string::npos,
-        "unsynced window carries millis + synced:0");
+  CHECK(s.find("**LINKWIN** t_ms:12345 stream:0x00000000 wall:0") !=
+            std::string::npos,
+        "a node on no stream carries millis + stream:0 — comparable with nothing "
+        "but its own records, which is what the old synced:0 meant");
 
   printf(g_fail ? "\n%d FAILURE(S)\n" : "\nall linkpercept tests passed\n",
          g_fail);

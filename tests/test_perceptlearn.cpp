@@ -26,6 +26,19 @@ static int fails = 0;
     }                                \
   } while (0)
 
+// The old API took `(t_ms, bool synced)`. It now takes a timestream::Stamp, and the
+// migration is exactly: `synced:1` meant "on SOME shared clock, identity unknown" —
+// which is a stream with a wall anchor. `synced:0` meant "local millis()", which is
+// stream 0. These tests keep their original intent under the new field.
+static const uint32_t kStream = 0x5EA51DE7u;
+static timestream::Stamp ST(uint64_t t_ms, bool synced) {
+  timestream::Stamp s;
+  s.t_ms = t_ms;
+  s.stream_id = synced ? kStream : 0;
+  s.wall = synced;
+  return s;
+}
+
 static const uint8_t ESPNOW = 0, BLE = 2;
 
 static bool lineWith(const char* text, const char* needle, char* out, size_t cap) {
@@ -103,7 +116,7 @@ int main(void) {
     L.stageBegin(15);
     L.stage(0x200, ESPNOW, -41);
     L.stage(0x200, BLE, -59);
-    int n = L.score(600000ULL, false);
+    int n = L.score(ST(600000ULL, false), 0);
     CHECK(n == 2, "both claims scored (got %d)", n);
     CHECK(L.metCount() == 1, "delta exactly == band counts as MET (got met=%d)", L.metCount());
     CHECK(L.violatedCount() == 1, "delta band+1 counts as VIOLATED (got violated=%d)",
@@ -154,7 +167,7 @@ int main(void) {
 
     L.stageBegin(1);
     L.stage(0x200, ESPNOW, -36);   // 0x010 powered off / out of range
-    L.score(0, false);
+    L.score(ST(0, false), 0);
     CHECK(L.metCount() == 1 && L.violatedCount() == 0,
           "the heard peer is met and the silent one does NOT count against the claim "
           "(met=%d violated=%d)", L.metCount(), L.violatedCount());
@@ -235,7 +248,7 @@ int main(void) {
 
     L.stageBegin(1);
     L.stage(0x200, ESPNOW, -80);   // a huge swing, which a scored claim would call violated
-    int n = L.score(0, false);
+    int n = L.score(ST(0, false), 0);
     CHECK(n == 0, "and the swing is NOT scored (got %d claims) — the node never claimed "
                   "to be anchored, so there is no prediction to be wrong about", n);
     CHECK(!L.outcomePending(), "so no testimony is produced");
@@ -254,7 +267,7 @@ int main(void) {
       L.arm(i);
       L.stageBegin(i + 1);
       L.stage(0x200, ESPNOW, -60);   // way outside the band
-      L.score(0, false);
+      L.score(ST(0, false), 0);
       L.buildOutcome(rec, sizeof(rec), 0, 0x300);
     }
     CHECK(L.violationStreak() == 3, "three consecutive violated windows -> streak 3 (got %d)",
@@ -266,7 +279,7 @@ int main(void) {
     L.arm(9);
     L.stageBegin(10);
     L.stage(0x200, ESPNOW, -61);
-    L.score(0, false);
+    L.score(ST(0, false), 0);
     CHECK(L.violationStreak() == 0, "a met window resets the streak (got %d)",
           L.violationStreak());
 
@@ -276,7 +289,7 @@ int main(void) {
     L.arm(11);
     L.stageBegin(12);
     L.stage(0x010, ESPNOW, -70);   // different peer entirely
-    L.score(0, false);
+    L.score(ST(0, false), 0);
     CHECK(L.violationStreak() == 0,
           "an all-unobserved window leaves the streak alone (got %d)", L.violationStreak());
   }
@@ -293,7 +306,7 @@ int main(void) {
     L.stageBegin(1);
     for (int i = 0; i < PERCEPTLEARN_MAX_CLAIMS; ++i)
       L.stage(0x10 + (uint32_t)i, ESPNOW, -40 - i);
-    L.score(1785542400000ULL, true);
+    L.score(ST(1785542400000ULL, true), 0);
     size_t m = L.buildOutcome(rec, sizeof(rec), 47, 0x300);
     CHECK(m > 0 && m < PERCEPTLEARN_BUF,
           "a full %d-claim outcome fits PERCEPTLEARN_BUF (%zu / %d)",
@@ -303,8 +316,10 @@ int main(void) {
     CHECK(recordHeaderLines(rec) == 1, "still exactly one record header (got %d)",
           recordHeaderLines(rec));
     lineWith(rec, "**OUTCOME**", line, sizeof(line));
-    CHECK(strcmp(field(line, "synced", buf, sizeof(buf)), "1") == 0,
-          "synced propagates (got '%s')", buf);
+    CHECK(strcmp(field(line, "wall", buf, sizeof(buf)), "1") == 0,
+          "wall propagates (got '%s')", buf);
+    CHECK(strcmp(field(line, "stream", buf, sizeof(buf)), "0x5ea51de7") == 0,
+          "and so does the stream id (got '%s')", buf);
 
     perceptlearn::Loop T;
     T.stageBegin(0);
@@ -312,7 +327,7 @@ int main(void) {
     T.arm(1);
     T.stageBegin(1);
     T.stage(0x200, ESPNOW, -35);
-    T.score(0, false);
+    T.score(ST(0, false), 0);
     char tiny[64];
     CHECK(T.buildOutcome(tiny, sizeof(tiny), 0, 0x300) == 0,
           "an outcome that does not fit writes 0 bytes, not a half record");
@@ -428,7 +443,11 @@ int main(void) {
   // -------------------------------------------------------------------------
   {
     using namespace perceptlearn;
-    // Byte-for-byte an @LAT92 record the Cardputer wrote (LON19, the walk-away window).
+    // Byte-for-byte an @LAT92 record the Cardputer wrote (LON19, the walk-away
+    // window) — deliberately kept in the PRE-STREAM `synced:0` format. The corpus
+    // already on flash is written this way, and a reader that can only parse the new
+    // format would silently fold a subset of the lane, which is exactly the failure
+    // Stage D's whole "recompute, never trust a counter" argument depends on avoiding.
     const char* body =
         "\n---\n\n@LAT92LON19 | created:0 | updated:0 | "
         "relates:testifies_about@LAT95LON3,derived_from@LAT97LON3,senses@LAT0LON0\n\n"
@@ -474,7 +493,8 @@ int main(void) {
 
     // The rendered belief carries an [ew] block — the first on this fleet.
     char brec[PERCEPTLEARN_BUF];
-    size_t bm = R.buildBelief(brec, sizeof(brec), 0, 0, 1785542400UL, 0x300, 1);
+    size_t bm = R.buildBelief(brec, sizeof(brec), 0, 0, 1785542400UL, 0x300, 1,
+                              ST(7200000ULL, true));
     CHECK(bm > 0, "belief record renders (%zu bytes)", bm);
     CHECK(strstr(brec, "\n[ew]\n") != NULL && strstr(brec, "\n[/ew]\n") != NULL,
           "carries a TBEW [ew] block");
@@ -483,6 +503,27 @@ int main(void) {
           "and names Rule 3 as its provenance");
     CHECK(recordHeaderLines(brec) == 1, "exactly one record header (got %d)",
           recordHeaderLines(brec));
+
+    // THE RECENCY ANCHOR, WHICH IS THE WHOLE POINT OF PART 2. `touched:` stays in
+    // Unix seconds per TTDB-RFC-0005 §4, and **TOUCHED** carries the same instant in
+    // the stream frame — the one a node always has.
+    CHECK(strstr(brec, "touched:1785542400") != NULL,
+          "touched: stays spec-conformant Unix seconds");
+    CHECK(strstr(brec, "**TOUCHED** t_ms:7200000 stream:0x5ea51de7 wall:1 "
+                       "unix_s:1785542400") != NULL,
+          "and **TOUCHED** carries the SAME instant in the stream frame");
+
+    // The case the RFC cannot express, and the reason the second field exists: a
+    // fleet with no laptop. `touched:0` says "recency unknown" and salience could
+    // never decay from it — but the stream clock is perfectly good.
+    size_t bm2 = R.buildBelief(brec, sizeof(brec), 0, 0, 0, 0x300, 1,
+                               ST(7200000ULL, false));
+    CHECK(bm2 > 0, "a belief on a laptop-less fleet still renders");
+    CHECK(strstr(brec, "touched:0") != NULL,
+          "with touched:0 — RFC-0005's recency anchor is INERT here, which is the "
+          "spec gap this found");
+    CHECK(strstr(brec, "**TOUCHED** t_ms:7200000 stream:0x00000000 wall:0") != NULL,
+          "while the stream frame still says exactly when it was touched");
   }
 
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);

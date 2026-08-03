@@ -79,20 +79,21 @@ bool Log::stats(int slot, uint32_t& peer, uint8_t& proto, uint32_t& n,
 }
 
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                        uint64_t t_ms, bool synced, uint32_t now_ms) {
+                        const timestream::Stamp& ts, uint32_t now_ms) {
   if (totalObs() == 0) {
     reset(now_ms);
     return 0;
   }
+  char stamp[64];
+  if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) return 0;
   uint32_t window_ms = now_ms - window_start_ms_;
   size_t w = 0;
   int m = snprintf(out + w, cap - w,
                    "\n---\n\n@LAT97LON%d | created:%lu | updated:%lu | "
                    "relates:observes@LAT0LON0\n\n"
-                   "**LINKWIN** t_ms:%llu synced:%d window_ms:%lu\n",
+                   "**LINKWIN** %s window_ms:%lu\n",
                    lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
-                   (unsigned long long)t_ms, synced ? 1 : 0,
-                   (unsigned long)window_ms);
+                   stamp, (unsigned long)window_ms);
   if (m < 0 || (size_t)m >= cap - w) return 0;
   w += (size_t)m;
   for (int i = 0; i < peer_count_; ++i) {

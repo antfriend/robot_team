@@ -31,6 +31,19 @@ static int fails = 0;
     }                                \
   } while (0)
 
+// The old API took `(t_ms, bool synced)`. It now takes a timestream::Stamp, and the
+// migration is exactly: `synced:1` meant "on SOME shared clock, identity unknown" —
+// which is a stream with a wall anchor. `synced:0` meant "local millis()", which is
+// stream 0. These tests keep their original intent under the new field.
+static const uint32_t kStream = 0x5EA51DE7u;
+static timestream::Stamp ST(uint64_t t_ms, bool synced) {
+  timestream::Stamp s;
+  s.t_ms = t_ms;
+  s.stream_id = synced ? kStream : 0;
+  s.wall = synced;
+  return s;
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -104,7 +117,7 @@ int main(void) {
     CHECK(log.movingPermille() == 0, "still window is 0 permille moving (got %d)",
           log.movingPermille());
 
-    size_t m = log.buildRecord(rec, sizeof(rec), 0, 1785542400ULL, 1785542400000ULL, true, now);
+    size_t m = log.buildRecord(rec, sizeof(rec), 0, 1785542400ULL, ST(1785542400000ULL, true), now);
     CHECK(m > 0, "buildRecord renders a still window (%zu bytes)", m);
     CHECK(strstr(rec, "\n---\n\n@LAT95LON0 | ") != NULL, "record opens with the separator + @LAT95LON0 header");
     CHECK(strstr(rec, "relates:senses@LAT0LON0") != NULL, "carries the senses edge to the umwelt");
@@ -112,13 +125,15 @@ int main(void) {
     CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "still") == 0,
           "still window renders state:still (got '%s')", buf);
     lineWith(rec, "**MOTIONWIN**", line, sizeof(line));
-    CHECK(strcmp(field(line, "synced", buf, sizeof(buf)), "1") == 0,
-          "synced flag propagates (got '%s')", buf);
+    CHECK(strcmp(field(line, "wall", buf, sizeof(buf)), "1") == 0,
+          "wall flag propagates (got '%s')", buf);
+    CHECK(strcmp(field(line, "stream", buf, sizeof(buf)), "0x5ea51de7") == 0,
+          "and so does the stream id — WHICH clock, not just whether (got '%s')", buf);
     CHECK(recordHeaderLines(rec) == 1, "the window record is exactly ONE record header (got %d)",
           recordHeaderLines(rec));
 
     // An empty window renders nothing rather than a zero-sample claim.
-    CHECK(log.buildRecord(rec, sizeof(rec), 1, 0, 0, false, now) == 0,
+    CHECK(log.buildRecord(rec, sizeof(rec), 1, 0, ST(0, false), now) == 0,
           "an empty window renders no record");
   }
 
@@ -136,7 +151,7 @@ int main(void) {
     }
     CHECK(log.movingPermille() == 90, "9/100 moving samples = 90 permille (got %d)",
           log.movingPermille());
-    log.buildRecord(rec, sizeof(rec), 0, 0, 0, false, now);
+    log.buildRecord(rec, sizeof(rec), 0, 0, ST(0, false), now);
     lineWith(rec, "**MOTION**", line, sizeof(line));
     CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "still") == 0,
           "90 permille is still a 'still' window (got '%s')", buf);
@@ -148,7 +163,7 @@ int main(void) {
     }
     CHECK(log.movingPermille() == 100, "10/100 moving samples = 100 permille (got %d)",
           log.movingPermille());
-    log.buildRecord(rec, sizeof(rec), 1, 0, 0, false, now);
+    log.buildRecord(rec, sizeof(rec), 1, 0, ST(0, false), now);
     lineWith(rec, "**MOTION**", line, sizeof(line));
     CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "moving") == 0,
           "100 permille tips the window to 'moving' (got '%s')", buf);
@@ -165,19 +180,19 @@ int main(void) {
     // Window 0: still. There is no window before it, so there is no transition — the
     // first window of a node's life cannot be an `after` without orphaning a `before`.
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 0, 1000, 1000000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 0, 1000, ST(1000000ULL, true), now);
     CHECK(!log.transitionPending(), "the FIRST window never yields a transition (no orphan `before`)");
     CHECK(log.buildTransition(tr, sizeof(tr), 0, 0x300) == 0,
           "buildTransition writes nothing when nothing is pending");
 
     // Window 1: still again. Same verdict = no claim.
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 1, 1060, 1060000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 1, 1060, ST(1060000ULL, true), now);
     CHECK(!log.transitionPending(), "still -> still is not a transition");
 
     // Window 2: moving. THE CHANGE.
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 2, 1120, 1120000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 2, 1120, ST(1120000ULL, true), now);
     CHECK(log.transitionPending(), "still -> moving IS a transition");
 
     size_t m = log.buildTransition(tr, sizeof(tr), 0, 0x300);
@@ -234,10 +249,10 @@ int main(void) {
 
     // Window 3: moving again — no claim. Window 4: still — the reverse transition.
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 3, 1180, 1180000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 3, 1180, ST(1180000ULL, true), now);
     CHECK(!log.transitionPending(), "moving -> moving is not a transition");
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 4, 1240, 1240000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 4, 1240, ST(1240000ULL, true), now);
     CHECK(log.transitionPending(), "moving -> still IS a transition (the edge runs both ways)");
     log.buildTransition(tr, sizeof(tr), 1, 0x300);
     lineWith(tr, "**TRANSITION**", line, sizeof(line));
@@ -257,7 +272,7 @@ int main(void) {
     uint32_t now = 1000;
     log.reset(now);
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 0, 1000, 1000000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 0, 1000, ST(1000000ULL, true), now);
 
     // What the sketch does when the @LAT95 lane is full: the window is thrown away.
     feedWindow(log, now, 400, 60);
@@ -267,7 +282,7 @@ int main(void) {
     // they are not adjacent, so claiming a transition here would assert an edge across
     // a window that was measured and discarded.
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 1, 1180, 1180000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 1, 1180, ST(1180000ULL, true), now);
     CHECK(!log.transitionPending(),
           "a discarded window breaks the chain (no transition across the gap)");
   }
@@ -280,9 +295,9 @@ int main(void) {
     uint32_t now = 1000;
     log.reset(now);
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 0, 1000, 1000000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 0, 1000, ST(1000000ULL, true), now);
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 1, 1060, 1060000ULL, true, now);
+    log.buildRecord(rec, sizeof(rec), 1, 1060, ST(1060000ULL, true), now);
     CHECK(log.transitionPending(), "transition armed for the truncation check");
 
     char tiny[80];
@@ -301,16 +316,43 @@ int main(void) {
     uint32_t now = 1000;
     log.reset(now);
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 0, 0, 61000ULL, false, now);
+    log.buildRecord(rec, sizeof(rec), 0, 0, ST(61000ULL, false), now);
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 1, 0, 121000ULL, false, now);
+    log.buildRecord(rec, sizeof(rec), 1, 0, ST(121000ULL, false), now);
     size_t m = log.buildTransition(tr, sizeof(tr), 0, 0x300);
-    CHECK(m > 0, "an unsynced node still records its own transitions");
+    CHECK(m > 0, "a node on no stream still records its own transitions");
     lineWith(tr, "**TRANSITION**", line, sizeof(line));
-    CHECK(strcmp(field(line, "synced", buf, sizeof(buf)), "0") == 0,
-          "and marks them unsynced so they are not ordered against another node (got '%s')", buf);
+    CHECK(strcmp(field(line, "stream", buf, sizeof(buf)), "0x00000000") == 0,
+          "and marks them stream:0 so they are not ordered against another node "
+          "(got '%s')", buf);
     CHECK(strcmp(field(line, "dt_ms", buf, sizeof(buf)), "60000") == 0,
           "dt_ms is still meaningful on one node's own clock (got '%s')", buf);
+    CHECK(strcmp(field(line, "dt_across_merge", buf, sizeof(buf)), "0") == 0,
+          "and dt is trustworthy: both halves came from the same clock (got '%s')", buf);
+  }
+
+  // 6b. A stream merge BETWEEN the two windows makes dt_ms an over-estimate, and the
+  // record has to say so — the numbers alone cannot: a merge offset lands in the
+  // subtraction and reads as elapsed time that never happened.
+  {
+    motionpercept::Log log;
+    uint32_t now = 0;
+    char tr[MOTIONPERCEPT_TRANSITION_BUF], line[512], buf[64];
+    char rec[512];
+    timestream::Stamp before = ST(61000ULL, false);   // stream 0: local millis()
+    timestream::Stamp after = ST(3721000ULL, true);   // adopted an hour-old stream
+    feedWindow(log, now, 0, 60);
+    log.buildRecord(rec, sizeof(rec), 0, 0, before, now);
+    feedWindow(log, now, 400, 60);
+    log.buildRecord(rec, sizeof(rec), 1, 0, after, now);
+    size_t m = log.buildTransition(tr, sizeof(tr), 0, 0x300);
+    CHECK(m > 0, "the transition is still written across a merge");
+    lineWith(tr, "**TRANSITION**", line, sizeof(line));
+    CHECK(strcmp(field(line, "dt_across_merge", buf, sizeof(buf)), "1") == 0,
+          "flagged: the two halves are on DIFFERENT clocks (got '%s')", buf);
+    CHECK(strcmp(field(line, "dt_ms", buf, sizeof(buf)), "3660000") == 0,
+          "dt_ms is the raw difference — an over-estimate by exactly the merge "
+          "offset, which @LAT90's REMAP records, so it is recoverable (got '%s')", buf);
   }
 
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
