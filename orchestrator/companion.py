@@ -1808,6 +1808,153 @@ def fmt_stream(w):
     return "%08x%s" % (s, "*" if w.get("wall") else "")
 
 
+# --- Recency: a TIME window, not a record count -----------------------------
+# `--last N` is a slice (`wins[-N:]`). Under PERIODIC logging N records ~ N
+# minutes, so counting was a passable proxy for time. Under CHANGE-TRIGGERED
+# logging it is not, and the error is not random: a node that sat still writes
+# few records, so "its newest 6 windows" may reach back hours, while a node that
+# moved writes many and its newest 6 cover minutes — i.e. the filter is
+# strictest exactly on the node with the freshest evidence, which is backwards.
+# The team time stream (2026-08-03) is what makes the honest version possible:
+# every window now carries a comparable t_ms on a NAMED timeline, so recency can
+# be stated in milliseconds instead of approximated by counting.
+DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?$", re.IGNORECASE)
+DURATION_UNITS = {"ms": 1, "s": 1000, "m": 60000, "h": 3600000, "d": 86400000}
+# The marker that a lane is change-triggered: one record standing for N windows
+# (the run-length form). Its presence in a corpus is what makes `--last` unsafe.
+CHANGE_TRIGGERED_RE = re.compile(r"\bwindows_since_last:(\d+)")
+
+
+def parse_duration_ms(text):
+    """'500ms' / '90s' / '10m' / '2h' / '1d' -> milliseconds. A bare number is
+    SECONDS (the unit an operator says out loud), not ms. Raises ValueError."""
+    m = DURATION_RE.match(str(text).strip())
+    if not m:
+        raise ValueError(f"bad duration '{text}' (use e.g. 90s, 10m, 2h, 1d)")
+    return int(float(m.group(1)) * DURATION_UNITS[(m.group(2) or "s").lower()])
+
+
+def stream_references(*window_groups):
+    """Newest t_ms seen on each NAMED stream, across every node and every tier
+    -> {stream_id: t_ms}.
+
+    This is the thing the team time stream actually buys: a timestamp written by
+    node A is comparable with one written by node B exactly when both name the
+    same timeline. So "recent" can mean recent to the FLEET rather than recent
+    to whoever happened to write the record — which is the whole point, because
+    a node that has been switched off for three hours has a perfectly fresh
+    "newest window" *of its own* and must not contribute to a current belief.
+
+    Streams 0 (local millis()) and None (an old `synced:1`, "some clock,
+    unnameable") are deliberately absent: they are self-comparable only, so the
+    node's own newest window is the only reference they can honestly have."""
+    refs = {}
+    for group in window_groups:
+        for wins in group.values():
+            for w in wins:
+                s, t = w.get("stream"), w.get("t_ms")
+                if not s or t is None:
+                    continue
+                if t > refs.get(s, -1):
+                    refs[s] = t
+    return refs
+
+
+def filter_windows_since(windows, since_ms, refs=None):
+    """Keep only the windows within `since_ms` of the newest COMPARABLE window.
+    Returns (kept, stats) — never a silently reduced list.
+
+    The policy, stated rather than assumed (a silent subset is this project's
+    signature failure, so every dropped window lands in a counter):
+
+    * The node's own reference window is its newest in FILE order, not
+      max(t_ms). A TTDB is appended to, so file order is the order the node
+      wrote them; a stream clock is a ratchet (it jumps forward when an older
+      stream is adopted), which max() would let win.
+    * Only windows on the SAME timeline as that reference are comparable.
+      Timelines are compared by identity, so old-format `synced:1` records
+      (stream None) form their own class and compare with each other — sound,
+      because they are all one node's records and it had one clock.
+    * `refs` (from stream_references) supplies the FLEET's newest t_ms on that
+      timeline, so a node that stopped writing hours ago is filtered out by
+      everyone else's clock instead of grading its own homework. Without a
+      fleet reference — stream 0, stream None, or a stream only this node is on
+      — it falls back to its own newest and says so (`ref_is_local`), because
+      "recent by its own clock" is a strictly weaker claim.
+    * This is deliberately NOT wall-clock: most records are `wall:0` and always
+      will be in a garden.
+    * A t_ms that DECREASES in file order means the clock restarted — possible
+      only on stream 0/None, since a stream clock never runs backwards. Windows
+      at or before the last such step are pre-restart and not comparable with
+      the reference, however recent their number looks.
+    """
+    stats = {"ref_stream": None, "ref_t_ms": None, "ref_is_local": True,
+             "kept": 0, "off_stream": 0, "pre_restart": 0, "too_old": 0,
+             "no_time": 0}
+    if since_ms is None:
+        stats["kept"] = len(windows)
+        return list(windows), stats
+    timed = [w for w in windows if w.get("t_ms") is not None]
+    stats["no_time"] = len(windows) - len(timed)
+    if not timed:
+        return [], stats
+    ref = timed[-1]
+    stats["ref_stream"] = ref.get("stream")
+    fleet_ref = (refs or {}).get(stats["ref_stream"]) if stats["ref_stream"] else None
+    stats["ref_t_ms"] = ref["t_ms"] if fleet_ref is None else fleet_ref
+    stats["ref_is_local"] = fleet_ref is None
+    same = [w for w in timed if w.get("stream") == stats["ref_stream"]]
+    stats["off_stream"] = len(timed) - len(same)
+    cut = 0
+    for i in range(1, len(same)):
+        if same[i]["t_ms"] < same[i - 1]["t_ms"]:
+            cut = i
+    stats["pre_restart"] = cut
+    same = same[cut:]
+    kept = [w for w in same if stats["ref_t_ms"] - w["t_ms"] <= since_ms]
+    stats["too_old"] = len(same) - len(kept)
+    stats["kept"] = len(kept)
+    return kept, stats
+
+
+def apply_recency(windows, last=None, since_ms=None, refs=None):
+    """The one recency filter both tiers use. `since_ms` first (a real time
+    window), then `--last N` as a further cap if given — they compose, and
+    either alone is the whole filter."""
+    kept, stats = filter_windows_since(windows, since_ms, refs)
+    if last:
+        capped = kept[-last:]
+        stats["capped_by_last"] = len(kept) - len(capped)
+        kept = capped
+        stats["kept"] = len(kept)
+    return kept, stats
+
+
+def recency_report(stats_by_node, since_ms):
+    """Print what the time filter excluded, per node. Called once, by the
+    caller that owns the terminal — the consolidators stay quiet."""
+    if since_ms is None:
+        return
+    print(f"recency: --since {since_ms} ms, measured back from the newest window "
+          f"on each node's stream (* = that node's own clock, weaker)")
+    for name in sorted(stats_by_node):
+        s = stats_by_node[name]
+        excl = [f"{s['too_old']} older" if s["too_old"] else "",
+                f"{s['off_stream']} off-stream" if s["off_stream"] else "",
+                f"{s['pre_restart']} pre-restart" if s["pre_restart"] else "",
+                f"{s['no_time']} untimed" if s["no_time"] else "",
+                f"{s['capped_by_last']} by --last"
+                if s.get("capped_by_last") else ""]
+        excl = ", ".join(e for e in excl if e) or "none"
+        ref = ("-" if s["ref_t_ms"] is None else
+               f"t_ms {s['ref_t_ms']}{'*' if s['ref_is_local'] else ''} on "
+               f"{fmt_stream({'stream': s['ref_stream']})}")
+        print(f"  {name:<14} kept {s['kept']:>3}   excluded: {excl:<44} ref {ref}")
+        if s["kept"] == 0 and (s["too_old"] or s["off_stream"]):
+            print(f"  {'':<14} ^ contributes NOTHING to this belief — it has "
+                  f"written nothing on the fleet's timeline within the window")
+
+
 LINKWIN_WINDOW_RE = re.compile(r"\*\*LINKWIN\*\*.*?\swindow_ms:(\d+)")
 LINK_RE = re.compile(
     r"\*\*LINK\*\*\s+peer:0x([0-9A-Fa-f]{8})\s+proto:(\w+)\s+n:(\d+)\s+"
@@ -1938,10 +2085,9 @@ def parse_entity_percepts(text):
     return windows
 
 
-def _entity_set(windows, last=None):
+def _entity_set(windows, last=None, since_ms=None, refs=None):
     """Union of BSSIDs a node saw across its (recent) windows -> set of ids."""
-    if last:
-        windows = windows[-last:]
+    windows, _ = apply_recency(windows, last, since_ms, refs)
     ids = set()
     for w in windows:
         for e in w["entities"]:
@@ -1959,12 +2105,26 @@ def entity_jaccard_bound(jaccard):
     return ENTITY_BOUND_LOOSE_M - jaccard * (ENTITY_BOUND_LOOSE_M - ENTITY_BOUND_TIGHT_M)
 
 
-def consolidate_entity_jaccard(windows_by_node, last=None):
+def consolidate_entity_jaccard(windows_by_node, last=None, since_ms=None,
+                               refs=None):
     """windows_by_node: {node_name: [parse_entity_percepts window, ...]}.
     For every node pair that both logged entities, compute the Jaccard overlap of
     their BSSID sets and the coarse distance bound it implies. Returns a list of
-    {pair, jaccard, shared, union, bound_m} dicts, disjoint/empty pairs dropped."""
-    sets = {name: _entity_set(wins, last) for name, wins in windows_by_node.items()}
+    {pair, jaccard, shared, union, bound_m} dicts, disjoint/empty pairs dropped.
+
+    ⚠ The recency filter MUST reach this tier. It did not until 2026-08-03: the
+    `last` parameter existed and the one call site never passed it, so
+    `proximity --last 6` narrowed the RSSI evidence to six windows while the
+    entity cap that bounds it FROM ABOVE was computed over the node's entire
+    history. A node carried across the house keeps every AP it ever saw in its
+    Jaccard set, so the pair still looks co-located and the bound stays tight —
+    and "that node moved, use recent evidence only" is precisely the case the
+    flag was passed for. It never showed up as an error because a too-tight
+    bound produces a plausible number."""
+    if refs is None:
+        refs = stream_references(windows_by_node)
+    sets = {name: _entity_set(wins, last, since_ms, refs)
+            for name, wins in windows_by_node.items()}
     sets = {n: s for n, s in sets.items() if s}   # nodes that saw at least one AP
     names = sorted(sets)
     out = []
@@ -2238,23 +2398,28 @@ def apply_ble_bound(beliefs, k_sigma=BLE_BOUND_K_SIGMA):
     return beliefs
 
 
-def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=None):
+def consolidate_proximity(windows_by_node, calib=None, last=None,
+                          entity_bounds=None, since_ms=None, refs=None):
     """windows_by_node: {node_name: [parse_link_percepts window, ...]}.
     calib: load_calibration() output (fitted path-loss per proto), or None.
-    last: use only each node's newest N windows — the recency filter. A node
-    that moved (the calibration walk!) leaves stale-distance windows behind;
-    position is a *current* belief, so recent evidence must be able to win.
+    since_ms: the recency filter, stated as TIME (see filter_windows_since) —
+    prefer it. A node that moved (the calibration walk!) leaves stale-distance
+    windows behind; position is a *current* belief, so recent evidence must be
+    able to win.
+    last: the older count-based form of the same filter — newest N windows.
+    Honest only while every lane is periodic; see filter_windows_since.
     entity_bounds: {frozenset((a,b)): {jaccard, bound_m, shared, union}} from
     consolidate_entity_jaccard — the SP1 entity cap. Shared WiFi APs bound a pair's
     distance from ABOVE ("they share N APs, they can't be far", spec §2.2); this
     caps the RSSI estimate (never refines below it) and adds a `sources:` mix.
     Returns a list of pair-belief dicts, one per (unordered pair, proto)."""
     id_to_name = {v: k for k, v in NODE_IDS.items()}
+    if refs is None:
+        refs = stream_references(windows_by_node)
     directed = {}  # (obs_id, peer_id, proto) -> {"maxes": [...], "n": int, "windows": int}
     for name, wins in windows_by_node.items():
         obs_id = NODE_IDS[name]
-        if last:
-            wins = wins[-last:]
+        wins, _ = apply_recency(wins, last, since_ms, refs)
         for w in wins:
             for l in w["links"]:
                 if l["peer"] == ORCHESTRATOR_ID:
@@ -2343,7 +2508,8 @@ def consolidate_proximity(windows_by_node, calib=None, last=None, entity_bounds=
 
 
 def proximity(port, baud, nodes, out, do_pull, settle,
-              calib_path=DEFAULT_CALIBRATION, last=None, clear=False):
+              calib_path=DEFAULT_CALIBRATION, last=None, clear=False,
+              since_ms=None):
     """SP1: pull each node's TTDB, fuse the @LAT97 lanes into @BELIEF:PROXIMITY
     records (master/proximity.md), and print the pair table."""
     calib = load_calibration(calib_path)
@@ -2379,21 +2545,48 @@ def proximity(port, baud, nodes, out, do_pull, settle,
 
     windows_by_node = {}
     entity_windows_by_node = {}
+    change_triggered = []
     for n in nodes:
         try:
             with open(node_paths[n], encoding="utf-8", errors="replace") as f:
                 text = f.read()
             windows_by_node[n] = parse_link_percepts(text)
             entity_windows_by_node[n] = parse_entity_percepts(text)
+            if CHANGE_TRIGGERED_RE.search(text):
+                change_triggered.append(n)
         except FileNotFoundError:
             print(f"warning: {node_paths[n]} missing; {n} contributes nothing")
+    if last and change_triggered:
+        # Counting records only proxies time while the lane writes one per window.
+        print(f"WARNING: --last {last} counts RECORDS, but "
+              f"{', '.join(change_triggered)} carry change-triggered lanes "
+              f"(windows_since_last:), where one record stands for many windows. "
+              f"N records is no longer N minutes and the bias favours the node "
+              f"that moved least. Use --since instead.")
+    # Recency is applied HERE, once, so both tiers see the same window and the
+    # exclusions are reported rather than inferred. The fleet reference spans
+    # BOTH tiers: a node whose @LAT96 lane went quiet is still demonstrably
+    # alive on the timeline if its @LAT97 lane did not.
+    refs = stream_references(windows_by_node, entity_windows_by_node)
+    link_stats, entity_stats = {}, {}
+    for n in list(windows_by_node):
+        windows_by_node[n], link_stats[n] = apply_recency(
+            windows_by_node[n], last, since_ms, refs)
+        entity_windows_by_node[n], entity_stats[n] = apply_recency(
+            entity_windows_by_node[n], last, since_ms, refs)
+    if since_ms is not None:
+        print("@LAT97 link windows")
+        recency_report(link_stats, since_ms)
+        print("@LAT96 entity windows")
+        recency_report(entity_stats, since_ms)
     # SP1 entity cap: fuse the @LAT96 WiFi co-occurrence into per-pair distance bounds.
     entity_bounds = {frozenset(e["pair"]): e
                      for e in consolidate_entity_jaccard(entity_windows_by_node)}
     if entity_bounds:
         print(f"entity co-occurrence: {len(entity_bounds)} pair(s) with shared APs "
               f"(WiFi cap active)")
-    beliefs = consolidate_proximity(windows_by_node, calib, last, entity_bounds)
+    # last/since already applied above (and reported) — do not filter twice.
+    beliefs = consolidate_proximity(windows_by_node, calib, None, entity_bounds)
     # SP1 second bound: fold each pair's BLE proto:ble estimate in as a tighter
     # near-range cap on the espnow distance (ttn-semantic-positioning.md §2.2).
     apply_ble_bound(beliefs)
@@ -3369,9 +3562,14 @@ def main():
     px.add_argument("--settle", type=float, default=2.5)
     px.add_argument("--calibration", default=DEFAULT_CALIBRATION,
                     help="fitted path-loss file (companion.py calibrate)")
+    px.add_argument("--since", default=None,
+                    help="recency filter as TIME: keep only windows within this "
+                         "of the newest window on the node's stream, fleet-wide "
+                         "(90s, 10m, 2h, 1d; a bare number is seconds)")
     px.add_argument("--last", type=int, default=None,
-                    help="use only each node's newest N windows (recency "
-                         "filter — a moved node leaves stale windows behind)")
+                    help="older count-based recency filter: each node's newest "
+                         "N windows. Honest only while every lane logs one "
+                         "record per window - prefer --since")
     px.add_argument("--clear", action="store_true",
                     help="after consolidating, CMD each node to drop its "
                          "@LAT97 lane (the Dream-Cycle prune; needs --port)")
@@ -3519,9 +3717,14 @@ def main():
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":
         do_pull = bool(args.port) and not args.no_pull
+        try:
+            since_ms = (parse_duration_ms(args.since)
+                        if args.since is not None else None)
+        except ValueError as e:
+            sys.exit(str(e))
         proximity(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                   args.out, do_pull, args.settle, args.calibration, args.last,
-                  args.clear)
+                  args.clear, since_ms)
     elif args.cmd == "calibrate":
         calibrate(args.proto, args.station, args.out, args.note)
     elif args.cmd == "positions":

@@ -346,6 +346,156 @@ check(bok["ble_saturated"] is True, "sub-1.5 m BLE estimate flagged saturated")
 check(bok["ble_reflection_suspect"] is False,
       "saturated BLE with an AGREEING close espnow is NOT flagged (no conflict)")
 
+# ---------------------------------------------------------------------------
+# 10) RECENCY IS A TIME WINDOW, NOT A RECORD COUNT (2026-08-03).
+# `--last N` is a slice. Under periodic logging N records ~ N minutes, so it was
+# a passable proxy. Under change-triggered logging it is not, and the error is
+# not random: the node that sat still writes few records, so its "newest 6"
+# reach back hours, while the node that moved writes many and its newest 6 cover
+# minutes — strictest exactly where the evidence is freshest. The team time
+# stream is what makes the honest version possible, because a t_ms from node A
+# is comparable with one from node B when both name the same timeline.
+STREAM = 0x59fb8ce8          # the fleet's real stream id, 2026-08-03
+
+
+def sw_link(peer, rssi, t_ms, stream=STREAM, n=30, wall=0):
+    return {"lane": 0, "t_ms": t_ms, "stream": stream, "wall": wall,
+            "synced": 1 if stream else 0, "window_ms": 60000,
+            "links": [{"peer": peer, "proto": "espnow", "n": n,
+                       "min": rssi, "med": rssi, "max": rssi}]}
+
+
+check(c.parse_duration_ms("90s") == 90000 and c.parse_duration_ms("10m") == 600000
+      and c.parse_duration_ms("2h") == 7200000 and c.parse_duration_ms("1d") == 86400000
+      and c.parse_duration_ms("500ms") == 500,
+      "durations parse in ms/s/m/h/d")
+check(c.parse_duration_ms("30") == 30000,
+      "a bare number is SECONDS — the unit an operator says out loud")
+try:
+    c.parse_duration_ms("soon")
+    check(False, "a bad duration raises rather than defaulting")
+except ValueError:
+    check(True, "a bad duration raises rather than defaulting")
+
+# 10a) THE CASE `--last` GETS BACKWARDS. Both nodes are on the fleet's stream.
+# v4a is live and writing; v4b was carried away and stopped writing 40 minutes
+# ago, at a moment when it was still right next to v4a (strong -35 dBm).
+# `--last 2` keeps v4b's two newest records — they are its newest, they are also
+# 40 minutes stale — and the pair reads as adjacent. A TIME window drops them.
+t_now = 3_000_000
+stale_fleet = {
+    "v4a_bridge": [sw_link(0x11, -85, t_now - 600_000),
+                   sw_link(0x11, -85, t_now - 300_000),
+                   sw_link(0x11, -85, t_now)],
+    "v4b_relay": [sw_link(0x10, -35, t_now - 2_500_000),
+                  sw_link(0x10, -35, t_now - 2_400_000)],
+}
+b_count = c.consolidate_proximity(stale_fleet, last=2)[0]
+check(b_count["n_ba"] == 60 and b_count["rssi_ba"] == -35.0,
+      "--last 2 admits the stale node's newest windows (they ARE its newest)")
+b_time = c.consolidate_proximity(stale_fleet, since_ms=c.parse_duration_ms("15m"))[0]
+check(b_time["n_ba"] == 0 and b_time["rssi_ba"] is None,
+      "--since 15m drops them: nothing v4b wrote is within 15 min of the "
+      "FLEET's newest window on that stream")
+check(b_time["n_ab"] == 90 and b_time["windows"] == 3,
+      "and keeps every window the live node wrote inside the same 15 minutes")
+check(b_time["rssi_est"] == -85.0 and b_count["rssi_est"] == -60.0,
+      "the two filters disagree about where the pair IS — 85 dBm apart in "
+      "estimate — which is the whole finding, not a rounding difference")
+# The reference must be the FLEET's newest on that stream, not the node's own:
+# grading its own homework, v4b's 40-minute-old windows are 0 ms old.
+_, st_b = c.filter_windows_since(stale_fleet["v4b_relay"], 900_000,
+                                 c.stream_references(stale_fleet))
+check(st_b["ref_t_ms"] == t_now and st_b["ref_is_local"] is False,
+      "a node on a shared stream is judged by the fleet's clock, not its own")
+_, st_own = c.filter_windows_since(stale_fleet["v4b_relay"], 900_000)
+check(st_own["kept"] == 2 and st_own["ref_is_local"] is True,
+      "with no fleet reference it falls back to its own newest — and says so")
+
+# 10b) MIXED CORPUS. A node's TTDB is appended to for its whole life, so records
+# written before 2026-08-03 (stream None, "some clock, unnameable") sit under the
+# ones written after. They are NOT comparable with a stream id, and must be
+# neither silently kept nor silently dropped — the count is the deliverable.
+mixed = [{"lane": 0, "t_ms": 120_000, "stream": None, "wall": 1, "synced": 1,
+          "window_ms": 60000, "links": []},
+         {"lane": 1, "t_ms": 180_000, "stream": None, "wall": 1, "synced": 1,
+          "window_ms": 60000, "links": []},
+         sw_link(0x11, -60, t_now - 60_000),
+         sw_link(0x11, -60, t_now)]
+kept, st = c.filter_windows_since(mixed, 900_000, {STREAM: t_now})
+check(st["kept"] == 2 and st["off_stream"] == 2,
+      "old synced:1 windows are excluded from a stream-referenced filter")
+check(len(kept) == 2 and all(w["stream"] == STREAM for w in kept),
+      "and what survives is exactly the comparable set")
+check(st["ref_stream"] == STREAM and st["too_old"] == 0,
+      "off-stream is counted separately from too-old — different reasons")
+# The reverse order matters too: a node whose NEWEST record is old-format is
+# judged on its own clock, and the stream records below it become the outsiders.
+kept_r, st_r = c.filter_windows_since(list(reversed(mixed)), 900_000, {STREAM: t_now})
+check(st_r["ref_stream"] is None and st_r["ref_is_local"] is True
+      and st_r["off_stream"] == 2,
+      "newest-in-FILE-order picks the timeline, so the classes swap with it")
+# millis() restarting is a reboot, however recent the number looks.
+reboot = [sw_link(0x11, -60, 900_000, stream=0),
+          sw_link(0x11, -60, 960_000, stream=0),
+          sw_link(0x11, -60, 30_000, stream=0),
+          sw_link(0x11, -60, 90_000, stream=0)]
+_, st_rb = c.filter_windows_since(reboot, 900_000)
+check(st_rb["pre_restart"] == 2 and st_rb["kept"] == 2,
+      "a t_ms that steps BACKWARDS is a clock restart: what precedes it is not "
+      "comparable with the reference, whatever its number says")
+check(c.filter_windows_since(mixed, None)[0] == mixed,
+      "no --since -> the filter is a no-op, not a reformat")
+
+# 10c) ⚠ THE A.1 BUG, PINNED. `consolidate_entity_jaccard` took a `last`
+# parameter and its ONE call site never passed one, so `proximity --last 6`
+# narrowed the RSSI evidence while the entity cap that bounds it FROM ABOVE was
+# computed over the node's ENTIRE history. A node carried across the house keeps
+# every AP it ever saw in its Jaccard set, so the pair still looks co-located and
+# the bound stays tight — on exactly the run where the operator said "that node
+# moved". It never read as an error because a too-tight bound is a plausible
+# number. Fixed 2026-08-03; this test exists so it cannot come back.
+def ew(bssids, t_ms, stream=STREAM):
+    return {"lane": 0, "t_ms": t_ms, "stream": stream, "wall": 0,
+            "synced": 1 if stream else 0, "window_ms": 60000,
+            "entities": [{"kind": "wifi", "id": b, "n": 4, "rssi": -70}
+                         for b in bssids]}
+
+
+HOME = ["aa0000000001", "aa0000000002", "aa0000000003", "aa0000000004"]
+AWAY = ["bb0000000001", "bb0000000002", "bb0000000003", "bb0000000004"]
+moved = {
+    "v4a_bridge": [ew(HOME, t_now - 2_400_000), ew(HOME, t_now)],
+    # v4b was carried to the far end of the house: it USED to see v4a's APs and
+    # now sees a disjoint set. Its history says co-located; its present does not.
+    "v4b_relay": [ew(HOME, t_now - 2_400_000), ew(AWAY, t_now)],
+}
+j_all = c.consolidate_entity_jaccard(moved)
+# v4a's history: HOME (4 APs). v4b's history: HOME + AWAY (8). Overlap 4/8 = 0.5,
+# which the bound reads as ~65 m — a pair that is nowhere near each other now.
+check(j_all and j_all[0]["jaccard"] == 0.5 and j_all[0]["bound_m"] == 65.0,
+      "over the whole history the moved pair still shares every AP it ever "
+      "shared, so the bound stays tight (65 m) long after it stopped being true")
+j_recent = c.consolidate_entity_jaccard(moved, since_ms=c.parse_duration_ms("15m"))
+check(j_recent == [],
+      "--since reaches the entity tier: on recent windows the AP sets are "
+      "disjoint, so the pair gets NO bound rather than a tight wrong one")
+check(c.consolidate_entity_jaccard(moved, last=1) == [],
+      "--last reaches it too — the parameter that existed and was never passed")
+# End to end: the stale-but-tight bound would clamp a genuinely far pair.
+far_now = {"v4a_bridge": [sw_link(0x11, -100, t_now)],
+           "v4b_relay": [sw_link(0x10, -100, t_now)]}
+eb_all = {frozenset(e["pair"]): e for e in c.consolidate_entity_jaccard(moved)}
+eb_recent = {frozenset(e["pair"]): e for e in
+             c.consolidate_entity_jaccard(moved, since_ms=c.parse_duration_ms("15m"))}
+b_stale_cap = c.consolidate_proximity(far_now, entity_bounds=eb_all)[0]
+b_true = c.consolidate_proximity(far_now, entity_bounds=eb_recent)[0]
+check(b_stale_cap["entity_capped"] is True and b_stale_cap["dist_est_m"] == 65.0,
+      "the history-wide bound clamps the moved pair to 65 m (the wrong answer, "
+      "and a plausible-looking one — which is why it was never reported)")
+check(b_true["entity_capped"] is False and b_true["dist_est_m"] > 65.0,
+      "with recency applied to BOTH tiers the pair is free to read as far")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

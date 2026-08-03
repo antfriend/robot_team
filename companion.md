@@ -3248,6 +3248,137 @@ If a fact lives in one of these, link to it from here — don't copy it.
   three V4s 1 each after resets and full pulls) — so do not raise it; only the
   what-happens-when-full policy is still open.
 
+- ✅ **2026-08-03 (Part A) — RECENCY IS NOW A TIME WINDOW, AND IT IS THE FLEET'S CLOCK
+  THAT JUDGES IT.** `proximity --since <90s|10m|2h|1d>` lands alongside `--last N`
+  (`parse_duration_ms`; a bare number is seconds). The design decision worth knowing:
+  **the reference is the newest window on that node's STREAM, fleet-wide, not the node's
+  own newest.** Per-node was the obvious reading and it is wrong — a node switched off
+  three hours ago has a perfectly fresh newest window *of its own* and would grade its own
+  homework straight into a current belief. `stream_references()` takes the max t_ms per
+  named stream across every node **and both tiers**, so a node whose @LAT96 lane went
+  quiet is still demonstrably alive if its @LAT97 lane was not. Streams `0` and `None` are
+  deliberately absent from that map — self-comparable only — so those nodes fall back to
+  their own newest and the report marks it `*`, because "recent by its own clock" is a
+  strictly weaker claim. Everything dropped lands in a counter and is printed per node
+  (`too_old` / `off_stream` / `pre_restart` / `untimed` / `by --last`); a node reduced to
+  zero says so in words. Three more rules, each written into `filter_windows_since`'s
+  docstring: the node's own reference is its newest in **file order**, not `max(t_ms)` (a
+  stream clock is a ratchet and jumps forward on adoption, which `max()` would let win);
+  timelines compare by identity, so old `synced:1` records (stream `None`) form their own
+  comparable class rather than being fabricated onto a stream; and a `t_ms` that steps
+  **backwards** in file order is a millis() restart, so everything before it is
+  incomparable however recent its number looks. ✅ **FINDING A.1 is fixed and pinned** —
+  `consolidate_entity_jaccard` now takes `since_ms`/`refs` and the call site passes them,
+  with a test that fails if the entity cap is ever computed over a wider window than the
+  RSSI evidence again. `--last` still works, and now **warns** when the corpus contains
+  `windows_since_last:` (the run-length marker Part B will add) — the exact condition
+  under which counting records stops proxying time. Python suite **7/7, test_prox_py 74 →
+  94 checks**; no firmware touched.
+  ⚠ **AND THE FIRST REAL-CORPUS RUN FOUND SOMETHING: THE `@LAT97` LANE IS FULL ON ALL
+  FIVE NODES, AND NOT ONE POST-FLASH LINK WINDOW EXISTS ANYWHERE IN THE FLEET.**
+  `LINKWIN` counts in `master/timestream-2026-08-03/`: V4-A **48**, V4-B **48**, V4-C
+  **48**, T-Deck **48**, Cardputer **48** — i.e. exactly `LINKPERCEPT_MAX_LANE 48` on
+  every board — and `grep LINKWIN | grep -c stream:` is **0** on every one. The lane was
+  already at its cap when the time-stream firmware went on, and `LinkPercept.h:31` says
+  what happens then: *"Stop appending once the @LAT97 lane holds this many records…
+  only the append is skipped."* The app reflash does not clear the TTDB (that is a
+  separate FS upload), so **the primary hypothesis' own evidence lane has been silently
+  discarding on the whole fleet**, and will never carry a `stream:` stamp until it is
+  pruned. This is the same failure as the @LAT95 cap that disarmed the learning loop on
+  2026-08-02, one lane over and fleet-wide. The remedy already exists and has never been
+  needed before: `proximity --clear` (the Dream-Cycle prune, needs `--port`). ⏳ **Not
+  run — it needs the boards powered, and dropping a lane is the operator's call.** Do it
+  before collecting anything for Part C, or the collection window will be empty.
+  📎 It also validates the report design: the `*` markers made this visible on the first
+  run — every node's @LAT97 reference printed as its own local clock on stream `-`, while
+  its @LAT96 reference printed a real stream id.
+
+- ✅ **2026-08-03 (the prune) — THE `@LAT97` LANE IS OPEN AGAIN ON FOUR OF FIVE NODES, AND
+  THE FIRST LINK WINDOW IN THE PROJECT'S HISTORY WITH A TEAM-TIMELINE STAMP IS ON FLASH.**
+  ```
+  **LINKWIN** t_ms:6611291 stream:0x59fb8ce8 wall:0 window_ms:60000   ← Cardputer, post-prune
+  ```
+  Before this, `grep LINKWIN | grep -c stream:` was **0 on every node in the fleet**.
+  Live pre-prune counts (fresh pulls, not last session's snapshots): V4-A `@LAT97` **48/48**
+  with 0 stamped, `@LAT96` 30 (10 stamped); Cardputer `@LAT97` **48/48** with 0 stamped,
+  `@LAT96` **48/48**, `@LAT94` **48/48**, `@LAT95` **48/48**. The entity lane proved the
+  point by contrast: same node, same hours, same firmware — @LAT96 kept writing and got its
+  stream stamp, @LAT97 was full and got nothing.
+  **What was cleared: lanes 97 and 96 only.** Backups first, over each board's own cable
+  (`master/prune-2026-08-03/*_before.md`: V4-A 44220 B, Cardputer 133460 B).
+  | node | | result |
+  |---|---|---|
+  | V4-A `0x10` | COM6, own cable | ✅ 44220 B → **1293 B**, verified by re-pull |
+  | V4-B `0x11` | over the air via V4-A | ✅ verified by bridged pull — **3 stamped windows** already |
+  | T-Deck `0x200` | over the air via V4-A | ✅ verified by bridged pull — 1 window, 9 `@LAT90` (known pre-fix churn) |
+  | Cardputer `0x300` | COM14, own cable | ✅ 133460 B → **69054 B**, 1 stamped window on each lane |
+  | V4-C `0x12` | over the air, then its own cable | ✅ 97 cleared over the air (ACK-only at the time), **both confirmed and 96 cleared on the cable**: 25558 B → **5799 B** |
+  📎 **V4-C, second attempt (same session, ~40 min later): it was simply OFF the first
+  time and is now up.** `intero` says `up 39m26s`, **4.003 V / 80% (falling)**, die 50.6 C,
+  loop 35 ms — a healthy node on battery. Its `@LAT97` clear **ACKed on attempt 1**, and the
+  firmware ACKs `clear-percepts` *only* on a successful `removePerceptLanes`, so the ACK is
+  the confirmation — but ⚠ **it could NOT be verified by re-pull, unlike the other four**:
+  two bridged pulls of V4-C returned **`no data received`**, before and after the lane was
+  cleared. Size is not the explanation this time (the same pull worked on V4-B at 4118 B),
+  and the node is plainly reachable: a `ping` ACKs and a **21-byte INTERO PERCEPT comes back
+  intact**. So the split is **small unicast round-trips succeed, bulk TTDB_DATA streaming
+  fails** — consistent with V4-C being the node that adopted the stream `from:0x11` (V4-B)
+  rather than from V4-A, i.e. plausibly a hop further out, where a multi-frame stream has to
+  be relayed and a single ACK does not. Another eliminated cause for the bridged-pull entry
+  above, and a sharper statement of it: *reachable* and *pullable* are different properties.
+  ⚠ **V4-C's `@LAT96` was left UNCLEARED at that point, on purpose** — ~30/48, not blocking
+  anything, and the one lane that could not be backed up, because the pull is exactly what
+  fails. Clearing an un-backed-up lane that is not full buys nothing.
+  ✅ **CLOSED the same session, V4-C on its own cable (COM13, identified by the `V4-C edge`
+  banner in its app image — COM6/COM14 had become COM10/COM13 between plug-ins, so nothing
+  was assumed).** Three things fell out of it:
+  1. **The over-the-air clear had landed.** `@LAT97` read **6 records, all 6 stamped**
+     `stream:0x59fb8ce8`, down from 48 unstamped. The ACK-only confirmation was sound —
+     `clear-percepts` ACKs solely on a successful `removePerceptLanes` — but it is now
+     verified rather than argued.
+  2. **The pull that failed twice over the air worked instantly on the cable: 25558 B,
+     first attempt.** Then 96 backed up, cleared, re-pulled: **5799 B**, entity lane gone,
+     `@LAT90` timeline record intact.
+  3. **The T-Deck was re-verified over its own cable too** (COM10, `SemPos`+`GPS` in the
+     image, no `ES8311` ⇒ not the Cardputer): **13 LINKWIN, all 13 stamped.** Its earlier
+     confirmation was a *bridged* pull, which is the path that can silently stitch two file
+     generations — so the weaker evidence has been replaced rather than left standing.
+  🎯 **END-TO-END, AND THE POINT OF ALL OF IT:** `proximity --since 30m` over the five
+  post-prune corpora now prints **`ref t_ms 7496430 on 59fb8ce8` for every node, with
+  nothing excluded and not one `*`** — every reference is the FLEET's clock, none is a
+  node grading its own homework. An hour earlier the same command fell back to five
+  separate local clocks on stream `-`, because the lane that was supposed to carry the
+  shared timeline had been full since before the firmware that created it. The recency
+  filter and the team time stream only became each other's payoff once the lane was open.
+  ⚠ **`@LAT94` (acoustic) and `@LAT95` (motion) are ALSO at 48/48 on the Cardputer and were
+  DELIBERATELY LEFT ALONE.** `@LAT95` is the citation lane: `PerceptLearn::arm()` stores an
+  index into it as `acting_lane_`, and the node currently holds **8 `@LAT91` beliefs and 24
+  `@LAT92` outcomes** whose provenance points there. `removePerceptLanes` rewrites the file,
+  so clearing 95 would leave 32 records citing indices into a lane that no longer holds what
+  they cite — testimony with false provenance, which is worse than a full lane. Clearing it
+  needs a decision about those 32 records first (retire them with the lane? re-base the
+  indices?), not a CMD. That decision is open. `@LAT94` has no such coupling but was left
+  for the same round-trip.
+  ⚠ **NEW OPERATIONAL TRAP — a lane clear needs `--attempts 6+` on a grown TTDB, and the
+  default 4 REPORTS A FALSE "NOT applied".** `removePerceptLanes` rewrites the whole file;
+  on V4-B and the T-Deck that outran the default RTO ladder (0.5/1/2/4 s) and printed
+  `no ACK … NOT applied` — then **succeeded on attempt 5** with `--attempts 7`. The T-Deck
+  had ACKed a `ping` on attempt 1 seconds earlier, which is what showed the node was alive
+  and the *operation*, not the link, was slow. Same shape as the play/beep ACK false
+  negative (a blocking call eats the ACK window). The command is idempotent, so the fix is
+  always more attempts.
+  ⚠ **And the prune exposed the reset trap from the DATA side, not the probe side.** V4-A
+  wrote **no** window for the first several minutes after its clear while V4-B and the
+  Cardputer both refilled — because every `companion.py` invocation on COM6 reboots it, and
+  COM6 was the bridge for all six over-the-air clears plus two pulls. `LINKPERCEPT_FLUSH_MS`
+  is 60 s measured from a window that a reboot restarts, so **a node used as the bridge
+  collects nothing while you are working through it.** ✅ **Confirmed by the control, not
+  assumed:** left untouched for 3 minutes and then pulled ONCE, V4-A wrote **exactly 3
+  LINKWIN at 60 s spacing** (`t_ms` 6772112 / 6832112 / 6892111) plus an ENTWIN, all on
+  `stream:0x59fb8ce8` — 1293 B → 4143 B. Nothing was wrong with the node. Do not measure a
+  bridge node's collection rate during a session that talks through it; give it one quiet
+  interval and one pull instead.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

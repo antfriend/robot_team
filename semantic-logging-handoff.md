@@ -11,6 +11,12 @@ after reading the code it touches.
 
 **The order is load-bearing, and the first step is not the one the old handoff named.**
 
+> **STATUS 2026-08-03: Part A is DONE** (`--since`, the fleet-clock reference, and the
+> A.1 entity-tier fix; `test_prox_py` 74 → 94 checks). Its first run on the real corpus
+> found that **the `@LAT97` lane is at its 48-record cap on all five nodes with zero
+> post-flash records** — see companion.md §6. **Prune it (`proximity --clear`) before
+> starting Part C's collection**, or the window collects nothing. Next: Part B.
+
 1. **Part A — recency becomes a TIME window** (`--last N` → `--since`). The old handoff
    filed this under "traps, audit before changing any tier". It is more than that: Part 2
    made it properly *fixable* for the first time, and it must land before any lane changes
