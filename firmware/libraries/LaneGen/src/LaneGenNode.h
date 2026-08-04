@@ -155,4 +155,92 @@ inline bool prune(Ttdb& db, uint8_t lane, const timestream::Stamp& stamp,
   return ok;
 }
 
+// Prune the TIMELINE lane (@LAT90) and record the boundary — the one lane outside the
+// percept block that can be pruned, and only through this call.
+//
+// WHY THIS EXISTS AT ALL. `TIMESTREAM_MAX_LANE 16` is a guard against a pathology, and
+// on 2026-08-03 the Cardputer reached it — from spurious `STREAM-ORIGIN` records that
+// the origin hold now prevents, but the 16 already on flash cannot be un-written. A
+// full timeline lane cannot record the node's next timeline change, so its later
+// records carry a stream id nothing on that node explains. That is the exact failure
+// @LAT90 exists to prevent, arrived at from the other side.
+//
+// ⚠ WHY IT IS A SEPARATE CALL AND NOT A WIDENED `removePerceptLanes`. That guard
+// refuses anything outside 94..97 so a prune can never reach identity (@LAT0), belief
+// attestations (@LAT98) or the sync log (@LAT99), and its stated reason is that
+// pruning a DIFFERENT lane than the one requested is worse than refusing. Nothing here
+// weakens it: this call names @LAT90 explicitly, prunes exactly that, and 98/99 remain
+// unreachable by any path.
+//
+// ⚠ WHAT IS LOST, STATED PLAINLY. The per-record offsets, the `from:` provenance and
+// the adoption structure go. What is KEPT is the set of stream ids the generation
+// explained, carried into the boundary as `**STREAMS-EXPLAINED**` — because an older
+// record's `stream:0x..` stamp asks exactly one question ("was this node ever on that
+// timeline?") and that line still answers it. A prune that dropped the ids would turn
+// every earlier stamp on the node into an unanswerable id, which is the very thing
+// being fixed.
+inline bool pruneTimeline(Ttdb& db, const timestream::Stamp& stamp, uint32_t node_id,
+                          uint32_t t_sec) {
+  const int16_t lane = (int16_t)TIMESTREAM_LANE;
+  uint32_t ids[TIMESTREAM_MAX_LANE];
+  int n_ids = 0, held = 0, top = -1;
+  char body[320];
+  for (int i = 0; i < db.recordCount(); ++i) {
+    if (db.record(i).lat != lane) continue;
+    ++held;
+    if (db.record(i).lon > top) top = db.record(i).lon;
+    size_t off = 0, len = 0;
+    if (!db.recordSpan(i, off, len)) continue;
+    const size_t want = len < sizeof(body) ? len : sizeof(body);
+    const size_t got = db.readBytes(off, (uint8_t*)body, want);
+    // Reuse the timeline lane's own reader rather than a second parser: it already
+    // knows that the needle carries a leading space, so a REMAP's `prev_stream:` (the
+    // stream the node LEFT) cannot be mistaken for one it was on.
+    uint32_t id = 0;
+    if (!timestream::recordStreamId(body, got, id) || !id) continue;
+    bool seen = false;
+    for (int k = 0; k < n_ids; ++k)
+      if (ids[k] == id) { seen = true; break; }
+    if (!seen && n_ids < (int)(sizeof(ids) / sizeof(ids[0]))) ids[n_ids++] = id;
+  }
+  if (!held) return true;                       // idempotent, same as a percept prune
+
+  int markers_total = 0;
+  const int gen = nextGeneration(countMarkers(db, (uint8_t)lane, markers_total));
+  if (markers_total + 1 > LANEGEN_MAX_LANE) {
+    Serial.printf("[lanegen] @LAT%d lane FULL — cannot record a @LAT%d boundary, so "
+                  "the timeline lane is NOT pruned\n", (int)LANE, (int)lane);
+    return false;
+  }
+
+  Prune p;
+  p.lane = (uint8_t)lane;
+  p.gen = gen;
+  p.removed = held;
+  p.last_lon = top;
+  p.node_id = node_id;
+  p.stamp = stamp;
+  // Bigger than LANEGEN_BUF: this record carries the id list as well.
+  char rec[TIMESTREAM_MAX_LANE * 12 + 320];
+  const size_t m = buildPruneRecord(rec, sizeof(rec), markers_total, p, t_sec,
+                                    ids, n_ids);
+  if (!m) {
+    Serial.println("[lanegen] timeline boundary would not fit — NOT pruned");
+    return false;
+  }
+  if (!db.removeLane(lane)) {
+    Serial.println("[lanegen] removeLane(timeline) FAILED — nothing pruned");
+    return false;
+  }
+  if (!db.appendRecord(rec, m)) {
+    Serial.printf("[lanegen] ⚠ @LAT%d PRUNED BUT ITS BOUNDARY WAS NOT WRITTEN — %d "
+                  "stream id(s) are now unexplained on this node\n", (int)lane, n_ids);
+    return false;
+  }
+  Serial.printf("[lanegen] @LAT%d gen %d closed: %d record(s), %d stream id(s) "
+                "carried forward -> @LAT%dLON%d\n",
+                (int)lane, gen, held, n_ids, (int)LANE, markers_total);
+  return true;
+}
+
 }  // namespace lanegen

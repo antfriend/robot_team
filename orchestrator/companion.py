@@ -673,10 +673,16 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
         # sender that omits the byte gets). A node refuses anything outside 94..97,
         # so this can never reach the identity / belief / sync lanes. Check it here
         # too — a doomed CMD would otherwise cost 4 attempts to learn nothing.
-        if lane != 0 and not (94 <= lane <= 97):
-            sys.exit(f"--lane must be 0 (all) or 94..97, got {lane}")
+        # 90, the TIMELINE lane, is the one addition (2026-08-03) and it takes a
+        # SEPARATE path on the node (lanegen::pruneTimeline) that carries the stream
+        # ids it explained into the boundary record. 98/99 stay unreachable.
+        if lane not in (0, TIMESTREAM_LANE) and not (94 <= lane <= 97):
+            sys.exit(f"--lane must be 0 (all), {TIMESTREAM_LANE} (timeline) or "
+                     f"94..97, got {lane}")
         args = bytes([lane])
-        detail = f" lane {lane if lane else 'ALL (94-97)'}"
+        detail = (f" lane {lane if lane else 'ALL (94-97)'}"
+                  + (" [TIMELINE — its stream ids ride into the boundary]"
+                     if lane == TIMESTREAM_LANE else ""))
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
@@ -1815,9 +1821,14 @@ def fmt_stream(w):
 # an honest dangle. @LAT100 records the boundary so those citations read as
 # "generation N, pruned" instead. See firmware/libraries/LaneGen.
 PRUNE_LANE = 100
+TIMESTREAM_LANE = 90    # the timeline lane; prunable only via lanegen::pruneTimeline
 PRUNE_RE = re.compile(
     r"\*\*LANE-PRUNED\*\*\s+lane:(\d+)\s+gen:(\d+)\s+removed:(\d+)\s+"
     r"last_lon:(-?\d+)")
+# Pruning @LAT90 would orphan every older record's `stream:` stamp, so the boundary
+# carries the ids the ended generation explained. Bare (no `stream:` prefix) on
+# purpose — the firmware's @LAT90 needle must not pick them up as the node's own.
+STREAMS_EXPLAINED_RE = re.compile(r"\*\*STREAMS-EXPLAINED\*\*\s+n:(\d+)((?:\s+0x[0-9a-fA-F]{1,8})*)")
 # Any `<verb>@LAT<lane>LON<n>` edge in a record header — how a citation is spelt.
 CITATION_RE = re.compile(r"(\w+)@LAT(\d+)LON(\d+)")
 
@@ -1830,11 +1841,17 @@ def parse_prune_markers(text):
     what cannot be distinguished after the fact."""
     out = []
     for line in text.splitlines():
+        me = STREAMS_EXPLAINED_RE.search(line)
+        if me and out:
+            # Belongs to the boundary immediately above it (one extra body line).
+            out[-1]["explained"] = [int(x, 16) for x in me.group(2).split()]
+            continue
         m = PRUNE_RE.search(line)
         if not m:
             continue
         rec = {"lane": int(m.group(1)), "gen": int(m.group(2)),
-               "removed": int(m.group(3)), "last_lon": int(m.group(4))}
+               "removed": int(m.group(3)), "last_lon": int(m.group(4)),
+               "explained": []}
         rec.update(parse_time_fields(line) or
                    {"t_ms": None, "stream": None, "wall": None, "synced": None})
         out.append(rec)
@@ -1940,6 +1957,9 @@ def prunes(path):
               f"{mk['last_lon']:>9}  "
               f"{('-' if mk['t_ms'] is None else mk['t_ms']):>14}  "
               f"{fmt_stream(mk):>9}")
+        if mk.get("explained"):
+            print("        streams it kept answerable: "
+                  + " ".join("%08x" % s for s in mk["explained"]))
     stale = stale_citations(text)
     if not stale:
         print("\nno citation into a pruned generation — nothing was re-pointed")
@@ -3674,8 +3694,10 @@ def main():
     cm.add_argument("--scene", type=int, default=None,
                     help="scene id for set-scene (only the conductor applies it)")
     cm.add_argument("--lane", type=int, default=0,
-                    help="clear-percepts: percept lane to drop (94 acoustic, 95 motion, "
-                         "96 entity, 97 link); 0 = ALL of them (default)")
+                    help="clear-percepts: lane to drop (94 acoustic, 95 motion, "
+                         "96 entity, 97 link); 0 = ALL of them (default). 90 is the "
+                         "TIMELINE lane and takes a separate path that carries its "
+                         "stream ids into the boundary record; 98/99 are refused")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)

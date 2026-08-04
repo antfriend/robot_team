@@ -360,6 +360,13 @@ bool recordNamesStream(const char* text, size_t len, uint32_t id);
 // stream: a lane can explain a stream without the date ever having been known.
 bool recordIsWallAnchored(const char* text, size_t len);
 
+// Read back WHICH stream a @LAT90 record names -> true on success. Same needle and
+// the same leading space as recordNamesStream (a REMAP's `prev_stream:` is the stream
+// the node LEFT and must not be returned). Used when the timeline lane is pruned: the
+// ids have to be carried into the boundary record or every older `stream:` stamp on
+// the node becomes unanswerable.
+bool recordStreamId(const char* text, size_t len, uint32_t& out);
+
 // Would writing `tr` say anything the @LAT90 lane does not already say?
 //   `named`    — some record in the lane already names tr.new_id
 //   `anchored` — ...and at least one of those carries wall:1

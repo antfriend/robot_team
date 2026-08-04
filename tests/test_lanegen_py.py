@@ -117,6 +117,25 @@ check(any(s["citing"] == "@LAT92LON1" and s["verdict"] == "stale" for s in two),
       "a second prune makes the once-live citation stale in its turn — the "
       "boundary is re-evaluated, not decided once")
 
+# The timeline lane's own boundary. Pruning @LAT90 would orphan every older record's
+# `stream:` stamp, so the ids it explained ride along in the marker; the reader has to
+# surface them or the mitigation is invisible from the laptop.
+TL = f"""
+@LAT100LON3 | created:0 | updated:0 | relates:prunes@LAT0LON0
+
+**LANE-PRUNED** lane:90 gen:1 removed:16 last_lon:15 t_ms:9000000 stream:0x{STREAM:08x} wall:0 node:0x00000300
+**STREAMS-EXPLAINED** n:3 0x59fb8ce8 0xbdc62024 0xe7384824
+"""
+tl = c.parse_prune_markers(TL)
+check(len(tl) == 1 and tl[0]["lane"] == 90 and tl[0]["removed"] == 16,
+      "a timeline boundary parses like any other")
+check(tl[0]["explained"] == [0x59fb8ce8, 0xbdc62024, 0xe7384824],
+      "and the streams it kept answerable are read back in order")
+check(tl[0]["stream"] == STREAM,
+      "the boundary's OWN stamp is not confused with the ids it carries")
+check(c.parse_prune_markers(TEXT)[0]["explained"] == [],
+      "a percept boundary carries no id list and reads as an empty one, not None")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

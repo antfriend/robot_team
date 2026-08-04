@@ -3552,8 +3552,71 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `< 60000` invariant is **asserted in the test suite**, so raising the constant past the
   flush period fails the build instead of quietly restoring the defect.
   Cost: **V4 +628 B flash, +80 B RAM** (94%, 71667 B free); T-Deck 40%, Cardputer 41%. All
-  five sketches compile. ⏳ **Flash needed — and flash with the whole fleet powered**, which
-  halves the lane cost per the measurement above.
+  five sketches compile.
+  ✅ **FLASHED AND MEASURED ON THE T-DECK: 11 → 11 @LAT90 records across 4 reboots**, the
+  pulled file byte-identical (55486 B) before and after. Before the fix the same pattern
+  cost ~2 records per 3 reboots. The one record it *did* write in that window was a real
+  `STREAM-ADOPTED 0xe7384824 from:0x10` — a stream the lane had never named — which is
+  exactly what should still be written. Cardputer flashed too. ⏳ V4-A/B/C still to do.
+  ⚠ **BUT THE CARDPUTER IS ALREADY AT 16/16 AND THERE IS NO WAY TO PRUNE THAT LANE.**
+  `CMD_CLEAR_PERCEPTS` deliberately refuses anything outside 94–97 so a prune can never
+  touch identity, attestations or sync logs — which means D.1's undecided policy is now
+  LIVE on one node. Right now it is still coherent: its newest records carry
+  `stream:0xbdc62024`, which the lane does explain. But **the fleet has since moved to
+  `0xe7384824`**, and when the Cardputer adopts it the record will be refused and its
+  subsequent percepts will carry an id nothing on that node explains.
+  📎 Note the observation cost here: confirming which stream it is on now requires a fresh
+  percept window, and every pull resets the board and restarts the 60 s window — the same
+  trap that made V4-A look dead. It needs one quiet minute, not another pull.
+  **The options, none of them free:** (a) leave it — the hold removes the *pressure*, so it
+  may simply sit on one stream, and the lane prints its refusal; (b) a narrow op that
+  prunes `@LAT90` **and** writes a `@LAT100` boundary; (c) re-flash the FS — wipes 8
+  `@LAT91` beliefs, 24 `@LAT92` outcomes and the B.3 sample, so no; (d) raise the cap —
+  the header says don't, and it is the wrong fix.
+
+- ✅ **2026-08-03 — OPTION (b) BUILT AND THE CARDPUTER IS REPAIRED: `@LAT90` 16/16 → 1.**
+  ```
+  **LANE-PRUNED** lane:90 gen:1 removed:16 last_lon:15 t_ms:1438863 stream:0xe7384824 node:0x00000300
+  **STREAMS-EXPLAINED** n:12 0x0ad62c42 0xfc36a38c 0x10578c80 0x26a1b82d 0x44574814 0x59fb8ce8 ...
+  **STREAM-ADOPTED** stream:0xe7384824 wall:0 t_ms:1447466 node:0x300 from:0x12   <- the one record now in the lane
+  ```
+  The repair is visible in that last line: the node had already adopted `0xe7384824`
+  (from V4-C) and **could not record it** while the lane was full; with the lane pruned it
+  wrote the adoption, so its own timeline is explained by its own lane again.
+  📎 **The design decision that made the prune acceptable — carry the ids.** Dropping
+  `@LAT90` plainly would orphan every older record's `stream:` stamp, which is the exact
+  failure that lane exists to prevent, arrived at from the other side. So the boundary
+  carries **every stream id the ended generation explained** (12 here) on a
+  `**STREAMS-EXPLAINED**` line. An older stamp asks one question — *was this node ever on
+  that timeline?* — and that line still answers it. What is genuinely lost, and is stated
+  rather than glossed: the per-record offsets, the `from:` provenance, and the adoption
+  structure.
+  ⚠ **The ids are written BARE (`0x…`), not as `stream:0x…`, on purpose.** The firmware's
+  @LAT90 needle is `" stream:0x"`, and a boundary listing twelve ids in that form would
+  make the dedup read every one of them as a stream the node is on — the same
+  needle-collision family as `prev_stream:`, which is why the marker lane could not live
+  in @LAT90 in the first place. Pinned by a native test.
+  🔒 **`removePerceptLanes`' guard is NOT weakened.** `pruneTimeline()` is a separate call
+  that names @LAT90 explicitly; 98 (belief attestations) and 99 (sync) remain unreachable
+  by any path, and the percept path is byte-for-byte what it was. `companion.py`'s
+  client-side guard was widened to match (`--lane 90`), with the same refusals.
+  📊 Native **lanegen 24/24** + timestream 9 new checks, Python **test_lanegen_py 18**,
+  suites all green. Cardputer 41% flash, T-Deck 40% — both flashed and verified.
+  ✅ **V4-A and V4-B flashed with this build** (94%, 70339 / 67959 B free), identified by
+  app image as always. Neither grew its `@LAT90` lane on the reboot the flash caused —
+  V4-A stayed at 3, V4-B at 3 — which is the hold behaving on the spine as it did on the
+  T-Deck. ✅ **V4-C flashed too — ALL FIVE NODES now carry the origin hold + the timeline
+  prune**, and V4-C's lane likewise did not grow (3 records, newest a real
+  `STREAM-ADOPTED 0xe7384824 from:0x200`).
+  📊 **Fleet state at close: one stream `0xe7384824` on all five**, and the `@LAT90` lanes
+  are V4-A 3 · V4-B 3 · V4-C 3 · T-Deck 11 · Cardputer **1** (post-prune) — against a cap
+  of 16 that was 1 record from binding two hours earlier.
+  📎 **Where the fleet's streams came from, now readable off the lane:** V4-A's two newest
+  records are `STREAM-ORIGIN 0xbdc62024` and `STREAM-ORIGIN 0xe7384824`, both `from:0x10` —
+  **V4-A originated both**, on the two occasions it was flashed alone, and each time the
+  rest of the fleet adopted it (V4-B `from:0x200`, the Cardputer `from:0x12`). Nobody
+  configured that; the oldest-stream-wins merge picked it. Both origins predate the hold,
+  which is exactly the kind of record the hold keeps — they survived and were real.
 
 Keep this section current. It is the first thing the next session reads.
 

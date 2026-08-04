@@ -734,7 +734,9 @@ static void toneI2S(float freq, uint32_t ms, float amp);
 // stitched-pull hazard, companion.md §6). removePerceptLanes() does it in ONE rewrite.
 // `lane` is the wire byte: 0 = every percept lane, else exactly that one.
 static bool clearPerceptLanes(uint8_t lane) {
-  bool ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+  bool ok = (lane == TIMESTREAM_LANE)
+                ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
+                : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
   if (ok)
     Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
                   lane ? String(lane).c_str() : "ALL (94-97)",

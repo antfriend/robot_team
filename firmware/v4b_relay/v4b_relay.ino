@@ -697,7 +697,9 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           // Flash rewrite: reaches here only from loop() (radio path defers).
           // ACK only on success, so a failed prune is loud (laptop retries).
           uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
-          accepted = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+          accepted = (lane == TIMESTREAM_LANE)
+                     ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
+                     : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
           if (accepted)
             Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
                           lane ? String(lane).c_str() : "ALL",

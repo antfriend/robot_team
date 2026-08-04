@@ -105,6 +105,45 @@ int main() {
   check(n > 0 && strstr(rec, "stream:0x00000000") != NULL,
         "a node with no shared timeline still records its boundary (stream:0)");
 
+  // 7) PRUNING THE TIMELINE LANE (@LAT90) — the one lane outside the percept block
+  // that can be pruned, added because the Cardputer reached TIMESTREAM_MAX_LANE 16
+  // from spurious origins and a full timeline lane cannot record the node's next
+  // timeline change. Dropping it plainly would orphan every older record's `stream:`
+  // stamp, so the boundary carries the ids forward.
+  {
+    const uint32_t ids[] = {0x59fb8ce8u, 0xbdc62024u, 0xe7384824u};
+    size_t k = lanegen::buildPruneRecord(rec, sizeof(rec), 3,
+                                         mk(90, 1, 16, 15, 0xbdc62024u, false), 0,
+                                         ids, 3);
+    check(k > 0, "a timeline boundary is rendered");
+    check(strstr(rec, "**LANE-PRUNED** lane:90 gen:1 removed:16 last_lon:15") != NULL,
+          "it is an ordinary boundary record for lane 90");
+    check(strstr(rec, "**STREAMS-EXPLAINED** n:3 0x59fb8ce8 0xbdc62024 0xe7384824")
+              != NULL,
+          "and it carries every stream the ended generation explained, so an older "
+          "record's stamp stays answerable");
+    check(lanegen::pruneRecordNamesLane(rec, k, 90),
+          "the lane field still parses with the id list appended");
+    // The ids must not be mistaken for the record's own stamp by a reader scanning
+    // for a stream: they sit on their own line with no ` stream:` prefix.
+    check(strstr(rec, "stream:0xbdc62024") != NULL &&
+              strstr(rec, "stream:0x59fb8ce8") == NULL,
+          "only the boundary's OWN stamp is written as `stream:`; the carried ids are "
+          "bare, so the @LAT90 needle cannot pick them up");
+    // Whole line or nothing: a truncated id list silently shortens the set of streams
+    // that stay answerable, which is worse than admitting the loss.
+    char tight[200];
+    check(lanegen::buildPruneRecord(tight, sizeof(tight), 3,
+                                    mk(90, 1, 16, 15, 0xbdc62024u, false), 0,
+                                    ids, 3) == 0,
+          "a buffer that fits the boundary but NOT the id list yields nothing");
+    // A percept prune is unchanged: no list, no extra line.
+    k = lanegen::buildPruneRecord(rec, sizeof(rec), 0,
+                                  mk(97, 1, 48, 47, 0xbdc62024u, false), 0);
+    check(strstr(rec, "STREAMS-EXPLAINED") == NULL,
+          "a percept-lane boundary is byte-for-byte what it always was");
+  }
+
   printf("\n");
   if (fails) {
     printf("%d FAILURE(S)\n", fails);

@@ -847,7 +847,9 @@ void loop() {
           // SP1 prune. Serial CMDs already run in loop(), so the TTDB rewrite
           // is safe here. ACK only on success (a failed prune must be loud).
           uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
-          ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+          ok = (lane == TIMESTREAM_LANE)
+                 ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
+                 : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
           if (ok)
             Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
                           lane ? String(lane).c_str() : "ALL",

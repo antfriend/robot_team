@@ -95,8 +95,16 @@ struct Prune {
 // should answer the question it exists for rather than make the reader re-derive it —
 // the same reasoning that duplicates the state blocks into an @LAT93 transition. It
 // also stops being derivable the moment a partial prune is added.
+// `explained` / `n_explained` are for pruning the TIMELINE lane (@LAT90) and are
+// empty for a percept prune. See pruneTimeline() in LaneGenNode.h: @LAT90 is the lane
+// that says which streams this node has been on, so dropping it would orphan every
+// older record's `stream:` stamp — the one thing that lane exists to prevent. Carrying
+// the ids forward into the boundary keeps those stamps answerable ("yes, this node was
+// on that timeline; its details are in the generation that ended here"). The offsets
+// and the adoption structure are genuinely lost, and that is the stated cost.
 size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
-                        uint32_t t_sec);
+                        uint32_t t_sec, const uint32_t* explained = 0,
+                        int n_explained = 0);
 
 // Does this @LAT100 record body describe a prune of `lane`? Used to count a lane's
 // generations back off flash, so the numbering survives reboots without state.

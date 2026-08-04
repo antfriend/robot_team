@@ -7,7 +7,8 @@
 namespace lanegen {
 
 size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
-                        uint32_t t_sec) {
+                        uint32_t t_sec, const uint32_t* explained,
+                        int n_explained) {
   char stamp[64];
   if (!timestream::buildStamp(stamp, sizeof(stamp), p.stamp)) return 0;
   // The edge points at the node's own identity record, never at the lane that was
@@ -21,7 +22,24 @@ size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
       (unsigned)p.lane, p.gen, p.removed, p.last_lon, stamp,
       (unsigned long)p.node_id);
   if (n <= 0 || (size_t)n >= cap) return 0;   // nothing rather than a truncation
-  return (size_t)n;
+  size_t len = (size_t)n;
+  if (explained && n_explained > 0) {
+    // One extra body line naming every stream the ended generation explained. Written
+    // as a whole line or not at all: a half-written id list would silently shorten the
+    // set of streams that stay answerable, which is worse than admitting the loss.
+    char ids[24 * 17 + 32];
+    int m = snprintf(ids, sizeof(ids), "**STREAMS-EXPLAINED** n:%d", n_explained);
+    if (m <= 0 || (size_t)m >= sizeof(ids)) return 0;
+    for (int i = 0; i < n_explained; ++i) {
+      const int k = snprintf(ids + m, sizeof(ids) - (size_t)m, " 0x%08lx",
+                             (unsigned long)explained[i]);
+      if (k <= 0 || (size_t)(m + k) >= sizeof(ids)) return 0;
+      m += k;
+    }
+    if (len + (size_t)m + 2 >= cap) return 0;
+    len += (size_t)snprintf(out + len, cap - len, "%s\n", ids);
+  }
+  return len;
 }
 
 bool pruneRecordNamesLane(const char* body, size_t len, uint8_t lane) {

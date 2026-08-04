@@ -300,6 +300,30 @@ bool recordIsWallAnchored(const char* text, size_t len) {
   return findIn(text, len, " wall:1") != 0;
 }
 
+bool recordStreamId(const char* text, size_t len, uint32_t& out) {
+  // Same needle discipline as recordNamesStream, for the same reason: the leading
+  // space is what keeps `prev_stream:0x<old>` on a REMAP line — the stream the node
+  // LEFT — from being read back as one it was on.
+  const char* p = findIn(text, len, " stream:0x");
+  if (!p) return false;
+  p += 10;                                  // past " stream:0x"
+  const char* end = text + len;
+  uint32_t v = 0;
+  int digits = 0;
+  for (; p < end && digits < 8; ++p, ++digits) {
+    const char c = *p;
+    uint32_t d;
+    if (c >= '0' && c <= '9') d = (uint32_t)(c - '0');
+    else if (c >= 'a' && c <= 'f') d = (uint32_t)(c - 'a' + 10);
+    else if (c >= 'A' && c <= 'F') d = (uint32_t)(c - 'A' + 10);
+    else break;
+    v = (v << 4) | d;
+  }
+  if (!digits) return false;
+  out = v;
+  return true;
+}
+
 bool recordIsRedundant(const Transition& tr, bool named, bool anchored) {
   if (tr.ev == EV_ADOPTED) return named;
   if (tr.ev == EV_ANCHORED) return anchored && tr.wall_conflict_ms == 0;
