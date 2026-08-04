@@ -3618,6 +3618,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
   configured that; the oldest-stream-wins merge picked it. Both origins predate the hold,
   which is exactly the kind of record the hold keeps — they survived and were real.
 
+- 📋 **2026-08-03 — NEXT SESSION'S WORK ORDER: [part-b-handoff.md](part-b-handoff.md)**
+  (authored against `c353568`). It supersedes `semantic-logging-handoff.md`, whose Part A
+  is done and whose Part B is opened but unfinished. What remains: **1** `@LAT95`
+  change-triggered with explicit run-length — the citation coupling and `@LAT92`'s tally
+  are ONE decision, not two; **2** `@LAT96` change-triggered, whose baseline has been
+  accumulating since this afternoon's prune; **3** the closeouts (the `@LAT90` full-policy
+  now that a prune path exists, the K10, and the TTE report that is still cleared and
+  unsent). Fleet state, both suites' counts, and six traps are stated there.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

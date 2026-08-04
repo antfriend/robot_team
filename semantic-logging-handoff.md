@@ -11,6 +11,10 @@ after reading the code it touches.
 
 **The order is load-bearing, and the first step is not the one the old handoff named.**
 
+> **SUPERSEDED 2026-08-03 by [part-b-handoff.md](part-b-handoff.md)** — Part A is done,
+> Part B is opened (lane generations + the B.3 measurement), and what remains of B and C
+> is restated there against the current tree. Read that one; this stays for its reasoning.
+>
 > **STATUS 2026-08-03: Part A is DONE** (`--since`, the fleet-clock reference, and the
 > A.1 entity-tier fix; `test_prox_py` 74 → 94 checks). Its first run on the real corpus
 > found that **the `@LAT97` lane is at its 48-record cap on all five nodes with zero
