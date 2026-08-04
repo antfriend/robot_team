@@ -3627,6 +3627,154 @@ If a fact lives in one of these, link to it from here — don't copy it.
   now that a prune path exists, the K10, and the TTE report that is still cleared and
   unsent). Fleet state, both suites' counts, and six traps are stated there.
 
+- ✅ **2026-08-04 (Part B Part 1) — `@LAT95` AND `@LAT92` ARE CHANGE-TRIGGERED WITH
+  EXPLICIT RUN-LENGTH. The treadmill is fixed, and it is fixed WITHOUT falsifying a
+  tally.** Both lanes filled with **uptime** rather than with events — `@LAT95` in 48
+  minutes, `@LAT92` in 24 — and every lane on every node refilled to its cap within one
+  afternoon of being pruned, measured three times on 08-03. Now a window whose verdict
+  matches the run in progress writes nothing, and the record that closes the run says
+  how many it suppressed.
+  ```
+  **RUN**     windows_since_last:10 reason:changed max_run:30
+  **COVERED** state:still windows:9 n:540 window_ms:540000 moving_permille:0
+              dev_mean_mg:8 dev_max_mg:20 moving_ms:0 first_t_ms:.. last_t_ms:..
+              covered_by:@LAT95LON0
+  ```
+  **Lane life at rest: 48 min → 24 h on `@LAT95`, ~24 min → ~12 h on `@LAT92`** (cap ×
+  `MAX_RUN` 30 × 60 s). A CHANGE is never deferred — a verdict flip writes immediately,
+  so `@LAT93` transitions are unaffected in timing.
+  ⚠ **§1.1 AND §1.2 WERE ONE DECISION AND THE HANDOFF WAS RIGHT TO SAY SO.** The unlock
+  is that **run-length is LOSSLESS for Rule 3**: folding a verdict N times is
+  arithmetically identical to folding it once per window (the +2 saturation and −16 floor
+  are order-sensitive but not batch-sensitive), so a compressed `@LAT92` lane reconciles
+  to the *same* conf/sal/streak/contradiction as an uncompressed one. That is not argued,
+  it is **asserted** — `test_perceptlearn.cpp` §8c builds both lanes and compares the
+  beliefs field by field. Keeping only transitions here, by contrast, would have removed
+  `conf`'s denominator and made every belief systematically over-confident.
+  📎 **The citation coupling (§1.1) is resolved by making a window a PAIR, not a record:**
+  `(covering record, offset into its run)`. An outcome now reads
+  `acting:@LAT95LON7+3` — "the 4th window of the run opened by @LAT95LON7" — and the
+  `before` half of an @LAT93 transition, which is now *usually* a suppressed window,
+  reads `lane:@LAT95LON0+1`. The `derived_from` **edges stay plain ordinals**: an edge
+  must resolve to a record that exists, and the covering record does.
+  ⚠ **TWO TRAPS THIS COST, BOTH CAUGHT ONLY BY THE NATIVE TESTS.** (1) `adoptRun()` read
+  `claims_`, which the sketch's `arm()` overwrites between `score()` and `buildOutcome()`
+  — so every window compared as `changed` and run-length **silently did nothing while
+  looking exactly like it worked**; fixed with a `scored_vec_` snapshot taken inside
+  `score()`. (2) The sketch's arming branch tested `m == 0`, which used to mean "no
+  window" and now means "covered", i.e. the normal case — it would have disarmed Rule 1
+  for 29 windows out of every 30. Both are the same shape: *a return value whose meaning
+  changed under it.* Branch on `lastClose()`, never on the byte count.
+  📎 The sketch now **renders the outcome even when `@LAT92` is full** and throws the
+  bytes away, because `buildOutcome` is what adopts the run — skipping it would leave the
+  closed run open and let a real change be folded away as unchanged. A record dropped for
+  want of lane space must not also corrupt the run accounting.
+  📊 **Laptop side: `companion.py motion [--file <ttdb>|--port --node]`** parses `@LAT95`
+  and reconstructs the arithmetic — records vs **windows**, and an `unaccounted` count
+  when a `**RUN**` line claims windows no `**COVERED**` block explains. It reads **both
+  formats**: a pre-08-04 record has no `**RUN**` line and is exactly one window, which is
+  the default, so old and new records on the same flash sum correctly. ⚠ Prefer `--file`
+  on a node under measurement — opening its port resets it and restarts the 60 s window.
+  📊 Suites: native **485 checks** (was 453), Python **252 across 9 files** (was 230/8,
+  new `tests/test_motion_py.py`). All five sketches compile: Cardputer 41%, T-Deck 40%,
+  V4-A/B/C 94%, K10 20%. Cost measured against a HEAD worktree, Cardputer only (it is the
+  only node with an IMU, so the only one carrying these tiers): **+2700 B flash (+0.086%),
+  +2920 B RAM** — most of it `PERCEPTLEARN_BUF` 1792 → **2624**, which had to grow because
+  a full 8-claim house *with* a covered line per claim renders at 2340 B and `buildOutcome`
+  writes nothing rather than truncating. That would have been the **third** time this
+  pattern silently lost data, and it would have dropped precisely the records carrying a
+  run.
+  ⏳ **NOT YET FLASHED — this is software-verified only.** The hardware check that matters
+  is the one B.3's trap dictates: **prune `@LAT95`, then leave the Cardputer untouched for
+  an hour** and confirm `companion.py motion --file` reports ~60 windows across ~2 records
+  with `unaccounted:0`. A lane's own record count is not evidence of how long a node was
+  still — that is now literally true, and the reader exists so it stays checkable.
+  📎 Untouched by choice: the `@LAT95` **lane-full** path still discards the window and
+  disarms the loop. It is ~30× rarer now; letting a full lane keep folding into an
+  existing run would be reasonable and is not worth the complexity until the cap is
+  actually reached again.
+
+- ✅ **2026-08-04 — `@LAT92` IS PRUNABLE (`lanegen::pruneOutcomes`), BECAUSE IT WAS FULL
+  AND THAT LEFT TODAY'S WORK WITH NO HARDWARE PATH.** Found while planning the flash: the
+  Cardputer's lanes read `@LAT90 1 · @LAT91 8 · @LAT92 **24/24** · @LAT94 48 · @LAT95 48 ·
+  @LAT96 29 · @LAT97 48 · @LAT100 4`. A full outcome lane means the learning loop "is
+  still predicting but no longer testifying" — and `removePerceptLanes` refuses anything
+  outside 94–97, so `@LAT92`'s half of the run-length change could not be exercised at
+  all. Exactly the shape of `@LAT90`'s 16/16 on 08-03, answered the same way: a **separate
+  named call**, not a widened guard. 98/99 remain unreachable by any path.
+  📎 **What the boundary carries, and why it is not the stream-id list.** `Reconciler` is a
+  **pure function** of `@LAT92`, so emptying the lane returns every `@LAT91` belief to
+  baseline on the next Dream Cycle. `PerceptLearn.h` already states that as a property, so
+  the prune exercises an invariant rather than breaking one — but a belief silently
+  falling from 106 back to 128 is indistinguishable from a node that never learned
+  anything. So the boundary carries the **tally and the conclusions**:
+  ```
+  **LANE-PRUNED** lane:92 gen:1 removed:24 last_lon:23 t_ms:.. stream:0x.. node:0x300
+  **OUTCOMES-CARRIED** records:24 windows_max:312 beliefs:2 met:288 violated:18
+                       unobserved:6 baseline_conf:128 rule:+2/-16
+  **BELIEF-AT-BOUNDARY** peer:0x00000200 proto:0 conf:106 sal:16 met:9 violated:5 ...
+  ```
+  ⚠ `records:` and `windows_max:` are **both** stated on purpose — since this morning a
+  record can stand for up to 30 windows, so the record count is no longer the denominator.
+  `windows_max` is the **max** across beliefs, not a mean: the claim set changes as peers
+  come and go, and a mean would report a number no claim actually experienced.
+  ⚠ **The boundary carries NEITHER `**OBSERVED** peer:0x` NOR `**COVERED** peer:0x`** —
+  `Reconciler::foldRecord`'s two needles. A boundary carrying either would be folded as
+  testimony the next time the lane was read: **the node re-learning from its own
+  gravestone.** Third instance of this family (`prev_stream:` in @LAT90, the bare ids in
+  `**STREAMS-EXPLAINED**`), and it is pinned by a test on both sides.
+  📎 `buildPruneRecord` grew a generic `carried` parameter; the block is built by the
+  **sketch**, because folding the lane needs PerceptLearn and LaneGen must not depend on
+  it. `LANEGEN_OUTCOME_LANE` is asserted equal to `PERCEPTLEARN_LANE` with a
+  `static_assert`, so a drift between the two fails the build rather than emptying a lane
+  nobody asked for.
+  📎 **The laptop already reports the consequence**: an `@LAT91` belief's
+  `reconciles@LAT92LON0` edge reads **stale** against the boundary, so a belief standing
+  on evidence that is gone is visible from `companion.py prunes` rather than inferred.
+  ⚠ **A near-miss worth recording**: sharing the 2624 B lane-read buffer between the Dream
+  Cycle and the prune left `sizeof(buf)` applied to a **pointer** — 4 bytes — which would
+  have clamped every fold to 4 bytes and silently emptied every belief. Removed the
+  indirection entirely rather than fixing the expression.
+  📊 Native **494 checks**, Python **257 across 9 files**. Cost vs HEAD: Cardputer
+  **+4620 B flash (+0.147%), +3944 B RAM** (41%); V4-A/B/C **+52 B** and T-Deck **+48 B**
+  from the `carried` parameter alone — inert for them, but it does mean their binaries
+  changed.
+
+- 📋 **2026-08-04 — THE FLASH + MEASURE RUNBOOK (order matters, and the prune is LAST).**
+  Flashing the app does not touch LittleFS, but every `companion.py` call resets the board
+  and restarts the 60 s window, so the prune has to be the last thing that touches it.
+  1. **`pull` the Cardputer on its own cable** → `master/prune-2026-08-04/cardputer_pre.md`.
+     Never clear a lane you could not pull first. This also archives the `@LAT96` baseline
+     Part 2 needs and the `@LAT92` generation about to be dropped.
+  2. **Flash the app only** — `arduino-cli compile --upload`. ⚠ **Do NOT run
+     `Upload-Cardputer-FS.ps1`**: it would wipe the 8 `@LAT91` beliefs, the `@LAT92`
+     generation and the B.3 sample, and the boundary record would then describe nothing.
+  3. **If V4-A is being flashed, do it now, before the quiet hour** — it is the Cardputer's
+     peer, and a reboot mid-measurement lands as `unobserved` claims and breaks the run.
+  4. **`cmd --op clear-percepts --lane 95 --attempts 6`** then **`--lane 92 --attempts 6`**.
+     ⚠ Lane **95 only**, not `--lane 0`: the default drops 94–97 including the `@LAT96`
+     Jaccard baseline that has been accumulating since 08-03. ⚠ A no-ACK is often a false
+     negative on a lane clear (whole-TTDB rewrite outruns the RTO ladder) — `ping` first,
+     then retry; the op is idempotent.
+  5. **Hands off for an hour.** No `companion.py` calls at all.
+  6. **`pull`, then `motion --file`.**
+  ⚠ **Expect ~31 windows across 2 records, NOT ~60.** The run open at pull time is
+  unwritten and lost to the reset — that is the documented `MAX_RUN - 1` cost, not a fault.
+  What to check: `unaccounted:0`, a second record reading `windows_since_last:30
+  reason:heartbeat`, ~15 windows/record, and on the `@LAT92` side a `**COVERED**` line
+  whose `windows:` exceeds 1.
+
+- ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
+  change signal is **Jaccard drift between consecutive windows**, and its threshold has to
+  be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating
+  since the 08-03 prune. ⚠ The AP set is not stationary the way an accelerometer's floor
+  is: neighbours' APs come and go on their own schedule, so the quiet baseline includes
+  churn the node did not cause. Measure long enough to see it and expect a looser
+  threshold than intuition suggests. Part 3's closeouts are unchanged, except that
+  `TIMESTREAM_MAX_LANE`'s full-policy question now has a sibling worth deciding with it:
+  every lane in this system has a cap, a full-policy, and (as of today) a run-length
+  option, and only `@LAT90`'s policy is still "refuse and print".
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

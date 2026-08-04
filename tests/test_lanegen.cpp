@@ -144,6 +144,61 @@ int main() {
           "a percept-lane boundary is byte-for-byte what it always was");
   }
 
+  // 8) PRUNING THE OUTCOME LANE (@LAT92) — the second lane outside the percept block
+  // that can be pruned, added 2026-08-04 because PERCEPTLEARN_MAX_LANE 24 was reached
+  // and a full outcome lane leaves the learning loop predicting but never testifying.
+  // What a bare rewrite would orphan here is not a stamp but a TALLY: Reconciler is a
+  // pure function of this lane, so emptying it returns every @LAT91 belief to baseline.
+  // The boundary carries what the ended generation held and what it concluded.
+  {
+    const char* carried =
+        "**OUTCOMES-CARRIED** records:24 windows_max:312 beliefs:2 met:288 "
+        "violated:18 unobserved:6 baseline_conf:128 rule:+2/-16\n"
+        "**BELIEF-AT-BOUNDARY** peer:0x00000200 proto:0 conf:106 sal:16 met:9 "
+        "violated:5 unobserved:0 max_streak:1 contradiction:0\n";
+    size_t k = lanegen::buildPruneRecord(rec, sizeof(rec), 4,
+                                         mk(92, 1, 24, 23, 0xe7384824u, false), 0,
+                                         0, 0, carried);
+    check(k > 0, "an outcome boundary is rendered");
+    check(strstr(rec, "**LANE-PRUNED** lane:92 gen:1 removed:24 last_lon:23") != NULL,
+          "it is an ordinary boundary record for lane 92");
+    check(strstr(rec, "**OUTCOMES-CARRIED** records:24 windows_max:312") != NULL,
+          "carrying the tally the discarded generation held — records are NOT windows "
+          "once the lane is run-length encoded, so both are stated");
+    check(strstr(rec, "**BELIEF-AT-BOUNDARY** peer:0x00000200 proto:0 conf:106") != NULL,
+          "and what that evidence concluded, so a belief falling back to baseline is "
+          "explained rather than merely observed");
+    check(lanegen::pruneRecordNamesLane(rec, k, 92),
+          "the lane field still parses with the tally block appended");
+    check(!lanegen::pruneRecordNamesLane(rec, k, 9),
+          "and lane:9 does not match lane:92 — the prefix trap, again");
+
+    // ⚠ THE NEEDLE-COLLISION CHECK. Reconciler::foldRecord scans for
+    // `**OBSERVED** peer:0x` and `**COVERED** peer:0x`. A boundary carrying either
+    // token would be folded as testimony the next time the outcome lane was read — the
+    // node re-learning from its own gravestone. Same family as `prev_stream:` in @LAT90
+    // and the bare ids in **STREAMS-EXPLAINED**.
+    check(strstr(rec, "**OBSERVED** peer:0x") == NULL &&
+              strstr(rec, "**COVERED** peer:0x") == NULL,
+          "the boundary carries NEITHER fold needle, so it can never be re-folded as "
+          "testimony");
+
+    // Whole block or nothing, for the same reason the id list is: a truncated tally
+    // understates the evidence the boundary stands in for.
+    char tight[240];
+    check(lanegen::buildPruneRecord(tight, sizeof(tight), 4,
+                                    mk(92, 1, 24, 23, 0xe7384824u, false), 0,
+                                    0, 0, carried) == 0,
+          "a buffer that fits the boundary but NOT the tally yields nothing");
+
+    // And the two carried forms are independent: a percept prune still gets neither.
+    k = lanegen::buildPruneRecord(rec, sizeof(rec), 0,
+                                  mk(95, 2, 48, 47, 0xe7384824u, false), 0);
+    check(strstr(rec, "OUTCOMES-CARRIED") == NULL &&
+              strstr(rec, "STREAMS-EXPLAINED") == NULL,
+          "a percept-lane boundary carries neither block");
+  }
+
   printf("\n");
   if (fails) {
     printf("%d FAILURE(S)\n", fails);

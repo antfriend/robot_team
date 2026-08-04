@@ -43,6 +43,21 @@
 #define LANEGEN_MAX_LANE 32
 #endif
 
+#ifndef LANEGEN_OUTCOME_LANE
+// The Learning-from-Action outcome lane, @LAT92. Named here rather than included from
+// PerceptLearn.h so this library keeps its one dependency direction — the sketch, which
+// has both, asserts the two agree at compile time. See pruneOutcomes() below.
+#define LANEGEN_OUTCOME_LANE 92
+#endif
+#ifndef LANEGEN_CARRIED_BUF
+// The caller-built `carried` block a pruneOutcomes() boundary carries: one tally line
+// plus one **BELIEF-AT-BOUNDARY** line per belief (8 max, ~100 B each). 1024 is ~15%
+// headroom. Both the caller's builder and buildPruneRecord write NOTHING rather than
+// truncating, so an undersized buffer refuses the prune instead of writing a boundary
+// that understates the evidence it is standing in for.
+#define LANEGEN_CARRIED_BUF 1024
+#endif
+
 #ifndef LANEGEN_BUF
 #define LANEGEN_BUF 288
 #endif
@@ -240,6 +255,90 @@ inline bool pruneTimeline(Ttdb& db, const timestream::Stamp& stamp, uint32_t nod
   Serial.printf("[lanegen] @LAT%d gen %d closed: %d record(s), %d stream id(s) "
                 "carried forward -> @LAT%dLON%d\n",
                 (int)lane, gen, held, n_ids, (int)LANE, markers_total);
+  return true;
+}
+
+// Prune the OUTCOME lane (@LAT92) and record the boundary — the second lane outside the
+// percept block that can be pruned, and only through this call.
+//
+// WHY THIS EXISTS. `PERCEPTLEARN_MAX_LANE 24` was reached on the Cardputer, and a full
+// outcome lane means the learning loop "is still predicting but no longer testifying" —
+// it keeps arming expectations and scoring them, and writes none of it down. Unlike a
+// percept lane there was no way out: `removePerceptLanes` refuses anything outside
+// 94..97, so on 2026-08-04 the run-length work that this lane exists to exercise had no
+// hardware path at all. Exactly the shape of @LAT90's 16/16, and answered the same way.
+//
+// ⚠ WHY IT IS A SEPARATE CALL AND NOT A WIDENED GUARD — the same reason pruneTimeline()
+// is. That guard's stated purpose is that identity (@LAT0), belief attestations (@LAT98)
+// and the sync log (@LAT99) are unreachable by ANY path, and pruning a different lane
+// than the one requested is worse than refusing. Nothing here weakens it: this names
+// @LAT92 explicitly and prunes exactly that.
+//
+// ⚠ WHAT IS LOST, AND IT IS MORE THAN AN ORDINAL. `Reconciler` is a PURE FUNCTION of
+// this lane, recomputed from baseline every cycle — which is what makes a belief
+// auditable rather than trusted, and which means **pruning the lane resets every @LAT91
+// belief toward baseline**. PerceptLearn.h already states that as a property ("the
+// belief is exactly as strong as the evidence still retained"), so the prune does not
+// break an invariant; it exercises one. But a belief silently falling from 106 back to
+// 128 with nothing saying why would be indistinguishable from a node that had never
+// learned anything.
+//
+// So `carried` — built by the caller, which is the only place that can fold the lane —
+// records the tally and the conclusions at the boundary. An older reader's question is
+// "how much evidence stood behind the last belief, and what did it say?", and that block
+// still answers it. What is genuinely gone is the per-window testimony: the individual
+// verdicts, the predicted/observed medians, and the ability to RE-derive conf rather
+// than read it. That is the stated cost, and it is why this is a repair, not routine
+// maintenance.
+inline bool pruneOutcomes(Ttdb& db, const timestream::Stamp& stamp, uint32_t node_id,
+                          uint32_t t_sec, const char* carried) {
+  const int16_t lane = (int16_t)LANEGEN_OUTCOME_LANE;
+  int held = 0, top = -1;
+  for (int i = 0; i < db.recordCount(); ++i) {
+    if (db.record(i).lat != lane) continue;
+    ++held;
+    if (db.record(i).lon > top) top = db.record(i).lon;
+  }
+  if (!held) return true;                       // idempotent, same as a percept prune
+
+  int markers_total = 0;
+  const int gen = nextGeneration(countMarkers(db, (uint8_t)lane, markers_total));
+  if (markers_total + 1 > LANEGEN_MAX_LANE) {
+    Serial.printf("[lanegen] @LAT%d lane FULL — cannot record a @LAT%d boundary, so "
+                  "the outcome lane is NOT pruned\n", (int)LANE, (int)lane);
+    return false;
+  }
+
+  Prune p;
+  p.lane = (uint8_t)lane;
+  p.gen = gen;
+  p.removed = held;
+  p.last_lon = top;
+  p.node_id = node_id;
+  p.stamp = stamp;
+  // Bigger than LANEGEN_BUF: this record carries the tally block as well.
+  char rec[LANEGEN_CARRIED_BUF + 320];
+  const size_t m = buildPruneRecord(rec, sizeof(rec), markers_total, p, t_sec, 0, 0,
+                                    carried);
+  if (!m) {
+    Serial.println("[lanegen] outcome boundary would not fit — NOT pruned");
+    return false;
+  }
+  // ⚠ RENDER BEFORE REMOVING, like pruneTimeline. The boundary is built from the state
+  // the prune is about to destroy, and a rewrite that succeeded followed by a render
+  // that did not would leave the lane gone and unexplained.
+  if (!db.removeLane(lane)) {
+    Serial.println("[lanegen] removeLane(outcome) FAILED — nothing pruned");
+    return false;
+  }
+  if (!db.appendRecord(rec, m)) {
+    Serial.printf("[lanegen] ⚠ @LAT%d PRUNED BUT ITS BOUNDARY WAS NOT WRITTEN — the "
+                  "beliefs will fall back to baseline with nothing saying why\n",
+                  (int)lane);
+    return false;
+  }
+  Serial.printf("[lanegen] @LAT%d gen %d closed: %d record(s), tally carried "
+                "-> @LAT%dLON%d\n", (int)lane, gen, held, (int)LANE, markers_total);
   return true;
 }
 

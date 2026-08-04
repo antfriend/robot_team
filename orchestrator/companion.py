@@ -673,16 +673,30 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
         # sender that omits the byte gets). A node refuses anything outside 94..97,
         # so this can never reach the identity / belief / sync lanes. Check it here
         # too — a doomed CMD would otherwise cost 4 attempts to learn nothing.
-        # 90, the TIMELINE lane, is the one addition (2026-08-03) and it takes a
-        # SEPARATE path on the node (lanegen::pruneTimeline) that carries the stream
-        # ids it explained into the boundary record. 98/99 stay unreachable.
-        if lane not in (0, TIMESTREAM_LANE) and not (94 <= lane <= 97):
-            sys.exit(f"--lane must be 0 (all), {TIMESTREAM_LANE} (timeline) or "
-                     f"94..97, got {lane}")
+        # 90, the TIMELINE lane (2026-08-03) and 92, the OUTCOME lane (2026-08-04) are
+        # the two additions, and each takes its OWN named path on the node —
+        # lanegen::pruneTimeline / lanegen::pruneOutcomes — because each carries
+        # something forward that a bare rewrite would orphan: the stream ids @LAT90
+        # explained, and the tally @LAT92's beliefs were folded from. 98/99 stay
+        # unreachable by any path.
+        #
+        # ⚠ `--lane 92` IS DESTRUCTIVE BEYOND ITS OWN LANE. Reconciler is a pure function
+        # of @LAT92, so emptying it returns every @LAT91 belief to baseline on the next
+        # Dream Cycle. That is the design (a belief is as strong as the evidence
+        # retained), which is why it is allowed at all — but it is not the routine
+        # cleanup that 94..97 is, and the boundary record is the only thing that will
+        # say what was there.
+        if lane not in (0, TIMESTREAM_LANE, OUTCOME_LANE) and not (94 <= lane <= 97):
+            sys.exit(f"--lane must be 0 (all), {TIMESTREAM_LANE} (timeline), "
+                     f"{OUTCOME_LANE} (outcomes) or 94..97, got {lane}")
         args = bytes([lane])
-        detail = (f" lane {lane if lane else 'ALL (94-97)'}"
-                  + (" [TIMELINE — its stream ids ride into the boundary]"
-                     if lane == TIMESTREAM_LANE else ""))
+        note = ""
+        if lane == TIMESTREAM_LANE:
+            note = " [TIMELINE — its stream ids ride into the boundary]"
+        elif lane == OUTCOME_LANE:
+            note = (" [OUTCOMES — its tally rides into the boundary; @LAT91 beliefs "
+                    "return to baseline]")
+        detail = f" lane {lane if lane else 'ALL (94-97)'}{note}"
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
@@ -1822,6 +1836,7 @@ def fmt_stream(w):
 # "generation N, pruned" instead. See firmware/libraries/LaneGen.
 PRUNE_LANE = 100
 TIMESTREAM_LANE = 90    # the timeline lane; prunable only via lanegen::pruneTimeline
+OUTCOME_LANE = 92       # the outcome lane; prunable only via lanegen::pruneOutcomes
 PRUNE_RE = re.compile(
     r"\*\*LANE-PRUNED\*\*\s+lane:(\d+)\s+gen:(\d+)\s+removed:(\d+)\s+"
     r"last_lon:(-?\d+)")
@@ -2203,6 +2218,185 @@ def percepts(port, baud, node, save):
             first = False
             print(f"{lead}  0x{l['peer']:08X}  {l['proto']:6}  {l['n']:>5}  "
                   f"{l['min']:>4}  {l['med']:>4}  {l['max']:>4}")
+
+
+# --- motion percepts (SP0 motion tier, @LAT95) --------------------------------
+# The lane became CHANGE-TRIGGERED on 2026-08-04 (part-b-handoff.md Part 1): a window
+# whose verdict matches the run in progress writes no record, and the record that closes
+# the run says how many it suppressed.
+#
+# ⚠ THAT MAKES `len(records)` THE WRONG ANSWER TO "HOW MANY WINDOWS?" — and it is wrong
+# in the flattering direction, because the windows it silently drops are the ones where
+# nothing happened. Any statistic computed by counting records now UNDER-reports
+# stillness. This reader exists so the laptop reconstructs the window count the way the
+# format intends: itemised windows plus every **COVERED** block's `windows:`.
+#
+# It also reads BOTH FORMATS. A node's TTDB is appended to for its whole life, so
+# pre-2026-08-04 records — which carry no **RUN** line at all — sit on the same flash as
+# post. An old record is exactly one window, which is what `windows_since_last` defaults
+# to, so the old lane folds into the new arithmetic without a special case. Do not
+# "clean up" the default; it is the compatibility, not a fallback.
+MOTIONWIN_RE = re.compile(r"\*\*MOTIONWIN\*\*.*?\swindow_ms:(\d+)\s+n:(\d+)")
+MOTION_RE = re.compile(
+    r"\*\*MOTION\*\*\s+state:(\w+)\s+moving_permille:(\d+)\s+dev_mean_mg:(\d+)"
+    r"\s+dev_max_mg:(\d+)\s+moving_ms:(\d+)")
+RUN_RE = re.compile(r"\*\*RUN\*\*\s+windows_since_last:(\d+)\s+reason:(\w+)")
+COVERED_RE = re.compile(
+    r"\*\*COVERED\*\*\s+state:(\w+)\s+windows:(\d+)\s+n:(\d+)\s+window_ms:(\d+)"
+    r"\s+moving_permille:(\d+)\s+dev_mean_mg:(\d+)\s+dev_max_mg:(\d+)"
+    r"\s+moving_ms:(\d+)")
+
+
+def parse_motion_percepts(text):
+    """Parse a TTDB's @LAT95 lane into a list of records:
+    {lane, t_ms, stream, wall, synced, window_ms, n, state, moving_permille,
+     dev_mean_mg, dev_max_mg, moving_ms, windows_since_last, reason, covered}
+    where `covered` is None or the aggregate of the windows this record's
+    predecessor spoke for but never itemised."""
+    recs = []
+    cur = None
+    for line in text.splitlines():
+        if line.startswith("@LAT95LON"):
+            lane = int(re.match(r"@LAT95LON(\d+)", line).group(1))
+            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
+                   "synced": None, "window_ms": None, "n": None, "state": None,
+                   "moving_permille": None, "dev_mean_mg": None, "dev_max_mg": None,
+                   "moving_ms": None,
+                   # A record with no **RUN** line predates run-length and stands for
+                   # exactly one window.
+                   "windows_since_last": 1, "reason": "legacy", "covered": None}
+            recs.append(cur)
+            continue
+        if line.startswith("@"):     # any other record header ends this one
+            cur = None
+            continue
+        if cur is None:
+            continue
+        if line.startswith("**MOTIONWIN**"):
+            tf = parse_time_fields(line)
+            if tf:
+                cur.update(tf)
+            m = MOTIONWIN_RE.search(line)
+            if m:
+                cur["window_ms"] = int(m.group(1))
+                cur["n"] = int(m.group(2))
+            continue
+        m = MOTION_RE.search(line)
+        if m:
+            cur["state"] = m.group(1)
+            cur["moving_permille"] = int(m.group(2))
+            cur["dev_mean_mg"] = int(m.group(3))
+            cur["dev_max_mg"] = int(m.group(4))
+            cur["moving_ms"] = int(m.group(5))
+            continue
+        m = RUN_RE.search(line)
+        if m:
+            cur["windows_since_last"] = int(m.group(1))
+            cur["reason"] = m.group(2)
+            continue
+        m = COVERED_RE.search(line)
+        if m:
+            cur["covered"] = {
+                "state": m.group(1), "windows": int(m.group(2)), "n": int(m.group(3)),
+                "window_ms": int(m.group(4)), "moving_permille": int(m.group(5)),
+                "dev_mean_mg": int(m.group(6)), "dev_max_mg": int(m.group(7)),
+                "moving_ms": int(m.group(8))}
+    return recs
+
+
+def motion_totals(recs):
+    """Reconstruct what the lane actually observed, records and covered runs alike.
+
+    Returns {records, windows, still_windows, moving_windows, window_ms, samples,
+             unaccounted}. `unaccounted` is the number of windows a **RUN** line
+    claims that no **COVERED** block explains — it should be 0, and a non-zero
+    value means records were lost (a full lane, a failed render, or a prune that
+    took the covering record but not its closer). It is reported rather than
+    silently absorbed: a lane that cannot account for its own arithmetic is
+    exactly the failure run-length was supposed to make impossible."""
+    windows = still = moving = 0
+    window_ms = samples = 0
+    unaccounted = 0
+    for r in recs:
+        windows += 1                      # the record's own window
+        if r["state"] == "moving":
+            moving += 1
+        elif r["state"] == "still":
+            still += 1
+        window_ms += r["window_ms"] or 0
+        samples += r["n"] or 0
+
+        claimed = r["windows_since_last"] - 1      # windows it says were suppressed
+        cov = r["covered"]
+        got = cov["windows"] if cov else 0
+        windows += got
+        window_ms += cov["window_ms"] if cov else 0
+        samples += cov["n"] if cov else 0
+        if cov:
+            if cov["state"] == "moving":
+                moving += cov["windows"]
+            else:
+                still += cov["windows"]
+        if claimed != got:
+            unaccounted += claimed - got
+    return {"records": len(recs), "windows": windows, "still_windows": still,
+            "moving_windows": moving, "window_ms": window_ms, "samples": samples,
+            "unaccounted": unaccounted}
+
+
+def motion(port, baud, node, save, from_file=None):
+    """Print a node's motion-percept lane (@LAT95) with the run-length arithmetic
+    made explicit: how many records, how many WINDOWS those records account for,
+    and whether the two agree."""
+    if from_file:
+        with open(from_file, "rb") as f:
+            data = f.read()
+    else:
+        try:
+            import serial
+        except ImportError:
+            sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+        target = NODE_IDS[node]
+        reader = SerialFrameReader()
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            time.sleep(2.5)          # port-open resets the S3; wait out boot
+            ser.reset_input_buffer()
+            data = request_ttdb(ser, reader, target, 20.0, TTDB_REQ_WHOLE)
+        if data is None:
+            sys.exit("no data received (check port, node id, and the key)")
+        if save:
+            os.makedirs(os.path.dirname(os.path.abspath(save)), exist_ok=True)
+            with open(save, "wb") as f:
+                f.write(data)
+            print(f"wrote {len(data)} bytes to {save}")
+
+    recs = parse_motion_percepts(data.decode("utf-8", errors="replace"))
+    t = motion_totals(recs)
+    label = from_file or node
+    print(f"{label}: {t['records']} @LAT95 record(s) accounting for "
+          f"{t['windows']} window(s) — {t['still_windows']} still / "
+          f"{t['moving_windows']} moving, {t['samples']} sample(s), "
+          f"{t['window_ms'] / 60000.0:.1f} minute(s) observed")
+    if not recs:
+        print("no @LAT95 records yet — the node needs an IMU and a flush window "
+              "(default 60 s)")
+        return
+    if t["unaccounted"]:
+        print(f"⚠ {t['unaccounted']} window(s) CLAIMED by a **RUN** line and explained "
+              f"by no **COVERED** block — records are missing from this lane")
+    if t["records"]:
+        print(f"compression: {t['windows'] / t['records']:.1f} windows per record "
+              f"(1.0 = the pre-2026-08-04 periodic lane)")
+    print(f"{'lane':>4}  {'t_ms':>14}  {'stream':>9}  {'state':6}  {'perm':>4}  "
+          f"{'devmax':>6}  {'since':>5}  {'reason':9}  covered")
+    for r in recs:
+        cov = r["covered"]
+        cs = (f"{cov['windows']}x {cov['state']} devmax:{cov['dev_max_mg']} "
+              f"perm:{cov['moving_permille']}") if cov else "-"
+        print(f"{r['lane']:>4}  {r['t_ms']:>14}  {fmt_stream(r):>9}  "
+              f"{str(r['state']):6}  {str(r['moving_permille']):>4}  "
+              f"{str(r['dev_max_mg']):>6}  {r['windows_since_last']:>5}  "
+              f"{r['reason']:9}  {cs}")
 
 
 # --- entity co-occurrence percepts (semantic positioning SP0, entity tier) ---
@@ -3695,9 +3889,11 @@ def main():
                     help="scene id for set-scene (only the conductor applies it)")
     cm.add_argument("--lane", type=int, default=0,
                     help="clear-percepts: lane to drop (94 acoustic, 95 motion, "
-                         "96 entity, 97 link); 0 = ALL of them (default). 90 is the "
-                         "TIMELINE lane and takes a separate path that carries its "
-                         "stream ids into the boundary record; 98/99 are refused")
+                         "96 entity, 97 link); 0 = ALL of them (default). 90 (TIMELINE) "
+                         "and 92 (OUTCOMES) each take a separate named path that "
+                         "carries forward what a bare rewrite would orphan — 90's "
+                         "stream ids, 92's tally. ⚠ 92 also returns every @LAT91 "
+                         "belief to baseline. 98/99 are refused")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
@@ -3710,6 +3906,20 @@ def main():
     pc.add_argument("--node", required=True, choices=list(NODE_IDS))
     pc.add_argument("--save", default=None,
                     help="also write the pulled TTDB to this path")
+
+    mp = sub.add_parser(
+        "motion",
+        help="pull + print a node's motion-percept lane (@LAT95, SP0) with the "
+             "run-length arithmetic reconstructed")
+    mp.add_argument("--port", default=None, help="serial port (COM6, direct or bridge)")
+    mp.add_argument("--baud", type=int, default=115200)
+    mp.add_argument("--node", default=None, choices=list(NODE_IDS))
+    mp.add_argument("--save", default=None,
+                    help="also write the pulled TTDB to this path")
+    mp.add_argument("--file", default=None,
+                    help="read an already-pulled TTDB instead of pulling — ⚠ prefer "
+                         "this when the node is under measurement: opening its port "
+                         "resets it and restarts the 60 s window")
 
     ec = sub.add_parser(
         "entities",
@@ -3893,6 +4103,10 @@ def main():
         percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "prunes":
         prunes(args.file)
+    elif args.cmd == "motion":
+        if not args.file and not (args.port and args.node):
+            sys.exit("motion needs either --file, or both --port and --node")
+        motion(args.port, args.baud, args.node, args.save, args.file)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":

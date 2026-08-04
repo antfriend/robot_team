@@ -177,22 +177,33 @@ int main(void) {
     uint32_t now = 1000;
     log.reset(now);
 
+    // ⚠ `lane` here tracks the sketch's `laneCount(95)`, which only advances when a
+    // record is actually APPENDED. Under change-triggering most windows write nothing,
+    // so a test that hands out a fresh lane per window would silently assert against
+    // ordinals the device never allocates — and this pairing is exactly where that
+    // would matter, because the `before` half is now usually a suppressed window.
+    int lane = 0;
+
     // Window 0: still. There is no window before it, so there is no transition — the
     // first window of a node's life cannot be an `after` without orphaning a `before`.
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 0, 1000, ST(1000000ULL, true), now);
+    if (log.buildRecord(rec, sizeof(rec), lane, 1000, ST(1000000ULL, true), now)) ++lane;
     CHECK(!log.transitionPending(), "the FIRST window never yields a transition (no orphan `before`)");
     CHECK(log.buildTransition(tr, sizeof(tr), 0, 0x300) == 0,
           "buildTransition writes nothing when nothing is pending");
 
-    // Window 1: still again. Same verdict = no claim.
+    // Window 1: still again. Same verdict = no claim, AND no record — it is folded into
+    // the run @LAT95LON0 opened.
     feedWindow(log, now, 0, 60);
-    log.buildRecord(rec, sizeof(rec), 1, 1060, ST(1060000ULL, true), now);
+    if (log.buildRecord(rec, sizeof(rec), lane, 1060, ST(1060000ULL, true), now)) ++lane;
     CHECK(!log.transitionPending(), "still -> still is not a transition");
+    CHECK(log.lastClose() == motionpercept::CLOSE_COVERED,
+          "...and under run-length it is not even a record");
+    CHECK(lane == 1, "so the lane did not advance (got %d)", lane);
 
-    // Window 2: moving. THE CHANGE.
+    // Window 2: moving. THE CHANGE — which always writes, at the next free ordinal.
     feedWindow(log, now, 400, 60);
-    log.buildRecord(rec, sizeof(rec), 2, 1120, ST(1120000ULL, true), now);
+    if (log.buildRecord(rec, sizeof(rec), lane, 1120, ST(1120000ULL, true), now)) ++lane;
     CHECK(log.transitionPending(), "still -> moving IS a transition");
 
     size_t m = log.buildTransition(tr, sizeof(tr), 0, 0x300);
@@ -225,17 +236,26 @@ int main(void) {
     lineWith(tr, "  @PERCEPT:before", line, sizeof(line));
     CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "still") == 0,
           "before half is the CLOSING window's state (got '%s')", buf);
-    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT95LON1") == 0,
-          "before half addresses its @LAT95 record (got '%s')", buf);
+    // ⚠ THE `before` HALF IS A SUPPRESSED WINDOW, and this is the check that keeps the
+    // citation honest. It was window 1 of the run that @LAT95LON0 opened, so it is
+    // addressed as `LON0+1` — NOT as `LON0`, which describes a different window, and not
+    // as `LON1`, which is the record the CHANGE went to.
+    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT95LON0+1") == 0,
+          "before half addresses its covering record AND its offset in that run (got '%s')", buf);
     lineWith(tr, "  @PERCEPT:after", line, sizeof(line));
     CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "moving") == 0,
           "after half is the OPENING window's state (got '%s')", buf);
-    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT95LON2") == 0,
-          "after half addresses its @LAT95 record (got '%s')", buf);
+    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT95LON1+0") == 0,
+          "after half addresses its own record at offset 0 (got '%s')", buf);
 
     // The pair is also written as traversable edges, per §5.2 / RFC-0003 v1.1 §7.3.
-    CHECK(strstr(tr, "derived_from@LAT95LON1,derived_from@LAT95LON2") != NULL,
+    // ⚠ The EDGES stay plain ordinals with no `+k`: an edge must resolve to a record
+    // that exists, and the covering record does. The offset lives in the body, where it
+    // qualifies the citation without breaking traversal.
+    CHECK(strstr(tr, "derived_from@LAT95LON0,derived_from@LAT95LON1") != NULL,
           "both halves are reachable from the edge list, not only from the body");
+    CHECK(strstr(tr, "derived_from@LAT95LON0+1") == NULL,
+          "and the edge list carries no `+k` — that would not resolve to a record");
     char hdr[512];
     lineWith(tr, "@LAT93LON", hdr, sizeof(hdr));
     CHECK(strncmp(hdr, "@LAT93LON0 | ", 13) == 0,
@@ -353,6 +373,185 @@ int main(void) {
     CHECK(strcmp(field(line, "dt_ms", buf, sizeof(buf)), "3660000") == 0,
           "dt_ms is the raw difference — an over-estimate by exactly the merge "
           "offset, which @LAT90's REMAP records, so it is recoverable (got '%s')", buf);
+  }
+
+  // -------------------------------------------------------------------------
+  // 7. RUN-LENGTH — the lane is change-triggered, and says how much it suppressed
+  //
+  // This is the section that makes the treadmill fix honest. It is not enough that
+  // fewer records are written; the lane has to still answer "how long was this node
+  // still?" exactly, or every statistic derived from it (including the B.3 run that
+  // measured MOTIONPERCEPT_MOVING_MG) silently weights a 30-window run like a 1-window
+  // one.
+  // -------------------------------------------------------------------------
+  {
+    motionpercept::Log log;
+    uint32_t now = 1000;
+    log.reset(now);
+    char rec[MOTIONPERCEPT_RECORD_BUF];
+    char line[512], buf[128];
+
+    // Ten still windows in a row — the shelf case that used to cost ten records.
+    int lane = 0, records = 0;
+    for (int w = 0; w < 10; ++w) {
+      feedWindow(log, now, 0, 60);
+      size_t m = log.buildRecord(rec, sizeof(rec), lane, 1000 + 60 * w,
+                                 ST(1000000ULL + 60000ULL * (uint32_t)w, true), now);
+      if (m) { ++lane; ++records; }
+    }
+    CHECK(records == 1, "ten still windows write ONE record, not ten (got %d)", records);
+    CHECK(log.runLength() == 10, "and the run knows it covers all ten (got %d)",
+          log.runLength());
+    CHECK(log.lastClose() == motionpercept::CLOSE_COVERED,
+          "the tenth window was covered, not dropped");
+    CHECK(log.coveringLane() == 0 && log.runOffset() == 9,
+          "and it is addressable as @LAT95LON%d+%d", log.coveringLane(), log.runOffset());
+
+    // The eleventh window MOVES. A change is never deferred.
+    feedWindow(log, now, 400, 60);
+    size_t m = log.buildRecord(rec, sizeof(rec), lane, 1660, ST(1660000ULL, true), now);
+    CHECK(m > 0, "a verdict CHANGE writes immediately (%zu bytes)", m);
+    CHECK(log.lastClose() == motionpercept::CLOSE_WRITTEN, "reported as WRITTEN");
+    CHECK(m < MOTIONPERCEPT_RECORD_BUF,
+          "a record carrying a COVERED block fits MOTIONPERCEPT_RECORD_BUF (%zu / %d)",
+          m, MOTIONPERCEPT_RECORD_BUF);
+    CHECK(m > 320,
+          "...and would NOT have fitted the sketch's old 320 B buffer (%zu) — which is "
+          "why the constant moved with the format", m);
+    CHECK(recordHeaderLines(rec) == 1,
+          "still exactly one record header (got %d)", recordHeaderLines(rec));
+
+    lineWith(rec, "**RUN**", line, sizeof(line));
+    CHECK(strcmp(field(line, "windows_since_last", buf, sizeof(buf)), "10") == 0,
+          "windows_since_last counts the 9 suppressed windows AND this one (got '%s')", buf);
+    CHECK(strcmp(field(line, "reason", buf, sizeof(buf)), "changed") == 0,
+          "and says why it was written (got '%s')", buf);
+
+    // The COVERED block: the nine suppressed windows as one long window.
+    lineWith(rec, "**COVERED**", line, sizeof(line));
+    CHECK(strcmp(field(line, "state", buf, sizeof(buf)), "still") == 0,
+          "the covered windows carry the RUN's state, not this record's (got '%s')", buf);
+    CHECK(strcmp(field(line, "windows", buf, sizeof(buf)), "9") == 0,
+          "nine of them — windows_since_last minus this record's own (got '%s')", buf);
+    CHECK(strcmp(field(line, "n", buf, sizeof(buf)), "540") == 0,
+          "with every sample accounted for: 9 x 60 (got '%s')", buf);
+    CHECK(strcmp(field(line, "moving_permille", buf, sizeof(buf)), "0") == 0,
+          "aggregated over SAMPLES, not as a mean of means (got '%s')", buf);
+    CHECK(strcmp(field(line, "covered_by", buf, sizeof(buf)), "@LAT95LON0") == 0,
+          "and it names the record whose run they belonged to (got '%s')", buf);
+    CHECK(strcmp(field(line, "first_t_ms", buf, sizeof(buf)), "1060000") == 0,
+          "the span starts at the first suppressed window (got '%s')", buf);
+    CHECK(strcmp(field(line, "last_t_ms", buf, sizeof(buf)), "1540000") == 0,
+          "and ends at the last (got '%s')", buf);
+
+    // Total accounting: 10 still windows happened; the lane says so across two records.
+    // 1 itemised in @LAT95LON0 + 9 in this record's COVERED block = 10.
+    // 9 x 61000: feedWindow() pushes one step past the flush boundary, so a harness
+    // window is 61 s. The point is the SUM being present and complete, not the value.
+    CHECK(strcmp(field(line, "window_ms", buf, sizeof(buf)), "549000") == 0,
+          "every covered window's wall time is summed, so the lane does not understate "
+          "stillness (got '%s')", buf);
+  }
+
+  // 7b. The heartbeat: an unchanging state is re-asserted after MOTIONPERCEPT_MAX_RUN.
+  {
+    motionpercept::Log log;
+    uint32_t now = 1000;
+    log.reset(now);
+    char rec[MOTIONPERCEPT_RECORD_BUF];
+    char line[512], buf[128];
+
+    int records = 0;
+    size_t last = 0;
+    for (int w = 0; w < MOTIONPERCEPT_MAX_RUN + 1; ++w) {
+      feedWindow(log, now, 0, 60);
+      size_t m = log.buildRecord(rec, sizeof(rec), records, 1000 + 60 * w,
+                                 ST(1000000ULL + 60000ULL * (uint32_t)w, true), now);
+      if (m) { ++records; last = m; }
+    }
+    CHECK(records == 2,
+          "%d identical windows write exactly 2 records: the first and the heartbeat "
+          "(got %d)", MOTIONPERCEPT_MAX_RUN + 1, records);
+    CHECK(last > 0, "the heartbeat record rendered");
+    lineWith(rec, "**RUN**", line, sizeof(line));
+    CHECK(strcmp(field(line, "reason", buf, sizeof(buf)), "heartbeat") == 0,
+          "and says it was the heartbeat, not a change (got '%s')", buf);
+    CHECK(atoi(field(line, "windows_since_last", buf, sizeof(buf))) == MOTIONPERCEPT_MAX_RUN,
+          "covering exactly MAX_RUN windows (got '%s')", buf);
+    CHECK(log.runLength() == 1, "and it opens a fresh run (got %d)", log.runLength());
+
+    // The arithmetic the constant was chosen on, asserted so it cannot drift silently.
+    CHECK(MOTIONPERCEPT_MAX_RUN >= 2,
+          "MAX_RUN must exceed 1, or run-length is a no-op with extra fields");
+    CHECK((long)MOTIONPERCEPT_MAX_LANE * MOTIONPERCEPT_MAX_RUN *
+              (MOTIONPERCEPT_FLUSH_MS / 1000) >= 24L * 3600,
+          "lane life at rest is at least 24 h of uptime — the treadmill fix this "
+          "section exists for (was 48 minutes)");
+  }
+
+  // 7c. A discarded window breaks the RUN too, for the same reason it breaks the
+  // transition chain: the next record is not adjacent to the last, so folding across
+  // the gap would claim coverage of a window nobody measured.
+  {
+    motionpercept::Log log;
+    uint32_t now = 1000;
+    log.reset(now);
+    char rec[MOTIONPERCEPT_RECORD_BUF];
+    char line[512], buf[128];
+
+    feedWindow(log, now, 0, 60);
+    CHECK(log.buildRecord(rec, sizeof(rec), 0, 1000, ST(1000000ULL, true), now) > 0,
+          "first window opens a run");
+    feedWindow(log, now, 0, 60);
+    CHECK(log.buildRecord(rec, sizeof(rec), 1, 1060, ST(1060000ULL, true), now) == 0,
+          "second is covered by it");
+
+    log.reset(now);   // the lane went full, or the IMU dropped out
+
+    feedWindow(log, now, 0, 60);
+    size_t m = log.buildRecord(rec, sizeof(rec), 1, 1180, ST(1180000ULL, true), now);
+    CHECK(m > 0, "after a discard the next still window WRITES rather than folding");
+    lineWith(rec, "**RUN**", line, sizeof(line));
+    CHECK(strcmp(field(line, "reason", buf, sizeof(buf)), "first") == 0,
+          "and calls itself `first` — it is not adjacent to anything (got '%s')", buf);
+    CHECK(strcmp(field(line, "windows_since_last", buf, sizeof(buf)), "1") == 0,
+          "claiming coverage of itself only (got '%s')", buf);
+    CHECK(strstr(rec, "**COVERED**") == NULL,
+          "and carrying NO covered block — the discarded window is gone, not absorbed");
+  }
+
+  // 7d. Truncation: a record whose COVERED block does not fit is not written at all.
+  // The same rule the transition pair follows, for the same reason — a head line
+  // claiming `windows_since_last:10` with nothing accounting for the 9 is a lie, where
+  // a missing record is merely a gap.
+  {
+    motionpercept::Log log;
+    uint32_t now = 1000;
+    log.reset(now);
+    char rec[MOTIONPERCEPT_RECORD_BUF];
+
+    for (int w = 0; w < 4; ++w) {
+      feedWindow(log, now, 0, 60);
+      log.buildRecord(rec, sizeof(rec), 0, 1000 + 60 * w,
+                      ST(1000000ULL + 60000ULL * (uint32_t)w, true), now);
+    }
+    feedWindow(log, now, 400, 60);
+    char small[260];   // fits the head + MOTION + RUN, but not the COVERED line
+    size_t m = log.buildRecord(small, sizeof(small), 1, 1300, ST(1300000ULL, true), now);
+    CHECK(m == 0, "a record whose COVERED block does not fit writes 0 bytes (got %zu)", m);
+    CHECK(log.lastClose() == motionpercept::CLOSE_EMPTY,
+          "...and reports EMPTY, so the caller cannot mistake it for a covered window");
+
+    // And the run is BROKEN by the failure, not carried. Carrying it would make the
+    // next record claim `windows_since_last:6` for windows whose evidence was never
+    // written — a record overstating its coverage, which is worse than a missing one.
+    char line[512], buf[128];
+    feedWindow(log, now, 0, 60);
+    CHECK(log.buildRecord(rec, sizeof(rec), 1, 1360, ST(1360000ULL, true), now) > 0,
+          "the next window writes");
+    lineWith(rec, "**RUN**", line, sizeof(line));
+    CHECK(strcmp(field(line, "windows_since_last", buf, sizeof(buf)), "1") == 0,
+          "claiming only itself — the lost windows are a gap, not absorbed (got '%s')", buf);
   }
 
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);

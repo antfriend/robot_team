@@ -72,6 +72,48 @@
 // inside break-even — so confidence should creep UP when nothing moves and fall as
 // soon as anything does. A wider band would make Rule 3 look good by construction and
 // prove nothing. **If you widen it, say so when reporting the constants.**
+//
+// ---------------------------------------------------------------------------
+// RUN-LENGTH (2026-08-04) — the SAME decision as @LAT95's, not a separate one
+// ---------------------------------------------------------------------------
+// @LAT95 became change-triggered because a periodic lane fills with uptime rather than
+// with events (part-b-handoff.md Part 1). This lane has the same disease and a worse
+// prognosis — an outcome is 573-1595 B against a percept window's ~200 B, and
+// PERCEPTLEARN_MAX_LANE is 24, so it fills in 24 minutes.
+//
+// ⚠ BUT THIS LANE IS A TALLY, AND A TALLY CANNOT BE COMPRESSED THE WAY A STATE SERIES
+// CAN. A state series survives keeping only its transitions: the value between two
+// changes is implied. A tally does not — `conf` is driven by HOW MANY windows were met
+// and violated, so dropping the unchanged ones removes the denominator and Rule 3's
+// arithmetic reads systematically over-confident. Keeping only transitions here would
+// not compress the evidence; it would falsify it.
+//
+// Run-length is the form that fixes both, and the reason is worth stating precisely:
+// **it is LOSSLESS with respect to Rule 3.** Folding a verdict N times is arithmetically
+// identical to folding it once per window — the +2 saturation and the -16 floor are
+// order-sensitive but not batch-sensitive, and the covered windows precede this one in
+// the record exactly as they did in time. So a compressed lane reconciles to the SAME
+// conf, sal and streak as an uncompressed one, and `tests/test_perceptlearn.cpp` pins
+// that equivalence directly rather than trusting the argument.
+//
+// The shape mirrors @LAT95's, deliberately (part-b-handoff.md §1.3: generalize the
+// shape, do not invent a new one). A record is written when the VERDICT VECTOR changes,
+// when PERCEPTLEARN_MAX_RUN windows have passed, or when it is the first — and it
+// carries the windows it suppressed:
+//
+//   **OUTCOME** ... windows_since_last:<N> reason:<first|changed|heartbeat>
+//   **COVERED** peer:0x.. proto:.. verdict:.. windows:<N-1> observed_min:.. observed_max:..
+//
+// ⚠ COVERED LINES ARE FOLDED FIRST AND `windows:` TIMES EACH. They are emitted BEFORE
+// the record's own EXPECTED/OBSERVED pairs because that is the order the windows
+// happened in, and Reconciler::foldRecord walks the record in document order for
+// exactly that reason. Reordering them would change a belief that hit the ceiling and
+// then fell into one that never rose.
+//
+// What is lost, stated rather than glossed: the per-window `predicted_med`/`observed_med`
+// of a covered window. `observed_min`/`observed_max` keep the range, so "the link held
+// within the band for 20 windows" stays checkable, but the individual series does not
+// survive. Verdicts — the only thing Rule 3 consumes — survive exactly.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -104,18 +146,42 @@
 // worst, and ~24 minutes of continuous testimony — long enough to exercise Rule 3
 // (whose 1/9 break-even needs tens of windows to show), short enough to survive.
 // Prune and re-run rather than raising this.
+//
+// 📎 Since run-length landed (2026-08-04) this cap is spent on CHANGES rather than on
+// minutes: an anchored fleet with nothing moving now writes one record per
+// PERCEPTLEARN_MAX_RUN windows instead of one per window, so 24 records is ~12 hours of
+// testimony instead of ~24 minutes. The 34 KB / 76 KB arithmetic above is unchanged —
+// it is the same 24 records — it just takes 30x longer to spend.
 #define PERCEPTLEARN_MAX_LANE 24
 #endif
+#ifndef PERCEPTLEARN_MAX_RUN
+// The heartbeat, in scored windows. Matched to MOTIONPERCEPT_MAX_RUN on purpose: the
+// two lanes are written from the same 60 s cadence and a reader lining an outcome up
+// against the motion window that armed it should not have to reconcile two budgets.
+//
+//   lane life, nothing changing = PERCEPTLEARN_MAX_LANE x MAX_RUN = 24 x 30 = 12 hours
+//   worst-case loss on power cut = MAX_RUN - 1 = 29 windows of unchanged testimony
+//
+// ⚠ That loss is REAL and it is not symmetric with @LAT95's: a lost percept window is
+// evidence that can be re-gathered by waiting, whereas a lost outcome is testimony
+// about a prediction that has already been resolved and cannot be re-run. It is
+// bounded, it only ever loses windows that AGREED with the record before them, and a
+// violation always writes immediately — but do not raise it casually.
+#define PERCEPTLEARN_MAX_RUN 30
+#endif
 #ifndef PERCEPTLEARN_BUF
-// Measured: 1595 B for a full PERCEPTLEARN_MAX_CLAIMS house. ~12% headroom for wider
-// node ids and RSSI fields. buildOutcome writes NOTHING rather than truncating, so an
-// under-sized buffer loses testimony SILENTLY — a first pass at 1024 did exactly that
-// and only the native test caught it, which is the second time that has happened on
-// this pattern (see MOTIONPERCEPT_TRANSITION_BUF).
+// Measured: 1595 B for a full PERCEPTLEARN_MAX_CLAIMS house, and **2340 B once that
+// house also carries a COVERED line per claim** (run-length, 2026-08-04). ~12% headroom
+// over that for wider node ids and RSSI fields. buildOutcome writes NOTHING rather than
+// truncating, so an under-sized buffer loses testimony SILENTLY — a first pass at 1024
+// did exactly that and only the native test caught it, which is the second time that
+// has happened on this pattern (see MOTIONPERCEPT_TRANSITION_BUF). It would have been
+// the third here: 1792 fits the head and the OBSERVED pairs but not the COVERED block,
+// so an under-sized buffer would have dropped precisely the records carrying a run.
 //
 // ⚠ Too big for the loop stack next to the other tiers' buffers — the sketch declares
 // it `static`. Do not turn it into a local.
-#define PERCEPTLEARN_BUF 1792
+#define PERCEPTLEARN_BUF 2624
 #endif
 
 namespace perceptlearn {
@@ -135,6 +201,19 @@ struct Claim {
   uint8_t  verdict;
 };
 
+// One claim's worth of a suppressed run: the verdict that held, how many windows it
+// held for, and the range the observed median moved through while it did. The verdict
+// and the count are what Rule 3 folds; the range is what a reader needs to see that
+// "met for 20 windows" was not 20 identical numbers.
+struct Covered {
+  uint32_t peer;
+  uint8_t  proto;
+  uint8_t  verdict;
+  int32_t  windows;
+  int16_t  observed_min;
+  int16_t  observed_max;
+};
+
 class Loop {
  public:
   Loop() { reset(); }
@@ -148,15 +227,28 @@ class Loop {
   void stage(uint32_t peer, uint8_t proto, int median);
 
   // Score the armed expectation against what was just staged. Returns the number of
-  // claims scored, or 0 if nothing was armed. Sets outcomePending() on success.
+  // claims scored, or 0 if nothing was armed.
+  //
+  // ⚠ Scoring no longer implies a record. If this window's verdict vector matches the
+  // last one written, it is folded into the run instead and outcomePending() stays
+  // false — the window is still counted, and the record that eventually closes the run
+  // carries it. Check outcomePending(), never the return value, to decide whether to
+  // append. The return value says "an expectation was resolved", which is a different
+  // question and still the right one for logging.
   int score(const timestream::Stamp& ts, uint32_t wall_sec);
 
   // --- Rule 1: arm the next expectation, ONLY on a positive anchoring claim -------
-  // `motion_lane` is the @LAT95 record making that claim — the acting record.
+  // `motion_lane` is the @LAT95 record making that claim and `motion_offset` says which
+  // window of that record's run it is — the acting record is a (record, offset) PAIR
+  // since @LAT95 became change-triggered. A `still` window that matches the run before
+  // it writes no record of its own, so `motion_lane` alone would provenance this
+  // expectation to a record describing a DIFFERENT window. The outcome writes the pair
+  // out as `acting:@LAT95LON<n>+<k>`, which is checkable against the lane.
+  //
   // Re-derives entirely from what was staged this pass. Storing a per-peer "usual
   // RSSI" learned once and predicting THAT would be the precomputed route Rule 1
   // forbids; this deliberately reads the world again every window.
-  bool arm(int motion_lane);
+  bool arm(int motion_lane, int motion_offset = 0);
 
   // The node did not claim to be anchored (a `moving` window), or the window was
   // discarded. Any outstanding expectation is dropped UNSCORED — scoring it would
@@ -176,6 +268,13 @@ class Loop {
   // Consecutive windows in which at least one claim was violated. Rule 4 (Stage E)
   // aborts at K of these; this tier only counts them so the datum exists.
   int  violationStreak() const { return streak_; }
+  // Windows folded into the run in progress but not yet written down (0 = the last
+  // scoring produced a record). Surface it: this is testimony at risk from a power cut,
+  // and a node that never writes an outcome again looks identical to one whose links
+  // are perfectly stable unless someone says which it is.
+  int  coveredWindows() const { return cov_windows_; }
+  // Windows since the last record was written, counting the one just scored.
+  int  windowsSinceLast() const { return cov_windows_ + 1; }
 
   // Render the outcome record and clear the pending flag. Carries the full tuple
   // Rule 2 specifies: acting record, edge, expectation, observed, verdict,
@@ -184,6 +283,9 @@ class Loop {
 
  private:
   int findStaged(uint32_t peer, uint8_t proto) const;
+  // The rendering half of buildOutcome, split out so the run can be adopted on EVERY
+  // exit path — including the ones where the record did not fit.
+  size_t renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id);
 
   Claim staged_[PERCEPTLEARN_MAX_CLAIMS];
   int   staged_n_;
@@ -194,6 +296,7 @@ class Loop {
   int   claims_n_;
   bool  armed_;
   int   acting_lane_;      // the @LAT95 record whose `still` claim armed this
+  int   acting_offset_;    // ...and which window of that record's run it was
 
   // scored results, awaiting buildOutcome
   bool  pending_;
@@ -202,6 +305,37 @@ class Loop {
   timestream::Stamp scored_stamp_;
   uint32_t scored_wall_sec_;
   int   streak_;
+  const char* reason_;     // why the pending record is being written
+
+  // --- the run: windows scored since the last record, folded not dropped ---
+  bool     run_open_;      // a record has been written and speaks for a run
+  Claim    run_[PERCEPTLEARN_MAX_CLAIMS];   // its verdict vector
+  int      run_n_;
+  // ⚠ The verdict vector as SCORED, snapshotted at score() time. adoptRun() must not
+  // read `claims_` instead: the sketch stages and scores in the link flush and re-arms
+  // in the motion flush, and arm() overwrites claims_ with fresh UNOBSERVED slots. A
+  // first cut adopted from claims_ and every window therefore compared as `changed`, so
+  // run-length silently did nothing at all while looking exactly like it worked. Only
+  // the native test caught it — the records were each individually correct.
+  Claim    scored_vec_[PERCEPTLEARN_MAX_CLAIMS];
+  int      scored_vec_n_;
+  Covered  cov_[PERCEPTLEARN_MAX_CLAIMS];   // the suppressed windows, per claim
+  int      cov_n_;
+  int      cov_windows_;   // how many windows those are
+  // ⚠ AND WHEN THEY WERE. `windows:` counts SCORED windows, not minutes: a node that
+  // starts moving arms nothing, so no window is scored at all until it settles, and two
+  // scorings folded into one run can be an hour apart. The span makes that visible
+  // instead of letting a reader assume N windows means N contiguous minutes — the same
+  // move @LAT93's `dt_across_merge` makes for the same class of unstated assumption.
+  uint64_t cov_first_t_ms_;
+  uint64_t cov_last_t_ms_;
+
+  // True when `claims_` (as just scored) carries the same (peer, proto, verdict) set as
+  // the run in progress. Set membership, not order: the staging order follows whichever
+  // peers were heard first and is not a fact about the world.
+  bool sameAsRun() const;
+  void adoptRun();         // make the just-scored vector the run's, clearing covered
+  void foldIntoRun();      // add the just-scored window to the covered accumulators
 };
 
 // ---------------------------------------------------------------------------

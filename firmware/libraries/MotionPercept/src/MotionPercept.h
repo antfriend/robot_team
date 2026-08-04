@@ -65,6 +65,52 @@
 //
 // Stage A only. This writes the difference down; it does not yet predict, testify, or
 // reconcile (percept-learning-handoff.md Stages B-E).
+//
+// ---------------------------------------------------------------------------
+// CHANGE-TRIGGERED WITH EXPLICIT RUN-LENGTH (2026-08-04) — part-b-handoff.md Part 1
+// ---------------------------------------------------------------------------
+// Until now this lane was PERIODIC: one record per 60 s window whether or not anything
+// happened, so `MOTIONPERCEPT_MAX_LANE 48` filled in 48 minutes of UPTIME. Measured
+// three times on 2026-08-03: every percept lane on every node refilled to its cap
+// within one afternoon of being emptied. Pruning that is a treadmill, not maintenance.
+//
+// So a window whose verdict matches the run in progress is no longer written on its own.
+// The one thing that makes that honest instead of lossy is that the suppression is
+// SAID OUT LOUD, in the lane, in two fields:
+//
+//   **RUN** windows_since_last:<N> reason:<first|changed|heartbeat> run_lane:<LON>
+//   **COVERED** state:<s> windows:<N-1> n:.. window_ms:.. moving_permille:.. ...
+//
+// `windows_since_last:N` is the number of windows that elapsed between the previous
+// @LAT95 record and this one, counting this one — 1 means adjacent, N>1 means N-1
+// windows were suppressed. **COVERED** is those N-1 windows reduced to the same
+// statistics a single window carries, so the lane still answers "how much of the last
+// hour was this node still?" exactly. Without it the lane would UNDERSTATE stillness,
+// and every downstream statistic computed from it — including the B.3 measurement that
+// derived MOTIONPERCEPT_MOVING_MG — would silently weight a 30-window run the same as a
+// 1-window one.
+//
+// ⚠ THE RECORD IS A CITATION, AND THAT IS WHY THIS IS NOT A ONE-LINE CHANGE.
+// `PerceptLearn::arm()` provenances every expectation to "the @LAT95 record whose
+// `still` claim armed this". Suppress a window and there is no new record to cite;
+// citing the last-written one instead would attribute the expectation to a record
+// describing a DIFFERENT window — testimony with false provenance, which @LAT92's tally
+// then inherits. That is worse than not arming at all.
+//
+// The resolution: a window is identified by **(covering record, offset into its run)**,
+// not by a record alone. `lastClose()` reports which of the two things just happened and
+// `coveringLane()`/`runOffset()` name the window, so a citation reads
+// `acting:@LAT95LON7+3` — "the 4th window of the run opened by @LAT95LON7". That is
+// exact, and it is checkable against the lane: the run's length is written down when it
+// closes. The same pair identifies the `before` half of an @LAT93 transition, whose
+// window is usually suppressed now.
+//
+// ⚠ WHAT IS ACTUALLY LOST, stated rather than glossed: a suppressed window's INDIVIDUAL
+// statistics. The run's aggregate survives; the per-window series does not. And a run
+// that is still open when the node loses power was never written at all, so up to
+// MOTIONPERCEPT_MAX_RUN - 1 windows of unchanged history go with it. No CHANGE is ever
+// deferred — a verdict flip always writes immediately — so what is at risk is only the
+// detail of a stretch in which nothing happened.
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -77,6 +123,31 @@
 #endif
 #ifndef MOTIONPERCEPT_MAX_LANE
 #define MOTIONPERCEPT_MAX_LANE 48       // lane cap, like @LAT96/@LAT97
+#endif
+#ifndef MOTIONPERCEPT_MAX_RUN
+// The heartbeat: how many consecutive windows of one verdict may be folded into a run
+// before a record is written anyway. This is NOT a threshold on data and is not
+// measured — it is a budget, and the arithmetic is the justification:
+//
+//   lane life at rest  = MOTIONPERCEPT_MAX_LANE x MAX_RUN windows
+//                      = 48 x 30 x 60 s = 24 HOURS of uptime (was 48 minutes)
+//   worst-case loss    = MAX_RUN - 1 = 29 windows of unchanged history, if the node
+//                        loses power with a run open
+//   worst-case latency = 0 for a CHANGE (always written immediately); 29 windows
+//                        before an unchanging state is re-asserted in the lane
+//
+// 30 buys the treadmill fix by a factor of 30 while keeping the lane's freshest record
+// no more than half an hour old, so "when did this node last say anything?" stays a
+// meaningful question. Raise it and the loss window grows in exactly the same ratio.
+#define MOTIONPERCEPT_MAX_RUN 30
+#endif
+#ifndef MOTIONPERCEPT_RECORD_BUF
+// Buffer buildRecord() needs. A plain window is ~200 B; one carrying a **COVERED**
+// block is ~330 B. 512 is ~55% headroom. Like buildTransition(), buildRecord() writes
+// NOTHING rather than truncating, so an under-sized buffer loses windows SILENTLY —
+// the sketch's old `char rec[320]` would have fitted the plain form and quietly dropped
+// exactly the records that close a long run, which are the ones carrying the run length.
+#define MOTIONPERCEPT_RECORD_BUF 512
 #endif
 #ifndef MOTIONPERCEPT_MOVING_MG
 // Deviation of |acceleration| from 1 g, in milli-g, above which a sample counts as
@@ -154,7 +225,12 @@ struct Window {
   // millis() and is comparable with nothing but this node's own records — what the
   // old `synced:0` meant, except this one also NAMES the clock when there is one.
   timestream::Stamp stamp;
-  int16_t  lane;          // the @LAT95 lane this window was written to
+  // WHICH RECORD SPEAKS FOR THIS WINDOW. Since the lane became change-triggered a
+  // window is named by a pair: the @LAT95 record covering it, and how many windows
+  // into that record's run it sat. `run_offset == 0` is the record's own window.
+  // Citing `lane` alone would attribute this window to a record describing another one.
+  int16_t  lane;          // the @LAT95 lane whose run covers this window
+  int16_t  run_offset;    // windows into that run (0 = the covering record's own)
   int32_t  n;             // samples
   int32_t  permille;
   int32_t  dev_mean_mg;
@@ -164,9 +240,23 @@ struct Window {
   uint32_t t_sec;
 };
 
+// What buildRecord() did with the window it just closed. `WRITTEN` and `COVERED` are
+// BOTH successful closes — a covered window is a real, counted observation that an
+// existing record's run speaks for. Only `EMPTY` means there was nothing there.
+//
+// ⚠ The caller must branch on this, not on the returned byte count. Before the lane
+// became change-triggered, `0 bytes` meant "no window", and the sketch disarmed the
+// learning loop on it. Under run-length, 0 bytes is the NORMAL case for a still node,
+// and disarming on it would silence Rule 1 for 29 windows out of every 30.
+enum Close : uint8_t {
+  CLOSE_EMPTY = 0,    // no samples, or the record did not fit: nothing happened
+  CLOSE_WRITTEN,      // a record was rendered; it opens a new run
+  CLOSE_COVERED,      // folded into the run in progress; no record, no loss
+};
+
 class Log {
  public:
-  Log() { reset(0); prev_valid_ = false; pending_ = false; }
+  Log() { reset(0); prev_valid_ = false; pending_ = false; breakRun(); }
 
   // Fold in one accelerometer sample, in milli-g per axis. The statistic is the
   // deviation of the vector magnitude from 1 g, which is gravity-invariant: it does
@@ -187,18 +277,41 @@ class Log {
   // reports it in STATUS so the fleet knows which nodes are holding still).
   bool moving(uint32_t now_ms, uint32_t recent_ms = 3000) const;
 
-  // Render a complete TTDB record block and start a new window:
+  // Close the current window. Renders a complete TTDB record block ONLY when the
+  // window's verdict starts a run, changes it, or the run has reached
+  // MOTIONPERCEPT_MAX_RUN; otherwise the window is folded into the run in progress and
+  // nothing is written. Either way the window is counted and a new one starts.
+  //
   //   \n---\n\n@LAT95LON<lane_n> | created:<t_sec> | ... | relates:senses@LAT0LON0
   //   \n\n**MOTIONWIN** t_ms:.. stream:0x<id> wall:<0|1> window_ms:.. n:..
   //   \n**MOTION** state:<still|moving> moving_permille:.. dev_mean_mg:..
   //     dev_max_mg:.. moving_ms:..
-  // Returns bytes written, or 0 if the window was empty (still resets).
+  //   \n**RUN** windows_since_last:<N> reason:<first|changed|heartbeat>
+  //   \n**COVERED** state:<s> windows:<N-1> ...          (only when N > 1)
   //
-  // Also closes the transition chain: the window just rendered becomes the candidate
+  // Returns bytes written, or 0 when the window was covered or empty — ⚠ CHECK
+  // lastClose(), NOT the byte count, to tell those two apart. `cap` should be
+  // MOTIONPERCEPT_RECORD_BUF: a record that does not fit is written NOT AT ALL.
+  //
+  // Also closes the transition chain: the window just closed becomes the candidate
   // `after` half, and if the window BEFORE it carried the opposite verdict a paired
   // record is now pending (see transitionPending()).
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
                      const timestream::Stamp& ts, uint32_t now_ms);
+
+  // What the last buildRecord() call did, and the (record, offset) pair naming the
+  // window it closed — the citation any downstream claim about that window must carry.
+  Close lastClose() const { return close_; }
+  int   coveringLane() const { return cover_lane_; }
+  int   runOffset() const { return run_offset_; }
+  // Windows in the run in progress, including the covering record's own. 0 = no run.
+  int   runLength() const { return run_open_ ? run_len_ : 0; }
+
+  // Break the run without closing a window: whatever is written next opens a fresh run
+  // and says `reason:first`. Called by reset() for the same reason it breaks the
+  // transition chain — a discarded window means the next record is not adjacent to the
+  // last, so folding across the gap would claim coverage of a window nobody measured.
+  void breakRun();
 
   // True when the two most recently closed windows disagree, i.e. a state change
   // happened and has not been written down yet. Cleared by buildTransition(), or by
@@ -240,6 +353,30 @@ class Log {
   Window before_;         // the one before it = the `before` half
   bool   prev_valid_;
   bool   pending_;
+
+  // --- the run (also survives reset() only through buildRecord) ---
+  bool   run_open_;       // a record has been written and speaks for a run
+  bool   run_state_;      // that run's verdict; a window disagreeing with it writes
+  int    run_lane_;       // the @LAT95 lane of the record covering the run
+  int    run_len_;        // windows in it so far, including the covering record's own
+
+  // The suppressed windows, reduced to the same statistics one window carries. Summed
+  // over SAMPLES, not over windows, so the aggregate is what the whole stretch would
+  // have measured as a single long window rather than a mean of means.
+  int32_t  cov_windows_;
+  int32_t  cov_n_;
+  int32_t  cov_n_moving_;
+  uint32_t cov_dev_sum_mg_;
+  int32_t  cov_dev_max_mg_;
+  uint32_t cov_moving_ms_;
+  uint32_t cov_window_ms_;
+  uint64_t cov_first_t_ms_;
+  uint64_t cov_last_t_ms_;
+
+  // --- what the last close did ---
+  Close  close_;
+  int    cover_lane_;
+  int    run_offset_;
 };
 
 }  // namespace motionpercept

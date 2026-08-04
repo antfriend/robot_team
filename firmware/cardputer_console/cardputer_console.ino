@@ -733,10 +733,119 @@ static void toneI2S(float freq, uint32_t ms, float amp);
 // and four separate windows in which the file moved under any concurrent reader (the
 // stitched-pull hazard, companion.md §6). removePerceptLanes() does it in ONE rewrite.
 // `lane` is the wire byte: 0 = every percept lane, else exactly that one.
+// The outcome lane's boundary block: what the generation about to be destroyed had
+// accumulated, and what it concluded. Built here because it is the only place that can
+// fold @LAT92 — LaneGen must not depend on PerceptLearn.
+//
+// ⚠ THIS RUNS BEFORE THE PRUNE AND FROM THE LANE ITSELF, not from `gRecon`'s current
+// contents. gRecon is whatever the last Dream Cycle left, which may be minutes stale and
+// may have been folded from a lane that has grown since. The boundary has to describe
+// the records actually being dropped.
+//
+// ⚠ The line tokens are deliberately NOT `**OBSERVED**`/`**COVERED**`. Those are
+// Reconciler::foldRecord's needles, and a boundary carrying them would be folded as
+// testimony the next time the lane was read — the node would re-learn from its own
+// gravestone. Same needle-collision family as `prev_stream:` in @LAT90 and the bare ids
+// in **STREAMS-EXPLAINED**.
+// One record's worth of @LAT92, read off flash. SHARED by the two places that fold the
+// outcome lane (the Dream Cycle and the prune boundary) because they are never
+// concurrent and PERCEPTLEARN_BUF is 2624 B — two copies would cost more RAM than the
+// whole feature. ⚠ Do not make it a local: it is far too big for the loop stack.
+static uint8_t gLaneReadBuf[PERCEPTLEARN_BUF];
+
+static size_t buildOutcomeCarried(char* out, size_t cap) {
+  perceptlearn::Reconciler R;
+  R.begin();
+  long windows = 0;
+  int records = 0;
+  for (int i = 0; i < gDb.recordCount(); ++i) {
+    if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
+    ++records;
+    size_t start = gDb.record(i).file_offset;
+    size_t end = (i + 1 < gDb.recordCount()) ? gDb.record(i + 1).file_offset
+                                             : gDb.fileSize();
+    size_t len = end - start;
+    if (len > sizeof(gLaneReadBuf)) len = sizeof(gLaneReadBuf);
+    size_t got = gDb.readBytes(start, gLaneReadBuf, len);
+    if (got) R.foldRecord((const char*)gLaneReadBuf, got);
+    yield();
+  }
+  // The denominator, reconstructed the way run-length requires: a record is NOT a
+  // window. Summed off the folded tallies rather than off the record count, because
+  // since 2026-08-04 one record can stand for up to PERCEPTLEARN_MAX_RUN of them.
+  long met = 0, violated = 0, unobserved = 0;
+  for (int i = 0; i < R.beliefCount(); ++i) {
+    met += R.belief(i).met;
+    violated += R.belief(i).violated;
+    unobserved += R.belief(i).unobserved;
+  }
+  const int nb = R.beliefCount();
+  // The most windows any single claim was tested over. NOT a mean across beliefs: the
+  // claim set changes as peers come and go, so a mean would report a number no claim
+  // actually experienced. `max` answers the question a reader has — "how long did the
+  // best-evidenced belief have to form?" — and the per-belief lines below give the rest.
+  for (int i = 0; i < nb; ++i) {
+    const long w = R.belief(i).met + R.belief(i).violated + R.belief(i).unobserved;
+    if (w > windows) windows = w;
+  }
+
+  int n = snprintf(out, cap,
+                   "**OUTCOMES-CARRIED** records:%d windows_max:%ld beliefs:%d "
+                   "met:%ld violated:%ld unobserved:%ld baseline_conf:%d rule:+%d/-%d\n",
+                   records, windows, nb, met, violated, unobserved,
+                   PERCEPTLEARN_BASELINE_CONF, PERCEPTLEARN_CONF_MET,
+                   PERCEPTLEARN_CONF_VIOLATED);
+  if (n <= 0 || (size_t)n >= cap) return 0;
+  size_t len = (size_t)n;
+  for (int i = 0; i < nb; ++i) {
+    const perceptlearn::Belief& b = R.belief(i);
+    n = snprintf(out + len, cap - len,
+                 "**BELIEF-AT-BOUNDARY** peer:0x%08lX proto:%d conf:%ld sal:%ld "
+                 "met:%ld violated:%ld unobserved:%ld max_streak:%ld contradiction:%d\n",
+                 (unsigned long)b.peer, (int)b.proto, (long)b.conf, (long)b.sal,
+                 (long)b.met, (long)b.violated, (long)b.unobserved,
+                 (long)b.max_streak, b.contradiction ? 1 : 0);
+    // Nothing rather than a truncation: a short list understates the evidence the
+    // boundary is standing in for, which is the failure it exists to prevent.
+    if (n <= 0 || (size_t)n >= cap - len) return 0;
+    len += (size_t)n;
+  }
+  return len;
+}
+
 static bool clearPerceptLanes(uint8_t lane) {
-  bool ok = (lane == TIMESTREAM_LANE)
-                ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
-                : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+  // LaneGen names @LAT92 itself so it need not include PerceptLearn. If the two ever
+  // disagree the prune would empty a lane nobody asked for, so fail the BUILD.
+  static_assert(LANEGEN_OUTCOME_LANE == PERCEPTLEARN_LANE,
+                "LANEGEN_OUTCOME_LANE must be PERCEPTLEARN_LANE");
+  bool ok;
+  if (lane == TIMESTREAM_LANE) {
+    ok = lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec);
+  } else if (lane == PERCEPTLEARN_LANE) {
+    static char carried[LANEGEN_CARRIED_BUF];
+    const size_t cm = buildOutcomeCarried(carried, sizeof(carried));
+    if (!cm) {
+      Serial.printf("[percept] @LAT%d NOT pruned — its boundary tally would not fit "
+                    "LANEGEN_CARRIED_BUF (%d). Pruning without it would drop every "
+                    "belief back to baseline with nothing saying why.\n",
+                    PERCEPTLEARN_LANE, LANEGEN_CARRIED_BUF);
+      return false;
+    }
+    ok = lanegen::pruneOutcomes(gDb, gStamp, kNodeId, gStreamWallSec, carried);
+    if (ok) {
+      // The beliefs are now folded from an empty lane, so they will read baseline on the
+      // next Dream Cycle. Say it out loud: a silent fall from 106 to 128 is
+      // indistinguishable from a node that never learned anything.
+      Serial.printf("[percept] @LAT%d pruned — @LAT%d beliefs will return to baseline "
+                    "%d on the next Dream Cycle. That is the design (a belief is as "
+                    "strong as the evidence retained), not a fault.\n",
+                    PERCEPTLEARN_LANE, PERCEPTLEARN_BELIEF_LANE,
+                    PERCEPTLEARN_BASELINE_CONF);
+      gLearn.reset();   // no lane to testify into means no run to be mid-way through
+    }
+  } else {
+    ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+  }
   if (ok)
     Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
                   lane ? String(lane).c_str() : "ALL (94-97)",
@@ -1068,16 +1177,15 @@ static void reconcileBeliefs() {
   gRecon.begin();
   // Fold the outcome lane in record order — order matters, because the +2 saturates and
   // the -16 floors, and a clamp does not commute with a sum.
-  static uint8_t buf[PERCEPTLEARN_BUF];
   for (int i = 0; i < gDb.recordCount(); ++i) {
     if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
     size_t start = gDb.record(i).file_offset;
     size_t end = (i + 1 < gDb.recordCount()) ? gDb.record(i + 1).file_offset
                                              : gDb.fileSize();
     size_t len = end - start;
-    if (len > sizeof(buf)) len = sizeof(buf);
-    size_t got = gDb.readBytes(start, buf, len);
-    if (got) gRecon.foldRecord((const char*)buf, got);
+    if (len > sizeof(gLaneReadBuf)) len = sizeof(gLaneReadBuf);
+    size_t got = gDb.readBytes(start, gLaneReadBuf, len);
+    if (got) gRecon.foldRecord((const char*)gLaneReadBuf, got);
     yield();
   }
 
@@ -3416,23 +3524,46 @@ void loop() {
       // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
       // doing it from the live loop is the exact violation Rule 2 names (and the one
       // LOCUS committed).
-      if (gLearn.score(gStamp, gStreamWallSec) && gLearn.outcomePending()) {
-        int olane = laneCount(PERCEPTLEARN_LANE);
-        if (olane >= PERCEPTLEARN_MAX_LANE) {
-          Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
-                        "still predicting but no longer testifying\n",
-                        PERCEPTLEARN_LANE, olane);
+      if (gLearn.score(gStamp, gStreamWallSec)) {
+        if (!gLearn.outcomePending()) {
+          // Run-length: this window's verdicts matched the record before it, so it is
+          // FOLDED, not written. Say so — a lane that has gone quiet because nothing is
+          // changing looks identical to one that has stopped testifying, and the whole
+          // reason @LAT92 has a cap is that it used to do the latter silently.
+          static uint32_t last_fold_log = 0;
+          if (now - last_fold_log > 300000 || last_fold_log == 0) {
+            last_fold_log = now;
+            Serial.printf("[learn] %d window(s) folded into the run (met:%d violated:%d) "
+                          "- unchanged verdicts write no record\n",
+                          gLearn.coveredWindows(), gLearn.metCount(),
+                          gLearn.violatedCount());
+          }
         } else {
-          // static: 1792 B is far too much to add to this loop's stack next to the
+          // static: 2624 B is far too much to add to this loop's stack next to the
           // other tiers' buffers (see PERCEPTLEARN_BUF).
           static char orec[PERCEPTLEARN_BUF];
+          int olane = laneCount(PERCEPTLEARN_LANE);
+          // ⚠ Read the run length BEFORE rendering: buildOutcome adopts the run, which
+          // resets the counter to 1. Logging it afterwards would report every record as
+          // covering a single window, i.e. exactly as if run-length were not working.
+          const int covers = gLearn.windowsSinceLast();
+          // ⚠ RENDER EVEN WHEN THE LANE IS FULL, then throw the bytes away. buildOutcome
+          // is what adopts the run — skipping it would leave the just-closed run still
+          // open, so the NEXT window would compare against a stale verdict vector and a
+          // real change could be folded away as "unchanged". A record dropped for want
+          // of lane space must not also corrupt the run accounting.
           size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
-          if (om && gDb.appendRecord(orec, om))
+          if (olane >= PERCEPTLEARN_MAX_LANE) {
+            Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
+                          "still predicting but no longer testifying\n",
+                          PERCEPTLEARN_LANE, olane);
+          } else if (om && gDb.appendRecord(orec, om)) {
             Serial.printf("[learn] outcome -> @LAT%dLON%d met:%d violated:%d streak:%d "
-                          "(%uB, TTDB %uB)\n",
+                          "covers:%d (%uB, TTDB %uB)\n",
                           PERCEPTLEARN_LANE, olane, gLearn.metCount(),
                           gLearn.violatedCount(), gLearn.violationStreak(),
-                          (unsigned)om, (unsigned)gDb.fileSize());
+                          covers, (unsigned)om, (unsigned)gDb.fileSize());
+          }
         }
       }
     }
@@ -3488,17 +3619,20 @@ void loop() {
         last_full_log = now;
         Serial.printf("[motion] @LAT95 lane FULL (%d/%d) - windows are being DISCARDED "
                       "and the learning loop is disarmed. Prune with `companion.py cmd "
-                      "--op clear-percepts`.\n", lane, MOTIONPERCEPT_MAX_LANE);
+                      "--op clear-percepts`. (Since run-length landed this should take "
+                      "~24 h of uptime, not 48 min - if it is fast, the node is moving "
+                      "or flapping at the %d mg threshold.)\n",
+                      lane, MOTIONPERCEPT_MAX_LANE, MOTIONPERCEPT_MOVING_MG);
       }
       gMotionLog.reset(now);
       gLearn.disarm();   // no acting record to cite; make no claim
     } else {
-      char rec[320];
+      char rec[MOTIONPERCEPT_RECORD_BUF];
       size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                         gStamp, now);
       if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[motion] percept window -> @LAT95LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
+        Serial.printf("[motion] percept window -> @LAT95LON%d covers:%d (TTDB %uB)\n",
+                      lane, gMotionLog.runOffset() + 1, (unsigned)gDb.fileSize());
 
       // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
       // window asserts the node was anchored for 60 s; that assertion is what makes
@@ -3509,13 +3643,22 @@ void loop() {
       //
       // The medians come from the link flush earlier in THIS pass (section [2]); if
       // that did not run, arm() refuses rather than predicting from a stale window.
-      if (m == 0) {
+      //
+      // ⚠ BRANCH ON lastClose(), NOT ON `m`. Under run-length a still window that
+      // matches the one before it writes 0 bytes and is completely normal — it is the
+      // common case on a shelf. Disarming on `m == 0`, which is what this line used to
+      // do, would silence Rule 1 for 29 windows out of every 30 and the loop would look
+      // healthy while testifying to nothing. The window is still a real observation; it
+      // is cited as (covering record, offset into its run) rather than by ordinal alone.
+      const motionpercept::Close close = gMotionLog.lastClose();
+      if (close == motionpercept::CLOSE_EMPTY) {
         gLearn.disarm();
       } else if (gMotionLog.lastWindow().moving) {
         gLearn.disarm();
-      } else if (gLearn.arm(lane)) {
-        Serial.printf("[learn] expectation armed from @LAT95LON%d (still): peers hold "
-                      "within +/-%d dBm\n", lane, PERCEPTLEARN_RSSI_BAND);
+      } else if (gLearn.arm(gMotionLog.coveringLane(), gMotionLog.runOffset())) {
+        Serial.printf("[learn] expectation armed from @LAT95LON%d+%d (still): peers "
+                      "hold within +/-%d dBm\n", gMotionLog.coveringLane(),
+                      gMotionLog.runOffset(), PERCEPTLEARN_RSSI_BAND);
       }
 
       // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is

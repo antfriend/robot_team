@@ -44,6 +44,31 @@ void Log::reset(uint32_t now_ms) {
   // after calling this.
   prev_valid_ = false;
   pending_ = false;
+
+  // Same argument, one level up: a discarded window means the next record is not
+  // adjacent to the last, so the run it would have extended has a hole in it. Folding
+  // across that hole would let `windows_since_last` claim coverage of a window nobody
+  // measured — the run-length equivalent of pairing a transition across a gap.
+  breakRun();
+}
+
+void Log::breakRun() {
+  run_open_ = false;
+  run_state_ = false;
+  run_lane_ = -1;
+  run_len_ = 0;
+  cov_windows_ = 0;
+  cov_n_ = 0;
+  cov_n_moving_ = 0;
+  cov_dev_sum_mg_ = 0;
+  cov_dev_max_mg_ = 0;
+  cov_moving_ms_ = 0;
+  cov_window_ms_ = 0;
+  cov_first_t_ms_ = 0;
+  cov_last_t_ms_ = 0;
+  close_ = CLOSE_EMPTY;
+  cover_lane_ = -1;
+  run_offset_ = 0;
 }
 
 void Log::add(int ax_mg, int ay_mg, int az_mg, uint32_t now_ms) {
@@ -91,36 +116,32 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
                         const timestream::Stamp& ts, uint32_t now_ms) {
   if (n_ == 0) {
     reset(now_ms);
+    close_ = CLOSE_EMPTY;
     return 0;
   }
-  char stamp[64];
-  if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) { reset(now_ms); return 0; }
-  uint32_t window_ms = now_ms - window_start_ms_;
-  int permille = movingPermille();
+  const uint32_t window_ms = now_ms - window_start_ms_;
+  const int permille = movingPermille();
   // The window's verdict. A handful of stray samples is noise, not a journey: the
   // window is only called `moving` when motion held for a tenth of it or more.
-  const char* state = permille >= 100 ? "moving" : "still";
-  int m = snprintf(out, cap,
-                   "\n---\n\n@LAT95LON%d | created:%lu | updated:%lu | "
-                   "relates:senses@LAT0LON0\n\n"
-                   "**MOTIONWIN** %s window_ms:%lu n:%ld\n"
-                   "**MOTION** state:%s moving_permille:%d dev_mean_mg:%d "
-                   "dev_max_mg:%ld moving_ms:%lu\n",
-                   lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
-                   stamp,
-                   (unsigned long)window_ms, (long)n_, state, permille,
-                   devMeanMg(), (long)dev_max_mg_, (unsigned long)moving_ms_);
-  if (m < 0 || (size_t)m >= cap) {
-    reset(now_ms);
-    return 0;
-  }
+  const bool moving_now = (permille >= 100);
 
-  // Reduce the window we just wrote to the numbers a transition needs, BEFORE reset()
-  // clears the chain, then re-arm the chain with it as the new `after` candidate.
+  // ------------------------------------------------------------------------
+  // Write, or fold into the run in progress?
+  // ------------------------------------------------------------------------
+  // A CHANGE is never deferred: the whole point of the tier is the moment the verdict
+  // flips, and @LAT93's paired record is written off the back of this decision. The
+  // heartbeat exists only so an unchanging state is re-asserted before the run's length
+  // grows past what MOTIONPERCEPT_MAX_RUN's arithmetic budgeted for.
+  const bool first     = !run_open_;
+  const bool changed   = run_open_ && (moving_now != run_state_);
+  const bool heartbeat = run_open_ && !changed && (run_len_ >= MOTIONPERCEPT_MAX_RUN);
+  const bool write     = first || changed || heartbeat;
+
+  // Reduce this window to the numbers a transition and a run need, BEFORE reset()
+  // clears either chain.
   Window cur;
-  cur.moving = (permille >= 100);
+  cur.moving = moving_now;
   cur.stamp = ts;
-  cur.lane = (int16_t)lane_n;
   cur.n = n_;
   cur.permille = permille;
   cur.dev_mean_mg = devMeanMg();
@@ -129,10 +150,104 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   cur.window_ms = window_ms;
   cur.t_sec = t_sec;
 
+  size_t wrote = 0;
+  if (write) {
+    char stamp[64];
+    if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) {
+      reset(now_ms);
+      close_ = CLOSE_EMPTY;
+      return 0;
+    }
+    // `windows_since_last` counts THIS window plus every one suppressed since the last
+    // record, so 1 means adjacent. On the first record of a run chain there is no
+    // previous record to measure from and it is 1 by definition, flagged `reason:first`.
+    const int since = run_open_ ? run_len_ : 1;
+    const char* reason = first ? "first" : (changed ? "changed" : "heartbeat");
+    int m = snprintf(out, cap,
+                     "\n---\n\n@LAT95LON%d | created:%lu | updated:%lu | "
+                     "relates:senses@LAT0LON0\n\n"
+                     "**MOTIONWIN** %s window_ms:%lu n:%ld\n"
+                     "**MOTION** state:%s moving_permille:%d dev_mean_mg:%d "
+                     "dev_max_mg:%ld moving_ms:%lu\n"
+                     "**RUN** windows_since_last:%d reason:%s max_run:%d\n",
+                     lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
+                     stamp,
+                     (unsigned long)window_ms, (long)n_,
+                     moving_now ? "moving" : "still", permille,
+                     devMeanMg(), (long)dev_max_mg_, (unsigned long)moving_ms_,
+                     since, reason, MOTIONPERCEPT_MAX_RUN);
+    if (m < 0 || (size_t)m >= cap) {
+      reset(now_ms);
+      close_ = CLOSE_EMPTY;
+      return 0;
+    }
+    wrote = (size_t)m;
+
+    // The windows this record's predecessor spoke for but never itemised. Emitted only
+    // when there were any, and summed over SAMPLES so the block reads as one long
+    // window rather than a mean of means. Without this the lane understates how long
+    // the node held a state, which is the statistic the tier exists to report.
+    if (cov_windows_ > 0) {
+      const int cov_permille =
+          cov_n_ > 0 ? (int)((int64_t)cov_n_moving_ * 1000 / cov_n_) : 0;
+      const int cov_dev_mean =
+          cov_n_ > 0 ? (int)(cov_dev_sum_mg_ / (uint32_t)cov_n_) : 0;
+      m = snprintf(out + wrote, cap - wrote,
+                   "**COVERED** state:%s windows:%ld n:%ld window_ms:%lu "
+                   "moving_permille:%d dev_mean_mg:%d dev_max_mg:%ld moving_ms:%lu "
+                   "first_t_ms:%llu last_t_ms:%llu covered_by:@LAT95LON%d\n",
+                   run_state_ ? "moving" : "still", (long)cov_windows_, (long)cov_n_,
+                   (unsigned long)cov_window_ms_, cov_permille, cov_dev_mean,
+                   (long)cov_dev_max_mg_, (unsigned long)cov_moving_ms_,
+                   (unsigned long long)cov_first_t_ms_,
+                   (unsigned long long)cov_last_t_ms_, run_lane_);
+      // A record missing its COVERED block would silently claim `windows_since_last:N`
+      // with no accounting for the N-1, which is exactly the dishonesty the block was
+      // added to prevent. Write nothing rather than the head alone.
+      if (m < 0 || (size_t)m >= cap - wrote) {
+        reset(now_ms);
+        close_ = CLOSE_EMPTY;
+        return 0;
+      }
+      wrote += (size_t)m;
+    }
+    cur.lane = (int16_t)lane_n;   // this record speaks for its own window
+    cur.run_offset = 0;
+  } else {
+    cur.lane = (int16_t)run_lane_;      // the open run's record speaks for it
+    cur.run_offset = (int16_t)run_len_;
+  }
+
+  // ------------------------------------------------------------------------
+  // Advance both chains across reset(), which clears them by design.
+  // ------------------------------------------------------------------------
   const Window prev = prev_;
   const bool had_prev = prev_valid_;
 
-  reset(now_ms);  // clears prev_valid_/pending_ — re-armed on the next three lines
+  // The two raw accumulators the COVERED aggregate needs. Taken from the window itself
+  // rather than reconstructed from its rounded `moving_permille` / `dev_mean_mg`: a
+  // 30-window run would compound that rounding into the very statistic the block
+  // exists to keep honest.
+  const int32_t  cur_n_moving = n_moving_;
+  const uint32_t cur_dev_sum  = dev_sum_mg_;
+
+  // Snapshot the run so reset()'s breakRun() does not eat it. Kept explicit rather than
+  // teaching reset() about exceptions: reset() means "throw this window away", and the
+  // ONE caller that legitimately continues afterwards is right here.
+  const bool     s_open  = run_open_;
+  const bool     s_state = run_state_;
+  const int      s_lane  = run_lane_;
+  const int      s_len   = run_len_;
+  const int32_t  s_cw    = cov_windows_;
+  const int32_t  s_cn    = cov_n_;
+  const int32_t  s_cnm   = cov_n_moving_;
+  const uint32_t s_cds   = cov_dev_sum_mg_;
+  const int32_t  s_cdm   = cov_dev_max_mg_;
+  const uint32_t s_cmms  = cov_moving_ms_;
+  const uint32_t s_cwms  = cov_window_ms_;
+  const uint64_t s_cft   = cov_first_t_ms_;
+
+  reset(now_ms);  // clears prev_valid_/pending_ AND the run — both re-armed below
 
   prev_ = cur;
   prev_valid_ = true;
@@ -142,7 +257,34 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     before_ = prev;
     pending_ = true;
   }
-  return (size_t)m;
+
+  if (write) {
+    // A fresh run, with the record just rendered speaking for it. Its covered
+    // accumulators start empty — breakRun() already zeroed them.
+    run_open_ = true;
+    run_state_ = moving_now;
+    run_lane_ = lane_n;
+    run_len_ = 1;
+  } else {
+    run_open_ = s_open;
+    run_state_ = s_state;
+    run_lane_ = s_lane;
+    run_len_ = s_len + 1;
+    cov_windows_ = s_cw + 1;
+    cov_n_ = s_cn + cur.n;
+    cov_n_moving_ = s_cnm + cur_n_moving;
+    cov_dev_sum_mg_ = s_cds + cur_dev_sum;
+    cov_dev_max_mg_ = (cur.dev_max_mg > s_cdm) ? cur.dev_max_mg : s_cdm;
+    cov_moving_ms_ = s_cmms + cur.moving_ms;
+    cov_window_ms_ = s_cwms + cur.window_ms;
+    cov_first_t_ms_ = (s_cw == 0) ? cur.stamp.t_ms : s_cft;
+    cov_last_t_ms_ = cur.stamp.t_ms;
+  }
+
+  close_ = write ? CLOSE_WRITTEN : CLOSE_COVERED;
+  cover_lane_ = cur.lane;
+  run_offset_ = cur.run_offset;
+  return wrote;
 }
 
 size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id) {
@@ -171,15 +313,23 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
   // NOTE: the two `@PERCEPT:` lines are indented by two spaces ON PURPOSE. See the
   // header — an unindented '@' at line start IS a record header to Ttdb::begin(), and
   // this pair would index as two phantom (0,0) records.
+  //
+  // The `lane:` fields carry `@LAT95LON<n>+<k>` since the lane became change-triggered.
+  // The `before` half is now USUALLY a suppressed window — a run of `still` ends when
+  // motion starts, and only the run's first window has a record of its own — so citing
+  // `lane` alone would point at a record describing a different window. `+k` says which
+  // window of that run this was; the run's length is written down when it closes.
+  // The `derived_from` EDGES stay plain ordinals: an edge must resolve to a record that
+  // exists, and the covering record does.
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
       "relates:senses@LAT0LON0,derived_from@LAT95LON%d,derived_from@LAT95LON%d\n\n"
       "**TRANSITION** %s node:0x%lx from:%s to:%s dt_ms:%llu dt_across_merge:%d\n"
       "  @PERCEPT:before state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
-      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d\n"
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d+%d\n"
       "  @PERCEPT:after state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
-      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d\n"
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d+%d\n"
       "**DELTA** edge:became d_permille:%ld d_dev_mean_mg:%ld d_dev_max_mg:%ld\n",
       MOTIONPERCEPT_TRANSITION_LANE, lane_n,
       (unsigned long)a.t_sec, (unsigned long)a.t_sec, (int)b.lane, (int)a.lane,
@@ -188,10 +338,12 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
       (unsigned long long)dt_ms, across_merge ? 1 : 0,
       b.moving ? "moving" : "still", (unsigned long long)bt,
       (unsigned long)b.window_ms, (long)b.n, (long)b.permille,
-      (long)b.dev_mean_mg, (long)b.dev_max_mg, (unsigned long)b.moving_ms, (int)b.lane,
+      (long)b.dev_mean_mg, (long)b.dev_max_mg, (unsigned long)b.moving_ms,
+      (int)b.lane, (int)b.run_offset,
       a.moving ? "moving" : "still", (unsigned long long)at,
       (unsigned long)a.window_ms, (long)a.n, (long)a.permille,
-      (long)a.dev_mean_mg, (long)a.dev_max_mg, (unsigned long)a.moving_ms, (int)a.lane,
+      (long)a.dev_mean_mg, (long)a.dev_max_mg, (unsigned long)a.moving_ms,
+      (int)a.lane, (int)a.run_offset,
       (long)(a.permille - b.permille), (long)(a.dev_mean_mg - b.dev_mean_mg),
       (long)(a.dev_max_mg - b.dev_max_mg));
 

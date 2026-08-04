@@ -424,6 +424,78 @@ policy against the post-fix accumulation rate.
 Cost, measured against a HEAD worktree: **V4 +3728 B flash (+0.28%), +416 B RAM**, so
 the three V4s sit at **94% with ~74.5 KB left**. Cardputer 41%, T-Deck 40%, K10 20%.
 
+## Change-triggered lanes with run-length (2026-08-04) — `@LAT95` and `@LAT92`
+
+Both lanes used to write one record per 60 s window whether or not anything happened, so
+they filled with **uptime** (`@LAT95` in 48 min, `@LAT92` in 24) and pruning was a
+treadmill. Now a window whose verdict matches the run in progress writes nothing, and the
+record that closes the run states what it suppressed:
+
+```
+**RUN**     windows_since_last:10 reason:changed|heartbeat|first max_run:30
+**COVERED** state:still windows:9 n:540 window_ms:540000 ... covered_by:@LAT95LON0
+**COVERED** peer:0x00000200 proto:espnow verdict:met windows:9 observed_min:-35 ...
+```
+
+⚠ **`len(records)` IS NO LONGER THE WINDOW COUNT, and it is wrong in the flattering
+direction** — the windows it drops are the ones where nothing happened, so any statistic
+computed by counting records under-reports stillness. Use `companion.py motion` (or
+`parse_motion_percepts` + `motion_totals`), which sums itemised windows plus every
+`**COVERED**` block's `windows:` and reports an `unaccounted` count when a `**RUN**` line
+claims windows nothing explains. Both formats are live: a pre-08-04 record has no `**RUN**`
+line and is exactly one window, which is the default — do not "clean up" that default.
+
+⚠ **A window is now a PAIR — `(covering record, offset into its run)` — not a record.**
+`acting:@LAT95LON7+3` means "the 4th window of the run opened by @LAT95LON7". `@LAT93`'s
+`before` half is *usually* a suppressed window and reads `lane:@LAT95LON0+1`. **The
+`derived_from` edges stay plain ordinals** with no `+k`: an edge must resolve to a record
+that exists.
+
+⚠ **BRANCH ON `lastClose()` / `outcomePending()`, NEVER ON THE BYTE COUNT.**
+`buildRecord` returning 0 used to mean "no window" and now means "covered", which is the
+normal case for a still node. The sketch's old `if (m == 0) gLearn.disarm();` would have
+silenced Rule 1 for 29 windows out of every 30 while looking perfectly healthy.
+
+⚠ **`PerceptLearn::adoptRun()` reads a `scored_vec_` snapshot taken inside `score()`, NOT
+`claims_`.** The sketch stages+scores in the link flush and re-arms in the motion flush,
+and `arm()` overwrites `claims_`. A first cut adopted from `claims_`, so every window
+compared as `changed` and **run-length silently did nothing while looking like it worked**
+— each record was individually correct; only the native test caught it. For the same
+reason the sketch **renders the outcome even when `@LAT92` is full** and discards the
+bytes: `buildOutcome` is what adopts the run.
+
+**Run-length is LOSSLESS for Rule 3** — folding a verdict N times equals folding it once
+per window — which is the only reason it is legitimate on `@LAT92`, a *tally*. Dropping
+unchanged windows without the count would remove `conf`'s denominator and make every
+belief over-confident. `Reconciler::foldRecord` walks `**OBSERVED**` and `**COVERED**`
+lines in **one pass, in document order**, because the clamp is order-sensitive; a covered
+line whose `windows:` will not parse folds **zero** times, never one.
+⚠ `**COVERED-SPAN**` deliberately does not match the `**COVERED** peer:0x` needle — same
+needle-collision family as `prev_stream:` in `@LAT90`.
+
+Buffers grew with the format and both are load-bearing: `MOTIONPERCEPT_RECORD_BUF` **512**
+(the sketch's old `char rec[320]` would have fitted the plain form and dropped exactly the
+run-carrying records) and `PERCEPTLEARN_BUF` 1792 → **2624** (a full 8-claim house with a
+covered line per claim renders at 2340 B). Both builders write **nothing** rather than
+truncating, so an undersized buffer loses data silently. Cost, measured against a HEAD
+worktree on the Cardputer (the only node with an IMU, hence the only one carrying these
+tiers): **+2700 B flash (+0.086%), +2920 B RAM**; it sits at 41%.
+
+**Pruning `@LAT92` (`cmd --op clear-percepts --lane 92`, 2026-08-04).** The outcome lane
+reached its cap of 24, and `removePerceptLanes` refuses anything outside 94–97, so it got
+its own named call — `lanegen::pruneOutcomes`, exactly as `@LAT90` got `pruneTimeline`.
+**98/99 stay unreachable by any path; the guard was not widened.**
+⚠ **This prune is destructive beyond its own lane.** `Reconciler` is a *pure function* of
+`@LAT92`, so emptying it returns every `@LAT91` belief to baseline on the next Dream Cycle.
+That is the design, not a fault — but it is why the boundary carries `**OUTCOMES-CARRIED**`
+(the tally) and one `**BELIEF-AT-BOUNDARY**` line per belief (the conclusions). Both
+`records:` and `windows_max:` are stated because a record is no longer a window.
+⚠ **The boundary must never contain `**OBSERVED** peer:0x` or `**COVERED** peer:0x`** —
+`Reconciler::foldRecord`'s needles. A boundary carrying either gets folded as testimony
+next time the lane is read: the node re-learns from its own gravestone.
+⚠ **`--lane 0` drops 94–97 including `@LAT96`**, whose Jaccard baseline Part 2 needs. Name
+the lane you mean.
+
 ## TTDB on the filesystem, shared over the network
 
 - The TTDB is plain markdown in `firmware/<node>/data/ttdb.md`, flashed to

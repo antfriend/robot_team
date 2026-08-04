@@ -8,7 +8,7 @@ namespace lanegen {
 
 size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
                         uint32_t t_sec, const uint32_t* explained,
-                        int n_explained) {
+                        int n_explained, const char* carried) {
   char stamp[64];
   if (!timestream::buildStamp(stamp, sizeof(stamp), p.stamp)) return 0;
   // The edge points at the node's own identity record, never at the lane that was
@@ -38,6 +38,23 @@ size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
     }
     if (len + (size_t)m + 2 >= cap) return 0;
     len += (size_t)snprintf(out + len, cap - len, "%s\n", ids);
+  }
+  if (carried && *carried) {
+    // A caller-supplied block of complete body lines, for lanes whose loss orphans
+    // something the ids list cannot express. @LAT92's is its TALLY: pruning the outcome
+    // lane resets every @LAT91 belief toward baseline (PerceptLearn.h states this as a
+    // property, not a bug), so without a carried block nothing on the node would say how
+    // much testimony the discarded generation had accumulated or what it concluded.
+    //
+    // It is built by the CALLER, not here, because computing it needs PerceptLearn and
+    // this library must not depend on it. Same all-or-nothing rule as the id list: a
+    // half-written tally understates the evidence, which is worse than admitting it is
+    // gone. The caller must terminate each line with '\n'.
+    const size_t n_carried = strlen(carried);
+    if (len + n_carried + 1 >= cap) return 0;
+    memcpy(out + len, carried, n_carried);
+    len += n_carried;
+    out[len] = '\0';
   }
   return len;
 }

@@ -136,6 +136,46 @@ check(tl[0]["stream"] == STREAM,
 check(c.parse_prune_markers(TEXT)[0]["explained"] == [],
       "a percept boundary carries no id list and reads as an empty one, not None")
 
+# The OUTCOME lane's own boundary (@LAT92, added 2026-08-04). What a bare rewrite would
+# orphan here is not a stamp but a TALLY: Reconciler is a pure function of @LAT92, so
+# emptying it returns every @LAT91 belief to baseline. The belief's own
+# `reconciles@LAT92LON0` edge must therefore read as STALE against the boundary --
+# otherwise the laptop reports a belief as still standing on evidence that is gone.
+OC = f"""
+@LAT91LON0 | created:0 | updated:0 | relates:believes_about@LAT0LON0,reconciles@LAT92LON0,derived_from@LAT97LON0
+
+**LINK-STABLE** peer:0x00000200 proto:espnow node:0x300
+**TOUCHED** t_ms:8000000 stream:0x{STREAM:08x} wall:0 unix_s:0
+
+---
+
+@LAT100LON4 | created:0 | updated:0 | relates:prunes@LAT0LON0
+
+**LANE-PRUNED** lane:92 gen:1 removed:24 last_lon:23 t_ms:9000000 stream:0x{STREAM:08x} wall:0 node:0x00000300
+**OUTCOMES-CARRIED** records:24 windows_max:312 beliefs:2 met:288 violated:18 unobserved:6 baseline_conf:128 rule:+2/-16
+**BELIEF-AT-BOUNDARY** peer:0x00000200 proto:0 conf:106 sal:16 met:9 violated:5 unobserved:0 max_streak:1 contradiction:0
+"""
+oc = c.parse_prune_markers(OC)
+check(len(oc) == 1 and oc[0]["lane"] == 92 and oc[0]["removed"] == 24,
+      "an outcome boundary parses like any other")
+check(oc[0]["explained"] == [],
+      "it carries no stream ids -- the two carried forms are independent")
+check(oc[0]["t_ms"] == 9000000 and oc[0]["stream"] == STREAM,
+      "and its own stamp is unaffected by the tally block following it")
+
+oc_stale = c.stale_citations(OC)
+by_c = {s["citing"]: s for s in oc_stale}
+check("@LAT91LON0" in by_c and by_c["@LAT91LON0"]["verdict"] == "stale",
+      "the belief's reconciles@LAT92LON0 edge reads STALE -- its evidence is gone, and "
+      "a belief still reported as standing on it would be the exact failure the "
+      "boundary exists to prevent")
+
+# The needle-collision check, laptop side. The boundary must not be foldable as
+# testimony: **BELIEF-AT-BOUNDARY** carries a peer and a conf, and if it matched the
+# reconciler's needles a node would re-learn from its own gravestone.
+check("**OBSERVED** peer:0x" not in OC and "**COVERED** peer:0x" not in OC,
+      "the outcome boundary carries neither fold needle")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

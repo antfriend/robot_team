@@ -102,9 +102,16 @@ struct Prune {
 // the ids forward into the boundary keeps those stamps answerable ("yes, this node was
 // on that timeline; its details are in the generation that ended here"). The offsets
 // and the adoption structure are genuinely lost, and that is the stated cost.
+// `carried` is a caller-built block of complete body lines (each '\n'-terminated),
+// appended verbatim after everything else. It exists for lanes whose loss orphans
+// something an id list cannot express — @LAT92's is its TALLY, because pruning the
+// outcome lane resets every @LAT91 belief toward baseline and nothing else on the node
+// would then say how much testimony the ended generation held or what it concluded.
+// Built by the caller because computing it needs PerceptLearn and this library must not
+// depend on it. Same all-or-nothing rule as the id list.
 size_t buildPruneRecord(char* out, size_t cap, int lane_n, const Prune& p,
                         uint32_t t_sec, const uint32_t* explained = 0,
-                        int n_explained = 0);
+                        int n_explained = 0, const char* carried = 0);
 
 // Does this @LAT100 record body describe a prune of `lane`? Used to count a lane's
 // generations back off flash, so the numbering survives reboots without state.

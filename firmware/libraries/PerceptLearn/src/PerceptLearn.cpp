@@ -32,12 +32,80 @@ void Loop::reset() {
   claims_n_ = 0;
   armed_ = false;
   acting_lane_ = -1;
+  acting_offset_ = 0;
   pending_ = false;
   met_ = violated_ = unobserved_ = 0;
   scored_lane_ = -1;
   scored_stamp_ = timestream::Stamp();
   scored_wall_sec_ = 0;
   streak_ = 0;
+  reason_ = "first";
+  run_open_ = false;
+  run_n_ = 0;
+  scored_vec_n_ = 0;
+  cov_n_ = 0;
+  cov_windows_ = 0;
+  cov_first_t_ms_ = 0;
+  cov_last_t_ms_ = 0;
+}
+
+bool Loop::sameAsRun() const {
+  if (!run_open_ || run_n_ != claims_n_) return false;
+  for (int i = 0; i < claims_n_; ++i) {
+    const Claim& c = claims_[i];
+    bool found = false;
+    for (int j = 0; j < run_n_; ++j) {
+      if (run_[j].peer == c.peer && run_[j].proto == c.proto) {
+        if (run_[j].verdict != c.verdict) return false;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+void Loop::adoptRun() {
+  run_n_ = scored_vec_n_;
+  for (int i = 0; i < scored_vec_n_; ++i) run_[i] = scored_vec_[i];
+  run_open_ = true;
+  cov_n_ = 0;
+  cov_windows_ = 0;
+  cov_first_t_ms_ = 0;
+  cov_last_t_ms_ = 0;
+}
+
+void Loop::foldIntoRun() {
+  // The verdict vector matched, so every claim already has a slot from the previous
+  // covered window (or needs one now). Only the observed RANGE moves.
+  if (cov_windows_ == 0) cov_first_t_ms_ = scored_stamp_.t_ms;
+  cov_last_t_ms_ = scored_stamp_.t_ms;
+  ++cov_windows_;
+  for (int i = 0; i < claims_n_; ++i) {
+    const Claim& c = claims_[i];
+    int slot = -1;
+    for (int j = 0; j < cov_n_; ++j)
+      if (cov_[j].peer == c.peer && cov_[j].proto == c.proto) { slot = j; break; }
+    if (slot < 0) {
+      if (cov_n_ >= PERCEPTLEARN_MAX_CLAIMS) continue;   // cannot happen: same vector
+      slot = cov_n_++;
+      cov_[slot].peer = c.peer;
+      cov_[slot].proto = c.proto;
+      cov_[slot].verdict = c.verdict;
+      cov_[slot].windows = 0;
+      cov_[slot].observed_min = c.observed;
+      cov_[slot].observed_max = c.observed;
+    }
+    ++cov_[slot].windows;
+    if (c.observed < cov_[slot].observed_min) cov_[slot].observed_min = c.observed;
+    if (c.observed > cov_[slot].observed_max) cov_[slot].observed_max = c.observed;
+    // ⚠ For an UNOBSERVED claim `c.observed` still holds the PREDICTION (score() never
+    // overwrites it — there was no median to overwrite it with), so this range is
+    // meaningless. It is not rendered for that verdict, and it cannot leak across
+    // verdicts: a run holds ONE verdict vector, so a claim that is unobserved here was
+    // unobserved in every window of the run.
+  }
 }
 
 void Loop::stageBegin(int link_lane) {
@@ -107,11 +175,33 @@ int Loop::score(const timestream::Stamp& ts, uint32_t wall_sec) {
   scored_lane_ = staged_lane_;
   scored_stamp_ = ts;
   scored_wall_sec_ = wall_sec;
-  pending_ = true;
+
+  // ------------------------------------------------------------------------
+  // Run-length: write, or fold into the run in progress?
+  // ------------------------------------------------------------------------
+  // Everything above this line ran exactly as it always did — the window WAS scored,
+  // the streak WAS advanced, the verdicts exist. All that is decided here is whether
+  // this window earns a record of its own or is carried by the one that closes the run.
+  const bool first     = !run_open_;
+  const bool changed   = run_open_ && !sameAsRun();
+  const bool heartbeat = run_open_ && !changed &&
+                         (cov_windows_ + 1 >= PERCEPTLEARN_MAX_RUN);
+
+  // Snapshot the vector as scored, BEFORE the sketch's next arm() overwrites claims_.
+  scored_vec_n_ = claims_n_;
+  for (int i = 0; i < claims_n_; ++i) scored_vec_[i] = claims_[i];
+
+  if (first || changed || heartbeat) {
+    reason_ = first ? "first" : (changed ? "changed" : "heartbeat");
+    pending_ = true;      // buildOutcome renders it, covered block and all
+  } else {
+    foldIntoRun();
+    pending_ = false;     // ⚠ NOT a dropped window: cov_windows_ counts it
+  }
   return n;
 }
 
-bool Loop::arm(int motion_lane) {
+bool Loop::arm(int motion_lane, int motion_offset) {
   if (staged_n_ == 0) return false;   // nothing heard: nothing to predict about
   for (int i = 0; i < staged_n_; ++i) {
     claims_[i] = staged_[i];
@@ -119,6 +209,7 @@ bool Loop::arm(int motion_lane) {
   }
   claims_n_ = staged_n_;
   acting_lane_ = motion_lane;
+  acting_offset_ = motion_offset;
   armed_ = true;
   // CONSUME the staging. The sketch stages during the link flush and arms during the
   // motion flush later in the SAME loop pass; if the link tier does not flush that
@@ -139,7 +230,16 @@ void Loop::disarm() {
 size_t Loop::buildOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) {
   if (!pending_) return 0;
   pending_ = false;   // one record per scoring, success or not
+  const size_t n = renderOutcome(out, cap, lane_n, node_id);
+  // ⚠ ALWAYS adopt, even when the render failed. The covered windows are gone either
+  // way — nothing was appended — and carrying them forward would make the NEXT record
+  // claim `windows_since_last:N` for a stretch whose evidence was never written. A
+  // record that overstates its coverage is worse than a window that is simply missing.
+  adoptRun();
+  return n;
+}
 
+size_t Loop::renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) {
   char stamp[64];
   if (!timestream::buildStamp(stamp, sizeof(stamp), scored_stamp_)) return 0;
   // `created:`/`updated:` stay Unix seconds per TTDB-RFC-0001, and stay 0 when the
@@ -152,15 +252,52 @@ size_t Loop::buildOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) {
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
       "relates:testifies_about@LAT95LON%d,derived_from@LAT97LON%d,senses@LAT0LON0\n\n"
-      "**OUTCOME** %s node:0x%lx acting:@LAT95LON%d "
-      "observed_in:@LAT97LON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n",
+      "**OUTCOME** %s node:0x%lx acting:@LAT95LON%d+%d "
+      "observed_in:@LAT97LON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n"
+      "**RUN** windows_since_last:%d reason:%s max_run:%d\n",
       PERCEPTLEARN_LANE, lane_n, t_sec, t_sec,
       acting_lane_, scored_lane_,
       stamp,
-      (unsigned long)node_id, acting_lane_, scored_lane_,
-      PERCEPTLEARN_RSSI_BAND, met_, violated_, unobserved_, streak_);
+      (unsigned long)node_id, acting_lane_, acting_offset_, scored_lane_,
+      PERCEPTLEARN_RSSI_BAND, met_, violated_, unobserved_, streak_,
+      cov_windows_ + 1, reason_, PERCEPTLEARN_MAX_RUN);
   if (m < 0 || (size_t)m >= cap) return 0;
   off = (size_t)m;
+
+  // The windows this record's predecessor spoke for but never itemised — emitted BEFORE
+  // the record's own pairs because that is the order they happened in, and
+  // Reconciler::foldRecord folds in document order. Each line is folded `windows:` times,
+  // which is what makes the compression lossless for Rule 3 rather than merely cheap.
+  if (cov_windows_ > 0) {
+    m = snprintf(out + off, cap - off,
+                 "**COVERED-SPAN** windows:%d first_t_ms:%llu last_t_ms:%llu "
+                 "counts_scored_windows_not_minutes:1\n",
+                 cov_windows_, (unsigned long long)cov_first_t_ms_,
+                 (unsigned long long)cov_last_t_ms_);
+    if (m < 0 || (size_t)m >= cap - off) return 0;
+    off += (size_t)m;
+    for (int i = 0; i < cov_n_; ++i) {
+      const Covered& c = cov_[i];
+      if (c.verdict == VERDICT_UNOBSERVED) {
+        // No median was ever observed, so there is no range to report. Printing the
+        // prediction here would read as a measurement.
+        m = snprintf(out + off, cap - off,
+                     "**COVERED** peer:0x%08lx proto:%s verdict:unobserved windows:%ld\n",
+                     (unsigned long)c.peer, protoName(c.proto), (long)c.windows);
+      } else {
+        m = snprintf(out + off, cap - off,
+                     "**COVERED** peer:0x%08lx proto:%s verdict:%s windows:%ld "
+                     "observed_min:%d observed_max:%d\n",
+                     (unsigned long)c.peer, protoName(c.proto), verdictName(c.verdict),
+                     (long)c.windows, (int)c.observed_min, (int)c.observed_max);
+      }
+      // A record carrying `windows_since_last:N` with its COVERED block truncated away
+      // would claim N windows and account for one. Write nothing instead — the same
+      // rule the head line and the transition pair already follow.
+      if (m < 0 || (size_t)m >= cap - off) return 0;
+      off += (size_t)m;
+    }
+  }
 
   // One EXPECTED/OBSERVED pair per claim: what was predicted, what happened, and the
   // verdict — so a third party can recompute the reconciliation instead of trusting
@@ -253,13 +390,25 @@ int Reconciler::foldRecord(const char* text, size_t len) {
   const char* end = text + len;
   const char* kObs = "**OBSERVED** peer:0x";
   const size_t kObsLen = 20;   // strlen(kObs)
+  const char* kCov = "**COVERED** peer:0x";
+  const size_t kCovLen = 19;   // strlen(kCov)
 
   while (p < end) {
-    // find the next OBSERVED line within the window
+    // ⚠ ONE scan recognising BOTH line kinds, not two passes. A **COVERED** line stands
+    // for `windows:` windows that happened BEFORE this record's own, and Rule 3's +2
+    // saturation / -16 floor are order-sensitive, so folding all the covered lines of a
+    // lane after all the observed ones would produce a different (wrong) belief. Walking
+    // the text once keeps document order, which is time order by construction.
     const char* q = p;
     const char* hit = 0;
-    while (q + kObsLen <= end) {
-      if (q[0] == '*' && memcmp(q, kObs, kObsLen) == 0) { hit = q; break; }
+    bool covered = false;
+    while (q < end) {
+      if (q[0] == '*') {
+        if (q + kObsLen <= end && memcmp(q, kObs, kObsLen) == 0) { hit = q; break; }
+        if (q + kCovLen <= end && memcmp(q, kCov, kCovLen) == 0) {
+          hit = q; covered = true; break;
+        }
+      }
       ++q;
     }
     if (!hit) break;
@@ -269,7 +418,7 @@ int Reconciler::foldRecord(const char* text, size_t len) {
 
     // peer id (8 hex chars after the prefix)
     uint32_t peer = 0;
-    const char* h = hit + kObsLen;
+    const char* h = hit + (covered ? kCovLen : kObsLen);
     int digits = 0;
     while (h < nl && digits < 8) {
       char c = *h;
@@ -282,8 +431,11 @@ int Reconciler::foldRecord(const char* text, size_t len) {
       ++h; ++digits;
     }
 
-    // proto and verdict, both within this line
+    // proto, verdict and (on a covered line) the repeat count, all within this line
     uint8_t proto = 0xFF, verdict = 0xFF;
+    // An OBSERVED line is one window by definition. A COVERED line starts at ZERO and
+    // only counts once its `windows:` field parses — see the note below.
+    long windows = covered ? 0 : 1;
     for (const char* s = hit; s < nl; ++s) {
       if (proto == 0xFF && s + 7 <= nl && memcmp(s, "proto:", 6) == 0) {
         const char* v = s + 6;
@@ -297,10 +449,23 @@ int Reconciler::foldRecord(const char* text, size_t len) {
         else if (v + 8 <= nl && memcmp(v, "violated", 8) == 0) verdict = VERDICT_VIOLATED;
         else verdict = VERDICT_UNOBSERVED;
       }
+      if (covered && s + 9 <= nl && memcmp(s, "windows:", 8) == 0) {
+        const char* v = s + 8;
+        long w = 0;
+        int d = 0;
+        while (v < nl && *v >= '0' && *v <= '9' && d < 9) { w = w * 10 + (*v - '0'); ++v; ++d; }
+        // ⚠ A covered line whose count is missing or unparseable folds ZERO times, not
+        // once. Guessing 1 would silently under-count a run of 30 by 29 windows while
+        // looking like a complete fold — the failure mode this whole lane exists to
+        // avoid. A dropped line at least shows up as a lower `lane_records` count.
+        if (d > 0) windows = w;
+        else windows = 0;
+      }
     }
+    if (covered && windows < 0) windows = 0;
     if (digits == 8 && proto != 0xFF && verdict != 0xFF) {
-      fold(peer, proto, verdict);
-      ++folded;
+      for (long k = 0; k < windows; ++k) fold(peer, proto, verdict);
+      if (windows > 0) ++folded;
     }
     p = nl + 1;
   }
