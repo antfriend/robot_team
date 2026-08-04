@@ -82,6 +82,42 @@
 // Deviation of |acceleration| from 1 g, in milli-g, above which a sample counts as
 // motion. Hand tremor on a held device is ~20-40 mg; a walking stride peaks in the
 // hundreds. 60 mg keeps "held still in a hand" on the still side of the line.
+//
+// ✅ MEASURED AGAINST THIS BMI270 ON THIS BOARD, 2026-08-03 — and it survives.
+// The reasoning above came from published figures and had never been checked against
+// the part; every `still` claim the learning loop rests on rests on this line, so it
+// was measured the way PERCEPTLEARN_RSSI_BAND 6 was (p90 of the node's own statistic
+// across a known-quiet run, table written down rather than summarised).
+//
+//   Cardputer 0x300, @LAT95 lane pruned to empty first so the run IS the sample.
+//   48 windows x 60 s, 298-997 samples each, node stationary and UNTOUCHED for
+//   50 minutes (no companion.py call: every invocation resets the board and
+//   restarts the window). Statistic: dev_max_mg, the largest |mag - 1g| in a window.
+//
+//     dev_max_mg    min 11   p50 12   p75 12   p90 12   p95 13   max 20
+//     dev_mean_mg   min  8   p50  8   p90  8   max  9
+//     moving_permille  0 in every window (max 0)
+//     samples >= 60 mg: 0 of 48 windows
+//
+//   p90 = 12 mg, so 60 mg is 5.0x the noise floor and 3x the worst single excursion
+//   in 50 minutes. The resting floor is a BIAS, not jitter: dev is |mag - 1 g| and
+//   this part sits ~8 mg off 1 g at rest, so the usable margin above rest is ~52 mg,
+//   not 60. Even so the verdict is comfortable, and it is comfortable in the
+//   direction the design intends — 60 mg stays ABOVE hand tremor (20-40 mg), which is
+//   what keeps a held-but-still device on the still side.
+//
+// ⚠ THE FIRST ATTEMPT AT THIS MEASUREMENT WAS WRONG BY 2.75x, AND THE WAY IT WAS
+// WRONG IS THE LESSON. Reading the 48 windows the lane already held gave p90 = 33 mg
+// and one window with an 80 mg sample. Those windows were labelled `state:still` — by
+// this very threshold, which is circular — and the node had been picked up, plugged
+// and unplugged during them. The lane's own label is not evidence that the node was
+// still; only an operator keeping it still is. Prune, then collect.
+//
+// ⚠ Consequence for the flapping concern (a signal sitting ON the threshold produces
+// MORE records than periodic logging): at rest this board is nowhere near the line —
+// moving_permille was 0 in all 48 windows, not merely under the 100 verdict gate. So
+// hysteresis is not needed to stop rest-state flapping. It may still be needed at the
+// EDGE of real motion, which this run does not measure and a walk-and-stop run would.
 #define MOTIONPERCEPT_MOVING_MG 60
 #endif
 #ifndef MOTIONPERCEPT_TRANSITION_LANE

@@ -3500,6 +3500,61 @@ If a fact lives in one of these, link to it from here — don't copy it.
   and adopted by both consoles. The morning's `0x59fb8ce8` is gone — every node holding it
   rebooted.
 
+- ✅ **2026-08-03 (Part B.3) — `MOTIONPERCEPT_MOVING_MG 60` IS NOW A MEASURED CONSTANT,
+  AND IT SURVIVED.** Cardputer `0x300`, `@LAT95` pruned to empty first so the run *is* the
+  sample; 48 windows × 60 s (298–997 samples each), node stationary and **untouched for
+  50 minutes** — no `companion.py` call, because every invocation resets the board and
+  restarts the window. All 48 windows on one stream (`0xbdc62024`), `t_ms` 1761607 →
+  4690069 = 48.8 min continuous, so it is one run and not two stitched.
+  ```
+  dev_max_mg    min 11   p50 12   p75 12   p90 12   p95 13   max 20
+  dev_mean_mg   min  8   p50  8   p90  8   max  9
+  moving_permille  0 in EVERY window (max 0);  samples >= 60 mg: 0 of 48
+  ```
+  **p90 = 12 mg → 60 mg is 5.0× the noise floor** and 3× the worst single excursion in
+  50 minutes. The floor is a **bias, not jitter**: `dev` is `|mag − 1 g|` and this part
+  rests ~8 mg off 1 g, so the usable margin above rest is ~52 mg. The verdict is
+  comfortable *and* comfortable in the direction the design intends — 60 mg stays above
+  hand tremor (20–40 mg), which is what keeps a held-but-still device on the still side.
+  The derivation table is now in `MotionPercept.h` beside the constant, in the shape
+  `PerceptLearn.h` uses for `PERCEPTLEARN_RSSI_BAND 6`.
+  ⚠ **THE FIRST ATTEMPT AT THIS MEASUREMENT WAS WRONG BY 2.75×, AND HOW IT WAS WRONG IS
+  THE POINT.** Reading the 48 windows the lane already held gave **p90 = 33 mg** with one
+  80 mg sample, and a `dev_mean_mg` of exactly 14 in every window that I read as the
+  part's resting bias. Both were artefacts: those windows were labelled `state:still` **by
+  the very threshold under test** (circular), and the node had been picked up, plugged and
+  unplugged during them. On the clean run the bias is **8 mg**, not 14. *A lane's own
+  label is not evidence that the node was still; only an operator keeping it still is.*
+  Prune, then collect — which is also why the prune had to come first rather than being
+  cleanup.
+  📎 **B.4 (flapping) is partly answered by the same data:** at rest this board is nowhere
+  near the line — `moving_permille` was **0** in all 48 windows, not merely under the 100
+  verdict gate — so hysteresis is not needed to stop rest-state flapping. It may still be
+  needed at the EDGE of real motion, which this run does not measure and a walk-and-stop
+  run would.
+  📊 And in the same 50 minutes `@LAT94` and `@LAT97` **both refilled to 48/48 again** —
+  the treadmill, third measurement today.
+
+- ⚠ **2026-08-03 — THE `@LAT90` CAP IS NOW REACHED ON THE CARDPUTER: 16/16**, exactly as
+  predicted an hour earlier, and the 16th record is another abandoned `STREAM-ORIGIN`
+  (`0x9c462b30`) written when the post-run pull reset the board. The next timeline change
+  is refused, so records could carry an id the lane never explains — the failure this lane
+  exists to prevent.
+  ✅ **The fix is written, tested and compiled, and is NOT yet flashed.** A `STREAM-ORIGIN`
+  is now HELD for `TIMESTREAM_ORIGIN_SETTLE_MS` (30 s) and **dropped if the node moves to
+  another stream** — an origin abandoned three seconds later was never "a settled state",
+  which is what this lane says it records. ⚠ The settle window alone is not sufficient and
+  the second arm is the interesting half: it sits under the 60 s percept flush so no window
+  record can be stamped with an unexplained id, but a `@LAT100` prune marker answers to no
+  flush period and can land seconds after boot (exactly what this session did) — so the
+  hold is **also released the moment the TTDB grows at all**, checked before the time
+  condition. Both live in `originDue()` (portable, native-tested, 9 checks), and the
+  `< 60000` invariant is **asserted in the test suite**, so raising the constant past the
+  flush period fails the build instead of quietly restoring the defect.
+  Cost: **V4 +628 B flash, +80 B RAM** (94%, 71667 B free); T-Deck 40%, Cardputer 41%. All
+  five sketches compile. ⏳ **Flash needed — and flash with the whole fleet powered**, which
+  halves the lane cost per the measurement above.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

@@ -387,6 +387,21 @@ New **`@LAT90`** lane logs timeline CHANGES (`STREAM-ORIGIN`/`ADOPTED`/`RECONCIL
 `ANCHORED`) with a **REMAP** line carrying the offset, so records stamped with a stream
 that later lost stay interpretable. A routine drift correction writes nothing.
 
+⚠ **A `STREAM-ORIGIN` IS HELD FOR `TIMESTREAM_ORIGIN_SETTLE_MS` (30 s) BEFORE IT IS
+WRITTEN, AND DROPPED IF THE NODE MOVES ON** (2026-08-03). The 6 s listen window is a
+*race* and it is lost often: two of three consecutive Cardputer reboots heard no peer
+anchor in time, originated, and the next reboot adopted the fleet stream — whose record
+was then correctly deduped. Each lost race left a permanent ORIGIN with nothing saying
+the node had left it, taking that lane from 13 to 15 against a cap of 16 in one session
+(`companion.py` resets the cabled node on nearly every call). The lane's contract is *one
+record per settled state, not one per hop*; a stream abandoned three seconds later was
+never a state. ⚠ **The hold is ALSO released early the moment the TTDB grows at all** —
+the settle window sits under the 60 s percept flush so no window record can carry an
+unexplained id, but a `@LAT100` prune marker answers to no flush period and can land
+seconds after boot. Both arms live in `originDue()` (portable, native-tested), and the
+`< 60000` invariant is asserted in the test suite, so raising the constant past the flush
+period fails the build rather than quietly restoring the defect.
+
 A reboot that rejoins **the stream the node was already on** writes nothing: the lane is
 deduped by stream id, read back off flash. ⚠ **The needle is `" stream:0x%08lx"` WITH THE
 LEADING SPACE** — a RECONCILED record also carries `prev_stream:0x<old>`, so a bare

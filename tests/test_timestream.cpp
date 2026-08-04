@@ -473,6 +473,47 @@ int main() {
           "only two that said anything (got %d)", kept);
   }
 
+  // --- the ORIGIN hold (TIMESTREAM_ORIGIN_SETTLE_MS, 2026-08-03) -------------
+  // The listen window is a RACE and it is lost often: on the Cardputer two of three
+  // consecutive reboots heard no peer inside 6 s, originated, and the next reboot
+  // adopted the fleet stream — whose record was then correctly deduped. The abandoned
+  // ORIGINs stayed forever, taking the lane from 13 to 15 against a cap of 16 in one
+  // session. An origin abandoned seconds later was never "a settled state", which is
+  // what the lane says it records, so its record now waits to see if it survives.
+  {
+    const uint32_t held_at = 1000;
+    CHECK(!originDue(held_at, held_at + 1, 5, 5),
+          "a just-held origin is not due");
+    CHECK(!originDue(held_at, held_at + TIMESTREAM_ORIGIN_SETTLE_MS - 1, 5, 5),
+          "still not due one millisecond before the settle window closes");
+    CHECK(originDue(held_at, held_at + TIMESTREAM_ORIGIN_SETTLE_MS, 5, 5),
+          "an origin that SURVIVES the settle window is written — a node that boots "
+          "alone genuinely is on a new timeline and must still say so");
+    // ⚠ The arm the time window cannot cover. A @LAT100 prune marker answers to no
+    // flush period and can be written seconds after boot (which is exactly what this
+    // session did), carrying the new stream id. The moment anything reaches flash the
+    // explanation is owed, however young the stream is.
+    CHECK(originDue(held_at, held_at + 1, 5, 6),
+          "a record stamped with the stream forces the ORIGIN out immediately, "
+          "however far the settle window still has to run");
+    CHECK(originDue(held_at, held_at + 1, 5, 99),
+          "and any growth counts, not just growth by one");
+    CHECK(!originDue(held_at, held_at + 1, 5, 4),
+          "a SHRINKING record count is a prune, not a stamp — it does not force it");
+    // millis() wraps every 49.7 days; unsigned arithmetic must keep this working
+    // rather than making the record wait seven weeks.
+    CHECK(!originDue(0xFFFFFFFFu - 10, 10, 5, 5),
+          "21 ms of elapsed time ACROSS the wrap is 21 ms, not 49 days — not due");
+    CHECK(originDue(0xFFFFFFFFu - 10, TIMESTREAM_ORIGIN_SETTLE_MS - 10, 5, 5),
+          "and a full settle window that straddles the wrap does come due");
+    // The settle window must stay under the shortest lane flush period, or a percept
+    // record could be stamped and written before the lane explains its stream. This
+    // is an invariant of the DESIGN, so it is asserted rather than commented.
+    CHECK(TIMESTREAM_ORIGIN_SETTLE_MS < 60000,
+          "the settle window is shorter than the 60 s percept flush, so no window "
+          "record can carry an id the lane has not explained yet");
+  }
+
   printf("\n%s (%d failures)\n", fails ? "FAILURES" : "ALL PASS", fails);
   return fails ? 1 : 0;
 }

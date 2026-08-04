@@ -306,6 +306,15 @@ bool recordIsRedundant(const Transition& tr, bool named, bool anchored) {
   return false;   // ORIGIN cannot match; RECONCILED's REMAP is always news
 }
 
+bool originDue(uint32_t held_ms, uint32_t now_ms, int held_records, int records_now) {
+  // The TTDB grew: something is on flash stamped with this stream, so it is owed an
+  // explanation now, however young it is. Checked FIRST because it is the condition
+  // the settle window cannot cover.
+  if (records_now > held_records) return true;
+  // Unsigned subtraction so a millis() wrap does not make the record wait 49 days.
+  return (uint32_t)(now_ms - held_ms) >= TIMESTREAM_ORIGIN_SETTLE_MS;
+}
+
 // --- the @LAT90 record -----------------------------------------------------
 
 size_t buildStreamRecord(char* out, size_t cap, int lane_n, const Transition& tr,

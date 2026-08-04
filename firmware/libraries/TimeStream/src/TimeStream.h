@@ -104,6 +104,38 @@
 #define TIMESTREAM_LISTEN_MS 6000
 #endif
 
+#ifndef TIMESTREAM_ORIGIN_SETTLE_MS
+// How long a freshly originated stream must SURVIVE before its @LAT90 ORIGIN record
+// is written. The listen window above reduces forking; this handles what is left.
+//
+// THE DEFECT IT FIXES (measured on the Cardputer, 2026-08-03). The listen window is
+// a race, and it is lost often: two of three consecutive reboots heard no peer anchor
+// inside 6 s, originated, and then — on the NEXT reboot — heard one in time and
+// adopted. Each lost race left a permanent `STREAM-ORIGIN` behind, while the return
+// to the fleet stream was correctly SILENT (an ADOPTED onto a stream the lane already
+// explains is the rejoin case, which is deduped). So the lane accumulated "I started
+// X, I started Y" and never said the node left them. With `companion.py` resetting
+// the cabled node on nearly every invocation, that took the Cardputer from 13 to 15
+// records against a cap of 16 in a single session.
+//
+// The lane's contract is ONE RECORD PER SETTLED STATE, NOT ONE PER HOP. A stream that
+// is abandoned three seconds later was never a settled state, so it should never have
+// been written. Holding the record and dropping it if the node moves on is the whole
+// fix — and it costs nothing when the origin IS real, because a node that boots alone
+// stays on its own stream and the record lands one settle window later.
+//
+// ⚠ THE HOLD MUST NOT OUTLAST THE FIRST RECORD STAMPED WITH THE STREAM, or that
+// record carries an id the lane has not explained — which is the very failure @LAT90
+// exists to prevent, reintroduced from the other side. Two things keep that true:
+//   * this window is well under the shortest lane flush period (60 s), so no percept
+//     window can be stamped and written before it elapses; and
+//   * the hold is released EARLY, from service(), the moment the TTDB grows at all —
+//     which covers event-driven writes that answer to no flush period, such as a
+//     @LAT100 prune marker written seconds after boot (exactly what this session did).
+// Raising this above 60000 would break the first guarantee. Don't.
+#define TIMESTREAM_ORIGIN_SETTLE_MS 30000
+#endif
+
 #ifndef TIMESTREAM_SLEW_MS
 // Within our OWN stream, ignore a peer that is ahead by less than this. Without a
 // floor here two nodes ratchet each other forward by the frame's transit delay on
@@ -341,6 +373,20 @@ bool recordIsWallAnchored(const char* text, size_t len);
 // suppressed: its REMAP offset is specific to that merge, and two merges onto one
 // stream from different priors are different facts.
 bool recordIsRedundant(const Transition& tr, bool named, bool anchored);
+
+// Is a HELD `STREAM-ORIGIN` (see TIMESTREAM_ORIGIN_SETTLE_MS) due to be written?
+// Portable and pure so the release rule is native-testable; the Arduino glue supplies
+// the clock and the record count.
+//
+//   held_ms/held_records — millis() and Ttdb::recordCount() when the origin was held
+//   now_ms/records_now   — the same two, now
+//
+// True on EITHER condition, and the record-count one exists because it is the case
+// the time window cannot cover: a record stamped with this stream has already reached
+// flash, so the explanation is owed immediately regardless of how young the stream is.
+// The explaining record then lands one loop pass later — after the record it explains,
+// which is honest ordering for an append-only log and readable either way.
+bool originDue(uint32_t held_ms, uint32_t now_ms, int held_records, int records_now);
 
 #ifndef TIMESTREAM_BUF
 // Measured against the widest form (STREAM-RECONCILED, which carries both stream

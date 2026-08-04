@@ -124,7 +124,20 @@ class Node {
 
     if (owed_) {
       owed_ = false;
-      writeRecord();
+      writeRecord(now_ms);
+    }
+
+    // A held ORIGIN that has now earned its record — either it survived the settle
+    // window, or something reached flash stamped with it. See originDue().
+    if (origin_held_ && db_ &&
+        originDue(origin_held_ms_, now_ms, origin_held_records_,
+                  db_->recordCount())) {
+      origin_held_ = false;
+      Serial.printf("[stream] origin 0x%08lx kept (%s) — writing it now\n",
+                    (unsigned long)held_.new_id,
+                    db_->recordCount() > origin_held_records_
+                        ? "a record was stamped with it" : "it settled");
+      append(held_);
     }
   }
 
@@ -154,7 +167,7 @@ class Node {
     clock_off_ = wall_ ? (int64_t)e_.unixMs(now_ms) - (int64_t)now_ms : 0;
   }
 
-  void writeRecord() {
+  void writeRecord(uint32_t now_ms) {
     const Transition& tr = e_.last();
     if (tr.ev == EV_NONE || tr.ev == EV_SLEW) return;
     Serial.printf("[stream] %s stream=0x%08lx t_ms=%llu wall=%d from=0x%lx "
@@ -166,6 +179,51 @@ class Node {
       Serial.printf("[stream] ⚠ WALL ANCHORS DISAGREE by %lldms — two sources, or a "
                     "stale anchor carried across a merge\n",
                     (long long)tr.wall_conflict_ms);
+    if (!db_) return;
+
+    // --- the ORIGIN hold (TIMESTREAM_ORIGIN_SETTLE_MS) ------------------------
+    // A brand-new stream has not proved it is a state rather than a hop, so its
+    // record waits. Everything else is written as it always was.
+    if (tr.ev == EV_ORIGIN) {
+      held_ = tr;                       // COPY: e_.last() is overwritten by the next event
+      origin_held_ = true;
+      origin_held_ms_ = now_ms;
+      origin_held_records_ = db_->recordCount();
+      Serial.printf("[stream] origin 0x%08lx HELD — not written until it survives "
+                    "%lums or something is stamped with it\n",
+                    (unsigned long)tr.new_id,
+                    (unsigned long)TIMESTREAM_ORIGIN_SETTLE_MS);
+      return;
+    }
+    // Any other transition while an origin is held resolves it. Moving to a DIFFERENT
+    // stream means the held one was abandoned before it was ever a settled state — the
+    // defect this hold exists to stop — so it is dropped and never written. Nothing on
+    // flash can reference it: had anything been stamped with it, service() would have
+    // released the hold first (originDue's record-count arm).
+    if (origin_held_) {
+      if (tr.new_id != held_.new_id) {
+        Serial.printf("[stream] origin 0x%08lx ABANDONED after %lums for stream "
+                      "0x%08lx — never a settled state, so no record is written "
+                      "(this is the @LAT%d growth fix, not a lost event)\n",
+                      (unsigned long)held_.new_id,
+                      (unsigned long)(now_ms - origin_held_ms_),
+                      (unsigned long)tr.new_id, TIMESTREAM_LANE);
+        origin_held_ = false;
+      } else {
+        // Same stream, new fact about it (an anchor arriving). The ORIGIN has to land
+        // FIRST or the lane explains the anchor before the stream it anchors.
+        origin_held_ = false;
+        append(held_);
+      }
+    }
+
+    append(tr);
+  }
+
+  // The write itself: dedup against the lane, respect the cap, append. Split out of
+  // writeRecord() because a HELD origin is appended later, from service(), long after
+  // its transition passed through — and it must go through exactly this path.
+  void append(const Transition& tr) {
     if (!db_) return;
 
     // ONE pass over the lane answers both questions: how full is it, and has it already
@@ -216,6 +274,14 @@ class Node {
   Ttdb* db_ = nullptr;
   uint32_t node_id_ = 0;
   uint32_t begin_ms_ = 0;
+
+  // The held ORIGIN (TIMESTREAM_ORIGIN_SETTLE_MS). `held_` is a COPY, not a reference
+  // into the Engine: e_.last() is overwritten by the very next transition, which in
+  // the abandonment case is the one that arrives moments later.
+  Transition held_;
+  bool origin_held_ = false;
+  uint32_t origin_held_ms_ = 0;
+  int origin_held_records_ = 0;
 
   Anchor q_[TIMESTREAM_ANCHOR_QUEUE];
   uint32_t src_[TIMESTREAM_ANCHOR_QUEUE] = {0};
