@@ -3945,6 +3945,40 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ⏳ The battery run collected only **5** `@LAT96` windows (its scan is on a ~5 min duty
   cycle), so a clean baseline still needs a longer quiet run — several hours, not one.
 
+- 📋 **2026-08-04 — PART 2's MEASUREMENT IS SET UP, AND ITS GATES ARE CODE, WRITTEN
+  BEFORE THE DATA EXISTS.** `companion.py entity-drift --file <ttdb>` measures
+  consecutive-window Jaccard drift on a known-still node and **refuses to print a
+  distribution unless the run passes four gates**. Declared in advance, which is the only
+  order in which a gate means anything:
+  1. one stream id across every `@LAT96` record
+  2. `t_ms` monotonic
+  3. `@LAT95` witnesses stillness over ≥90% of the same span, **on the same timeline** —
+     a different sensor from the one under test
+  4. ≥30 pairs survive the spacing filter
+  ⚠ **Gate 4 is not sample-size padding.** A reboot forces an immediate scan
+  (`gLastScanKick == 0`), inserting a window ~60 s after the last instead of ~600 s.
+  Drift across that gap **understates** churn, so those pairs are DISCARDED — a
+  contaminated pair is wrong, not conservative.
+  🔬 **Run against this morning's archive it FAILS 1, 2 and 3 — and PASSES 4** (32 pairs
+  kept). So a sample-size check alone would have accepted the bad data; the three
+  provenance gates carry the weight. That is the whole lesson of the archive, now
+  mechanised.
+  📊 **`WIFI_SCAN_PERIOD_MS` is 600 000 — one scan per 10 MINUTES**, not the 5 min the
+  record spacing suggested (that spacing was inflated by reboots forcing extra scans). So
+  **`@LAT96` fills in 8 HOURS of uptime, not 48 min** — it is ~10x less of a treadmill than
+  `@LAT95` was, which lowers Part 2's urgency relative to Part 1's. 48 windows = 47 pairs
+  = an **8 h run**, matching B.3's n=48. ⚠ Do NOT shorten the scan period to speed this
+  up: the quantity is churn *over the interval the tier actually uses*, so a threshold
+  measured at 1-min spacing would not apply to a tier that samples every 10.
+  📋 **The run:** prune `--lane 0` first so the run is the sample; leave it **8 h plugged
+  in, untouched, physically still**; keep V4-A powered so the stream stays stable; **one**
+  pull at the end. Cable is right here even though it was wrong for Part 1 — `@LAT96` is
+  still *periodic*, so a reset costs one window instead of breaking a run, and 8 h of
+  battery with the display lit is not credible. Record budget **212/256**; `@LAT100` goes
+  to 17/32, leaving room for ~3 more full prunes before that lane becomes the story.
+  📊 Suites: native **507**, Python **275 across 10 files** (new
+  `tests/test_entity_drift_py.py`, 18 checks).
+
 - ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
   change signal is **Jaccard drift between consecutive windows**, and its threshold has to
   be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating

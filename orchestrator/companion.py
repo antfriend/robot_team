@@ -2458,6 +2458,158 @@ def _entity_set(windows, last=None, since_ms=None, refs=None):
     return ids
 
 
+# --- Part 2 groundwork: is Jaccard drift a usable CHANGE signal? ---------------
+# @LAT96's change-trigger (part-b-handoff.md Part 2) needs a threshold, and the standard
+# B.3 set is that it must be MEASURED on a node known to be still — not chosen.
+#
+# ⚠ THIS FUNCTION REFUSES TO REPORT A DISTRIBUTION UNLESS THE RUN EARNS IT, and that is
+# the whole point of it existing. On 2026-08-04 the archived @LAT96 lane produced entirely
+# plausible numbers (p50 0.333, p90 0.538) that were worthless: its 48 windows spanned
+# FIVE streams with t_ms running backwards four times, and the @LAT95 lane that would
+# witness stillness sat on a different stream. Numbers that look fine are exactly how this
+# fails, so the gates run first and a failure prints instead of a threshold.
+#
+# The four gates, declared before the data existed:
+#   1. one stream id across every @LAT96 record
+#   2. t_ms monotonic
+#   3. @LAT95 witnesses stillness over the same span — a DIFFERENT SENSOR than the one
+#      under test (B.3's circularity was windows labelled `still` by the threshold being
+#      measured; the IMU is independent of Jaccard, but only if it covers the same period
+#      on the same timeline)
+#   4. enough pairs at the RIGHT SPACING survive
+#
+# ⚠ Gate 4 is not padding. A reboot forces an immediate WiFi scan (`gLastScanKick == 0`),
+# so it inserts a window ~1 min after the previous one instead of ~10. Drift across a
+# 1-minute gap understates churn, so those pairs are DISCARDED rather than averaged in —
+# a contaminated pair is not a conservative one, it is a wrong one.
+ENTITY_SCAN_PERIOD_S = 600      # WIFI_SCAN_PERIOD_MS 600000 — the real operating cadence
+ENTITY_SPACING_TOL_S = 120      # accept 480..720 s; excludes post-boot ~60 s windows
+ENTITY_MIN_PAIRS = 30
+
+
+def jaccard_distance(a, b):
+    """1 - |a&b|/|a|b| for two sets, or None when both are empty."""
+    u = a | b
+    if not u:
+        return None
+    return 1.0 - len(a & b) / len(u)
+
+
+def entity_drift_gates(entity_windows, motion_records,
+                       spacing_s=ENTITY_SCAN_PERIOD_S,
+                       tol_s=ENTITY_SPACING_TOL_S,
+                       min_pairs=ENTITY_MIN_PAIRS):
+    """Run the four gates. Returns (ok, [(name, passed, detail), ...], pairs) where
+    `pairs` is the list of surviving Jaccard distances (empty unless gate 4 ran)."""
+    gates = []
+    ew = entity_windows
+
+    # 1. one stream
+    streams = sorted(set(w["stream"] for w in ew if w["stream"] is not None))
+    g1 = len(ew) > 0 and len(streams) == 1
+    gates.append(("one stream id", g1,
+                  "%d window(s), %d stream(s): %s"
+                  % (len(ew), len(streams), ", ".join("%08x" % s for s in streams[:6]))))
+
+    # 2. monotonic time
+    ts = [w["t_ms"] for w in ew if w["t_ms"] is not None]
+    back = sum(1 for a, b in zip(ts, ts[1:]) if b < a)
+    g2 = len(ts) == len(ew) and back == 0
+    gates.append(("t_ms monotonic", g2, "%d backwards step(s)" % back))
+
+    # 3. an INDEPENDENT stillness witness covering the same span
+    mv = [r for r in motion_records if r["t_ms"] is not None]
+    moving = [r for r in mv if r["state"] == "moving"]
+    moving += [r for r in mv if r["covered"] and r["covered"]["state"] == "moving"]
+    cover = 0.0
+    if ts and mv:
+        mspan = (min(r["t_ms"] for r in mv), max(r["t_ms"] for r in mv))
+        espan = (min(ts), max(ts))
+        width = espan[1] - espan[0]
+        lo, hi = max(mspan[0], espan[0]), min(mspan[1], espan[1])
+        cover = 1.0 if width == 0 else max(0.0, (hi - lo) / width)
+    mstreams = set(r["stream"] for r in mv)
+    same_tl = bool(mv) and mstreams == set(streams)
+    g3 = bool(mv) and not moving and cover >= 0.90 and same_tl
+    gates.append(("@LAT95 witnesses stillness, same timeline", g3,
+                  "%d motion record(s), %d moving, %.0f%% span covered, timeline %s"
+                  % (len(mv), len(moving), cover * 100,
+                     "match" if same_tl else "MISMATCH")))
+
+    # 4. enough pairs at the right spacing
+    pairs, dropped = [], 0
+    sets = [set(e["id"] for e in w["entities"]) for w in ew]
+    for i in range(len(ew) - 1):
+        a, b = ew[i], ew[i + 1]
+        if a["t_ms"] is None or b["t_ms"] is None:
+            dropped += 1
+            continue
+        gap = (b["t_ms"] - a["t_ms"]) / 1000.0
+        if abs(gap - spacing_s) > tol_s:
+            dropped += 1
+            continue
+        d = jaccard_distance(sets[i], sets[i + 1])
+        if d is None:
+            dropped += 1
+            continue
+        pairs.append(d)
+    g4 = len(pairs) >= min_pairs
+    gates.append(("pairs at %d+/-%d s spacing" % (spacing_s, tol_s), g4,
+                  "%d kept, %d discarded off-cadence (need %d)"
+                  % (len(pairs), dropped, min_pairs)))
+
+    return all(g[1] for g in gates), gates, sorted(pairs)
+
+
+def entity_drift(path, spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_S,
+                 min_pairs=ENTITY_MIN_PAIRS, force=False):
+    """Measure consecutive-window Jaccard drift on a KNOWN-STILL node (@LAT96), the
+    quantity Part 2's change threshold has to clear."""
+    with open(path, "rb") as f:
+        text = f.read().decode("utf-8", errors="replace")
+    ew = parse_entity_percepts(text)
+    mr = parse_motion_percepts(text)
+    ok, gates, pairs = entity_drift_gates(ew, mr, spacing_s, tol_s, min_pairs)
+
+    print("%s\n" % path)
+    print("validation gates (declared 2026-08-04, before this run existed):")
+    for name, passed, detail in gates:
+        print("  [%s] %-42s %s" % ("PASS" if passed else "FAIL", name, detail))
+    print()
+    if not ok and not force:
+        print("REFUSING to report a drift distribution: the run did not earn one.")
+        print("A threshold derived from a run that fails these gates is a number, not a")
+        print("measurement — that is exactly how the archived baseline fooled us. Re-run")
+        print("undisturbed, or pass --force to see the numbers WITHOUT using them.")
+        return
+    if not pairs:
+        print("no usable pairs")
+        return
+
+    def pct(p):
+        return pairs[min(len(pairs) - 1, int(len(pairs) * p))]
+    sizes = sorted(len(set(e["id"] for e in w["entities"])) for w in ew)
+    print("AP set size per window: min %d  p50 %d  max %d"
+          % (sizes[0], sizes[len(sizes) // 2], sizes[-1]))
+    print("  one AP appearing/vanishing moves Jaccard by ~%.3f at the median set size"
+          % (1.0 / max(1, sizes[len(sizes) // 2])))
+    print("\nconsecutive-window Jaccard DRIFT, node still, n=%d" % len(pairs))
+    print("  min %.3f  p50 %.3f  p75 %.3f  p90 %.3f  p95 %.3f  max %.3f"
+          % (pairs[0], pct(.50), pct(.75), pct(.90), pct(.95), pairs[-1]))
+    p90 = pct(.90)
+    print("\n  a change threshold must sit ABOVE the quiet floor. p90 = %.3f leaves"
+          % p90)
+    print("  %.3f of the 0..1 range above it — for scale, MOTIONPERCEPT_MOVING_MG 60"
+          % (1.0 - p90))
+    print("  sits at 5.0x its measured 12 mg floor. Ratio here: %.1fx." % (1.0 / p90
+          if p90 else float("inf")))
+    if p90 > 0.4:
+        print("\n  NOTE: the quiet floor consumes most of the range. That is a finding")
+        print("  about the SIGNAL, not the threshold: a per-window Jaccard trigger may")
+        print("  not be usable on this board, and a stable-core set (APs seen in >=N of")
+        print("  the last M windows) is the alternative to measure next.")
+
+
 def entity_jaccard_bound(jaccard):
     """Map a Jaccard overlap in [0,1] to a coarse distance BOUND in metres, or
     None when the sets are disjoint (no bound — they may be anywhere). This is an
@@ -3921,6 +4073,23 @@ def main():
                          "this when the node is under measurement: opening its port "
                          "resets it and restarts the 60 s window")
 
+    ed = sub.add_parser(
+        "entity-drift",
+        help="measure consecutive-window Jaccard drift on a known-still node "
+             "(@LAT96, Part 2's threshold) — refuses to report unless the run "
+             "passes four validation gates")
+    ed.add_argument("--file", required=True, help="a pulled TTDB")
+    ed.add_argument("--spacing", type=int, default=ENTITY_SCAN_PERIOD_S,
+                    help="expected seconds between scans (WIFI_SCAN_PERIOD_MS/1000)")
+    ed.add_argument("--tol", type=int, default=ENTITY_SPACING_TOL_S,
+                    help="spacing tolerance; pairs outside it are DISCARDED, because a "
+                         "reboot forces an off-cadence scan and a short gap understates "
+                         "drift")
+    ed.add_argument("--min-pairs", type=int, default=ENTITY_MIN_PAIRS)
+    ed.add_argument("--force", action="store_true",
+                    help="print the distribution even if the gates fail — for looking, "
+                         "NEVER for deriving a threshold")
+
     ec = sub.add_parser(
         "entities",
         help="pull + print a node's entity-percept windows (@LAT96 WiFi APs, SP0)")
@@ -4107,6 +4276,8 @@ def main():
         if not args.file and not (args.port and args.node):
             sys.exit("motion needs either --file, or both --port and --node")
         motion(args.port, args.baud, args.node, args.save, args.file)
+    elif args.cmd == "entity-drift":
+        entity_drift(args.file, args.spacing, args.tol, args.min_pairs, args.force)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":
