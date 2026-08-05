@@ -403,6 +403,15 @@ class Loop {
 #ifndef PERCEPTLEARN_MAX_BELIEFS
 #define PERCEPTLEARN_MAX_BELIEFS PERCEPTLEARN_MAX_CLAIMS
 #endif
+#ifndef PERCEPTLEARN_BOUNDARY_BUF
+// MEASURED, not estimated — see buildBoundary(). A full 8-belief house with realistic
+// field values renders at **1095 B**: a 120 B head line plus 8 x ~122 B. 1536 is ~40%
+// headroom, which is deliberate rather than tight: the belief line carries nine numeric
+// fields and a wider node id or a four-digit tally would push a hand-fitted buffer over
+// again. tests/test_perceptlearn.cpp pins the worst case against this constant AND
+// against the 1024 that was too small, so shrinking it back fails the build.
+#define PERCEPTLEARN_BOUNDARY_BUF 1536
+#endif
 
 struct Belief {
   uint32_t peer;
@@ -454,6 +463,26 @@ class Reconciler {
   // moment in two frames, not two moments.
   size_t buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
                      uint32_t node_id, int rev, const timestream::Stamp& ts) const;
+
+  // Render the block a @LAT100 boundary carries when THIS lane is pruned: what the
+  // ended generation held, and what it concluded. `records` is the caller's count of
+  // @LAT92 records folded (a record is not a window since run-length, so both are
+  // stated). Returns bytes written, or 0 if it did not fit — nothing rather than a
+  // truncation, because a short list understates the evidence the boundary stands in
+  // for, which is the failure it exists to prevent.
+  //
+  // ⚠ THIS LIVED IN THE SKETCH FOR ONE AFTERNOON AND THAT WAS THE DEFECT. Sized by eye
+  // at "~100 B a line", it renders at 122, so a full 8-belief house came to 1095 B
+  // against a 1024 B buffer and the prune correctly REFUSED — on hardware, after the
+  // measurement window had already been spent. Every other buffer in this library is
+  // pinned by a native test against its worst case; this one could not be, because a
+  // native test cannot call into a .ino. Moving it here is the fix, not the raised
+  // constant.
+  //
+  // ⚠ The line tokens are deliberately NOT `**OBSERVED**`/`**COVERED**`. Those are
+  // foldRecord()'s needles, and a boundary carrying either would be folded as testimony
+  // the next time the lane was read — the node re-learning from its own gravestone.
+  size_t buildBoundary(char* out, size_t cap, int records) const;
 
  private:
   int slotFor(uint32_t peer, uint8_t proto);

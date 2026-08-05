@@ -756,7 +756,6 @@ static uint8_t gLaneReadBuf[PERCEPTLEARN_BUF];
 static size_t buildOutcomeCarried(char* out, size_t cap) {
   perceptlearn::Reconciler R;
   R.begin();
-  long windows = 0;
   int records = 0;
   for (int i = 0; i < gDb.recordCount(); ++i) {
     if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
@@ -770,47 +769,12 @@ static size_t buildOutcomeCarried(char* out, size_t cap) {
     if (got) R.foldRecord((const char*)gLaneReadBuf, got);
     yield();
   }
-  // The denominator, reconstructed the way run-length requires: a record is NOT a
-  // window. Summed off the folded tallies rather than off the record count, because
-  // since 2026-08-04 one record can stand for up to PERCEPTLEARN_MAX_RUN of them.
-  long met = 0, violated = 0, unobserved = 0;
-  for (int i = 0; i < R.beliefCount(); ++i) {
-    met += R.belief(i).met;
-    violated += R.belief(i).violated;
-    unobserved += R.belief(i).unobserved;
-  }
-  const int nb = R.beliefCount();
-  // The most windows any single claim was tested over. NOT a mean across beliefs: the
-  // claim set changes as peers come and go, so a mean would report a number no claim
-  // actually experienced. `max` answers the question a reader has — "how long did the
-  // best-evidenced belief have to form?" — and the per-belief lines below give the rest.
-  for (int i = 0; i < nb; ++i) {
-    const long w = R.belief(i).met + R.belief(i).violated + R.belief(i).unobserved;
-    if (w > windows) windows = w;
-  }
-
-  int n = snprintf(out, cap,
-                   "**OUTCOMES-CARRIED** records:%d windows_max:%ld beliefs:%d "
-                   "met:%ld violated:%ld unobserved:%ld baseline_conf:%d rule:+%d/-%d\n",
-                   records, windows, nb, met, violated, unobserved,
-                   PERCEPTLEARN_BASELINE_CONF, PERCEPTLEARN_CONF_MET,
-                   PERCEPTLEARN_CONF_VIOLATED);
-  if (n <= 0 || (size_t)n >= cap) return 0;
-  size_t len = (size_t)n;
-  for (int i = 0; i < nb; ++i) {
-    const perceptlearn::Belief& b = R.belief(i);
-    n = snprintf(out + len, cap - len,
-                 "**BELIEF-AT-BOUNDARY** peer:0x%08lX proto:%d conf:%ld sal:%ld "
-                 "met:%ld violated:%ld unobserved:%ld max_streak:%ld contradiction:%d\n",
-                 (unsigned long)b.peer, (int)b.proto, (long)b.conf, (long)b.sal,
-                 (long)b.met, (long)b.violated, (long)b.unobserved,
-                 (long)b.max_streak, b.contradiction ? 1 : 0);
-    // Nothing rather than a truncation: a short list understates the evidence the
-    // boundary is standing in for, which is the failure it exists to prevent.
-    if (n <= 0 || (size_t)n >= cap - len) return 0;
-    len += (size_t)n;
-  }
-  return len;
+  // The RENDERING lives in the library (Reconciler::buildBoundary), not here. It was
+  // here for one afternoon, sized by eye, and came out 71 B over its buffer — which the
+  // prune correctly refused, on hardware, after the measurement window had been spent.
+  // A native test cannot call into a .ino, so nothing could have caught it. Everything
+  // this function still does is I/O the library must not do.
+  return R.buildBoundary(out, cap, records);
 }
 
 static bool clearPerceptLanes(uint8_t lane) {
@@ -822,13 +786,13 @@ static bool clearPerceptLanes(uint8_t lane) {
   if (lane == TIMESTREAM_LANE) {
     ok = lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec);
   } else if (lane == PERCEPTLEARN_LANE) {
-    static char carried[LANEGEN_CARRIED_BUF];
+    static char carried[PERCEPTLEARN_BOUNDARY_BUF];
     const size_t cm = buildOutcomeCarried(carried, sizeof(carried));
     if (!cm) {
       Serial.printf("[percept] @LAT%d NOT pruned — its boundary tally would not fit "
-                    "LANEGEN_CARRIED_BUF (%d). Pruning without it would drop every "
+                    "PERCEPTLEARN_BOUNDARY_BUF (%d). Pruning without it would drop every "
                     "belief back to baseline with nothing saying why.\n",
-                    PERCEPTLEARN_LANE, LANEGEN_CARRIED_BUF);
+                    PERCEPTLEARN_LANE, PERCEPTLEARN_BOUNDARY_BUF);
       return false;
     }
     ok = lanegen::pruneOutcomes(gDb, gStamp, kNodeId, gStreamWallSec, carried);

@@ -508,4 +508,40 @@ size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t
   return (size_t)m;
 }
 
+size_t Reconciler::buildBoundary(char* out, size_t cap, int records) const {
+  long met = 0, violated = 0, unobserved = 0, windows_max = 0;
+  for (int i = 0; i < n_; ++i) {
+    met += b_[i].met;
+    violated += b_[i].violated;
+    unobserved += b_[i].unobserved;
+    // The most windows any SINGLE claim was tested over. Not a mean across beliefs: the
+    // claim set changes as peers come and go, so a mean reports a number no claim
+    // actually experienced.
+    const long w = b_[i].met + b_[i].violated + b_[i].unobserved;
+    if (w > windows_max) windows_max = w;
+  }
+
+  int m = snprintf(out, cap,
+                   "**OUTCOMES-CARRIED** records:%d windows_max:%ld beliefs:%d "
+                   "met:%ld violated:%ld unobserved:%ld baseline_conf:%d rule:+%d/-%d\n",
+                   records, windows_max, n_, met, violated, unobserved,
+                   PERCEPTLEARN_BASELINE_CONF, PERCEPTLEARN_CONF_MET,
+                   PERCEPTLEARN_CONF_VIOLATED);
+  if (m < 0 || (size_t)m >= cap) return 0;
+  size_t off = (size_t)m;
+
+  for (int i = 0; i < n_; ++i) {
+    const Belief& b = b_[i];
+    m = snprintf(out + off, cap - off,
+                 "**BELIEF-AT-BOUNDARY** peer:0x%08lX proto:%s conf:%ld sal:%ld "
+                 "met:%ld violated:%ld unobserved:%ld max_streak:%ld contradiction:%d\n",
+                 (unsigned long)b.peer, protoName(b.proto), (long)b.conf, (long)b.sal,
+                 (long)b.met, (long)b.violated, (long)b.unobserved,
+                 (long)b.max_streak, b.contradiction ? 1 : 0);
+    if (m < 0 || (size_t)m >= cap - off) return 0;
+    off += (size_t)m;
+  }
+  return off;
+}
+
 }  // namespace perceptlearn

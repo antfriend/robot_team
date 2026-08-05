@@ -770,6 +770,75 @@ int main(void) {
           "this pattern has nearly cost silent data loss", m);
   }
 
+  // -------------------------------------------------------------------------
+  // 9. THE @LAT92 BOUNDARY BLOCK — and the buffer arithmetic that must be MEASURED
+  //
+  // ⚠ THIS SECTION EXISTS BECAUSE ITS ABSENCE COST A MEASUREMENT WINDOW ON HARDWARE.
+  // The block was first written inside the .ino, where no native test could reach it,
+  // and sized by eye at "~100 B a line". A real 8-belief house renders at 1095 B against
+  // the 1024 B buffer it was given, so `pruneOutcomes` correctly refused — after the
+  // node had already been flashed and the quiet hour spent. The fix is that the builder
+  // lives in the library; the raised constant is a consequence, not the fix.
+  // -------------------------------------------------------------------------
+  {
+    using namespace perceptlearn;
+    // The Cardputer's real belief set, 2026-08-04: 4 peers x 2 protos, two of them
+    // carrying a contradiction. This is the fleet's actual ceiling, not a synthetic one.
+    Reconciler R;
+    R.begin();
+    const uint32_t peers[4] = {0x010, 0x011, 0x012, 0x200};
+    for (int p = 0; p < 4; ++p) {
+      for (int proto = 0; proto < 2; ++proto) {
+        const uint8_t pr = proto ? BLE : ESPNOW;
+        for (int k = 0; k < 24; ++k)
+          R.fold(peers[p], pr, (p == 3 && k % 3 == 0) ? VERDICT_VIOLATED : VERDICT_MET);
+      }
+    }
+    CHECK(R.beliefCount() == 8, "eight beliefs — the fleet's ceiling (got %d)",
+          R.beliefCount());
+
+    char bnd[PERCEPTLEARN_BOUNDARY_BUF];
+    size_t bm = R.buildBoundary(bnd, sizeof(bnd), 24);
+    CHECK(bm > 0, "the boundary block renders (%zu bytes)", bm);
+    CHECK(bm < PERCEPTLEARN_BOUNDARY_BUF,
+          "and fits PERCEPTLEARN_BOUNDARY_BUF (%zu / %d)", bm,
+          PERCEPTLEARN_BOUNDARY_BUF);
+    CHECK(bm > 1024,
+          "⚠ and does NOT fit the 1024 it was first given (%zu) — the exact overflow "
+          "that refused a prune on hardware", bm);
+
+    CHECK(strstr(bnd, "**OUTCOMES-CARRIED** records:24") != NULL,
+          "it states the record count");
+    CHECK(strstr(bnd, "windows_max:24") != NULL,
+          "and windows_max separately — a record is NOT a window since run-length");
+    CHECK(strstr(bnd, "beliefs:8") != NULL, "and how many beliefs it stood behind");
+
+    // One line per belief, so the conclusions survive the evidence.
+    int lines = 0;
+    for (const char* p = bnd; (p = strstr(p, "**BELIEF-AT-BOUNDARY**")) != NULL; ++p)
+      ++lines;
+    CHECK(lines == 8, "one **BELIEF-AT-BOUNDARY** line per belief (got %d)", lines);
+    CHECK(strstr(bnd, "proto:espnow") != NULL && strstr(bnd, "proto:ble") != NULL,
+          "protos are named, not left as raw ints a reader must decode");
+
+    // ⚠ THE NEEDLE CHECK. foldRecord scans for `**OBSERVED** peer:0x` and
+    // `**COVERED** peer:0x`. A boundary carrying either would be re-folded as testimony
+    // the next time the lane was read: the node learning from its own gravestone.
+    CHECK(strstr(bnd, "**OBSERVED** peer:0x") == NULL &&
+              strstr(bnd, "**COVERED** peer:0x") == NULL,
+          "the boundary carries NEITHER fold needle");
+    Reconciler V;
+    V.begin();
+    CHECK(V.foldRecord(bnd, bm) == 0,
+          "and folding the boundary itself yields nothing — proven, not just asserted");
+    CHECK(V.beliefCount() == 0, "so no belief can be born from a gravestone");
+
+    // Nothing rather than a truncation, the rule every builder here follows.
+    char tight[600];
+    CHECK(R.buildBoundary(tight, sizeof(tight), 24) == 0,
+          "a buffer too small yields 0 bytes, never a short belief list");
+  }
+
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
   return fails ? 1 : 0;
 }

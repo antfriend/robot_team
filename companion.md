@@ -3764,6 +3764,187 @@ If a fact lives in one of these, link to it from here — don't copy it.
   reason:heartbeat`, ~15 windows/record, and on the `@LAT92` side a `**COVERED**` line
   whose `windows:` exceeds 1.
 
+- ⚠ **2026-08-04 — THE FIRST `@LAT92` PRUNE REFUSED ITSELF ON HARDWARE, AND THE REASON IS
+  A RULE THIS PROJECT ALREADY HAD.** `--lane 0` landed cleanly (135 370 B → 47 795 B,
+  94–97 emptied, four `@LAT100` markers). `--lane 92` did nothing: `buildOutcomeCarried`
+  rendered **1124 B** into a **1024 B** buffer and returned 0, so `pruneOutcomes` refused
+  rather than write a boundary that understated the evidence. **The mechanism was right —
+  "write nothing rather than truncate" fired exactly as designed.** The arithmetic in
+  front of it was not: the constant was set from an eyeball estimate of "~100 B a line"
+  and a `**BELIEF-AT-BOUNDARY**` line is **122 B**, so a full 8-belief house is 7% over.
+  ⚠ **THE ACTUAL DEFECT IS WHERE THE BUILDER LIVED, NOT THE NUMBER.** It was written
+  inside `cardputer_console.ino`, and **a native test cannot call into a `.ino`** — so
+  the one discipline that has caught this exact failure three times before
+  (`MOTIONPERCEPT_TRANSITION_BUF` at 512, `PERCEPTLEARN_BUF` at 1024, `PERCEPTLEARN_BUF`
+  again at 1792) could not run. Every one of those was caught by a native test measuring
+  the worst case against the constant; this one had no such test *available*, and it is
+  the only one of the four that reached hardware. **The fix is
+  `perceptlearn::Reconciler::buildBoundary` — the render moved into the library; the
+  sketch keeps only the flash I/O the library must not do.** `PERCEPTLEARN_BOUNDARY_BUF`
+  is **1536**, and the test asserts the real 8-belief ceiling both fits it **and does not
+  fit the 1024 that failed**, so shrinking it back fails the build.
+  📎 Lesson worth carrying past this lane: **a builder that renders into a fixed buffer
+  belongs in a portable library, not in a sketch** — not for reuse, but because that is
+  the only place its size can be pinned. Cost here was one measurement window.
+  📊 Native **507 checks**. Cardputer 41% (1 316 161 B), reflashed with the fix.
+
+- ✅ **2026-08-04 — FIRST RUN-LENGTH RECORD READ BACK OFF HARDWARE.** After the `--lane 0`
+  prune, `companion.py motion --file` on a fresh pull:
+  ```
+  lane    t_ms       stream    state  perm  devmax  since  reason
+     0    7084422  be6d9616    still     0      11      1  first
+  ```
+  `reason:first`, `windows_since_last:1`, no `**COVERED**` block, `unaccounted:0` — the
+  format, the firmware and the laptop reader agree end to end. 📎 And `dev_max_mg:11`
+  lands right on B.3's measured floor (p90 = **12 mg**), an independent confirmation of
+  `MOTIONPERCEPT_MOVING_MG 60` from a fresh boot on a different day.
+  ⚠ **Only ONE record, because the observer kept resetting the observed.** Every `pull`
+  and every `cmd` reboots the cabled node and restarts its 60 s window, so a session that
+  flashes, prunes, pulls and re-pulls can never accumulate a run — the node had 8 resets
+  in the hour. This is [[looping-companion-py-resets-bridge]] in its most expensive form:
+  the run-length behaviour is **unobservable from a session that is actively working on
+  the node.** The quiet hour is not a nicety, it is the instrument.
+
+- ✅/⏳ **2026-08-04 — HARDWARE RESULT: THE `@LAT92` PRUNE IS PROVEN; `@LAT95`'s COMPRESSION
+  IS NOT, AND THE REASON IS THE CABLE.**
+  ✅ **`pruneOutcomes` works end to end.** `@LAT92` 24 → 1, and the boundary carries every
+  belief exactly as the node reported it minutes earlier:
+  ```
+  **LANE-PRUNED** lane:92 gen:1 removed:24 last_lon:23 t_ms:8137821 stream:0xbe6d9616 ...
+  **OUTCOMES-CARRIED** records:24 windows_max:24 beliefs:8 met:167 violated:14 unobserved:2
+  **BELIEF-AT-BOUNDARY** peer:0x00000010 proto:ble    conf:176 sal:0  met:24 violated:0 ...
+  **BELIEF-AT-BOUNDARY** peer:0x00000200 proto:espnow conf:50  sal:56 met:17 violated:7
+                         max_streak:2 contradiction:1
+  ```
+  All 8 beliefs, both contradictions, conf 176/176/176/176/158/64/50/158 — the conclusions
+  survived the evidence that produced them, which is the whole point of the boundary.
+  `@LAT91` then fell to 3 beliefs re-derived from the one surviving outcome, exactly as
+  "a belief is as strong as the evidence retained" predicts.
+  ✅ **The `@LAT95` format and the reader agree end to end**, `unaccounted:0`, and
+  `dev_max_mg` read 11/12/13/12 across four records — B.3's measured floor (p90 = 12 mg)
+  reproduced on a different day. **Folding was observed directly**: after a reset the node
+  printed `[motion] percept window -> @LAT95LON5 covers:1` at 60.4 s and then **nothing at
+  120 s or 180 s**, which is a covered window behaving exactly as designed (no record, no
+  print).
+  ⏳ **But compression came out at 1.0.** Four records in 49.6 min, every one
+  `reason:first windows_since_last:1` — no run ever survived to close with a `**COVERED**`
+  block or reach the 30-window heartbeat.
+  ⚠ **THE CAUSE IS NOT THE FIRMWARE: THE RUN WAS BROKEN FOUR TIMES, AND EVERY BREAK IS
+  VISIBLE IN A LANE THAT DID NOT CHANGE.** `@LAT97` is still periodic and flushed 48 times
+  at a median gap of exactly 60 s, so it is a clean cadence reference. Its three
+  over-length gaps sit at t = 7384 / 8137 / 9941 s, and the `@LAT95` records imply run
+  breaks at 7477 / 8141 / 10002 — **8137 → 8141 is a four-second match.** One break was
+  the `--lane 92` prune (its own boundary is stamped `t_ms:8137821`). **The other two were
+  spontaneous.**
+  📎 **So the instrument is the disturbance.** A heartbeat needs **31 consecutive
+  undisturbed windows** — 31 minutes in which nothing resets the node — and a USB-cabled
+  ESP32-S3 does not reliably get them ([[usb-uart-chip-reset-not-a-crash]]: `rst:0x15` is a
+  host/USB reset, not a crash). Every `pull`, every `cmd`, and apparently the host itself
+  every ~10–30 min, resets the board and calls `reset()` → `breakRun()`. Note the shape:
+  the OLD periodic lane was *immune* to this, because a reset costs it one window and
+  nothing else — **run-length is the first thing this fleet has built whose correctness
+  depends on being left alone.**
+  📎 **Next attempt should run it on BATTERY**: unplug the Cardputer (1750 mAh, read 100%),
+  leave it 45 min untouched, then plug in and pull ONCE. It is a roaming handheld; this is
+  the configuration the fleet was designed around, and it removes the host from the
+  experiment entirely. ⚠ Expect `reason:first` on the first record after the plug-in too —
+  that reset is unavoidable and lands *after* the window being measured.
+
+- ✅ **2026-08-04 — `@LAT95` RUN-LENGTH IS PROVEN ON HARDWARE. Compression 6.8x, and the
+  heartbeat fires to the millisecond.** The node ran ~2 h unattended — the one condition
+  the previous attempt could not supply — and the lane now reads **10 records accounting
+  for 68 windows** (68.1 min observed, 62 913 samples, `unaccounted:0`):
+  ```
+  lane        t_ms   state  devmax  since  reason     covered
+     5    12369240   still      12      1  first      -
+     6    14171240   still      12     30  heartbeat  29x still devmax:13 perm:0
+     7    16031903   still      13      1  first      -
+     8    17831903   still      14     30  heartbeat  29x still devmax:13 perm:0
+  ```
+  ```
+  **RUN** windows_since_last:30 reason:heartbeat max_run:30
+  **COVERED** state:still windows:29 n:28966 window_ms:1740000 moving_permille:0
+              dev_mean_mg:9 dev_max_mg:13 moving_ms:0 first_t_ms:16091903
+              last_t_ms:17771903 covered_by:@LAT95LON7
+  ```
+  📊 **LON7 → LON8 is 1 800 000 ms — exactly `MOTIONPERCEPT_MAX_RUN` (30) x 60 000.** The
+  covered block's `window_ms:1740000` is exactly 29 x 60 000, and `covered_by` names the
+  run's opener. Every number the format promises is present and internally exact.
+  📎 **The earlier 1.0 result was the measurement, not the mechanism** — confirmed from the
+  other side: the six `reason:first` records are the disturbed period, records 6 and 8 the
+  quiet one, on the same lane in one file. `dev_max_mg` held 12–13 mg across 68 windows,
+  B.3's floor again.
+  ⏳ **`@LAT92`'s run-length is still unexercised, and `@LAT97` is why.** It is FULL
+  (48/48), and a full link lane calls `gLearn.disarm()` every window, so no expectation is
+  ever armed and no outcome is ever scored. **Prune 94–97 before any run intended to
+  exercise the outcome lane** — and keep V4-A powered, since @LAT92 needs peers to predict
+  about.
+
+- ✅✅ **2026-08-04 — PART 1 IS FULLY VERIFIED ON HARDWARE. The battery run closed both
+  halves, and the lossless claim was checked by an INDEPENDENT laptop re-fold.** The
+  Cardputer ran **43 min unplugged and untouched** (the host removed from the experiment
+  entirely), with V4-A left powered as its peer.
+  📊 **The periodic control, same 43 minutes:** `@LAT94` wrote **43** records and `@LAT97`
+  wrote **43** — one per minute, as they always did. Against that:
+  ```
+  @LAT95   2 records / 31 windows   = 15.5x     compression
+  @LAT92   6 records / 36 windows   =  6.0x     compression
+  ```
+  ✅ **`@LAT95`:** `LON1` reads `windows_since_last:30 reason:heartbeat` with
+  `**COVERED** windows:29`, spaced 1 800 000 ms from `LON0` — exactly `MAX_RUN` x 60 000.
+  ✅ **`@LAT92`, the half that had never run:**
+  ```
+  **RUN** windows_since_last:30 reason:heartbeat max_run:30
+  **COVERED-SPAN** windows:29 first_t_ms:18884845 last_t_ms:20564845
+                   counts_scored_windows_not_minutes:1
+  **COVERED** peer:0x00000010 proto:ble    verdict:met windows:29 observed_min:-64 observed_max:-61
+  **COVERED** peer:0x00000010 proto:espnow verdict:met windows:29 observed_min:-49 observed_max:-47
+  **COVERED** peer:0x00000100 proto:espnow verdict:met windows:29 observed_min:-45 observed_max:-42
+  ```
+  The span is 1 680 000 ms = 28 x 60 000, exactly 29 windows' worth of gaps.
+  🔬 **THE LOSSLESSNESS CLAIM, TESTED THE ONLY WAY THAT COUNTS.** Rule 3 was
+  re-implemented independently on the laptop (fold in document order, `**COVERED**` lines
+  folded `windows:` times) and run against the pulled lane:
+  ```
+             laptop re-fold                      device @LAT91
+  0x010 ble    conf:182 sal:8 met:35 vio:1  ==   conf:182 sal:8 met:35 vio:1
+  0x010 espnow conf:196 sal:0 met:34 unob:1 ==   conf:196 sal:0 met:34 unob:1
+  0x100 espnow conf:200 sal:0 met:36        ==   conf:200 sal:0 met:36
+  ```
+  **Exact on every field.** And the tallies are **34–36 windows from 6 records** — the
+  denominator survived compression intact, which is the entire reason run-length was
+  legitimate on a tally. `conf 182 = 128 + 2(35) - 16(1)` checks by hand.
+  ✅ **The citation fix is visible in the field:** outcomes carry
+  `acting:@LAT95LON1+1`, `+3`, `+4` and `@LAT95LON0+0`, `+1` — **non-zero offsets**, i.e.
+  expectations correctly provenanced to *suppressed* motion windows rather than to a
+  record describing a different one. That was §1.1's whole problem.
+  📎 Two incidental observations: `@LAT95LON0` caught the **unplug** as
+  `dev_max_mg:466 moving_permille:68` and still returned `state:still` — 6.8% of samples
+  over the line is under the 100-permille verdict gate, exactly as designed. And
+  **peer `0x00000100` is the K10**, which is powered and being heard over ESP-NOW despite
+  being PARKED in §2.
+
+- ⚠ **2026-08-04 — PART 2's ARCHIVED `@LAT96` BASELINE IS NOT USABLE, and the way it fails
+  is B.3's trap in a new costume.** Measuring consecutive-window Jaccard drift off
+  `cardputer_pre.md` gave plausible numbers (p50 0.333, p90 0.538, max 0.727) — and then
+  the cross-check killed them: those 48 windows span **five different streams** and `t_ms`
+  runs **backwards four times**, so the lane is fragments of several runs, not one; and the
+  `@LAT95` lane that would evidence stillness sits on a **different stream**, so there is
+  no independent evidence the node was still while those AP sets were collected.
+  📎 **The rule that caught it: the stillness evidence must come from a DIFFERENT SENSOR
+  than the one under test.** B.3's failure was windows labelled `still` by the threshold
+  being measured; here the threshold is Jaccard and the witness is the IMU, which is
+  legitimate — but only if the two cover the same period on the same timeline. **Check the
+  stream ids before trusting any cross-lane cross-check.**
+  📊 The directional hint survives and matches the handoff's prediction: with a median of
+  only **8 APs per window**, one AP appearing or vanishing moves Jaccard by ~0.125, so
+  neighbour churn eats much of the dynamic range. Block-smoothing did not obviously rescue
+  it (k=3 → p90 0.417, k=8 → p90 0.375, but n falls to 5). If that holds on clean data the
+  naive per-window Jaccard trigger is a poor change signal on this board, and Part 2 wants
+  a **stable-core** set (APs seen in ≥N of the last M windows) rather than the raw set.
+  ⏳ The battery run collected only **5** `@LAT96` windows (its scan is on a ~5 min duty
+  cycle), so a clean baseline still needs a longer quiet run — several hours, not one.
+
 - ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
   change signal is **Jaccard drift between consecutive windows**, and its threshold has to
   be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating

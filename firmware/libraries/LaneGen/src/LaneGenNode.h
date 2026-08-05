@@ -50,12 +50,21 @@
 #define LANEGEN_OUTCOME_LANE 92
 #endif
 #ifndef LANEGEN_CARRIED_BUF
-// The caller-built `carried` block a pruneOutcomes() boundary carries: one tally line
-// plus one **BELIEF-AT-BOUNDARY** line per belief (8 max, ~100 B each). 1024 is ~15%
-// headroom. Both the caller's builder and buildPruneRecord write NOTHING rather than
-// truncating, so an undersized buffer refuses the prune instead of writing a boundary
-// that understates the evidence it is standing in for.
-#define LANEGEN_CARRIED_BUF 1024
+// Room for the caller-built `carried` block a pruneOutcomes() boundary carries.
+//
+// ⚠ MEASURED, AND THE FIRST NUMBER HERE WAS WRONG. It was set to 1024 from an eyeball
+// estimate of "~100 B a line"; the real @LAT92 block is a 120 B tally line plus 8 x
+// 122 B belief lines = **1124 B**, so the very first prune on hardware refused itself
+// and cost a measurement window. The block is now rendered by
+// `perceptlearn::Reconciler::buildBoundary`, whose own PERCEPTLEARN_BOUNDARY_BUF is
+// pinned by a native test against the real 8-belief ceiling — this constant only has to
+// be at least that, and 1536 matches it exactly.
+//
+// Both the caller's builder and buildPruneRecord write NOTHING rather than truncating,
+// so an undersized buffer refuses the prune instead of writing a boundary that
+// understates the evidence it stands in for. That behaviour was correct throughout; the
+// arithmetic in front of it was not.
+#define LANEGEN_CARRIED_BUF 1536
 #endif
 
 #ifndef LANEGEN_BUF
@@ -316,8 +325,11 @@ inline bool pruneOutcomes(Ttdb& db, const timestream::Stamp& stamp, uint32_t nod
   p.last_lon = top;
   p.node_id = node_id;
   p.stamp = stamp;
-  // Bigger than LANEGEN_BUF: this record carries the tally block as well.
-  char rec[LANEGEN_CARRIED_BUF + 320];
+  // Bigger than LANEGEN_BUF: this record carries the tally block as well. `static`
+  // because 1856 B is too much to put on the loop stack next to the caller's own
+  // PERCEPTLEARN_BOUNDARY_BUF buffer — and a prune is single-threaded by construction
+  // (the radio path defers it to loop(), the serial path already runs there).
+  static char rec[LANEGEN_CARRIED_BUF + 320];
   const size_t m = buildPruneRecord(rec, sizeof(rec), markers_total, p, t_sec, 0, 0,
                                     carried);
   if (!m) {
