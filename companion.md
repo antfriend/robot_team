@@ -4079,10 +4079,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
 
   ⚠ **Re-identify the COM ports; do not reuse `COM14`/`COM6` from this session.** ⚠ Never
   run `Upload-Cardputer-FS.ps1` during a measurement — it wipes the lanes.
-  ⚠ **V4-A's prunes were NEVER VERIFIED** — it was unplugged when the Cardputer was
-  checked, and it was last seen at `@LAT90` **15/16** with `@LAT96`/`@LAT97` full. A full
-  `@LAT90` cannot record stream changes, and that lane is the forensic record that
-  diagnosed the failed night. Verify it before starting.
+  ✅ **BOTH BOARDS VERIFIED READY 2026-08-06, so only step (a) is left.** V4-A's four
+  prunes all landed (`@LAT100` carries `lane:96 gen:2 removed:48`, `lane:97 gen:2
+  removed:48`, `lane:90 gen:1 removed:15`) and it now sits at **`@LAT90` 2/16** — the
+  concern was that a full `@LAT90` could not record stream changes, and that is resolved.
+  Its `@LAT96`/`@LAT97` have refilled to 48/48, which is **harmless**: only the Cardputer's
+  lanes are analysed, and V4-A has no `PerceptLearn` to disarm. 105/256 records.
+  **The Cardputer is charged — 4.190 V / 99 %.**
 
   **2. Part 2 proper is still UNWRITTEN.** Only the *baseline* exists. `@LAT96`
   change-triggered with run-length (the `@LAT95`/`@LAT92` treatment) has not been
@@ -4095,11 +4098,18 @@ If a fact lives in one of these, link to it from here — don't copy it.
   Jaccard trigger may simply not be usable here** — the stated fallback is a *stable-core*
   set (APs seen in ≥N of the last M windows), and night 2 is what decides between them.
 
-  **3. `maxalloc` on the Cardputer reads 8 KB** (vs ~45 KB documented, 29–30 KB recently);
-  its own gauge warns below 16 KB. Unexplained. Ruled OUT as the reboot cause (V4-A had
-  101 KB and reset in lockstep) and WiFi scans still run, so it is a latent regression
-  rather than a blocker. Adjacent to, but distinct from, the unsolved ~2 s `lp` stall
-  ([[loop-stall-not-in-loop-body]]).
+  **3. `maxalloc` on the Cardputer reads 7–8 KB** (vs ~45 KB documented, 29–30 KB
+  recently); its own gauge warns below 16 KB. Unexplained. Ruled OUT as the reboot cause
+  (V4-A had 101 KB and reset in lockstep) and WiFi scans still run, so it is a latent
+  regression rather than a blocker.
+  ⚠ **It is a persistent CEILING, not a leak — do not go looking for a leak.** Four
+  Cardputer readings across uptimes 1 m / 20 m / 25 m and a mid-run sample all sit at
+  **7–8 KB**, i.e. it is already there moments after boot and does not drift. V4-A behaves
+  differently and is the contrast worth using: **101 KB at 35 s → 38 KB at 2 h29 m**, a
+  genuine decline with uptime. Two different phenomena; conflating them would send the
+  investigation the wrong way. Distinct again from the unsolved ~2 s `lp` stall
+  ([[loop-stall-not-in-loop-body]]), though a 7 KB ceiling is a plausible new suspect for
+  it and the two should be looked at together.
 
   **4. Part 3 closeouts, unchanged.** `TIMESTREAM_MAX_LANE 16`'s refuse-on-full policy now
   that prune paths exist — with its sibling question: every lane here has a cap, a
