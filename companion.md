@@ -3979,6 +3979,46 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📊 Suites: native **507**, Python **275 across 10 files** (new
   `tests/test_entity_drift_py.py`, 18 checks).
 
+- ❌ **The first 8 h Part 2 baseline FAILED, and the cause is the LAPTOP'S USB HOST
+  RESETTING BOTH BOARDS — not "the Cardputer lost power" (2026-08-06).** The gates refused
+  it: **5 streams**, `t_ms` backwards 4×. The diagnosis came from **V4-A's own `@LAT90`**,
+  pulled over its own cable: it carries a **`STREAM-ORIGIN` for every stream the Cardputer
+  later joined** (`be6d9616`, `dffbae31`, `185f5a4b`, `946fea42`, …). Both boards restarted
+  **together, ~5–7 times**. ⚠ **V4-A was sitting at 4.096 V / 89 % the whole time, so this
+  was never a brownout** — a charged pack does not stop a `USB_UART_CHIP_RESET`, which is a
+  *chip* reset driven by the host asserting DTR ([[usb-uart-chip-reset-not-a-crash]]). The
+  same "spontaneous host/USB resets" wrecked the first Part 1 attempt; that is **twice**, so
+  treat the laptop as an active hazard to any multi-hour run, not a neutral power source.
+  🔧 **Fix: power both nodes from a WALL CHARGER or power bank — never a laptop port.** No
+  host ⇒ no DTR ⇒ no reset, and unlike battery the run cannot end early. This is not a new
+  risk: the 43 min Part 1 battery run already proved the sketch is happy with **no USB host
+  attached**. Reconnect to the laptop only for the single pull at the end, where the reset it
+  causes costs nothing.
+  ⚠ **My own two mistakes here, both worth not repeating.** (1) `intero --port COM6` with
+  `--node` left at its default queries **the Cardputer through the bridge** and prints
+  `cardputer_1` — an answer on a port still proves nothing about which board that port is,
+  exactly as the identify-by-app-image rule says. **Name the node.** (2) That call reset V4-A,
+  **destroying its uptime**, which was the one direct measurement of the shared-reset
+  hypothesis. `@LAT90` happened to preserve the answer; next time read uptime *first*.
+  🔬 **Salvage: the run was ~1 h short, not hopeless.** Longest unbroken stream `185f5a4b` =
+  **25 windows / 3.88 h**; the floor is **31 windows ≈ 5.2 h** (≥30 pairs), so a run only has
+  to clear 5.2 h — and `ENTITYPERCEPT_MAX_LANE 48` caps it at exactly **8.0 h**. That is the
+  usable band. 📈 **Feasibility preview on that one clean stream (NOT a baseline — it did not
+  earn one): n=21, min 0.111, p50 0.300, p90 0.444, max 0.556, zero zeros, AP set 4–11.**
+  So the signal is live, and it already hints that a **still** node's drift floor is high
+  enough that the threshold will be loose — the §6 warning above, now with numbers.
+  ⚠ **`@LAT90` is at 15/16 on BOTH boards.** Prune it on both or the next run's stream
+  changes cannot be recorded — and that lane is the only reason this failure was diagnosable.
+  ⚠ **`mind` on the Cardputer reads 8 KB `maxalloc`, against ~45 KB documented and 29–30 KB
+  seen more recently** — the sketch's own gauge calls <16 KB the warn band. It did **not**
+  cause the resets (V4-A had 101 KB and reset in lockstep), and WiFi scans still ran, so it
+  is logged as a live regression to investigate, not this run's culprit.
+  ⚠ **`tests/test_entity_drift_py.py`'s fixture was not byte-faithful** — it wrote
+  `**ENTWIN** … n:` / `kind:wifi` where the firmware writes **`entities:`** / **`wifi_ap`**.
+  It passed anyway, because `parse_entity_percepts` derives the set from `**ENTITY**` lines
+  and ignores the count. Fixed against a real record. *A gate proven only against a record
+  the firmware would never emit is not proven.*
+
 - ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
   change signal is **Jaccard drift between consecutive windows**, and its threshold has to
   be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating

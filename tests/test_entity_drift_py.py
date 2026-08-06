@@ -36,11 +36,17 @@ OTHER = 0x59FB8CE8
 
 def ent(lane, t_ms, ids, stream=STREAM):
     """One @LAT96 record as EntityPercept::buildRecord emits it."""
-    body = "\n---\n\n@LAT96LON%d | created:0 | updated:0 | relates:senses@LAT0LON0\n\n" % lane
-    body += ("**ENTWIN** t_ms:%d stream:0x%08x wall:0 window_ms:60000 n:%d\n"
+    # Byte-faithful to EntityPercept::buildRecord: the window line counts APs as
+    # `entities:`, NOT `n:` (the per-AP `n:` is a sighting count), and the kind is
+    # `wifi_ap`. Verified against a real @LAT96 record pulled 2026-08-06 -- an earlier
+    # fixture here used `n:`/`wifi` and passed anyway, because the parser derives the
+    # set from **ENTITY** lines. A gate proven only against a record the firmware
+    # would never emit is not proven.
+    body = "\n---\n\n@LAT96LON%d | created:0 | updated:0 | relates:observes@LAT0LON0\n\n" % lane
+    body += ("**ENTWIN** t_ms:%d stream:0x%08x wall:0 window_ms:600000 entities:%d\n"
              % (t_ms, stream, len(ids)))
     for i in ids:
-        body += "**ENTITY** kind:wifi id:%s n:3 rssi:-60\n" % i
+        body += "**ENTITY** kind:wifi_ap id:%s n:1 rssi:-60\n" % i
     return body
 
 
