@@ -53,7 +53,12 @@ firmware/
                         acoustic senses (BMI270 + ES8311 mic); no LoRa, no GPS
 orchestrator/companion.py   Laptop side: pull/sync/verify/reconcile/push/cmd/
                             monitor/band over the link
+orchestrator/fleet_ui.py    The same fleet in one tkinter window: link status, live
+                            intero table, position map, lane caps + Clear. Holds ONE
+                            connection per link (open_serial_no_reset) instead of
+                            resetting the node on every refresh the way the CLI does.
 master/                 Laptop-side artifacts: consolidated + belief TTDBs, logs
+master/ui/              TTDBs pulled by fleet_ui.py, kept out of the curated set
 scripts/                setup / build / deploy / upload-fs (arduino-cli)
 tests/                  Native test for the portable libs (g++ + make)
 replicate/              Open-source publication front door (README + the spec store)

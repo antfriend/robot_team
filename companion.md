@@ -4055,6 +4055,70 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ⚠ Printed output must stay **ASCII**: `⚠` (U+26A0) raises `UnicodeEncodeError` on this
   cp1252 console. Third time; it is a console limit, not a source-encoding one.
 
+- ✅ **A LAPTOP-SIDE FLEET CONSOLE — `orchestrator/fleet_ui.py`, one window over the whole
+  fleet (2026-08-06).** tkinter + pyserial only, and it imports `companion.py` as a
+  library, so no wire format, parser or retransmit rule is re-implemented here.
+
+  ```bash
+  python orchestrator/fleet_ui.py --bridge COM6 --aux COM14   # ports also pickable in-window
+  ```
+
+  **Why it holds a connection instead of shelling out per refresh — this is the whole
+  design.** Every `companion.py` invocation opens with DTR/RTS asserted and reboots the
+  cabled node, so a UI built on the CLI would reset the fleet several times a second: the
+  mechanism that fabricated a two-node outage ([[looping-companion-py-resets-bridge]]) and
+  then wrecked a Part 1 and a Part 2 overnight run. So each link owns its port on **one
+  thread for the port's whole open life** (`open_serial_no_reset`), and polling, commands
+  and pulls are all jobs on that thread. Panels: **links** (the V4-A bridge plus one aux
+  cable, each with tx/rx frame counters and reply age), **fleet** (every node's
+  `CMD_GET_INTERO` body + `CMD_GET_STATUS`, coloured by freshness; double-click toggles
+  polling), **global view** (drawn from `master/positions.md` where that SP2 belief exists
+  — solid outline — else ring-placed and **dashed, so a drawing never reads as a belief**),
+  **lanes** (every lane with its firmware cap and fill bar, plus Clear), **controls**, **log**.
+  🔬 **VERIFIED LIVE ON ALL FIVE NODES** (COM6 = V4-A, COM14 = Cardputer):
+
+  ```
+  node        via     volts  %     dieC  memKB  up      lp  bpm  conductor      band
+  v4a_bridge  bridge  4.081  88%   58.8  81     44m41s  35  120  cardputer_1    clk- chart
+  v4b_relay   bridge  3.905  64%   35.2  95     1m32s   35  120  cardputer_1    clk- chart
+  v4c_edge    bridge  3.929  67%↑  35.6  95     1m31s   41  120  cardputer_1    clk- chart
+  tdeck_1     bridge  3.880  61%   34.8  20     3m59s   74  120  cardputer_1    clk- chart
+  cardputer_1 aux     4.200  100%  47.6  7      10m51s  18  120  cardputer_1 *  clk- chart
+  ```
+
+  Link routing worked as designed: the aux cable polls **only the node it is declared to
+  be** (`['cardputer_1']`, no air hop), the bridge polls the other four. `cardputer_1`
+  holding the baton over lower-id nodes is **not** a defect — era wins, lowest-id is only a
+  tie-break (§6 2026-07-24) — checked so the next reader need not.
+  ⚠ **A NO-RESET OPEN DID NOT RESET EITHER BOARD, AND THAT IS MEASURED, NOT ASSUMED:**
+  V4-A's uptime ran **41m28s → 44m41s across three separate connects** and the Cardputer's
+  **7m29s → 10m51s**, both monotonic. So the framed toot link works over a `dtr=False`
+  open on a **handheld** as well as a V4. ⚠ This does **not** overturn the 2026-07-29 note
+  that a no-reset tail reads nothing — that was the sketch's **console text**, which was
+  not retested here. Frames yes, prints unretested.
+  🔧 **Consequence for the Part 2 runbook:** a run can be inspected *while it is running* —
+  and its end-of-run pull taken — without the port open costing a reset. The `intero`
+  reset caveat applies to the CLI path, not to this one.
+  ✅ **Pull + lanes, over V4-A's own cable: 34 708 B in 0.9 s, zero null bytes** (no gaps),
+  clean record boundary at the tail. The panel then read `@LAT96` **48/48**, `@LAT97`
+  **48/48**, `@LAT90` **2/16**, `@LAT100` **5/32**, 105 records — matching item 1's
+  independently-recorded readiness numbers exactly, which is the corroboration that says
+  the lane arithmetic is right. Pulls land in **`master/ui/<node>.md`**, deliberately out
+  of the curated `master/` artifacts.
+  📋 **Clear routes by lane and refuses what the firmware refuses.** 94–97 and ALL are
+  ordinary; `@LAT92` asks with the full warning that it returns every `@LAT91` belief to
+  baseline; ALL warns it takes `@LAT96`'s Jaccard baseline with it; 91/93/98/99/100 are
+  greyed as "(no prune path)" rather than offering a button the node would refuse. It
+  sends **8 attempts** and reports a missing ACK as **unconfirmed, not failed** — a prune
+  rewrites flash and can be busy through its own ACK window
+  ([[band-play-ack-false-negative]]). Step (a) of item 1's runbook is therefore now four
+  button presses for the operator.
+  ⚠ **The aux node is DECLARED, never detected, and the UI says so on the glass.** Declared
+  wrong on purpose (`tdeck_1` on the Cardputer's cable), the row read **`tdeck_1 has not
+  replied`** while the Cardputer's own data filled its row — it did not quietly relabel the
+  cable to whoever answered. That is the identify-by-app-image rule holding under a wrong
+  operator claim, which is the only time it matters.
+
 - ⏭ **OUTSTANDING ITEMS (as of 2026-08-06, end of session). The working tree is CLEAN —
   everything below is unstarted work, not unsaved work.** Commit `ee85d8f` carries the
   baseline, the four pulled TTDBs, `--segment`, and the tests.
@@ -4107,7 +4171,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
   **7–8 KB**, i.e. it is already there moments after boot and does not drift. V4-A behaves
   differently and is the contrast worth using: **101 KB at 35 s → 38 KB at 2 h29 m**, a
   genuine decline with uptime. Two different phenomena; conflating them would send the
-  investigation the wrong way. Distinct again from the unsolved ~2 s `lp` stall
+  investigation the wrong way.
+  📊 **Fifth and sixth readings, from the fleet console the same evening, both confirm
+  the split:** Cardputer **8 KB at 7 m29 s → 7 KB at 10 m51 s** (ceiling, flat), V4-A
+  **83 KB at 41 m → 81 KB at 44 m** (on the decline curve, between its 35 s and 2 h29 m
+  points). ⚠ **And the ceiling is not a handheld trait** — the T-Deck, the other handheld,
+  reads **20–22 KB**, i.e. low but ~3× the Cardputer. Whatever it is, it is that node's. Distinct again from the unsolved ~2 s `lp` stall
   ([[loop-stall-not-in-loop-body]]), though a 7 KB ceiling is a plausible new suspect for
   it and the two should be looked at together.
 
