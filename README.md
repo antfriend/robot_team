@@ -17,5 +17,5 @@ Where to start:
 - [companion.md](companion.md) — the orchestrator brain: fleet table, current state, next actions. **Read first.**
 - [CLAUDE.md](CLAUDE.md) — build & deploy (arduino-cli) and per-board gotchas.
 - [PLAN.md](PLAN.md) — the phased build plan.
-- [RFCs/INDEX.md](RFCs/INDEX.md) — governing specs (A32, TTDB, TTN, TTCP).
+- [RFCs/INDEX.md](replicate/RFCs/INDEX.md) — governing specs (A32, TTDB, TTN, TTCP).
 
