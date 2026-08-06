@@ -4055,16 +4055,57 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ⚠ Printed output must stay **ASCII**: `⚠` (U+26A0) raises `UnicodeEncodeError` on this
   cp1252 console. Third time; it is a console limit, not a source-encoding one.
 
-- ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
-  change signal is **Jaccard drift between consecutive windows**, and its threshold has to
-  be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating
-  since the 08-03 prune. ⚠ The AP set is not stationary the way an accelerometer's floor
-  is: neighbours' APs come and go on their own schedule, so the quiet baseline includes
-  churn the node did not cause. Measure long enough to see it and expect a looser
-  threshold than intuition suggests. Part 3's closeouts are unchanged, except that
-  `TIMESTREAM_MAX_LANE`'s full-policy question now has a sibling worth deciding with it:
-  every lane in this system has a cap, a full-policy, and (as of today) a run-length
-  option, and only `@LAT90`'s policy is still "refuse and print".
+- ⏭ **OUTSTANDING ITEMS (as of 2026-08-06, end of session). The working tree is CLEAN —
+  everything below is unstarted work, not unsaved work.** Commit `ee85d8f` carries the
+  baseline, the four pulled TTDBs, `--segment`, and the tests.
+
+  **1. ▶ NEXT SESSION: the SECOND 8 h baseline night** — the only thing blocking Part 2's
+  threshold. Its purpose is **transfer**, not more precision: does night 2 agree with
+  night 1 (p50 0.143 · p90 0.375 · p95/max 0.500)? Runbook:
+
+  ```bash
+  # a) prune BOTH boards first (the run must BE the sample). Blocked by the
+  #    permission classifier for Claude -- the operator runs these.
+  python orchestrator/companion.py cmd --op clear-percepts --lane 0  --node cardputer_1 --port <COM> --attempts 6
+  python orchestrator/companion.py cmd --op clear-percepts --lane 90 --node cardputer_1 --port <COM> --attempts 6
+  python orchestrator/companion.py cmd --op clear-percepts --lane 0  --node v4a_bridge  --port <COM> --attempts 6
+  python orchestrator/companion.py cmd --op clear-percepts --lane 90 --node v4a_bridge  --port <COM> --attempts 6
+  # b) CHARGE the Cardputer (night 1 ended at 7 %), then run >=5.2 h, node still,
+  #    V4-A POWERED ALONGSIDE -- that is what let night 1 survive two reboots.
+  # c) one pull at the end, then:
+  python orchestrator/companion.py pull --node cardputer_1 --port <COM> --out master/entity-baseline/cardputer_baseline_night2.md
+  python orchestrator/companion.py entity-drift --file master/entity-baseline/cardputer_baseline_night2.md --segment
+  ```
+
+  ⚠ **Re-identify the COM ports; do not reuse `COM14`/`COM6` from this session.** ⚠ Never
+  run `Upload-Cardputer-FS.ps1` during a measurement — it wipes the lanes.
+  ⚠ **V4-A's prunes were NEVER VERIFIED** — it was unplugged when the Cardputer was
+  checked, and it was last seen at `@LAT90` **15/16** with `@LAT96`/`@LAT97` full. A full
+  `@LAT90` cannot record stream changes, and that lane is the forensic record that
+  diagnosed the failed night. Verify it before starting.
+
+  **2. Part 2 proper is still UNWRITTEN.** Only the *baseline* exists. `@LAT96`
+  change-triggered with run-length (the `@LAT95`/`@LAT92` treatment) has not been
+  implemented at all — no `ENTITYPERCEPT_MAX_RUN`, no `**RUN**`/`**COVERED**` on `@LAT96`.
+  ⚠ And it is **not** a mechanical copy of Part 1: `@LAT95`'s verdict is a 2-state label,
+  `@LAT96`'s would be a *threshold on a continuous drift*, so "unchanged" becomes a
+  judgement the reader cannot re-derive from the record. Decide what a `**COVERED**` block
+  must carry to keep that honest before writing code. ⚠ Also unresolved: at p90 0.375 the
+  quiet floor eats most of the range (2.7x headroom, vs motion's 5.0x), so **a per-window
+  Jaccard trigger may simply not be usable here** — the stated fallback is a *stable-core*
+  set (APs seen in ≥N of the last M windows), and night 2 is what decides between them.
+
+  **3. `maxalloc` on the Cardputer reads 8 KB** (vs ~45 KB documented, 29–30 KB recently);
+  its own gauge warns below 16 KB. Unexplained. Ruled OUT as the reboot cause (V4-A had
+  101 KB and reset in lockstep) and WiFi scans still run, so it is a latent regression
+  rather than a blocker. Adjacent to, but distinct from, the unsolved ~2 s `lp` stall
+  ([[loop-stall-not-in-loop-body]]).
+
+  **4. Part 3 closeouts, unchanged.** `TIMESTREAM_MAX_LANE 16`'s refuse-on-full policy now
+  that prune paths exist — with its sibling question: every lane here has a cap, a
+  full-policy and (since 08-04) a run-length option, and only `@LAT90`'s policy is still
+  "refuse and print". Plus the **K10** (compiles at 20 %, needs one flash when it next
+  appears) and **`percept-learning-return.md`**, cleared for TTE on 08-02, still unsent.
 
 Keep this section current. It is the first thing the next session reads.
 
