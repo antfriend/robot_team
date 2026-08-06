@@ -183,6 +183,42 @@ check(c.jaccard_distance(set(), set()) is None,
       "two empty windows yield no sample, rather than a fabricated 0.0")
 
 # ---------------------------------------------------------------------------
+# 8) SEGMENT SELECTION -- the longest CONTIGUOUS single-stream run.
+# A reboot late in an otherwise good night originates a fresh stream and splits the
+# lane. Judging the long interval on its own merits is fair; stitching intervals
+# together is not, which is why this is contiguity-based and not a filter by id.
+# ---------------------------------------------------------------------------
+SPLIT = lane(41) + lane(7, t0=9000000, stream=OTHER)
+st, idx, seg = c.longest_stream_segment(c.parse_entity_percepts(SPLIT))
+check(st == STREAM and len(seg) == 41 and idx == 0,
+      "a 41+7 split night selects the 41-window segment (got %d at %d)" % (len(seg), idx))
+
+# The trap: the node LEAVES a stream and REJOINS it. A filter by stream id would
+# return 6+6=12 windows spanning a hole and call it one observation.
+REJOIN = (lane(6) + lane(9, t0=5000000, stream=OTHER)
+          + lane(6, t0=9000000))
+rew = c.parse_entity_percepts(REJOIN)
+st2, _, seg2 = c.longest_stream_segment(rew)
+check(len(seg2) == 9 and st2 == OTHER,
+      "leave-and-rejoin picks the 9-window CONTIGUOUS middle, not the 6+6 union "
+      "(got %d)" % len(seg2))
+check(len([w for w in rew if w["stream"] == STREAM]) == 12 and len(seg2) != 12,
+      "-- and a plain filter by stream id WOULD have returned that stitched 12, "
+      "which is the whole reason this is contiguity-based")
+
+check(c.longest_stream_segment([]) == (None, 0, []),
+      "an empty lane yields no segment rather than raising")
+
+# Segment selection must not rescue a genuinely bad run: the segment still faces
+# gates 2-4, and a moving witness inside it still fails.
+MOVEDSEG = lane(41) + witness(span_s=600 * 40, state="moving")
+_, _, ms = c.longest_stream_segment(c.parse_entity_percepts(MOVEDSEG))
+okm, gm, _ = c.entity_drift_gates(ms, c.parse_motion_percepts(MOVEDSEG))
+check(not okm and not gm[2][1],
+      "a selected segment whose IMU saw MOVING still FAILS -- selection narrows the "
+      "window, it does not lower the bar")
+
+# ---------------------------------------------------------------------------
 print()
 if fails:
     print("%d FAILED" % fails)

@@ -4019,6 +4019,42 @@ If a fact lives in one of these, link to it from here — don't copy it.
   and ignores the count. Fixed against a real record. *A gate proven only against a record
   the firmware would never emit is not proven.*
 
+- ✅ **PART 2 HAS ITS BASELINE — the second attempt PASSED ALL FOUR GATES (2026-08-06).**
+  `master/entity-baseline/cardputer_baseline_2026-08-06.md`, reproducible with
+  **`companion.py entity-drift --file <f> --segment`**:
+
+  ```
+  SEGMENT: longest contiguous single-stream run = stream e334a7e1, 41 of 48 window(s)
+  [PASS] one stream id · [PASS] t_ms monotonic · [PASS] @LAT95 stillness 0 moving,
+  95% span, timeline match · [PASS] 37 pairs kept, 3 discarded off-cadence
+  AP set/window: min 4 p50 5 max 8   (one AP moves Jaccard ~0.200 at p50)
+  DRIFT n=37: min 0.000  p50 0.143  p75 0.286  p90 0.375  p95 0.500  max 0.500
+  ```
+
+  🔬 **The run survived TWO reboots without breaking, because V4-A held the stream** —
+  `@LAT90` LON1/LON2 are `RECONCILED` back onto `e334a7e1` after the node originated its
+  own and lost. That is the team time stream earning its keep: the same reboots that
+  shattered the previous night into 5 timelines cost this one only 3 off-cadence pairs.
+  A third reboot at ~6.5 h found V4-A absent, originated `be8a1293`, and ended the run.
+  ⚠ **It ran ~7.5 h on BATTERY, down to 7 % / 3.574 V — so my "8 h on battery with the
+  display lit is not credible" was WRONG.** Battery is viable and is also immune to the
+  host resets; a wall charger is still better only because it cannot run out.
+  ⚠ **`--segment` selects the longest CONTIGUOUS single-stream run, never a filter by
+  stream id** — a node can leave a stream and rejoin it, and a plain filter would stitch
+  the two blocks across the hole and present it as one unbroken observation
+  (`longest_stream_segment`, with the stitching trap pinned in the tests). The rule is
+  outcome-independent (longest wins, drift never consulted), but ⚠ **under it gate 1
+  holds BY CONSTRUCTION and tests nothing — say so when reporting; gates 2–4 carry it.**
+  ⚠ **ONE NIGHT IS NOT A TRANSFERABLE THRESHOLD.** The preview off the *failed* night
+  disagrees materially — p50 **0.300** vs **0.143**, zeros **0/21** vs **15/37**, AP set
+  mean **8.2** vs **5.5** — on the same node in the same place. The AP population itself
+  differs by day, and Jaccard's quantisation rides on set size (1/5 = 0.200 vs 1/8 =
+  0.125). This is the RSSI lesson again ([[rssi-ranging-shadowing-limited]]): **measure a
+  second night before fixing the constant**, and expect the threshold to need ≥0.5.
+  📊 Python **280 across 10 files** (entity-drift 18 → 23).
+  ⚠ Printed output must stay **ASCII**: `⚠` (U+26A0) raises `UnicodeEncodeError` on this
+  cp1252 console. Third time; it is a console limit, not a source-encoding one.
+
 - ⏭ **NEXT: part-b-handoff.md Part 2 (`@LAT96` change-triggered) and Part 3.** Part 2's
   change signal is **Jaccard drift between consecutive windows**, and its threshold has to
   be **measured, not chosen** — the standard B.3 met. The baseline has been accumulating

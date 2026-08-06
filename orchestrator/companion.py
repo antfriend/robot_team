@@ -2495,6 +2495,35 @@ def jaccard_distance(a, b):
     return 1.0 - len(a & b) / len(u)
 
 
+def longest_stream_segment(entity_windows):
+    """Longest CONTIGUOUS run of @LAT96 windows sharing one stream, in document order.
+
+    ⚠ CONTIGUOUS, not `[w for w in ew if w.stream == x]`. A plain filter by stream id
+    silently stitches together blocks that were not adjacent in time — the node can
+    leave a stream and rejoin it later — and the result would look like one unbroken
+    observation while containing a hole. Segment selection is only honest if the
+    segment is a real interval.
+
+    The rule is deliberately OUTCOME-INDEPENDENT: longest wins, and drift values are
+    never consulted. That is what separates this from picking the segment that gives
+    the prettiest number. ⚠ Under this selection gate 1 is satisfied BY CONSTRUCTION
+    and stops testing anything; gates 2-4 still do the real work, and a caller must
+    say so when reporting. Returns (stream, start_index, windows) or (None, 0, []).
+    """
+    best = (None, 0, [])
+    i = 0
+    n = len(entity_windows)
+    while i < n:
+        j = i
+        st = entity_windows[i]["stream"]
+        while j + 1 < n and entity_windows[j + 1]["stream"] == st:
+            j += 1
+        if st is not None and (j - i + 1) > len(best[2]):
+            best = (st, i, entity_windows[i:j + 1])
+        i = j + 1
+    return best
+
+
 def entity_drift_gates(entity_windows, motion_records,
                        spacing_s=ENTITY_SCAN_PERIOD_S,
                        tol_s=ENTITY_SPACING_TOL_S,
@@ -2562,16 +2591,37 @@ def entity_drift_gates(entity_windows, motion_records,
 
 
 def entity_drift(path, spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_S,
-                 min_pairs=ENTITY_MIN_PAIRS, force=False):
+                 min_pairs=ENTITY_MIN_PAIRS, force=False, segment=False):
     """Measure consecutive-window Jaccard drift on a KNOWN-STILL node (@LAT96), the
-    quantity Part 2's change threshold has to clear."""
+    quantity Part 2's change threshold has to clear.
+
+    `segment=True` evaluates only the longest CONTIGUOUS single-stream run instead of
+    the whole lane. A node that reboots and originates a fresh stream splits an
+    otherwise good night into two intervals; the second is usually short. Judging the
+    longest interval on its own merits is legitimate, judging a stitched-together
+    union of intervals is not — see `longest_stream_segment`."""
     with open(path, "rb") as f:
         text = f.read().decode("utf-8", errors="replace")
     ew = parse_entity_percepts(text)
     mr = parse_motion_percepts(text)
+    seg_note = None
+    if segment:
+        st, _, sw = longest_stream_segment(ew)
+        if sw:
+            seg_note = ("SEGMENT: longest contiguous single-stream run = stream %08x, "
+                        "%d of %d window(s)" % (st, len(sw), len(ew)))
+            ew = sw
+            mr = [r for r in mr if r.get("stream") == st]
     ok, gates, pairs = entity_drift_gates(ew, mr, spacing_s, tol_s, min_pairs)
 
     print("%s\n" % path)
+    if seg_note:
+        print(seg_note)
+        print("  selection rule is OUTCOME-INDEPENDENT (longest wins; drift never")
+        print("  consulted) and the segment is contiguous, so it is a real interval.")
+        # ASCII only: this prints to a cp1252 console, where U+26A0 raises.
+        print("  NOTE: gate 1 is therefore satisfied BY CONSTRUCTION and tests nothing")
+        print("  here; gates 2-4 carry the weight.\n")
     print("validation gates (declared 2026-08-04, before this run existed):")
     for name, passed, detail in gates:
         print("  [%s] %-42s %s" % ("PASS" if passed else "FAIL", name, detail))
@@ -4086,6 +4136,10 @@ def main():
                          "reboot forces an off-cadence scan and a short gap understates "
                          "drift")
     ed.add_argument("--min-pairs", type=int, default=ENTITY_MIN_PAIRS)
+    ed.add_argument("--segment", action="store_true",
+                    help="evaluate only the longest CONTIGUOUS single-stream run, for a "
+                         "night that a reboot split in two; gate 1 then holds by "
+                         "construction and gates 2-4 carry the weight")
     ed.add_argument("--force", action="store_true",
                     help="print the distribution even if the gates fail — for looking, "
                          "NEVER for deriving a threshold")
@@ -4277,7 +4331,8 @@ def main():
             sys.exit("motion needs either --file, or both --port and --node")
         motion(args.port, args.baud, args.node, args.save, args.file)
     elif args.cmd == "entity-drift":
-        entity_drift(args.file, args.spacing, args.tol, args.min_pairs, args.force)
+        entity_drift(args.file, args.spacing, args.tol, args.min_pairs, args.force,
+                     args.segment)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":
