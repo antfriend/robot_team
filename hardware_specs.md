@@ -288,7 +288,7 @@ Not a fixed spec — but for the toot-toot network design, the relevant interfac
 | Channel | How it reaches agents |
 |---|---|
 | USB-CDC serial | Direct to a tethered Heltec V4 (bridge node) or a K10. Native USB on S3 = simple `Serial` link, good for a deterministic command/telemetry pipe. |
-| Wi-Fi | Orchestrator as AP or same LAN → reaches K10s and V4s directly (MQTT, UDP, HTTP, WebSocket). |
+| Wi-Fi | Orchestrator as AP or same LAN → reaches the K10 (there is exactly **one**) and the V4s directly (MQTT, UDP, HTTP, WebSocket). |
 | BLE | Short-range config / pairing to either board. |
 | LoRa (indirect) | Orchestrator has no radio; it speaks LoRa **through** a USB- or WiFi-attached V4 gateway. |
 

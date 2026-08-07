@@ -296,8 +296,16 @@ Same toot frame, but:
 
 ## 6. Prototype bring-up order
 
+> ⚠ **There is exactly ONE physical K10 in this project.** Every plural "K10s" in this
+> document names the *leaf-node class* in a topology, never units on hand — and step 1
+> below therefore **cannot be run as written**. PLAN.md Phase 1 replaced it with the
+> single-K10 milestone that proves the same wire protocol using the laptop as the second
+> party over USB-CDC. The fleet as built is one K10, V4-A/B/C, a T-Deck and a Cardputer;
+> the K10 left the band roster on 2026-07-29 and runs v1 firmware.
+
 1. **Two K10s, ESP-NOW broadcast, fixed channel.** Exchange HELLO + PERCEPT
    toots. Validate framing, dedup, HMAC. No orchestrator, no LoRa.
+   *(Deferred — see the note above: only one K10 exists.)*
 2. **Add ACK/retry + chunking.** Send a toot larger than 208 B; confirm reassembly.
 3. **Add V4-C (edge) to an ESP-NOW cluster.** Confirm a K10 → V4-C handoff
    (RELAY type) and percept summarization before LoRa.

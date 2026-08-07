@@ -53,6 +53,7 @@
 #include <EntityPercept.h>   // SP0 entity tier: WiFi BSSID sightings -> @LAT96
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
+#include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
 #include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
@@ -84,7 +85,7 @@
 // insertion point. (`enum Pane` below gets away with sitting mid-file only because
 // nothing takes one as an argument.)
 enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_INTERO = 2,
-                          FACE_BELIEF = 3, FACE_VIEW_COUNT = 4 };
+                          FACE_BELIEF = 3, FACE_FIELD = 4, FACE_VIEW_COUNT = 5 };
 
 // --- Cardputer ADV pin map (M5Stack K132-Adv, Stamp-S3A) ---------------------
 // Documented here and in hardware_specs.md. Three peripherals share ONE I2C bus
@@ -157,6 +158,88 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 #if USE_MIC && USE_CARD_HW
 static acousticpercept::Log gAcousticLog;  // @LAT94 what it heard
 #endif
+
+// --- the trace field: stigmergy, RAM-only (TTDB-RFC-0010 §5, stigmergy.md §4.E) -------
+//
+// 16 cells on the pulse's own 16-step grid. A deposit lands at the step where it HAPPENED,
+// so clapping a rhythm writes that rhythm into the field, the field is voiced back on
+// every later bar, and it fades over a half-life unless something keeps reinforcing it.
+// The field rides in the HELLO this node already sends every 2 s, and a peer merges by
+// max — so both handhelds converge on ONE field without either addressing the other.
+// That is the whole of stigmergy: deposit, medium, readback, decay.
+//
+// ⚠ Deliberately NOT a TTDB lane. RFC-0010 §3 requires a real FIELD lane to be new at
+// @LAT101+ with stable `sid` names, because reclaiming an ordinal re-points every citation
+// into it. This one cites nothing and is cited by nothing, so §6.3's acceptance test —
+// the system stays correct with the field EMPTY — holds trivially: a fresh node has a flat
+// field, voices nothing, and the band plays exactly as it did before.
+static TraceFieldNode gField;
+// The step a deposit is quantised onto: the last step the pulse actually struck.
+// ⚠ Quantise on DEPOSIT, never on playback — `score::noteAt` is an exact step match, so a
+// trace parked between slots would be silently unplayable.
+static uint8_t  gFieldStep = 0;
+static uint32_t gFieldLastVoice = 0;   // for the view's playhead
+static int32_t  gFieldTransSeen = -1;  // last transient count we deposited for
+
+// --- THE ECHO MUTE: why a stigmergic field must not hear its own playback --------------
+//
+// Observed on hardware 2026-08-07, and it is not the same bug as hearing YOURSELF. With
+// both handhelds voicing, this node's mic picked up the T-DECK's speaker and re-deposited
+// at the step it had just sung — `voice step 5 … 93` then `deposit cell 5 … hot 0.04`, and
+// cell 5 read 142 on the next bar instead of decaying. `gToneUntilMs` only ever covered our
+// own tone; a neighbour two feet away is just "the room" as far as it is concerned.
+//
+// It settled near 1100 of a possible 4080 rather than saturating, so it was an equilibrium
+// and not a runaway — but it quietly broke the property the whole thing rests on: that the
+// field is a record of what HAPPENED and fades when nothing reinforces it.
+//
+// THE FIX USES THE PULSE. Every node voices the same cell at the same step, because they are
+// phase-locked to one clock — so this node already knows when its peers are singing without
+// being told: it is exactly when IT would sing. Muting deposits for one tone's length after
+// any step whose cell is above the floor therefore covers a peer's speaker as well as ours.
+//
+// ⚠ What this deliberately does NOT do is block a clap into a SILENT cell. A deposit always
+// lands on the current step, and a step below the voice floor emits no tone and sets no
+// mute — so the rule comes out as "an already-singing cell cannot be reinforced acoustically
+// while it sings, an empty one always can". That is the right dynamics rather than a
+// compromise: new rhythms still go in, existing ones cannot amplify themselves, and a
+// saturated field becomes un-reinforceable and therefore decays.
+//
+// ⚠ 120 ms is not a round number: the tone is 90 ms and a step at 120 BPM is 125 ms, so this
+// covers the tone plus its room ring and still expires INSIDE the step. Longer would spill
+// into the next step, which is a DIFFERENT cell, and start blocking honest deposits.
+#define FIELD_ECHO_MUTE_MS 120
+static uint32_t gFieldMuteUntil = 0;
+
+// --- ONE LOG LINE PER BAR, NEVER ONE PER NOTE -----------------------------------------
+//
+// ⚠ THIS IS A FIX FOR AN AUDIBLE DEFECT, not a tidy-up. The first cut printed a line for
+// every voiced note: up to 16 CDC writes per 2 s bar, each of which BLOCKS while a USB host
+// is attached. The operator heard it immediately as **latency on the bar beats when the
+// device is on USB**, and it vanished on battery — because with no host the writes are
+// discarded instead of waiting. Exactly the trap §6 already records from the other
+// direction ("CDC buffering shows 100 ms gaps on a 125 ms grid"): a 125 ms step cannot
+// afford a blocking print, so the instrument was deforming the thing it measured.
+//
+// One line per bar is also the BETTER instrument. A 16-character sketch of the whole field
+// shows the decay curve of every cell at once — `.` is below the voice floor, `0`-`9` is
+// strength — where a per-note line only ever showed the cell that happened to fire.
+static void fieldLogBar(uint32_t now) {
+  const tracefield::Field& f = gField.field();
+  const uint16_t e = f.energy(now);
+  if (!e) return;                     // an empty field has nothing to say every 2 s
+  char sk[tracefield::CELLS + 1];
+  uint8_t mine = 0, theirs = 0;
+  for (uint8_t i = 0; i < tracefield::CELLS; ++i) {
+    const uint8_t s = f.strengthAt(i, now);
+    if (s < TRACEFIELD_VOICE_FLOOR) { sk[i] = '.'; continue; }
+    if (f.fromPeer(i)) ++theirs; else ++mine;
+    const uint8_t q = (uint8_t)(s / 26);
+    sk[i] = (char)('0' + (q > 9 ? 9 : q));
+  }
+  sk[tracefield::CELLS] = 0;
+  Serial.printf("[field] |%s| e%4u mine %u theirs %u\n", sk, e, mine, theirs);
+}
 
 #if USE_BLE
 // Feed a decoded, key-verified BLE fleet advert into the same link-percept histogram
@@ -1018,6 +1101,20 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   // rather than a parse error. Handled OUTSIDE the USE_PULSE guard on purpose: the
   // band is optional, a shared timeline is not.
   gTs.onHello(t, millis());
+
+  // The trace field rides in the SAME HELLO, immediately after the 21-byte anchor. Same
+  // additive contract, and the offset arithmetic stays HERE rather than inside the library
+  // so TraceField keeps its zero dependencies: a node on older firmware sends only the
+  // anchor, the length check declines, and it is a non-participant rather than a mis-parse
+  // reading somebody else's bytes as strengths.
+  // ⚠ COPY ONLY — `queueDigest` never touches the field. Merging happens in service() from
+  // loop(), for the reason `gTs` queues anchors: a callback that mutates shared state mid
+  // read ships a torn value (there, seven weeks of clock; here, a wrong note).
+  if (t.type == toot::HELLO &&
+      t.payload_len >= timestream::ANCHOR_LEN + tracefield::DIGEST_LEN)
+    gField.queueDigest(t.payload + timestream::ANCHOR_LEN,
+                       (size_t)t.payload_len - timestream::ANCHOR_LEN);
+
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -1736,6 +1833,33 @@ static void serviceMic(uint32_t now) {
     gTransCount = tc;
   }
 
+  // DEPOSIT INTO THE TRACE FIELD on a transient the @LAT94 tier just recorded.
+  //
+  // Reusing the tier's own transient counter rather than thresholding here is the same
+  // decision the border-flash above documents, and it matters more for a deposit: a second
+  // definition of "a transient" would write traces for events the log does not contain, so
+  // what you heard and what the node recorded would drift apart with nothing saying so.
+  //
+  // ⚠ Gated on `now >= gToneUntilMs` through `gTransAt`, so the field cannot hear ITSELF.
+  // Without that the first voiced note deposits at the step it played, reinforcing the cell
+  // that produced it — a runaway that never decays and drowns the room's own contributions.
+  // Feedback in a stigmergic field is not a bug you notice later; it is one you cannot turn
+  // off once the cells saturate.
+  // ⚠ `gFieldMuteUntil` is the ECHO mute and it is a SEPARATE guard from `gTransAt`'s
+  // `gToneUntilMs` check: that one stops the field hearing itself, this one stops it hearing
+  // the node next to it voicing the same cell. Both are needed — the first was in the
+  // original and the feedback loop happened anyway.
+  if (gTransCount > gFieldTransSeen && gTransAt == now && now >= gFieldMuteUntil) {
+    // Amount from loudness over the ROOM baseline, not an absolute level: `gSndHot` is
+    // already normalised that way and already discounts our own voice (§3.3).
+    const float hot = gSndHot < 0.0f ? 0.0f : (gSndHot > 1.0f ? 1.0f : gSndHot);
+    const uint8_t amount = (uint8_t)(48.0f + hot * 200.0f);
+    gField.depositAt(gFieldStep, amount, now);
+    Serial.printf("[field] deposit cell %u amount %u (hot %.2f) energy %u\n",
+                  gFieldStep, amount, hot, gField.field().energy(now));
+  }
+  gFieldTransSeen = gTransCount;
+
   // Instantaneous loudness for the face. The @LAT94 log keeps window statistics (60 s)
   // which are the wrong timescale for a screen, so this is a separate, cheap mean-|s|
   // over the samples just read — expressed against a slow room baseline, because "loud"
@@ -2313,6 +2437,7 @@ static const char* faceViewName(FaceView v) {
   return (v == FACE_SCOPE)  ? "REPRESENTOR (oscilloscope)"
        : (v == FACE_INTERO) ? "REPRESENTOR (interoception)"
        : (v == FACE_BELIEF) ? "REPRESENTOR (link beliefs)"
+       : (v == FACE_FIELD)  ? "TRACE FIELD (stigmergy)"
                             : "REPRESENTOR (eyeball)";
 }
 
@@ -3168,6 +3293,98 @@ static void renderBelief(uint32_t now) {
   gBelPainted = true;
 }
 
+// --- FACE_FIELD: the trace field, so the decay is VISIBLE as well as audible ----------
+//
+// 16 bars, one per cell, height = decayed strength, plus a playhead on the step the pulse
+// is on. This exists because of the rule that cost a gate check on the record pane: *if a
+// view can show less than all of a record, it must say so on screen*. Applied to a field
+// that means a faded trace must render as FADED, never as absent — a panel that drew only
+// "cell present / cell empty" would turn "nobody has reinforced this for a minute" into
+// "there is nothing here", which is a different claim about the world.
+//
+// Repaints on a clock rather than on change, unlike the belief panel: the whole subject of
+// this view is a value that moves continuously with no event to hang a repaint on.
+// The x-axis is TIME, not sixteen unrelated things: one bar of music, 16 sixteenth-notes at
+// 120 BPM = 2 s, looping forever. The playhead sweeps left to right; where it meets a tall
+// bar, you hear that bar. A clap lands in the column matching the moment you clapped, which
+// is why the field replays your RHYTHM and not just your volume. None of that is derivable
+// from bars alone, so the panel says it in words — painted once, on entry, because static
+// text is free there and a per-frame cost here (a render frame cannot afford 20 ms).
+static bool gFieldPainted = false;
+
+static void fieldChrome() {
+  gTft.fillScreen(ST77XX_BLACK);
+  // ⚠ These y values are hand-packed against renderField's geometry: bars 12..64, beat ruler
+  // 65..69, live status 71..80. Text is 10 px, so the first legend line cannot start before
+  // 84 without landing on the status line.
+  const uint16_t dim = rgb565(120, 128, 140), key = rgb565(180, 200, 230);
+  drawWide(84,  key, "<-- one 2s bar, looping -->");
+  drawWide(95,  dim, "clap = a bar at that moment");
+  drawWide(106, dim, "amber:yours  cyan:other node");
+  drawWide(117, dim, "over the red line it sounds");
+  gFieldPainted = false;
+}
+
+static bool fieldFrameDue(uint32_t now) {
+  static uint32_t last = 0;
+  if (!gFieldPainted || now - last >= 120) { last = now; return true; }
+  return false;
+}
+
+static void renderField(uint32_t now) {
+  char l[TEXT_COLS + 2];
+  const tracefield::Field& f = gField.field();
+  const uint16_t e = f.energy(now);
+  uint8_t mine = 0, theirs = 0;
+  for (uint8_t i = 0; i < tracefield::CELLS; ++i)
+    if (f.strengthAt(i, now) >= TRACEFIELD_VOICE_FLOOR) {
+      if (f.fromPeer(i)) ++theirs; else ++mine;
+    }
+  // Count the two provenances rather than just the total: "4 yours, 2 theirs" is the sentence
+  // that says a medium is shared. A single energy number cannot say it.
+  snprintf(l, sizeof(l), "FIELD  %u yours %u theirs  e%4u", mine, theirs, e);
+  drawWide(0, rgb565(150, 190, 255), l);
+
+  const int kTop = 12, kH = 52, kBase = kTop + kH;
+  const int kW = SCR_W / tracefield::CELLS;          // 15 px per cell at 240 wide
+  const int fy = kBase - (kH * TRACEFIELD_VOICE_FLOOR) / 255;
+  for (uint8_t i = 0; i < tracefield::CELLS; ++i) {
+    const uint8_t s = f.strengthAt(i, now);
+    const int x = i * kW;
+    const int h = (kH * s) / 255;
+    const bool live = s >= TRACEFIELD_VOICE_FLOOR;
+    // HUE carries provenance, BRIGHTNESS carries strength. Two independent facts on two
+    // independent channels, so neither has to be read off a legend: amber is a mark this
+    // node made, cyan is one that arrived from the other node, and both fade as they decay.
+    const uint16_t col = !live          ? rgb565(70, 70, 80)
+                       : f.fromPeer(i)  ? rgb565(60, 150 + s / 3, 190 + s / 4)
+                                        : rgb565(190 + s / 4, 150 + s / 4, 60);
+    // The CURRENT column gets a lit background for its whole height, not a tick underneath.
+    // That is the change that makes the view legible: you see the sweep, and you see a note
+    // fire exactly when the sweep meets a bar, which is the whole mechanism in one glance.
+    const uint16_t bg = (i == gFieldStep) ? rgb565(38, 40, 52) : ST77XX_BLACK;
+    gTft.fillRect(x + 1, kTop, kW - 2, kH - h, bg);
+    gTft.fillRect(x + 1, kBase - h, kW - 2, h, col);
+    // The floor: over this line a bar sounds. Answers "why is that bar silent?" on the glass
+    // instead of in the source.
+    gTft.drawFastHLine(x + 1, fy, kW - 2, rgb565(110, 60, 60));
+  }
+
+  // Beat ruler: a brighter tick every 4 cells, so 16 sixteenths read as 4 beats of one bar
+  // rather than an arbitrary row of 16. The grid is the pulse the whole fleet counts.
+  gTft.drawFastHLine(0, kBase + 1, SCR_W, rgb565(60, 66, 78));
+  for (uint8_t i = 0; i < tracefield::CELLS; i += 4)
+    gTft.fillRect(i * kW, kBase + 1, 2, 4, rgb565(150, 160, 180));
+
+  // Status: what is happening RIGHT NOW, in words, including which beat we are on.
+  const bool spoke = (now - gFieldLastVoice) < 400;
+  snprintf(l, sizeof(l), "beat %u.%u  %s", (unsigned)(gFieldStep / 4 + 1),
+           (unsigned)(gFieldStep % 4 + 1),
+           spoke ? "playing this bar" : (e ? "fading, nothing here" : "empty - clap!"));
+  drawWide(71, spoke ? rgb565(255, 210, 90) : rgb565(150, 150, 150), l);
+  gFieldPainted = true;
+}
+
 // `t` switches between the representor and the inherited globes (§5). Leaving the face
 // hands a clean panel back to the globe renderer, which paints in dirty-rect pieces
 // and would otherwise draw over the sclera.
@@ -3188,6 +3405,7 @@ static void enterFaceView() {
   for (int i = 0; i < 3; ++i) { gInVal[i][0] = 0; gInCol[i] = 0; gInFill[i] = 0; }
   if (gFaceView == FACE_INTERO) { interoChrome(); return; }
   if (gFaceView == FACE_BELIEF) { beliefChrome(); return; }
+  if (gFaceView == FACE_FIELD)  { fieldChrome();  return; }
 #if USE_MIC && USE_CARD_HW
   if (gFaceView == FACE_SCOPE) { scopeChrome(); return; }
 #endif
@@ -3408,6 +3626,16 @@ void setup() {
 #endif
                 );
 
+  // Say the trace field is armed, and say what drives it. A field that is present but has
+  // nothing in it is indistinguishable on the glass from a field that was never compiled
+  // in — the same reason the belief panel spells out why it is empty rather than showing a
+  // blank. This line is the difference between "I flashed it" and "the firmware says so".
+  Serial.printf("[field] armed: %u cells, half-life %us, floor %u, rides HELLO (+%u B). "
+                "Deposits: a mic transient at the current step. '5' shows it.\n",
+                (unsigned)tracefield::CELLS,
+                (unsigned)(gField.field().halfLifeMs() / 1000),
+                (unsigned)TRACEFIELD_VOICE_FLOOR, (unsigned)tracefield::DIGEST_LEN);
+
   // Take the body's first reading here, AFTER WiFi/BLE/ESP-NOW are up: `maxalloc` before
   // the radios is a number that never comes back, and the first STATUS reply can be
   // asked for immediately. This is also the line that prints the raw ADC millivolts for
@@ -3425,6 +3653,12 @@ void loop() {
   // flushed in one pass carry the same instant instead of four readings of a clock
   // that moved between them.
   gTs.service(now);
+
+  // Merge any peer trace digests the recv callback queued. Runs right after gTs.service()
+  // and for the same structural reason: the callback copies, loop() mutates. Cheap and
+  // usually a no-op — a digest arrives every 2 s per peer and says nothing new almost
+  // every time, so the merge is silent unless it actually raised a cell.
+  gField.service(now);
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Trusted, un-deduped link.
@@ -3755,6 +3989,9 @@ void loop() {
       // 4 is the belief view. Like 3 it works from either stack, because it is the only
       // way to see the @LAT91 lane at all — the globes exclude it by the lat < 90 bound.
       case '4': setFaceView(FACE_BELIEF); break;
+      // '5' is the trace field. Like '3' and '4' it works from either stack, because
+      // the field is not a place on a globe and has no globe to be reached from.
+      case '5': setFaceView(FACE_FIELD); break;
       case '+': case '=':
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -3864,6 +4101,47 @@ void loop() {
     static uint32_t prev_step = 0;
     static bool have_prev = false;
     if (gPulse.stepTick(now, steps, sip, sc)) {
+      // --- THE TRACE FIELD SPEAKS FIRST, and only when it has something to say ---------
+      //
+      // No mode, no key, no toggle: if any cell is above the voice floor the field is what
+      // you hear, and when the last trace fades the band's own part comes back on its own.
+      // That IS the stigmergic reading rule — the medium decides what happens next, and an
+      // empty medium decides nothing.
+      //
+      // ⚠ This deliberately does NOT apply the `!gPulse.conductor()` play gate, and the
+      // reasoning is the duet exception's (companion.md §6), not a widening of it: that gate
+      // exists so a self-appointed node cannot play out of phase against a band it has not
+      // found, and it cannot apply here because BOTH nodes are voicing the SAME field on the
+      // SAME step grid. With only the two handhelds powered one of them necessarily conducts,
+      // so keeping the gate would silence half the field and make a shared medium look like a
+      // local echo — the exact thing this is built to demonstrate.
+      gFieldStep = (uint8_t)(sip % tracefield::CELLS);
+      bool field_spoke = false;
+      // ⚠ ASK WHETHER THE FIELD WOULD VOICE *BEFORE* ASKING WHETHER WE PLAY IT. The mic
+      // has to be muted against a cell that is sounding whether WE sang it or a PEER did,
+      // and `gLocalPlay` only knows about us. Computing this under the play gate is what
+      // made the first cut deaf to its neighbour (see the mute below).
+      uint8_t famp = 0;
+      const uint16_t fhz = gField.voiceAt(gFieldStep, now, famp);
+      if (fhz) gFieldMuteUntil = now + FIELD_ECHO_MUTE_MS;
+      if (gLocalPlay) {
+        if (fhz) {
+          gFieldLastVoice = now;
+          field_spoke = true;
+          // Amplitude tracks strength, so a fading trace gets QUIETER before it stops.
+          // A trace that vanished at full volume would be a cliff, and the whole point is
+          // to hear the decay. Ceiling 30000 per the ES8311 note (a square overshoots its
+          // edges ~9% through the reconstruction filter).
+          const float amp = 6000.0f + (float)famp * (24000.0f / 255.0f);
+#if USE_CARD_HW
+          toneI2S((float)fhz, 90, amp);
+#endif
+        }
+      }
+      // Once per bar, not once per note — see fieldLogBar. Placed outside the play gate so
+      // a node that is only listening still logs the field it is holding.
+      if (gFieldStep == 0) fieldLogBar(now);
+
       // Catch up over any steps this pass jumped so a stalled pass cannot swallow the note
       // that fell in the gap. Defensive: no dropped note has actually been observed at double
       // time (4.0 s/phrase, all 15 notes every cycle), but a duet's notes are 2 steps apart
@@ -3875,7 +4153,11 @@ void loop() {
                  : score::noteAt(*ph, (uint16_t)(sip * speed));
       prev_step = sc;
       have_prev = true;
-      if (nt && voice && nt->freq != score::REST) {
+      // ⚠ `!field_spoke` is not politeness — `toneI2S` BLOCKS. Two tone calls in one step
+      // would run back to back and overrun the 125 ms slot, dragging the loop and (per the
+      // duet lesson) eating any ACK window that lands in it. One voice per step, and while
+      // the field has a trace at this step the field is that voice.
+      if (nt && voice && !field_spoke && nt->freq != score::REST) {
         // Articulation scales with speed: staccato rather than a slur, and it halves the
         // blocking duty cycle of a tone call that would otherwise fill 72% of each note slot.
         uint32_t ms = PULSE_TONE_MS / speed;
@@ -3908,8 +4190,16 @@ void loop() {
   static uint32_t lastBeacon = 0;
   if (now - lastBeacon >= 2000) {
     lastBeacon = now;
-    uint8_t body[timestream::ANCHOR_LEN];
+    uint8_t body[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN];
     size_t bn = gTs.helloPayload(body, sizeof(body), millis());
+    // The field goes out DECAYED TO NOW, appended after the anchor. Decaying at the sender
+    // is what makes the digest clock-free: it is a statement about this instant, true when
+    // built, so a receiver needs no part of our time base to use it — which matters because
+    // the stream clock is a ratchet (right for recency, wrong for a duration).
+    // ⚠ Only appended when the anchor was written. The digest's position is defined as
+    // "after the anchor", so shipping it at offset 0 would put strengths where a receiver
+    // reads stream ids.
+    if (bn) bn += gField.helloAppend(body + bn, sizeof(body) - bn, millis());
     emit(toot::HELLO, bn ? body : nullptr, bn, sendEspNow, nullptr);
   }
 
@@ -3938,6 +4228,7 @@ void loop() {
       // Beliefs move only when the Dream Cycle rewrites the lane, so this one is
       // change-driven rather than clocked — it asks for a frame and then goes quiet.
       case FACE_BELIEF: due = beliefFrameDue(now); break;
+      case FACE_FIELD:  due = fieldFrameDue(now);  break;
       default:          due = eyeFrameDue(now);    break;
     }
     if (due) {
@@ -3946,10 +4237,12 @@ void loop() {
       if (gFaceView == FACE_SCOPE)       renderScope(now);
       else if (gFaceView == FACE_INTERO) renderIntero(now);
       else if (gFaceView == FACE_BELIEF) renderBelief(now);
+      else if (gFaceView == FACE_FIELD)  renderField(now);
       else                               renderEye(now);
 #else
       if (gFaceView == FACE_INTERO)      renderIntero(now);
       else if (gFaceView == FACE_BELIEF) renderBelief(now);
+      else if (gFaceView == FACE_FIELD)  renderField(now);
       else                               renderEye(now);
 #endif
       gLastRenderMs = gPassRenderMs = millis() - r0;

@@ -73,8 +73,17 @@ int main(int argc, char** argv) {
   }
   // Exact, not a lower bound: this is the check that catches a TRUNCATED corpus,
   // which every structural check below would happily pass. Bump it when the RFC
-  // set genuinely grows (33 -> 36 on 2026-07-31, TTDB-RFC-0009 + INDEX records).
-  const size_t kExpectedRecords = 36;
+  // set genuinely grows (33 -> 36 on 2026-07-31, TTDB-RFC-0009 + INDEX records;
+  // 36 -> 38 on 2026-08-07, TTDB-RFC-0010 + the @LAT98LON6 ordinal-naming belief).
+  //
+  // ⚠ THIS FAILING IS THE TEST WORKING. It fires on every legitimate corpus addition,
+  // and that is the trade it was chosen for: a wrong number here costs one deliberate
+  // edit, while a lower bound would let a corpus lose half its records in silence. If
+  // you are here because you added a record, check the OTHER assertions passed first —
+  // "all N headers parse" and "all N edges resolve" are what say your record is well
+  // formed. A body line starting with `@LAT` splits a record in two and shows up here
+  // as a count that is too HIGH.
+  const size_t kExpectedRecords = 38;
   CHECK(recs.size() == kExpectedRecords, "pass-1 scan indexes %zu records (got %zu)",
         kExpectedRecords, recs.size());
   CHECK(recs.size() <= TTDB_MAX_RECORDS, "fits TTDB_MAX_RECORDS (%d)", TTDB_MAX_RECORDS);

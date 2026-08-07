@@ -52,3 +52,11 @@ Mkfile.old
 dkms.conf
 __pycache__/
 .claude/settings.json
+
+# Native test binaries. `*.exe` above covers an MSVC/zig build that names its output
+# test_foo.exe, but `zig c++ -o test_foo` on Windows produces an EXTENSIONLESS file that
+# slipped past it — 12 of them showed up as untracked on 2026-08-07. Negations keep the
+# sources, which share the prefix.
+tests/test_*
+!tests/test_*.cpp
+!tests/test_*.py

@@ -4267,6 +4267,146 @@ If a fact lives in one of these, link to it from here — don't copy it.
   handhelds have room. Falsifier stated in §8 before implementation, per the practice the
   entity-drift gates established.
 
+- 🛑 **2026-08-07 — PART 2's SECOND BASELINE IS CANCELLED (operator's call), and the
+  measuring stops with it.** The run had been going 8 h 48 m (07:22 → 16:10), i.e. past its
+  own 8.0 h `ENTITYPERCEPT_MAX_LANE` cap, so the window had elapsed anyway. **The TTDB was
+  banked before anything was flashed** — `master/entity-baseline/cardputer_night2_cancelled.md`,
+  91 709 B — and deliberately **NOT analysed**: no `entity-drift`, no gate verdict, no
+  threshold. It is kept because it was free to keep, not because it is a baseline. ⚠ V4-A was
+  unplugged at some point during it, so the stream holder went away mid-run; do not read the
+  file as a clean 8 h anything. **The flashing interlock is lifted.** ⚠ A *firmware* flash does
+  not touch LittleFS — only `Upload-*-FS.ps1` wipes the lanes — so both handhelds were
+  reflashed with the run data and all three globes intact (the Cardputer still reports
+  `TTDB loaded: 94210 bytes, 236 records`).
+
+- 🔔 **2026-08-07 — STIGMERGY IS AUDIBLE ON THE FLEET: `firmware/libraries/TraceField`,
+  VERIFIED ACROSS TWO NODES.** 16 cells on the pulse's own 16-step grid; a deposit lands at
+  the step where it *happened*, so the field records the RHYTHM of what a node sensed and
+  voices it back until it fades. It rides in the HELLO both handhelds already send every 2 s
+  (**21-byte anchor + 18-byte digest = 39 of 250**), and a peer merges by **max**. Cost:
+  Cardputer 41 %, T-Deck 40 % — both unchanged to the percent, so the field is effectively
+  free. Native suite **12/12, TraceField 38 checks**.
+  ✅ **The loop was observed end-to-end without being prompted for it.** The Cardputer heard
+  the room, the T-Deck sang it, and nobody sent anybody a command:
+
+  ```
+  COM14  [field] deposit cell 0 amount 218 (hot 0.85) energy 218
+  COM10  [field] merged peer trace: 4 cell(s) raised, energy 332
+  COM10  [field] voice step  0   262Hz  strength 145     <- the Cardputer's deposit,
+  COM10  [field] voice step  0   262Hz  strength 137        sung by the T-Deck,
+  COM10  [field] voice step  0   262Hz  strength 130        decaying bar by bar
+  COM10  [field] voice step  0   262Hz  strength 122
+  ```
+
+  🔬 **AND IT FOUND ITS OWN HAZARD: THE TWO NODES ARE ACOUSTICALLY COUPLED THROUGH THE ROOM,
+  SO THE FIELD PARTLY SUSTAINS ITSELF.** Once the Cardputer's voice was enabled (`cmd --op
+  play`, ACKed first attempt) low-`hot` deposits began landing **at the steps that had just
+  been voiced** — `voice step 5 ... 93` then `deposit cell 5 amount 56 (hot 0.04)`, and cell
+  5 read **142** on the next bar instead of decaying. `gToneUntilMs` mutes a node against
+  **its own** tone; it says nothing about its neighbour's speaker two feet away. Energy
+  climbed 863 → 1150 and then held ~1100 of a possible 4080, so this is an equilibrium and
+  **not** the saturating runaway the library's own comment warns about — but "the field fades
+  unless something reinforces it" is now only true *while no other node is audibly singing
+  it*. ⚠ Whether that is a defect or the most honest thing here is a real question, not a
+  rhetorical one: a termite reading its own construction is the textbook case of sematectonic
+  stigmergy.
+  ✅ **ECHO MUTE APPLIED AND FLASHED (Cardputer only — the T-Deck has no mic, and its `f`
+  deposits are deliberate human intent that must never be muted).** `FIELD_ECHO_MUTE_MS 120`,
+  armed at any step whose cell is above the floor **whether or not this node sang it** — the
+  first cut computed the voice under `gLocalPlay` and was therefore structurally deaf to its
+  neighbour. It uses the pulse as the oracle: every node voices the same cell at the same
+  step, so "when would I sing?" *is* "when is my neighbour singing?". ⚠ 120 ms is tone (90 ms)
+  + room ring, sized to expire INSIDE the 125 ms step so it cannot spill onto the next cell,
+  which is a different one. Net rule: **a singing cell cannot be reinforced acoustically while
+  it sings; a silent one always can** — new rhythms still go in, existing ones cannot amplify
+  themselves, and a saturated field becomes un-reinforceable and therefore decays. 41 %.
+  ⚠ **PARTIALLY VERIFIED, AND THE REMAINING QUESTION IS NAMED.** The low-`hot` deposits landing
+  on a just-voiced cell are gone from the post-fix sample (every deposit in it reads `hot 1.00`
+  or is the second transient of one clap). But strengths still hitch upward — cell 0 ran
+  `…185 172 **178** 169…` — and there is a **second, structural** candidate that the mute
+  cannot touch: **`Field::merge` re-stamps an adopted value at the RECEIVER's `now`**. A copy
+  that crossed the air therefore restarts its decay clock at full value, so B's copy sits
+  above A's, B's digest raises A, and the pair holds each other up. Measured overall decay was
+  249 → 148 in ~24 s where a 20 s half-life predicts ~108: **stretched to roughly 60–70 % of
+  the intended rate, not stalled.** ⚠ Whether that is a defect is again a real question — "a
+  trace survives while ANY node still holds it" is collective memory outlasting any
+  individual, which is a property some stigmergic systems are built for. **The clock-free fix
+  is to ship an AGE per cell (a locally-measured duration, legitimate where a ratchet clock is
+  not) and set `last_ = now - age`, at +2 B/cell → 50 B digest.** Not applied.
+  🔬 **THREE ATTEMPTS TO SETTLE IT ON SERIAL ALL FAILED, FOR ONE REASON WORTH RECORDING: every
+  way of observing this field destroys or hides it.** A reset-open wipes it (it is RAM-only, by
+  design), and a **no-reset open returns NO console prints at all** — 0 lines in 60 s with the
+  port held open across a seeded beep. That closes §6's 2026-08-06 open question ("Frames yes,
+  prints unretested") in the negative: **frames yes, prints NO.** This is the `lp`-stall
+  problem again — the instrument is the suspect. **The settling test needs no code: with both
+  voices on, clap once, then watch the `5` view.** Bars falling monotonically = no ratchet;
+  bars hitching upward between claps = ratchet. Reading it off the glass is the only path that
+  neither resets the node nor needs a print.
+  ⚠ **AND THERE IS NO REMOTE WAY TO PUT A SOUND IN THE ROOM, which is why three seeding
+  attempts produced nothing: `--op beep --node tdeck_1` ACKs and DOES NOT BEEP — the T-Deck
+  only ever *sends* `CMD_BEEP` (line ~2349) and has no `case toot::CMD_BEEP` handler; only the
+  Cardputer does.** A sibling of the rule §6 already states ("an ACK only proves `toneI2S`
+  ran — only ears prove the speaker moved air"): here it does not even prove that. And the
+  Cardputer beeping itself cannot seed the field either, because its own voice is excluded from
+  deposits by design. Verification of anything acoustic on this fleet needs a person in the room.
+
+- ✅ **2026-08-07, OPERATOR-CONFIRMED ON BATTERY: all three demonstrations work.** One clap →
+  one bar that shrinks and goes quiet at the floor; a clapped rhythm → the loop replays it;
+  **`f` on the T-Deck → a CYAN bar on the Cardputer**, which is the shared medium seen from the
+  other side and the one thing the bars alone could never show. Verbatim: *"1, 2, 3 all worked
+  great!"*
+  🔊 **AND THE OPERATOR FOUND A REAL DEFECT BY EAR THAT NO TEST WOULD HAVE CAUGHT: "there is a
+  latency on bar beats introduced when the device is on USB."** Cause: the first cut printed a
+  `[field] voice` line **per voiced note** — up to 16 CDC writes per 2 s bar, each of which
+  **blocks while a USB host is attached**. On battery there is no host, the writes are
+  discarded, and the latency disappears — which is exactly the shape of the report. This is
+  §6's CDC hazard from the other direction (buffering shows 100 ms gaps on a 125 ms grid): **a
+  125 ms step cannot afford a blocking print, so the instrument was deforming the music it was
+  measuring.**
+  🔧 **Fixed on both handhelds (`fieldLogBar`) and flashed: ONE line per bar, and none at all
+  when the field is empty.** It is also the better instrument — a 16-character sketch shows
+  every cell's decay at once (`.` below the floor, `0`-`9` strength) where a per-note line only
+  showed whichever cell happened to fire: `[field] |9..4...2.......| e412 mine 2 theirs 1`.
+  ⚠ **Unverified live, for the reason above** (every observation path resets the RAM field and
+  I cannot make a sound remotely). The rate is 1/bar by construction — gated on
+  `gFieldStep == 0` — and the audible test belongs to the operator, who is the one who found it.
+  📋 **The `5` view was rebuilt because "the 5 is functional… but I don't really understand what
+  I'm seeing" is a legibility bug, not a preference.** The x-axis is TIME — one 2 s bar of 16
+  sixteenths, looping — and nothing in a row of bars says so. Now: the playhead is a
+  **full-height lit column** rather than a tick underneath (seeing the sweep meet a bar at the
+  instant the note fires is the whole mechanism in one glance); **hue carries provenance and
+  brightness carries strength** (amber = yours, cyan = the peer's), so neither needs a legend
+  lookup; a beat ruler ticks every 4 cells so 16 sixteenths read as 4 beats; the header counts
+  `N yours / N theirs`, because one energy number cannot say a medium is shared; and four lines
+  of plain English are painted **once in the chrome**, where static text is free.
+  📎 Provenance went into `Field` (`fromPeer()`), not the sketch, so a native test can pin it —
+  the rule that a fixed-size or state-carrying builder belongs in a library. **45 checks**, two
+  of which I would have got wrong by feel: a local deposit must RECLAIM a cell the peer had
+  raised, and a merge that raises nothing must not relabel anything.
+  📋 **Keys/how to feel it:** clap near the Cardputer; **`5`** on the Cardputer shows the 16
+  bars, the floor line and the playhead (a faded trace must render as faded, never absent);
+  **`f`** on the T-Deck deposits at the current step — the operator as a participant in the
+  medium rather than a commander of nodes. `g`/`x` still gate a node's voice, and the state is
+  NVS-persisted, which is why the Cardputer booted silent while the T-Deck sang.
+  📎 The field is **RAM-only and cites nothing**, so TTDB-RFC-0010 §6.3's acceptance test
+  (correct with the field empty) holds trivially and no `@LAT100` marker is spent. The real
+  `@LAT101+` FIELD lane is still unwritten and still gated on stable `sid` naming.
+  ⚠ **Two unrelated things this session's serial surfaced.** (1) **The T-Deck's `@LAT90` is
+  FULL at 16** — `the timeline is flapping, not settling. Go and look; do not raise the cap` —
+  so it can no longer record a timeline change. Only the Cardputer and V4-A were pruned on
+  08-06/08-07; the T-Deck was never done. (2) The T-Deck's `[intero]` prints
+  `pack 4654mV (255%)` — a saturated `uint8`, where §6 says a node above the 4.20 V ceiling
+  should **withhold** the percentage rather than invent one. The bad `BAT_DIVIDER 2.0` is
+  known; a percentage of **255 %** is a separate reporting defect.
+  ⚠ **Process note worth keeping: `make` DOES NOT EXIST on this machine, and the Makefile was
+  broken for four tests** (`$(TS)`/TimeStream.cpp was never linked, and `test_timestream` /
+  `test_lanegen` were not in it at all). Because the recipe leaves the previous binary in
+  place, a link failure meant **`make test` ran a STALE `.exe` and reported PASS for code that
+  was never compiled** — which is exactly what happened on the first attempt this session.
+  Fixed; the suite is now built with `zig c++` explicitly. ⚠ And `test_rfc_ttdb`'s exact
+  record count is a canary that fires on every legitimate corpus addition (36 → 38 today) —
+  that failing is the test working; check the *other* assertions before touching the number.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

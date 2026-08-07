@@ -35,6 +35,45 @@
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
+
+// --- the trace field (TTDB-RFC-0010 §5, stigmergy.md §4.E) ----------------------------
+// 16 cells on the pulse's 16-step grid, shared with the Cardputer over HELLO and merged by
+// max. This node has NO MICROPHONE, so its deposits come from the one sensor it does have
+// that the Cardputer lacks: a person. `f` deposits at the current step, which makes the
+// operator a participant in the medium rather than a commander of the nodes — press it here
+// and the note appears in the Cardputer's loop, having addressed nobody.
+static TraceFieldNode gField;
+static uint8_t  gFieldStep = 0;
+static uint32_t gFieldLastVoice = 0;
+
+// ONE LOG LINE PER BAR, NEVER ONE PER NOTE.
+//
+// ⚠ A FIX FOR AN AUDIBLE DEFECT. The first cut printed a line per voiced note — up to 16 CDC
+// writes per 2 s bar, each blocking while a USB host is attached — and the operator HEARD it
+// as latency on the bar beats when tethered, absent on battery (no host, so the writes are
+// discarded rather than waited on). A 125 ms step cannot afford a blocking print; companion.md
+// records the same hazard from the other side, CDC buffering showing 100 ms gaps on a 125 ms
+// grid. The instrument was deforming what it measured.
+//
+// The bar sketch is also the better instrument: `.` is below the voice floor and `0`-`9` is
+// strength, so one line shows every cell's decay at once instead of just the cell that fired.
+static void fieldLogBar(uint32_t now) {
+  const tracefield::Field& f = gField.field();
+  const uint16_t e = f.energy(now);
+  if (!e) return;                     // an empty field has nothing to say every 2 s
+  char sk[tracefield::CELLS + 1];
+  uint8_t mine = 0, theirs = 0;
+  for (uint8_t i = 0; i < tracefield::CELLS; ++i) {
+    const uint8_t sv = f.strengthAt(i, now);
+    if (sv < TRACEFIELD_VOICE_FLOOR) { sk[i] = '.'; continue; }
+    if (f.fromPeer(i)) ++theirs; else ++mine;
+    const uint8_t q = (uint8_t)(sv / 26);
+    sk[i] = (char)('0' + (q > 9 ? 9 : q));
+  }
+  sk[tracefield::CELLS] = 0;
+  Serial.printf("[field] |%s| e%4u mine %u theirs %u\n", sk, e, mine, theirs);
+}
 #include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <Nmea.h>         // SP2: portable NMEA GGA decode for the roaming GPS anchor
 #include <RobotTeamConfig.h>
@@ -1105,6 +1144,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   // rather than a parse error. Outside the USE_PULSE guard on purpose: the band is
   // optional, a shared timeline is not.
   gTs.onHello(t, millis());
+
+  // The trace field rides in the SAME HELLO, right after the 21-byte anchor. Additive: an
+  // un-reflashed node sends only the anchor and the length check makes it a non-participant.
+  // ⚠ COPY ONLY from the callback — the field is mutated exclusively by service() in loop().
+  if (t.type == toot::HELLO &&
+      t.payload_len >= timestream::ANCHOR_LEN + tracefield::DIGEST_LEN)
+    gField.queueDigest(t.payload + timestream::ANCHOR_LEN,
+                       (size_t)t.payload_len - timestream::ANCHOR_LEN);
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -2106,6 +2153,12 @@ void setup() {
   Serial.printf("T-Deck console 0x%08X online (hw %s, LoRa %s, GPS %s)\n", kNodeId,
                 USE_TDECK_HW ? "on" : "off", USE_LORA ? "on" : "off",
                 USE_GPS ? "on" : "off");
+  // This node has no microphone, so its only deposit source is the person holding it.
+  Serial.printf("[field] armed: %u cells, half-life %us, floor %u, rides HELLO (+%u B). "
+                "Deposits: press 'f' at the step you want.\n",
+                (unsigned)tracefield::CELLS,
+                (unsigned)(gField.field().halfLifeMs() / 1000),
+                (unsigned)TRACEFIELD_VOICE_FLOOR, (unsigned)tracefield::DIGEST_LEN);
 }
 
 void loop() {
@@ -2115,6 +2168,7 @@ void loop() {
   // in the same pass carry the same instant rather than separate readings of a clock
   // that moved between them.
   gTs.service(millis());
+  gField.service(millis());   // merge queued peer digests: callback copies, loop() mutates
   // Time this pass. The toot link is serviced once per loop pass, so the SLOWEST pass is
   // what the mesh feels as rtt — which makes `lp` on the interoception pane this node's own
   // sense of having gone sluggish, rather than something only the laptop can tell it.
@@ -2258,6 +2312,16 @@ void loop() {
         }
         gScreenDirty = true;
         break;
+      // `f` deposits into the trace field at the step the pulse is on — the operator as a
+      // stigmergic agent (stigmergy.md §4.F). Tap a rhythm and the fleet keeps it for a
+      // half-life; the Cardputer hears it because it merged a digest, not because this node
+      // sent it a command.
+      case 'f': {
+        gField.depositAt(gFieldStep, 200, millis());
+        Serial.printf("[field] deposit cell %u amount 200 energy %u\n",
+                      gFieldStep, gField.field().energy(millis()));
+        break;
+      }
       case '+': case '=':                        // zoom in (closer)
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -2441,6 +2505,29 @@ void loop() {
     static uint32_t prev_step = 0;
     static bool have_prev = false;
     if (gPulse.stepTick(pnow, steps, sip, sc)) {
+      // --- THE TRACE FIELD SPEAKS FIRST, when it has anything to say -------------------
+      // No mode and no toggle: a live trace at this step is what you hear, and the band's
+      // own part returns by itself once the last trace fades. ⚠ The `!gPulse.conductor()`
+      // gate is skipped for exactly the duet's reason and no wider: both nodes voice the
+      // SAME field on the SAME grid, and with only two handhelds powered one of them always
+      // conducts — keeping the gate would silence half a shared medium and make it look
+      // like a local echo.
+      gFieldStep = (uint8_t)(sip % tracefield::CELLS);
+      bool field_spoke = false;
+      if (gLocalPlay) {
+        uint8_t famp = 0;
+        const uint16_t fhz = gField.voiceAt(gFieldStep, pnow, famp);
+        if (fhz) {
+          gFieldLastVoice = pnow;
+          field_spoke = true;
+          const float amp = 5000.0f + (float)famp * (17000.0f / 255.0f);
+#if USE_TDECK_HW
+          toneI2S((float)fhz, 90, amp);
+#endif
+        }
+      }
+      // Once per bar, outside the play gate: a node that only listens still logs what it holds.
+      if (gFieldStep == 0) fieldLogBar(pnow);
       // Catch up over any steps this pass jumped so a stalled pass cannot swallow the note
       // that fell in the gap. Defensive: no dropped note has actually been observed at double
       // time (4.0 s/phrase, all 15 notes every cycle), but a duet's notes are 2 steps apart
@@ -2452,7 +2539,9 @@ void loop() {
                  : score::noteAt(*ph, (uint16_t)(sip * speed));
       prev_step = sc;
       have_prev = true;
-      if (nt && voice && nt->freq != score::REST) {
+      // ⚠ `!field_spoke` is not politeness: toneI2S BLOCKS, so two calls in one step would
+      // overrun the 125 ms slot and drag the loop that carries the mesh.
+      if (nt && voice && !field_spoke && nt->freq != score::REST) {
         // Articulation scales with the speed, so double time is staccato rather than a
         // slur — and it halves the blocking duty cycle of a tone call that would otherwise
         // occupy 72% of every note slot (the loop carries the mesh; see `lp`).
@@ -2473,8 +2562,11 @@ void loop() {
   static uint32_t lastBeacon = 0;
   if (millis() - lastBeacon >= 2000) {
     lastBeacon = millis();
-    uint8_t hb[timestream::ANCHOR_LEN];
+    uint8_t hb[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN];
     size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
+    // Decayed at the sender, so the digest is clock-free: a statement about this instant
+    // that a receiver can use without any part of our time base.
+    if (hn) hn += gField.helloAppend(hb + hn, sizeof(hb) - hn, millis());
     emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
   }
 #if USE_TDECK_HW
