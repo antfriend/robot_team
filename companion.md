@@ -4218,6 +4218,55 @@ If a fact lives in one of these, link to it from here — don't copy it.
   "refuse and print". Plus the **K10** (compiles at 20 %, needs one flash when it next
   appears) and **`percept-learning-return.md`**, cleared for TTE on 08-02, still unsent.
 
+- 📜 **2026-08-07 — STIGMERGY, AND THE CORPUS-WIDE SPEC IT TURNED INTO:
+  `TTDB-RFC-0010`.** Nothing is implemented; this entry records a *decision* and a
+  *finding*, not a capability. `stigmergy.md` is the exploratory half (Grassé's termites →
+  six candidate applications, ranked); **`replicate/RFCs/TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md`**
+  is the normative half — the same pairing `ttn-semantic-positioning.md` has with
+  TTN-RFC-0011. Corpus records: **`@LAT10LON10`** (conf 140 = *draft* per the corpus's own
+  convention, sal 150 → **EPS 67.6**, second only to the primary hypothesis at 70.8) and
+  the belief **`@LAT98LON6`**. `rfc.ttdb.md` went 36 → **38 records, 38 819 → 42 892 B**,
+  and all three copies (`replicate/RFCs/` + both handhelds' `data/`) are byte-identical
+  again — ⚠ **but the handhelds' on-flash copies are now STALE and MUST NOT be re-flashed
+  until the measurement run ends**, because `Upload-*-FS.ps1` wipes the lanes.
+  ⚠ **A record body MUST NOT have a line beginning `@LAT` — that is the record delimiter.**
+  The first cut of `@LAT10LON10` wrapped a cross-reference to the belief onto the start of a
+  line, which would have split the record in two and shipped a malformed one to both globes.
+  Caught by grammar-checking the file after editing (headers, edge syntax, coordinate
+  collisions, dangling targets) — **do that on every hand-edit of a TTDB**; the corpus now
+  validates at 38 records, no malformed headers, no dangling edge targets. Prose that must
+  name a coordinate at a line start should spell it out ("lat 98 lon 6") instead.
+  🔬 **The finding that made this corpus-wide rather than a feature: TTDB-RFC-0004 §2
+  already sanctions ids "derived from a stable hash", and §4 already requires that an id
+  "MUST NOT change for the same record".** The percept lanes take neither — `LON` is the
+  record's *position in its lane* — so `@LAT100` is a **workaround for declining a mechanism
+  the governing spec had all along**, and its 32-marker budget is what that decision costs
+  per prune. The corpus-wide fix is therefore *applying an existing rule*, not amending one:
+  `sid:<8 hex>` as identity with the coordinate kept as the address (so the globes,
+  `isNodeRecord()` and every index are untouched), citations optionally carrying `#sid` and
+  resolving **`stale`** on mismatch — which makes the failure `@LAT100` exists to detect
+  detectable *per citation, by a reader holding only the file*.
+  📋 **§3 is the deliverable to read first: a register classifying every lane** as
+  **EVIDENCE** / **FIELD** / **PROVENANCE**, with EVIDENCE as the fail-safe default (guessing
+  FIELD would license discarding an observation). Two facts fall straight out of it: **there
+  is no FIELD lane on this fleet** — everything is evidence or provenance, so nothing in
+  §§4–6 is in use anywhere — and **the first one must be a NEW lane at `@LAT101+`**, never a
+  conversion, since reclassifying a lane retroactively reclassifies the archives in
+  `master/` too.
+  ⚠ **The fence matters more than the mechanism** (§6): no measured constant may come from a
+  FIELD lane — a medium that removes its own data on a rule correlated with the measurement
+  is not a sample, and `entity-drift`'s gates 2 and 4 would be unprovable over one — no
+  `derived_from` may target a trace, and a field must pass the test that **the system stays
+  correct with it empty**. If emptying it changes an answer rather than a latency, the lane
+  is misclassified. Decay is evaluated **on read and never written** (only reinforcement
+  writes), and timed off a local `millis()` delta, because a stream clock is a **ratchet** —
+  right for recency, wrong for a duration.
+  📎 Staged so each step is abandonable, and **stage 0 (classify) is all that has happened**.
+  Stage 1 (readers accept `#sid`, ignore when absent) is zero-risk and leaves every existing
+  file byte-valid. ⚠ Any stage on the three V4s needs `huge_app` first (94 %, ~74.5 KB); the
+  handhelds have room. Falsifier stated in §8 before implementation, per the practice the
+  entity-drift gates established.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

@@ -286,6 +286,45 @@ engineered around. Companion: `replicate/TTX-0004-counter-story.md`.
 
 ---
 
+@LAT10LON10 | created:1786060800 | updated:1786060800 | relates:depends_on@LAT10LON1,depends_on@LAT10LON3,depends_on@LAT10LON4,depends_on@LAT10LON5
+[ew]
+conf:140
+rev:0
+sal:150
+touched:1786060800
+[/ew]
+
+**TTDB-RFC-0010 — Stigmergic Fields, Lane Discipline, and Stable Record Identity** (Draft; nothing implemented — §3 classifies what exists, §§4-6 describe a mechanism no node has run)
+src: TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md
+
+Two memory disciplines may coexist in a TTDB and every lane MUST declare which it is:
+**EVIDENCE** (append-only, citable, prunable only wholesale and only with a boundary),
+**FIELD** (a trace that decays and is reinforced, reclaimable in place), **PROVENANCE**
+(an account of the store itself; never reclaimed). A reader that cannot tell MUST assume
+EVIDENCE — guessing FIELD licenses discarding an observation. §3 registers every lane the
+fleet uses: `lat<90` + 91-97 evidence, 90/98/99/100 provenance, **no FIELD lane exists**,
+and the first one MUST be new at `@LAT101+` (converting a lane retroactively reclassifies
+the archives; `@LAT89` and below renders as a place on the globe).
+
+Decay is the computation, not housekeeping: it is what turns an accumulating log into a
+gradient a reader evaluates locally. But it **rewrites history by design**, so §6 fences
+it — no measured constant from a FIELD lane (a medium that removes its own data on a rule
+correlated with the measurement is not a sample), no `derived_from` targeting a trace, and
+the acceptance test that the system must still be correct with the field **empty**: if
+emptying it changes an answer rather than a latency, the lane is misclassified.
+
+§4 is the gate. A reclaimable record MUST NOT be named by its ordinal position, per
+TTDB-RFC-0004 §2 (stable hash) and §4 (an id MUST NOT change for the same record) — the
+divergence is recorded as a belief at lat 98 lon 6. `sid:<8 hex>` joins the header, the
+**coordinate stays the address and the sid becomes the identity** so navigation and every
+index keep working, and a citation MAY carry
+`#sid`, resolving `stale` when it does not match what is now at that coordinate. Both forms
+stay permanently live. Decay is evaluated **on read, never written** (only reinforcement
+writes), and computed from a local `millis()` delta because a stream clock is a ratchet —
+correct for recency, wrong for a duration.
+
+---
+
 @LAT20LON1 | created:1775001600 | updated:1775001600 | relates:default_log@LAT10LON1
 [ew]
 conf:210
@@ -840,3 +879,28 @@ hand should read V4-A, V4-B, T-Deck, Cardputer. The substitution matters most wh
 sensors are concerned, and it is not one-for-one: the K10 carried an AHT20 **ambient**
 thermometer, while the Cardputer's only thermal channel is die temperature — an
 interoceptive signal that TTDB-RFC-0009 §5.5 forbids substituting for it.
+
+---
+
+@LAT98LON6 | created:1786060800 | updated:1786060800 | relates:contradicts@LAT10LON4,supports@LAT10LON10
+
+**BELIEF — The percept lanes name records by lane ORDINAL, which TTDB-RFC-0004 does not sanction. `@LAT100` is the workaround, and its budget is finite.**
+
+TTDB-RFC-0004 §2 permits coordinates "derived from a stable hash" when location is
+unavailable, and §4 requires that an id "MUST NOT change for the same record". The percept
+lanes (`@LAT94`-`@LAT97`, and `@LAT90`/`@LAT92`) take neither option: `LON` is the record's
+position in its lane, so emptying a lane reassigns every name in it to a different record
+and every surviving citation (`derived_from@LAT97LON1`) silently resolves to the wrong
+record — a live pointer to the wrong thing, worse than a dangling one. `@LAT100`
+`**LANE-PRUNED**` boundaries make that legible and were verified on all five nodes
+2026-08-03, so the divergence is **honest, not a defect**; the lanes must be prunable (a
+capped lane means a blind node) and history must not be rewritten in silence.
+
+What is new is that the workaround is **bounded and the bound has been reached in
+practice**: `LANEGEN_MAX_LANE` is 32, `@LAT100` has no prune path of its own, and the
+Cardputer stood at **28/32 on 2026-08-07** — one four-lane prune remaining, after which
+`LaneGenNode.h` refuses (correctly and loudly) and the node can no longer clear its percept
+lanes at all. The refusal arrives as a node that has stopped perceiving. So the ordinal
+choice is not merely a spec divergence, it is a lifetime budget being spent per prune, and
+TTDB-RFC-0010 §4 exists to retire it by applying the mechanism TTDB-RFC-0004 §2 already
+allowed.

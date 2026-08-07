@@ -1,9 +1,17 @@
 # Stigmergy in robot_team
 
-*Design exploration — 2026-08-07. NOT adopted, NOT in PLAN.md, NOT state.*
-*companion.md remains the source of truth for what is actually true of the fleet;
-nothing here has been built or measured. Read §5 before §3: the discipline rule is
-what makes the rest safe.*
+*Design exploration — 2026-08-07. Still NOT in PLAN.md and NOT state; nothing here has
+been built or measured. companion.md remains the source of truth for what is true of the
+fleet. Read §5 before §3: the discipline rule is what makes the rest safe.*
+
+📜 **The normative half of this document is now `replicate/RFCs/TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md`**
+— the same exploratory/normative pairing `ttn-semantic-positioning.md` has with
+TTN-RFC-0011. What moved into the RFC, because it governs the whole corpus rather than any
+one feature: the three record classes, the **lane register** for every lane the fleet uses,
+the stable-id mechanism §3 below found to be the gate, and §5's discipline as enforceable
+rules. What stayed here: the mechanisms in §4, none of which the RFC decides.
+The corpus carries it as **`@LAT10LON10`** (EPS 67.6 — second only to the primary
+hypothesis) and the divergence it retires as belief **`@LAT98LON6`**.
 
 ---
 
@@ -106,6 +114,20 @@ naming: content-addressed or serial ids, not lane positions.** That is the real 
 this section, it is not small, and it should be priced before anything in §4 is built.
 The honest framing: `@LAT100` is the cost of pruning *ordinal-addressed* storage, and
 stigmergy asks the project to change the addressing rather than keep buying boundaries.
+
+🔬 **And the corpus already sanctioned the alternative — this is not a new invention.**
+**TTDB-RFC-0004 §2** says in as many words: *"When location is unavailable, coordinates MAY
+be derived from a stable hash,"* and **§4** says *"Once assigned, an ID MUST NOT change for
+the same record."* The percept lanes took neither option; they name a record by its
+**position in its lane** (`lane_n`), which is the one form of name that cannot survive
+reclamation. So `@LAT100` is a workaround for declining a mechanism the governing spec
+already offered — a genuinely useful reframe, because it means the corpus-wide fix is
+*applying an existing rule*, not amending one.
+📜 Formalised as **TTDB-RFC-0010 §4** (`sid:<8 hex>` as identity with the coordinate kept as
+the address, so the globes and every index keep working), with the divergence itself written
+down as corpus belief **`@LAT98LON6`** — the lat-98 lane exists precisely to record where
+implemented reality parts company with spec text, and this is an instance of it that was
+sitting unremarked in two `MUST`s.
 
 ---
 
