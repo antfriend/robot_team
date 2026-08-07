@@ -149,12 +149,23 @@ any DTR/RTS setting and do not visibly reset when the port is opened, so there i
 banner to read. What works (~17 s):
 
 ```bash
-python -m esptool --chip esp32s3 --port COMx --baud 921600 \
-       read-flash 0x10000 0x140000 app.bin
+python -m esptool --chip esp32s3 --port COMx --baud 460800 \
+       read-flash 0x10000 0x80000 app.bin        # 12 s, 512 KB is enough
 # grep the image for the sketch's own banner literal:
-#   "V4-A bridge" | "V4-B relay" | "V4-C edge"
+#   "V4-A bridge" | "V4-B relay" | "V4-C edge" | "Cardputer console" | "T-Deck"
 # and for "older_stream_wins" to tell whether it predates the time stream.
 ```
+
+⚠ **Read 0x80000 at 460800, not the whole 0x140000 at 921600.** The full-image read at
+921600 died mid-transfer with `A fatal error occurred: Corrupt data, expected 0x1000
+bytes but received 0xe85 bytes` at ~9% and **left no file at all** (2026-08-06, both
+boards, repeatable). The banner literals live in the DROM/`.rodata` segment that maps
+first, so the leading **512 KB** carries them — a `V4-A bridge` and a `Cardputer console`
+were both found in that window. Half the bytes at half the baud, and it completes.
+📎 `flash-id` (3 s) is a useful *pre-filter* on this fleet but never a substitute:
+measured, the Cardputer reads **8 MB embedded (GD), no PSRAM** and V4-A reads **16 MB +
+2 MB embedded PSRAM**. That separates those two, but the T-Deck is also a 16 MB part and
+the other two V4s are unmeasured — so flash size narrows, the banner decides.
 
 ⚠ The obvious shortcut does **not** work: `esp_app_desc_t.project_name` (at
 `0x10000+0x50`) reads **`arduino-lib-builder`** on every arduino-cli build — that is the

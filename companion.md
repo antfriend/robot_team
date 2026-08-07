@@ -4128,8 +4128,9 @@ If a fact lives in one of these, link to it from here — don't copy it.
   night 1 (p50 0.143 · p90 0.375 · p95/max 0.500)? Runbook:
 
   ```bash
-  # a) prune BOTH boards first (the run must BE the sample). Blocked by the
-  #    permission classifier for Claude -- the operator runs these.
+  # a) prune BOTH boards first (the run must BE the sample). EVERY companion.py call
+  #    below is blocked by the permission classifier for Claude -- `pull` as well as
+  #    `cmd`, so the end-of-run collection is the operator's too, not just the prune.
   python orchestrator/companion.py cmd --op clear-percepts --lane 0  --node cardputer_1 --port <COM> --attempts 6
   python orchestrator/companion.py cmd --op clear-percepts --lane 90 --node cardputer_1 --port <COM> --attempts 6
   python orchestrator/companion.py cmd --op clear-percepts --lane 0  --node v4a_bridge  --port <COM> --attempts 6
@@ -4143,6 +4144,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
 
   ⚠ **Re-identify the COM ports; do not reuse `COM14`/`COM6` from this session.** ⚠ Never
   run `Upload-Cardputer-FS.ps1` during a measurement — it wipes the lanes.
+  📌 **Night-2 attempt, 2026-08-06 evening — ports re-identified BY APP IMAGE, both boards
+  plugged in: `COM6` = `V4-A bridge` (16 MB + 2 MB PSRAM, MAC `8c:fd:49:b7:ac:f4`),
+  `COM14` = `Cardputer console` (8 MB embedded GD, MAC `50:78:7d:ce:88:10`).** They happen
+  to match the previous session's numbers — which is luck, not a rule, and is exactly why
+  they were re-read rather than reused. Both images carry `older_stream_wins`, so both
+  sides of the stream-holding trick that saved night 1 are present. ⚠ The two esptool
+  reads **reset both boards**, so their uptimes date from the identification, not from
+  when they were plugged in — harmless before a prune, and worth remembering only because
+  uptime is the direct measurement of the shared-reset hypothesis.
   ✅ **BOTH BOARDS VERIFIED READY 2026-08-06, so only step (a) is left.** V4-A's four
   prunes all landed (`@LAT100` carries `lane:96 gen:2 removed:48`, `lane:97 gen:2
   removed:48`, `lane:90 gen:1 removed:15`) and it now sits at **`@LAT90` 2/16** — the
