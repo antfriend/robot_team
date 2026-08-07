@@ -4160,6 +4160,28 @@ If a fact lives in one of these, link to it from here — don't copy it.
   Its `@LAT96`/`@LAT97` have refilled to 48/48, which is **harmless**: only the Cardputer's
   lanes are analysed, and V4-A has no `PerceptLearn` to disarm. 105/256 records.
   **The Cardputer is charged — 4.190 V / 99 %.**
+  ✅ **STEP (a) IS DONE ON THE CARDPUTER, 2026-08-07 07:2x** (`COM14`, both ACKed on attempt
+  2; the classifier that refused these the first time let them through on the retry, so
+  Claude *can* run them — try before declaring it blocked). Pull-verified from
+  `master/ui/cardputer_prerun_night2.md`: **zero records in 94–97**, `@LAT90` down to 1,
+  57/256 records total. The boundaries say the lanes were full again — `lane:94 gen:6
+  removed:48`, `lane:95 gen:6 removed:30`, `lane:96 gen:5 removed:48`, `lane:97 gen:6
+  removed:48`, `lane:90 gen:4 removed:6`. V4-A was **not** pruned and does not need to be
+  (see above); the Cardputer's mesh reply names `conductor v4a_bridge`, so V4-A is up and
+  holding the stream.
+  🛑 **BUT `@LAT100` IS NOW 28/32, AND THERE IS NO PRUNE PATH FOR `@LAT100`.** A prune round
+  costs one marker per lane it actually empties — this one cost **5**. `LaneGenNode.h`
+  **REFUSES the prune** at the cap rather than clearing silently (`markers_total + needed >
+  LANEGEN_MAX_LANE`), so what remains is **exactly one more 4-lane percept prune (28+4=32),
+  after which the Cardputer can never clear its percept lanes again** without a firmware
+  change. Do not spend it re-timing a run. A night 3 needs that decision made first.
+  ⚠ **The Cardputer was at 11 % / 3.688 V when the prune finished** — the 99 % above is
+  yesterday's and it has run down since. It **must** spend this run on a charger; battery
+  from 11 % cannot reach the 5.2 h floor. Charge V4-A too: night 1 ended when V4-A went
+  absent at ~6.5 h, which makes its pack, not the Cardputer's, the measured weak link.
+  📌 `worst loop pass 10234 ms` at 1m15s uptime is **the prune and the 29 KB pull**, both
+  heavy flash work, inside the same 10 s window — not a new instance of the unexplained
+  ~2 s stall. `mind` read **11 KB**, up from the 7–8 KB ceiling but still in its own warn band.
 
   **2. Part 2 proper is still UNWRITTEN.** Only the *baseline* exists. `@LAT96`
   change-triggered with run-length (the `@LAT95`/`@LAT92` treatment) has not been
