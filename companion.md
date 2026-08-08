@@ -4407,6 +4407,49 @@ If a fact lives in one of these, link to it from here — don't copy it.
   record count is a canary that fires on every legitimate corpus addition (36 → 38 today) —
   that failing is the test working; check the *other* assertions before touching the number.
 
+- 🎛 **2026-08-07 — THREE OPERATOR ENHANCEMENTS TO THE `5` VIEW, and one of them needed a
+  CRDT.** All flashed on both handhelds; suite **12/12, TraceField 59 checks**.
+  **1. Decay 2× steeper.** `TRACEFIELD_HALF_LIFE_MS` 20 s → **10 s**, so a clap is gone in
+  ~40 s rather than ~80 (8 halvings is the silence floor). ⚠ Change it on **both** handhelds
+  or their copies of one shared cell visibly disagree.
+  **2. DEL clears the field — and A LOCAL CLEAR CANNOT WORK, which is the interesting part.**
+  Max-of-decayed is **monotone upward**; that is exactly what makes the merge idempotent and
+  order-free, and it also means an empty digest can never lower anybody. Wiping this node's
+  copy would be undone by the T-Deck's next HELLO **two seconds later**. A clear the medium
+  immediately reverses is not a clear. 🔧 So the digest gained a **generation byte (v1 → v2,
+  18 → 19 B)**: a **newer** generation is adopted whole, zeros included — the one operation
+  that can LOWER a cell — an **equal** one max-merges exactly as before, and an **older** one
+  is ignored because our own digest will bring that node forward. Standard
+  join-semilattice-plus-epoch; one byte. ⚠ Comparison is **serial-number arithmetic**
+  (`(int8_t)(theirs - ours)`), not `>`: generations wrap at 255 and a plain compare would
+  strand two nodes in different epochs permanently. ⚠ **v1 and v2 do not interoperate, by
+  design** — the version check makes an un-reflashed node a non-participant rather than one
+  reading cells a byte out of phase. ⚠ A node that reboots comes back at generation 0, is
+  ignored by its peer, and adopts the fleet's generation on the first HELLO it hears — self
+  correcting, but its own deposits in that ~2 s window are discarded.
+  **3. Deposit sensitivity: an ABSOLUTE threshold, tunable on the glass.** The report was
+  *"the tiniest bump or keypress currently triggers"*, and the cause is that `gSndHot` is a
+  **ratio over the room baseline** — in a quiet room where `gSndAmb` sits near its 30-count
+  guard, a keyboard click is several times baseline and saturates it to `1.00`. **"Loud
+  relative to a silent room" is not loud.** The gate is now absolute (`gSndLvl >=
+  gFieldSens`, default **900**) plus a **300 ms refractory** so one clap is one deposit — the
+  earlier logs showed a clap's attack and its room slap landing as two (`amount 248` and
+  `amount 218` in the same millisecond). ⚠ **The @LAT94 tier's own transient threshold was
+  NOT touched**: that lane is evidence, and redefining what it calls a transient would
+  silently redefine a percept. This is a stricter gate layered on top — the tier says
+  *something happened*, the field asks *and was it loud*.
+  📏 **The default is a starting point, not a measurement, and the view says so by showing
+  the numbers.** Nobody has metered this mic, and a guessed constant is the mistake §6 keeps
+  recording — so `5` now carries a live `sens NNN peak NNNN` meter (decaying peak-hold) and
+  **`-`/`=` retune it in ×1.4 steps**, clamped 120..20000. Clap once, tap a key once, read
+  both numbers, set the threshold between them: a 20-second calibration by the only
+  instrument actually in the room. A transient rejected as too quiet flashes **`quiet`**,
+  because otherwise a deliberately deaf setting and a dead microphone look identical.
+  📋 `-`/`=` and DEL are intercepted **before** the filter that blanks globe-steering keys
+  while a face is up, and only on `FACE_FIELD` — the same context-sensitive rule `1`/`2`
+  already follow. The header now also shows `gen`, since an empty field looks the same
+  whether it was cleared or never used.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

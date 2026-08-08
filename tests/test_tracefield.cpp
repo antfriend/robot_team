@@ -21,7 +21,9 @@ static void check(bool ok, const char* what) {
 
 using namespace tracefield;
 
-static const uint32_t HL = 20000;   // the shipped default half-life
+// A round number for the arithmetic, NOT the shipped default (which is 10 s since
+// 2026-08-07). These tests pin the decay maths, so the constant is theirs to choose.
+static const uint32_t HL = 20000;
 
 int main() {
   printf("TraceField tests\n");
@@ -85,7 +87,8 @@ int main() {
     uint8_t d[DIGEST_LEN];
     check(a.buildDigest(d, sizeof(d), 0) == DIGEST_LEN, "digest is DIGEST_LEN bytes");
     check(d[0] == DIGEST_MAGIC && d[1] == DIGEST_VERSION, "digest carries magic+version");
-    check(d[2 + 2] == 180 && d[2 + 9] == 60, "digest carries decayed strengths by cell");
+    check(d[2] == a.generation(), "digest carries the generation, cells start at byte 3");
+    check(d[3 + 2] == 180 && d[3 + 9] == 60, "digest carries decayed strengths by cell");
 
     uint8_t tiny[DIGEST_LEN - 1];
     check(a.buildDigest(tiny, sizeof(tiny), 0) == 0,
@@ -102,7 +105,7 @@ int main() {
     a.deposit(5, 200, 0);
     uint8_t d[DIGEST_LEN];
     a.buildDigest(d, sizeof(d), 2 * HL);         // built two half-lives later
-    check(d[2 + 5] == 50, "buildDigest ships the decayed value, not the stored one");
+    check(d[3 + 5] == 50, "buildDigest ships the decayed value, not the stored one");
     // A receiver whose clock bears no relation to the sender's still gets it right.
     Field b(HL);
     b.merge(d, sizeof(d), 999999);
@@ -217,6 +220,70 @@ int main() {
     q.merge(weak, sizeof(weak), 0);
     check(!q.fromPeer(5), "a merge that raises NOTHING leaves provenance alone");
     check(f.fromPeer(CELLS) == false, "out-of-range provenance is false, not UB");
+  }
+
+  // ---- 11. clear() and the generation: the one path that may LOWER a cell -------------
+  //
+  // A max-merged field cannot express deletion — monotone upward is exactly what makes the
+  // merge idempotent and order-free. Without a generation, clearing locally is undone by
+  // the peer's next digest 2 s later. These are the tests that pin the fix.
+  {
+    Field f(HL);
+    f.deposit(2, 200, 0);
+    f.deposit(7, 150, 0);
+    const uint8_t g0 = f.generation();
+    f.clear();
+    check(f.energy(0) == 0, "clear() empties every cell");
+    check(f.generation() == (uint8_t)(g0 + 1), "clear() opens a new generation");
+    check(!f.fromPeer(2), "clear() drops provenance too");
+
+    // THE POINT: a newer generation lowers a peer that still holds the old values.
+    Field a(HL), b(HL);
+    a.deposit(4, 240, 0);
+    uint8_t d[DIGEST_LEN];
+    a.buildDigest(d, sizeof(d), 0);
+    b.merge(d, sizeof(d), 0);
+    check(b.strengthAt(4, 0) == 240, "peer holds the trace before the clear");
+    a.clear();
+    a.buildDigest(d, sizeof(d), 0);
+    check(b.merge(d, sizeof(d), 0) == 1, "a newer generation reports the cells it changed");
+    check(b.strengthAt(4, 0) == 0,
+          "a NEWER GENERATION LOWERS a peer's cell — the thing max alone can never do");
+    check(b.generation() == a.generation(), "the peer adopts the new generation");
+
+    // ...and having adopted it, the peer must not push the old values back.
+    uint8_t back[DIGEST_LEN];
+    b.buildDigest(back, sizeof(back), 0);
+    a.merge(back, sizeof(back), 0);
+    check(a.energy(0) == 0, "the cleared field is NOT refilled by the peer it just cleared");
+  }
+
+  // ---- 12. generation ordering, including the wrap ------------------------------------
+  {
+    Field f(HL);
+    f.deposit(1, 100, 0);
+    uint8_t old_d[DIGEST_LEN];
+    Field stale(HL);                     // generation 0, holding a big value
+    stale.deposit(1, 250, 0);
+    stale.buildDigest(old_d, sizeof(old_d), 0);
+    f.clear();                           // f is now generation 1, empty
+    check(f.merge(old_d, sizeof(old_d), 0) == 0, "an OLDER generation is ignored entirely");
+    check(f.energy(0) == 0, "an older generation cannot refill a cleared field");
+
+    // Wrap: 255 -> 0 must read as newer, not as 255 generations older.
+    Field w(HL);
+    for (int i = 0; i < 255; ++i) w.clear();
+    check(w.generation() == 255, "generation reaches 255");
+    w.deposit(3, 200, 0);
+    Field v(HL);
+    for (int i = 0; i < 256; ++i) v.clear();
+    check(v.generation() == 0, "generation wraps 255 -> 0");
+    v.deposit(9, 111, 0);
+    uint8_t wd[DIGEST_LEN];
+    v.buildDigest(wd, sizeof(wd), 0);
+    w.merge(wd, sizeof(wd), 0);
+    check(w.strengthAt(9, 0) == 111 && w.strengthAt(3, 0) == 0,
+          "across the 255->0 wrap the newer generation still wins");
   }
 
   printf("%d checks, %d failures\n", gChecks, gFails);

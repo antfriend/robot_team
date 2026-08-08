@@ -42,12 +42,48 @@ uint8_t Field::strengthAt(uint8_t cell, uint32_t now_ms) const {
   return decayed(s_[cell], last_[cell], now_ms, half_life_ms_);
 }
 
+void Field::clear() {
+  for (uint8_t i = 0; i < CELLS; ++i) { s_[i] = 0; last_[i] = 0; }
+  peer_mask_ = 0;
+  ++gen_;            // wraps at 255->0, which merge()'s signed comparison handles
+}
+
 uint8_t Field::merge(const uint8_t* digest, size_t len, uint32_t now_ms) {
   if (!digest || len < DIGEST_LEN) return 0;
   if (digest[0] != DIGEST_MAGIC || digest[1] != DIGEST_VERSION) return 0;
+  const uint8_t their_gen = digest[2];
+  const uint8_t* cells = digest + 3;
+
+  // Serial-number arithmetic, not `>`: generations wrap at 255, and a plain comparison
+  // would make 0 look older than 255 forever, stranding the two nodes in different epochs
+  // with no way back.
+  const int8_t age = (int8_t)(their_gen - gen_);
+
+  if (age < 0) return 0;   // ours is newer; our own digest will bring them forward
+
+  if (age > 0) {
+    // A NEWER GENERATION IS ADOPTED WHOLE, ZEROS INCLUDED. This is the single path that can
+    // LOWER a cell, and it is what makes a clear stick across the mesh instead of being
+    // undone by the next digest. The cost is explicit: local deposits made since their
+    // clear are discarded, because "clear" would otherwise mean "clear, unless somebody
+    // was mid-clap".
+    uint8_t changed = 0;
+    for (uint8_t i = 0; i < CELLS; ++i) {
+      if (decayed(s_[i], last_[i], now_ms, half_life_ms_) != cells[i]) ++changed;
+      s_[i] = cells[i];
+      last_[i] = now_ms;
+    }
+    peer_mask_ = 0;
+    for (uint8_t i = 0; i < CELLS; ++i)
+      if (cells[i]) peer_mask_ |= (uint16_t)(1u << i);
+    gen_ = their_gen;
+    return changed;
+  }
+
+  // Same generation: the ordinary max-of-decayed merge — idempotent and order-free.
   uint8_t raised = 0;
   for (uint8_t i = 0; i < CELLS; ++i) {
-    const uint8_t theirs = digest[2 + i];
+    const uint8_t theirs = cells[i];
     if (!theirs) continue;
     // Compare decayed against decayed. Adopting `theirs` stamps it at OUR now, which is
     // the only stamp we can defend: it says "this much trace was here when we heard it".
@@ -65,8 +101,9 @@ size_t Field::buildDigest(uint8_t* p, size_t cap, uint32_t now_ms) const {
   if (!p || cap < DIGEST_LEN) return 0;
   p[0] = DIGEST_MAGIC;
   p[1] = DIGEST_VERSION;
+  p[2] = gen_;
   for (uint8_t i = 0; i < CELLS; ++i)
-    p[2 + i] = decayed(s_[i], last_[i], now_ms, half_life_ms_);
+    p[3 + i] = decayed(s_[i], last_[i], now_ms, half_life_ms_);
   return DIGEST_LEN;
 }
 

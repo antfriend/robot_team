@@ -211,6 +211,39 @@ static int32_t  gFieldTransSeen = -1;  // last transient count we deposited for
 #define FIELD_ECHO_MUTE_MS 120
 static uint32_t gFieldMuteUntil = 0;
 
+// --- DEPOSIT SENSITIVITY: an absolute threshold, tunable on the glass -----------------
+//
+// The first cut deposited on any transient the @LAT94 tier reported, with the amount taken
+// from `gSndHot`. The operator's verdict was immediate: "the tiniest bump or keypress
+// currently triggers". The cause is that `gSndHot` is a ratio over the room baseline (see
+// the mic service), so in a quiet room everything is loud.
+//
+// So the field now needs an ABSOLUTE level as well as a transient. ⚠ The @LAT94 tier's own
+// threshold is deliberately NOT touched: that lane's records are evidence and changing what
+// it calls a transient would silently redefine a percept. This is a stricter gate layered on
+// top — the tier still says "something happened", the field additionally asks "and was it
+// loud?".
+//
+// ⚠ The default is a STARTING POINT, not a measurement. Nobody has metered this mic, and a
+// constant picked by guesswork is exactly the mistake §6 keeps recording. Hence `-`/`=` on
+// the `5` view and a live `peak` readout: clap once, click a key once, read the two numbers
+// off the screen, and put the threshold between them. That is a 20-second calibration by the
+// only instrument that is actually in the room.
+#ifndef FIELD_SENS_DEFAULT
+#define FIELD_SENS_DEFAULT 900
+#endif
+#define FIELD_SENS_MIN     120
+#define FIELD_SENS_MAX     20000
+// One clap must not become three deposits. The earlier logs showed two landing in the same
+// millisecond (`cell 0 amount 248` and `amount 218`), which is a clap's attack and its slap
+// echo counted separately.
+#define FIELD_DEPOSIT_REFRACTORY_MS 300
+static uint16_t gFieldSens      = FIELD_SENS_DEFAULT;
+static uint32_t gFieldLastDep   = 0;
+static uint32_t gFieldLastQuiet = 0;   // last transient REJECTED as too quiet (for the meter)
+static float    gSndLvl         = 0;   // this block's mean |sample|
+static float    gSndPeakHold    = 0;   // decaying peak, so a clap stays readable on screen
+
 // --- ONE LOG LINE PER BAR, NEVER ONE PER NOTE -----------------------------------------
 //
 // ⚠ THIS IS A FIX FOR AN AUDIBLE DEFECT, not a tidy-up. The first cut printed a line for
@@ -1850,13 +1883,27 @@ static void serviceMic(uint32_t now) {
   // the node next to it voicing the same cell. Both are needed — the first was in the
   // original and the feedback loop happened anyway.
   if (gTransCount > gFieldTransSeen && gTransAt == now && now >= gFieldMuteUntil) {
-    // Amount from loudness over the ROOM baseline, not an absolute level: `gSndHot` is
-    // already normalised that way and already discounts our own voice (§3.3).
-    const float hot = gSndHot < 0.0f ? 0.0f : (gSndHot > 1.0f ? 1.0f : gSndHot);
-    const uint8_t amount = (uint8_t)(48.0f + hot * 200.0f);
-    gField.depositAt(gFieldStep, amount, now);
-    Serial.printf("[field] deposit cell %u amount %u (hot %.2f) energy %u\n",
-                  gFieldStep, amount, hot, gField.field().energy(now));
+    if (gSndLvl < (float)gFieldSens) {
+      // Too quiet to be meant. Remembered (not printed) so the `5` view can say "quiet"
+      // rather than leaving the operator wondering whether the mic heard anything at all —
+      // a rejected clap and a broken microphone look identical without this.
+      gFieldLastQuiet = now;
+    } else if (now - gFieldLastDep < FIELD_DEPOSIT_REFRACTORY_MS) {
+      // One clap, one deposit: the attack and its room slap are the same event.
+    } else {
+      // Amount scales from the threshold, not from zero: a sound that only just qualifies
+      // still lands as an audible mark (80), and twice the threshold saturates. Absolute,
+      // so it means the same thing in a quiet room and a noisy one.
+      float over = gSndLvl / (float)gFieldSens - 1.0f;
+      if (over < 0.0f) over = 0.0f;
+      if (over > 1.0f) over = 1.0f;
+      const uint8_t amount = (uint8_t)(80.0f + over * 175.0f);
+      gField.depositAt(gFieldStep, amount, now);
+      gFieldLastDep = now;
+      Serial.printf("[field] deposit cell %u amount %u (lvl %.0f sens %u) energy %u\n",
+                    gFieldStep, amount, (double)gSndLvl, gFieldSens,
+                    gField.field().energy(now));
+    }
   }
   gFieldTransSeen = gTransCount;
 
@@ -1870,6 +1917,16 @@ static void serviceMic(uint32_t now) {
     acc += (uint32_t)(s < 0 ? -s : s);
   }
   float lvl = (float)acc / (float)frames;
+  // ABSOLUTE loudness of this block, kept for the trace field's deposit gate and its meter.
+  //
+  // ⚠ `gSndHot` below CANNOT serve as that gate, and this is why the field triggered on the
+  // tiniest bump: it is a RATIO over the room baseline, so in a quiet room where `gSndAmb`
+  // settles near its 30-count guard, a keyboard click is several times the baseline and
+  // saturates `over` to 1.00. "Loud relative to a silent room" is not loud. The gate needs
+  // an absolute number, and the meter on the `5` view exists so the operator can SEE what a
+  // clap and a keypress each measure instead of guessing at a constant.
+  gSndLvl = lvl;
+  if (lvl > gSndPeakHold) gSndPeakHold = lvl; else gSndPeakHold *= 0.97f;   // peak-hold
   gSndAmb += (lvl - gSndAmb) * 0.02f;         // our own voice still feeds the baseline
   if (now < gToneUntilMs) {
     gSndHot *= 0.7f;                          // we are the noise: fully explained (§3.3)
@@ -3314,14 +3371,13 @@ static bool gFieldPainted = false;
 
 static void fieldChrome() {
   gTft.fillScreen(ST77XX_BLACK);
-  // ⚠ These y values are hand-packed against renderField's geometry: bars 12..64, beat ruler
-  // 65..69, live status 71..80. Text is 10 px, so the first legend line cannot start before
-  // 84 without landing on the status line.
+  // ⚠ These y values are hand-packed against renderField's geometry: bars 12..56, beat ruler
+  // 57..61, then two LIVE lines (63 status, 74 meter) before the static text can start at 85.
   const uint16_t dim = rgb565(120, 128, 140), key = rgb565(180, 200, 230);
-  drawWide(84,  key, "<-- one 2s bar, looping -->");
-  drawWide(95,  dim, "clap = a bar at that moment");
-  drawWide(106, dim, "amber:yours  cyan:other node");
-  drawWide(117, dim, "over the red line it sounds");
+  drawWide(85,  key, "<-- one 2s bar, looping -->");
+  drawWide(96,  dim, "clap = a bar at that moment");
+  drawWide(107, dim, "amber:yours  cyan:other node");
+  drawWide(118, dim, "-/= sens    DEL clears all");
   gFieldPainted = false;
 }
 
@@ -3342,10 +3398,13 @@ static void renderField(uint32_t now) {
     }
   // Count the two provenances rather than just the total: "4 yours, 2 theirs" is the sentence
   // that says a medium is shared. A single energy number cannot say it.
-  snprintf(l, sizeof(l), "FIELD  %u yours %u theirs  e%4u", mine, theirs, e);
+  // `gen` is on the glass because a clear is otherwise invisible: an empty field looks the
+  // same whether it was wiped or never used, and the generation is what says which.
+  snprintf(l, sizeof(l), "FIELD %uy %ut  e%4u  gen%u", mine, theirs, e,
+           (unsigned)f.generation());
   drawWide(0, rgb565(150, 190, 255), l);
 
-  const int kTop = 12, kH = 52, kBase = kTop + kH;
+  const int kTop = 12, kH = 44, kBase = kTop + kH;
   const int kW = SCR_W / tracefield::CELLS;          // 15 px per cell at 240 wide
   const int fy = kBase - (kH * TRACEFIELD_VOICE_FLOOR) / 255;
   for (uint8_t i = 0; i < tracefield::CELLS; ++i) {
@@ -3381,7 +3440,17 @@ static void renderField(uint32_t now) {
   snprintf(l, sizeof(l), "beat %u.%u  %s", (unsigned)(gFieldStep / 4 + 1),
            (unsigned)(gFieldStep % 4 + 1),
            spoke ? "playing this bar" : (e ? "fading, nothing here" : "empty - clap!"));
-  drawWide(71, spoke ? rgb565(255, 210, 90) : rgb565(150, 150, 150), l);
+  drawWide(63, spoke ? rgb565(255, 210, 90) : rgb565(150, 150, 150), l);
+
+  // THE SENSITIVITY METER — the whole point of which is that nobody has to guess a constant.
+  // `peak` is a decaying peak-hold of the absolute mic level, so a clap stays readable for a
+  // second after it happens: clap once, tap a key once, read both numbers, put `sens` between
+  // them with `-`/`=`. "quiet" flags a transient the gate REJECTED, which is what stops a
+  // deliberately deaf setting from being mistaken for a dead microphone.
+  const bool quiet = (now - gFieldLastQuiet) < 700;
+  snprintf(l, sizeof(l), "sens %-5u peak %-5u%s", gFieldSens, (unsigned)gSndPeakHold,
+           quiet ? " quiet" : "");
+  drawWide(74, quiet ? rgb565(240, 140, 90) : rgb565(120, 170, 130), l);
   gFieldPainted = true;
 }
 
@@ -3631,10 +3700,12 @@ void setup() {
   // in — the same reason the belief panel spells out why it is empty rather than showing a
   // blank. This line is the difference between "I flashed it" and "the firmware says so".
   Serial.printf("[field] armed: %u cells, half-life %us, floor %u, rides HELLO (+%u B). "
-                "Deposits: a mic transient at the current step. '5' shows it.\n",
+                "Deposit needs a mic transient at lvl >= %u. '5' shows it; there "
+                "'-'/'=' tune that, DEL clears the field fleet-wide.\n",
                 (unsigned)tracefield::CELLS,
                 (unsigned)(gField.field().halfLifeMs() / 1000),
-                (unsigned)TRACEFIELD_VOICE_FLOOR, (unsigned)tracefield::DIGEST_LEN);
+                (unsigned)TRACEFIELD_VOICE_FLOOR, (unsigned)tracefield::DIGEST_LEN,
+                (unsigned)gFieldSens);
 
   // Take the body's first reading here, AFTER WiFi/BLE/ESP-NOW are up: `maxalloc` before
   // the radios is a number that never comes back, and the first STATUS reply can be
@@ -3947,6 +4018,33 @@ void loop() {
   // (n/p/b/s/g/x/o/r) still work, so the face is never a dead end. ENTER is NOT filtered
   // here — §5 gives it the second job of cycling representor views, and the switch below
   // routes it to whichever is on screen.
+  // On the TRACE FIELD view `-`/`=` and DEL have a job, so they must survive the filter
+  // below that blanks the globe-steering keys whenever a face is up. Same context-sensitive
+  // rule `1`/`2` already follow (modality pins with the FACE up, paging with the GLOBES up):
+  // a key means what the thing on screen needs it to mean.
+  if (k && gFaceOn && gFaceView == FACE_FIELD) {
+    if (k == '-' || k == '_' || k == '+' || k == '=') {
+      // Multiplicative steps, because loudness is: a fixed +100 is a huge change down at
+      // 200 and imperceptible up at 8000.
+      uint32_t s = gFieldSens;
+      s = (k == '-' || k == '_') ? (s * 7) / 5 : (s * 5) / 7;
+      if (s < FIELD_SENS_MIN) s = FIELD_SENS_MIN;
+      if (s > FIELD_SENS_MAX) s = FIELD_SENS_MAX;
+      gFieldSens = (uint16_t)s;
+      Serial.printf("[field] deposit sensitivity: needs lvl >= %u\n", gFieldSens);
+      k = 0;
+    } else if (k == KEY_BKSP_C) {
+      // ⚠ DEL CLEARS THE WHOLE MESH'S FIELD, not just this node's copy — it opens a new
+      // generation, and the peer adopts it on the next HELLO. That is the only way a clear
+      // can stick: a max-merged field is monotone upward, so a local wipe would be refilled
+      // by the T-Deck two seconds later. Scoped to this view so it cannot be hit by accident
+      // from a globe.
+      gField.field().clear();
+      Serial.printf("[field] CLEARED by operator — generation %u, and the peer will adopt "
+                    "it on the next HELLO\n", gField.field().generation());
+      k = 0;
+    }
+  }
   if (k && gFaceOn && (k == KEY_LEFT_C || k == KEY_RIGHT_C || k == KEY_UP_C ||
                        k == KEY_DOWN_C || k == '+' || k == '=' ||
                        k == '-' || k == '_')) k = 0;

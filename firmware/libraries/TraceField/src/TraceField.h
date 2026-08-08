@@ -48,14 +48,32 @@ const uint8_t CELLS = 16;
 // after the anchor, so a node running older firmware appends nothing and a node running
 // newer firmware must not read the next field's bytes as strengths. Check magic+version
 // before trusting a single cell.
+//
+// VERSION 2 ADDS THE GENERATION BYTE, AND IT EXISTS BECAUSE **A MAX-MERGED FIELD CANNOT
+// EXPRESS DELETION.** Max-of-decayed is monotone upward: that is exactly what makes the
+// merge idempotent and order-free, and it is also why clearing a field locally does
+// nothing — the peer's next digest, two seconds later, floods every cell straight back.
+// A "clear" that a shared medium immediately undoes is not a clear.
+//
+// So the field carries a generation. A digest from a NEWER generation is adopted whole,
+// zeros included, which is the one operation that can lower a value; equal generations
+// max-merge exactly as before; an older one is ignored, because our own next digest will
+// bring that node forward. This is the standard join-semilattice-plus-epoch shape, and one
+// byte is the entire cost.
+// ⚠ v1 and v2 are NOT interoperable and deliberately so: a v1 node's digest is refused by
+// the version check, making it a non-participant rather than a node whose cells are read
+// one byte out of phase. Both handhelds are flashed together.
 const uint8_t  DIGEST_MAGIC   = 0xFD;
-const uint8_t  DIGEST_VERSION = 1;
-const size_t   DIGEST_LEN     = 2 + CELLS;
+const uint8_t  DIGEST_VERSION = 2;
+const size_t   DIGEST_LEN     = 3 + CELLS;
 
 // Default half-life. Short on purpose: a trace must fade inside the attention span of
 // somebody standing next to it, or the field cannot be *felt*, only measured.
+// ⚠ 20 s -> 10 s on 2026-08-07 at the operator's request after hearing it: twice as steep,
+// so a clap is gone in ~40 s rather than ~80 (8 halvings is the silence floor). Change it
+// on BOTH handhelds or their copies of one shared cell visibly disagree.
 #ifndef TRACEFIELD_HALF_LIFE_MS
-#define TRACEFIELD_HALF_LIFE_MS 20000u
+#define TRACEFIELD_HALF_LIFE_MS 10000u
 #endif
 
 // Below this a cell is silent. Not zero: a cell decaying through the last few counts
@@ -72,6 +90,13 @@ class Field {
   // Reinforce `cell` by `amount`, saturating at 255. Decays the cell to `now` first, so
   // repeated deposits accumulate against the current value rather than a stale one.
   void deposit(uint8_t cell, uint8_t amount, uint32_t now_ms);
+
+  // Wipe the field and OPEN A NEW GENERATION, so the clear propagates instead of being
+  // undone by the next peer digest (see DIGEST_VERSION). This is the only operation that
+  // can lower another node's cell, and it is deliberately the operator's to invoke.
+  void clear();
+
+  uint8_t generation() const { return gen_; }
 
   // The decayed strength of `cell` at `now_ms`. Pure: does not mutate.
   uint8_t strengthAt(uint8_t cell, uint32_t now_ms) const;
@@ -108,6 +133,7 @@ class Field {
   uint8_t  s_[CELLS]      = {0};
   uint32_t last_[CELLS]   = {0};
   uint16_t peer_mask_     = 0;   // one bit per cell: this value came from a peer
+  uint8_t  gen_           = 0;   // epoch; a higher one may LOWER cells (see clear())
   uint32_t half_life_ms_;
 };
 
