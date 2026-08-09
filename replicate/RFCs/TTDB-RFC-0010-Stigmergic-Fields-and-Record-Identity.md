@@ -1,9 +1,15 @@
 # TTDB-RFC-0010: Stigmergic Fields, Lane Discipline, and Stable Record Identity
 
-**Version:** 0.1
-**Status:** Draft — **nothing in this RFC is implemented.** The lane register (§3) is a
-classification of what already exists and is normative on adoption; §§4–6 describe a
-mechanism no node has run.
+**Version:** 0.2
+**Status:** Draft. §4 (record identity) is **DECIDED and implemented as a library with
+cross-language vectors, but NO LANE WRITES A `sid` YET** — that is stage 2 (§7.2) and is
+deliberately separate. The lane register (§3) is a classification of what already exists
+and is normative on adoption; §5–§6 still describe a mechanism no node has run.
+**Changes in 0.2 (2026-08-09):** §4.2 rewritten around a measurement over the 78 archived
+TTDBs (§4.2.5) that **falsified v0.1's proposed hash input**; identity split into EVENT and
+KEY kinds (§4.2.1) with a per-lane register (§4.2.7); uniqueness scoped to `(node_id, lane)`
+rather than the corpus (§4.2.3); and v0.1's *"perturb the discriminator and retry"*
+**withdrawn** as self-defeating (§4.2.4).
 **RFC Number:** 0010
 **Project:** toot-toot-engineering
 **Component:** Toot-Toot Database (TTDB)
@@ -128,7 +134,7 @@ boundary it creates* — and it works, but it is a **workaround for declining a 
 TTDB-RFC-0004 already sanctioned.** Stable-hash naming is not a new invention here; it is
 the option the percept lanes did not take.
 
-### 4.2 Stable ids (normative)
+### 4.2 Stable ids (normative) — **DECIDED 2026-08-09, by measurement**
 
 A record in a lane that MAY be reclaimed (any FIELD lane, and any EVIDENCE lane whose
 implementation chooses §7.3 over boundaries) MUST carry a stable id:
@@ -137,17 +143,170 @@ implementation chooses §7.3 over boundaries) MUST carry a stable id:
 @LAT97LON3 | sid:a1b2c3d4 | created:… | updated:… | relates:…
 ```
 
-- `sid` is 8 lowercase hex digits: a deterministic 32-bit hash over the record's
-  identity-defining content — at minimum `node_id`, lane, stream id, and the observation
-  timestamp. It MUST be computable on-node in integer arithmetic, and MUST NOT include
-  the record's ordinal.
+- `sid` is 8 lowercase hex digits: **FNV-1a, 32-bit**, over the canonical preimage in
+  §4.2.2. It MUST be computable on-node in integer arithmetic, and MUST NOT include the
+  record's ordinal.
 - **The coordinate remains the address; `sid` is the identity.** Keeping `@LATxLONy` means
   TTCP-RFC-0002 navigation, `isNodeRecord()`, the globes, and every existing index keep
   working unchanged. Replacing the coordinate with a hash would be a larger and worse
   change.
-- Collision: the fleet's files declare `collision_policy: reject`. On a `sid` collision
-  within a lane an implementation MUST perturb the discriminator and retry, bounded; if it
-  still collides it MUST **drop the deposit and count the drop**, never overwrite.
+- A reader holding nothing but the file MUST be able to **recompute and verify** a `sid`.
+  This is the property everything else here is in service of, and §4.2.4 exists to protect
+  it.
+
+#### 4.2.1 Two identity kinds (normative)
+
+Every lane MUST declare its identity kind. This axis is **independent of §2's memory
+class** — no lane's class predicts its identity kind, and conflating them breaks a
+different thing in each direction.
+
+**EVENT** — an observation. It happened once, at an instant, and its content never
+changes afterwards. Its identity includes the timestamp **and a digest of the record
+body**.
+
+**KEY** — a standing row about a subject, revised or reinforced over time. Its identity is
+the subject's **natural key** and MUST include neither the timestamp nor the body, because
+both change while TTDB-RFC-0004 §4 requires the id not to.
+
+> ⚠ **Body-in on a KEY lane forks a belief's identity on every revision**, so every
+> citation to it dangles the moment Rule 3 folds one more outcome — and a FIELD trace
+> would get a new name on every reinforcement, which is the opposite of what §5 needs.
+> **Body-out on an EVENT lane is the 8.1 % measured in §4.2.5.**
+
+#### 4.2.2 Canonical preimage (normative)
+
+Fixed-width lowercase hex, `|`-separated, built without `printf`: no format-string
+portability question, no locale, no endianness, and cheap on a node.
+
+```
+EVENT : hex8(node_id) | hex4(lane) | hex8(stream) | hex16(t_ms) | hex8(body_digest)
+KEY   : hex8(node_id) | hex4(lane) | <natural key bytes, verbatim>
+```
+
+- `body_digest` is FNV-1a over **every byte after the record's header line**. Excluding the
+  header is what makes this non-circular (the `sid` lives *in* the header) and is also how
+  §4.2's "MUST NOT include the ordinal" is satisfied — the ordinal appears nowhere else.
+- `lane` is written as the two's-complement `hex4` of its `int16`, so a negative lane is
+  still deterministic.
+- The natural key MUST be canonically rendered by the lane's owner and MUST be **streamed**
+  into the hash, never staged through a fixed buffer: silently truncating a long key merges
+  two subjects into one identity, which is the failure this section exists to prevent.
+
+**Reference implementation:** `firmware/libraries/TTDB/src/Sid.{h,cpp}` (portable, no
+Arduino dependency) with `tests/test_sid.cpp`. ⚠ The same eight vectors are computed by
+`scripts/sid_probe.py --vectors` and asserted on **both** sides. A divergence between a
+node's arithmetic and the laptop's is silent and total — every citation would resolve
+`stale` against a perfectly good record — so it is pinned in two languages deliberately.
+
+#### 4.2.3 Uniqueness domain (normative)
+
+**A `sid` is unique within `(node_id, lane)`. It is NOT corpus-unique and MUST NOT be
+treated as such.** Measured birthday risk at 32 bits: `2.6e-7` at a lane's 48-record cap,
+`7.6e-6` at a node's 256-record file budget, `5.2e-3` over the present 6 672-record
+archive, and **`0.69` at 100 000 records**. The consolidated corpus grows without bound,
+so the right response is to **scope the claim, not widen the hash** — and the scope is
+free, because a citation already carries the coordinate.
+
+⚠ Any cross-node index MUST key on `(node_id, lane, sid)`.
+
+⚠ **On `stream:0x00000000` — a node with no stream — EVENT identity degrades to "unique
+within a boot",** because that timestamp is bare local `millis()` and restarts. This is the
+same limitation CLAUDE.md already records for that value ("comparable with nothing but that
+node's own records"); it turns out not to be comparable with itself across a reboot either.
+Two records on such a node with identical bodies at the same restarted instant are
+genuinely indistinguishable, and §4.2.4 says what to do about it.
+
+#### 4.2.4 Collision: refuse, do NOT perturb (normative — **this reverses v0.1**)
+
+Version 0.1 of this RFC said to *"perturb the discriminator and retry, bounded"*. **That is
+withdrawn.** It is self-defeating: a perturbed `sid` is not recomputable from the record, so
+a reader could no longer distinguish "perturbed on write" from "the lane was pruned under
+this citation" — destroying §4.2's verification property, which is the entire thing being
+bought. At `2.6e-7` per lane, refusing is affordable.
+
+- **EVENT:** two records agreeing on node, lane, stream, `t_ms` **and** body digest are the
+  same observation written twice. Implementations MUST **duplicate-suppress and count**,
+  never overwrite and never perturb. Measured rate in the archive: **2 in 6 683 (0.03 %)**,
+  both on `synced:0` records with byte-identical bodies — i.e. every occurrence was a real
+  duplicate, not a hash failure.
+- **KEY:** a collision means two different natural keys hashed to one id. That is a
+  lane-design error, not a runtime event. Implementations MUST refuse the write and report
+  it **loudly**; the fix is the lane's key, not a retry.
+
+#### 4.2.5 The measurement this decision rests on
+
+`scripts/sid_probe.py`, run over all 78 archived TTDBs in `master/` (6 683 records in lanes
+≥ 90) on 2026-08-09. §8's falsifier 3 required the hash input to be measured rather than
+re-guessed; it was, and **v0.1's proposed input failed**.
+
+| Lane | records | `(lane, stream, t_ms)` | **+ body digest** |
+|---|---|---|---|
+| `@LAT90` | 274 | 0 (0.0 %) | 0 |
+| `@LAT91` | 131 | **109 (83.2 %)** | 0 |
+| `@LAT92` | 544 | 15 (2.8 %) | 0 |
+| `@LAT93` | 25 | 0 (0.0 %) | 0 |
+| `@LAT94` | 1157 | 50 (4.3 %) | 0 |
+| `@LAT95` | 954 | 49 (5.1 %) | 2 (0.2 %) |
+| `@LAT96` | 1412 | **142 (10.1 %)** | 0 |
+| `@LAT97` | 1920 | 88 (4.6 %) | 0 |
+| `@LAT99` | 67 | 0 (0.0 %) | 0 |
+| `@LAT100` | 199 | **85 (42.7 %)** | 0 |
+| **TOTAL** | **6683** | **538 (8.1 %)** | **2 (0.03 %)** |
+
+These are **input** collisions — two different records with the same name — not hash
+collisions. No width fixes them. The distribution is fully explained, and each cluster
+argues for a different part of the decision:
+
+- **`@LAT91` at 83.2 %** — `LINK-STABLE`, one belief per `(peer, proto)`, several written
+  in one fold pass and *revised* thereafter. Its identity is a key, not a moment. A further
+  **62 records in the archive carry no `t_ms` at all** (28 `LINK-STABLE`, 25
+  `BELIEF-ADOPTED`, 9 `BELIEF-PUSH`), so for those lanes KEY identity is not a preference —
+  there is no timestamp to hash.
+- **`@LAT100` at 42.7 %** — one prune of lanes 94–97 writes four boundary markers at one
+  instant. Identity is `(generation, lane)`.
+- **`@LAT94/95/96/97/92`** — *every* collision is on `synced:0` or `stream:0x00000000`,
+  i.e. §4.2.3's restarted clock.
+- **`@LAT90/93/99` at 0.0 %** — already uniquely named by time; they need only the digest
+  for integrity, not for uniqueness.
+
+Hash quality was measured separately: **0 true 32-bit collisions in 6 672 distinct ids**,
+and 9 cases of the same record appearing in two archived pulls receiving the **same** `sid`
+— the stability across a re-pull that makes citations resolvable at all.
+
+#### 4.2.6 Adoption cost: one literal per builder
+
+Every record builder in the reference fleet renders its header **first** and its body
+after, into one fixed buffer, so a body digest cannot be known when the header is written.
+The resolution is not to restructure eleven builders. A builder renders the literal
+placeholder `sid:00000000` in its header and calls `sid::stampEvent()` / `sid::stampKey()`,
+which locates the header line, digests everything after it, and **patches the eight hex
+characters in place**.
+
+⚠ The patch is bounded to the **header line** deliberately: a body may legitimately contain
+the text `sid:` — a boundary record quoting a pruned record's id is the obvious case — and
+patching that instead would corrupt provenance while appearing to work. This is the same
+needle-collision family as `prev_stream:` inside `stream:` and `**COVERED-SPAN**` inside
+`**COVERED**`, and it is the fourth member; it is tested for rather than commented about.
+
+So stage 2 costs each builder **one added literal and one call**, and no extra buffer —
+which matters on a node whose largest record builder already holds 2 624 bytes.
+
+#### 4.2.7 Identity-kind register (normative on adoption)
+
+| Lane | Memory class (§2) | **Identity kind** | Natural key (KEY lanes only) |
+|---|---|---|---|
+| `@LAT90` | PROVENANCE | EVENT | — |
+| `@LAT91` | EVIDENCE | **KEY** | `peer:0x%08lx\|proto:%s` |
+| `@LAT92` | EVIDENCE | EVENT | — |
+| `@LAT93` | EVIDENCE | EVENT | — |
+| `@LAT94`–`@LAT97` | EVIDENCE | EVENT | — |
+| `@LAT98` | PROVENANCE | **KEY** | `src:0x%08lx\|target:@LAT%dLON%d` |
+| `@LAT99` | PROVENANCE | EVENT | — |
+| `@LAT100` | PROVENANCE | **KEY** | `gen:%u\|lane:%u` |
+| `@LAT101+` FIELD | FIELD | **KEY** | the field's own key (a trace must survive reinforcement) |
+
+Note that **every FIELD lane is necessarily KEY**: §5.2 reinforcement updates a trace in
+place, and a trace whose name changed when it was reinforced would be a new trace.
 
 ### 4.3 Citations (normative)
 
@@ -252,10 +411,20 @@ lane_classes:
 Absent declaration, every lane is EVIDENCE (§2 fail-safe).
 
 ### 7.2 Staging — each stage is independently abandonable
-- **Stage 0 — classify.** Publish the §3 register. No code, no risk. *This RFC is stage 0.*
+- ✅ **Stage 0 — classify.** Publish the §3 register. No code, no risk. *Done 2026-08-07.*
+- ✅ **Stage 0b — decide the identity (§4).** Measured, decided, and implemented as a
+  portable library with cross-language vectors. **Nothing writes a `sid`**, so every
+  existing file is untouched and this stage is abandonable by deleting two files.
+  *Done 2026-08-09.*
 - **Stage 1 — readers accept `#sid` and ignore it when absent.** Writers unchanged, so
   every existing file stays byte-valid. Zero-risk and it makes stage 2 testable.
-- **Stage 2 — one lane writes `sid:`.** Both forms live (§4.3).
+  ⚠ **`companion.py` and `TtdbParse.cpp` are the two readers**, and the check that matters
+  is that a bare `type@LATxLONy` and a `type@LATxLONy#sid` both resolve — §4.3 makes both
+  forms permanently live, for the same reason `synced:` still parses beside `stream:`.
+- **Stage 2 — one lane writes `sid:`.** Both forms live (§4.3). Per §4.2.6 this is one
+  added literal and one call per builder. ⚠ **Pick a KEY lane first, not a percept lane:**
+  `@LAT91` has 11 records against no cap, so a mistake there costs nothing, whereas the
+  percept lanes are the ones a measurement run depends on.
 - **Stage 3 — the first FIELD lane at `@LAT101`,** decay-on-read, reclaim-lowest.
 - **Stage 4 — retire that lane's prune.** `@LAT100` consumption stops growing.
 
@@ -284,15 +453,36 @@ Stated before implementation, per the practice this fleet applies to its own mea
    the treadmill was not the cost that mattered.
 2. If a field's decayed choice agrees with the equivalent append-only tally's choice in
    every observed case, the field bought risk and no capability. Report that and stop.
-3. If `sid` collisions require more than a bounded retry at 48 records/lane, §4.2's hash
-   input is wrong and must be measured, not re-guessed.
+3. ✅ **FIRED, 2026-08-09 — and the RFC was corrected rather than abandoned.** *"If `sid`
+   collisions require more than a bounded retry at 48 records/lane, §4.2's hash input is
+   wrong and must be measured, not re-guessed."* It was measured (§4.2.5): v0.1's proposed
+   input produced **538 input collisions in 6 683 archived records (8.1 %)**, which no
+   retry could have absorbed. §4.2 now carries the measured input, and the bounded retry
+   this falsifier assumed has itself been withdrawn as self-defeating (§4.2.4).
+   ⚠ Worth recording as method, not just as result: the falsifier was written before the
+   mechanism, and the thing it caught was **not** the thing it was pointed at. It was aimed
+   at hash quality (which turned out to be fine — 0 true collisions in 6 672 ids) and it
+   caught a *design* error in what was being hashed. A falsifier stated in advance found a
+   fault its author had not imagined; that is the argument for stating them in advance.
 
 ---
 
 ## 9. Open questions
 
-- The `sid` hash function and discriminator are unspecified pending a measured collision
-  rate. FNV-1a over `(node_id, lane, stream, t_ms)` is the obvious first candidate.
+- ~~The `sid` hash function and discriminator are unspecified pending a measured collision
+  rate.~~ ✅ **CLOSED 2026-08-09 — see §4.2.** FNV-1a 32-bit; the input is the canonical
+  preimage of §4.2.2 (which adds a **body digest** the first candidate lacked, and splits
+  identity into EVENT and KEY kinds the first candidate did not distinguish); the
+  discriminator is **withdrawn** in favour of refuse-and-count (§4.2.4). Reference
+  implementation and cross-language vectors exist; **no lane writes a `sid` yet** — that
+  is stage 2 and is deliberately separate.
+- 🆕 **Opened by that decision: `@LAT98`'s natural key is the least certain row in the
+  §4.2.7 register.** `BELIEF-ADOPTED` is an attestation about *someone else's* belief, so
+  the key proposed there (`src|target`) assumes one attestation per source per target —
+  plausible, and unverified, because all 25 archived `BELIEF-ADOPTED` records carry no
+  `t_ms` and the lane has never been near a cap. If a source can legitimately re-attest a
+  changed belief about the same target, that key is wrong and the lane is EVENT after all.
+  Decide it against a real re-attestation, not by inspection.
 - Whether a FIELD lane should be shared over the air as deposits (HELLO carries 21 of 250
   bytes today, and an un-reflashed node contributing 0 bytes is already a non-participant
   rather than a parse error) or held per-node and merged only on pull. `stigmergy.md` §4.A

@@ -115,6 +115,14 @@ this section, it is not small, and it should be priced before anything in §4 is
 The honest framing: `@LAT100` is the cost of pruning *ordinal-addressed* storage, and
 stigmergy asks the project to change the addressing rather than keep buying boundaries.
 
+✅ **PRICED AND DECIDED 2026-08-09 — TTDB-RFC-0010 §4 (v0.2).** Measured over all 78
+archived TTDBs rather than argued, and the RFC's own proposed hash input **failed at 8.1 %
+input collisions**. A digest of the record body fixes it, and identity turned out to have
+**two kinds**: EVENT (body and time in) and KEY (both out, so a revised belief or a
+reinforced trace keeps its name). Implementation and cross-language vectors exist; **no
+lane writes one yet**. The gate on §4.B is therefore open and its cost is known: one added
+literal per record builder.
+
 🔬 **And the corpus already sanctioned the alternative — this is not a new invention.**
 **TTDB-RFC-0004 §2** says in as many words: *"When location is unavailable, coordinates MAY
 be derived from a stable hash,"* and **§4** says *"Once assigned, an ID MUST NOT change for
@@ -314,3 +322,9 @@ first run, in the order the entity-drift gates established.
 B is the highest-value item and the one that would retire an operational dead end, but it
 is gated on the ordinal-naming problem in §3, and that is a corpus-wide decision, not a
 feature. It should not be started as a side effect of anything else.
+
+✅ **That gate opened 2026-08-09** (§3's update above). B is now blocked on nothing but the
+work itself — and the measurement handed it one constraint it did not have before: a FIELD
+lane is **necessarily KEY-identified**, because a trace renamed by its own reinforcement is
+a new trace. Whatever B keys its deposits on is therefore part of the lane's public
+contract, not an implementation detail.
