@@ -1362,13 +1362,21 @@ static void reconcileBeliefs() {
   // is the whole reason the belief can now decay at all.
   static char brec[PERCEPTLEARN_BUF];
   for (int i = 0; i < n; ++i) {
+    // `bsid` is this belief's STABLE id (TTDB-RFC-0010 stage 2, the fleet's first lane to
+    // carry one). Logged because a lane that silently started naming its records would be
+    // indistinguishable from one that had not — the same argument as `[field] armed:`.
+    // ⚠ Watch it across Dream Cycles: it MUST NOT change for the same (peer, proto) even
+    // as conf, rev and the ordinal all move. If it ever does, every citation into this lane
+    // is re-pointing, which is the failure @LAT100 exists to make visible.
+    uint32_t bsid = 0;
     size_t m = gRecon.buildBelief(brec, sizeof(brec), i, i, gStreamWallSec, kNodeId,
-                                  gBeliefRev, gStamp);
+                                  gBeliefRev, gStamp, &bsid);
     if (m && gDb.appendRecord(brec, m)) {
       const perceptlearn::Belief& b = gRecon.belief(i);
-      Serial.printf("[dream] @LAT%dLON%d peer:0x%lx %s conf:%ld sal:%ld "
+      Serial.printf("[dream] @LAT%dLON%d sid:%08lx peer:0x%lx %s conf:%ld sal:%ld "
                     "(met:%ld violated:%ld%s) rev:%d\n",
-                    PERCEPTLEARN_BELIEF_LANE, i, (unsigned long)b.peer,
+                    PERCEPTLEARN_BELIEF_LANE, i, (unsigned long)bsid,
+                    (unsigned long)b.peer,
                     b.proto == 0 ? "espnow" : (b.proto == 1 ? "lora" : "ble"),
                     (long)b.conf, (long)b.sal, (long)b.met, (long)b.violated,
                     b.contradiction ? " CONTRADICTION" : "", gBeliefRev);

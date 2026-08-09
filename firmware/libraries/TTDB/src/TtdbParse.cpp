@@ -110,16 +110,54 @@ int ttdbNearest(const TtdbRecord* recs, int n, int16_t lat, int16_t lon) {
   return best;
 }
 
+// Span of the record's header line — the first line beginning '@' — as [start, end).
+// Deliberately a local copy of the scan `sid::stampEvent` does rather than a shared one:
+// TTDB and Sid are separate libraries and this is ten lines, so the alternative is a
+// dependency edge between them for less code than the edge costs. ⚠ If one of them changes
+// what counts as a header line, the other must too; tests/test_citation.cpp and
+// tests/test_sid.cpp both pin it, which is what keeps them honest.
+static bool headerLineSpan(const char* rec, size_t len, const char*& start,
+                           const char*& end) {
+  size_t i = 0;
+  while (i < len) {
+    if (rec[i] == '@') {
+      start = rec + i;
+      while (i < len && rec[i] != '\n') ++i;
+      end = rec + i;
+      return true;
+    }
+    while (i < len && rec[i] != '\n') ++i;
+    if (i < len) ++i;
+  }
+  return false;
+}
+
 bool ttdbHeaderSid(const char* line, uint32_t& out) {
   if (!line) return false;
-  // Bounded to the header LINE, and to a ` sid:` field within it. A body may legitimately
-  // contain the text `sid:` -- a boundary record quoting a pruned record's id is the real
-  // case -- and reading that as the record's own identity would be the same needle
-  // collision as `prev_stream:` inside `stream:`.
-  const char* nl = strchr(line, '\n');
-  const char* p = strstr(line, "sid:");
-  if (!p || (nl && p > nl)) return false;
-  return parse_hex8(p + 4, nl ? nl : p + 4 + 8, out);
+  // ⚠ THE BUFFER DOES NOT NECESSARILY START AT THE HEADER LINE, and assuming it did was a
+  // real defect caught by the first cross-component test: every record this fleet renders
+  // begins "\n---\n\n@LAT..." (the separator is part of what `appendRecord` is given), so
+  // `strchr(line, '\n')` found the newline at index 0 and the function reported "no sid"
+  // for a record that carried one. The writer and the reader disagreed, silently, which is
+  // the one failure mode a stable id exists to prevent.
+  //
+  // So locate the header line the way bodyOffset() does — the first line beginning '@' —
+  // and search only within it. A body may legitimately contain the text `sid:` (a @LAT100
+  // boundary quoting a pruned record's id is the real case) and reading that as the
+  // record's own identity is the `prev_stream:`-inside-`stream:` collision again.
+  const size_t len = strlen(line);
+  const char* start = line;
+  const char* end = line + len;
+  if (!headerLineSpan(line, len, start, end)) return false;
+  for (const char* p = start; p + 4 <= end; ++p) {
+    if (p[0] != 's' || p[1] != 'i' || p[2] != 'd' || p[3] != ':') continue;
+    // ⚠ Must be a field, not a suffix: `prev_sid:` and `carried_sid:` must not match. A
+    // word boundary does NOT help — it matches inside them — so the character before is
+    // required to be a delimiter, exactly as companion.py's HEADER_SID_RE does.
+    if (p > start && p[-1] != ' ' && p[-1] != '|') continue;
+    return parse_hex8(p + 4, end, out);
+  }
+  return false;
 }
 
 TtdbCitation ttdbResolveCitation(const TtdbEdge& e, const char* target_header) {

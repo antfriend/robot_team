@@ -443,10 +443,29 @@ Absent declaration, every lane is EVIDENCE (§2 fail-safe).
   sid-less citation, a sid-less target, or a target in another node's file all report
   **nothing** — not `fresh`, not `stale`. Reporting the archive as broken on adoption day
   would be worse than saying nothing about it.
-- **Stage 2 — one lane writes `sid:`.** Both forms live (§4.3). Per §4.2.6 this is one
-  added literal and one call per builder. ⚠ **Pick a KEY lane first, not a percept lane:**
-  `@LAT91` has 11 records against no cap, so a mistake there costs nothing, whereas the
-  percept lanes are the ones a measurement run depends on.
+- ✅ **Stage 2 — one lane writes `sid:`.** *Software done 2026-08-09; NOT YET RUN ON
+  HARDWARE.* `@LAT91` LINK-STABLE is the fleet's first lane to carry a stable id, chosen
+  first for the two reasons the measurement gave: it is a **KEY-identity** lane (its 83.2 %
+  collision rate is what proved identity needs two kinds), and it is the cheapest lane to
+  be wrong in — 11 records against no cap. `Reconciler::buildBelief` renders
+  `sid:00000000` and calls `sid::stampKey`; `Reconciler::beliefKey` is public so a reader
+  can recompute the id rather than trust it. Cost: **Cardputer +764 B flash**, T-Deck
+  unchanged, the three 94 %-full V4s **byte-identical**.
+  🔬 **§4.2.6's promise held exactly: one literal and one call, no second buffer.** The
+  belief record grew 13 bytes inside a 2624 B builder buffer that needed no change.
+  ⚠ **The two properties pinned in `tests/test_perceptlearn.cpp` are the ones that make it
+  an identity rather than a checksum**: the id **survives a revision** (new conf, new rev,
+  new stamp, new `LON` — same name) and **ignores the ordinal**. Get either wrong and every
+  citation into this lane silently re-points on the next Dream Cycle, which is the failure
+  `@LAT100` exists to make visible.
+  🐛 **The first cross-component test immediately found a real defect, and it is the exact
+  failure a stable id exists to prevent: the writer wrote an id the reader could not read
+  back.** `ttdbHeaderSid` assumed its buffer began at the header line, but every record
+  this fleet renders begins `\n---\n\n@LAT…` — so `strchr(line, '\n')` found the newline at
+  index 0 and reported "no sid" for a record that carried one. **Both sides were internally
+  consistent and individually tested; only a test spanning the two could see it.** Any
+  implementation of this RFC MUST test writer and reader against each other, not merely
+  each against itself.
 - **Stage 3 — the first FIELD lane at `@LAT101`,** decay-on-read, reclaim-lowest.
 - **Stage 4 — retire that lane's prune.** `@LAT100` consumption stops growing.
 

@@ -473,16 +473,24 @@ int Reconciler::foldRecord(const char* text, size_t len) {
   return folded;
 }
 
+size_t Reconciler::beliefKey(char* out, size_t cap, uint32_t peer, uint8_t proto) {
+  const int m = snprintf(out, cap, "peer:0x%08lx|proto:%s",
+                         (unsigned long)peer, protoName(proto));
+  return (m < 0 || (size_t)m >= cap) ? 0 : (size_t)m;
+}
+
 size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
                                uint32_t node_id, int rev,
-                               const timestream::Stamp& ts) const {
+                               const timestream::Stamp& ts,
+                               uint32_t* sid_out) const {
+  if (sid_out) *sid_out = 0;
   if (i < 0 || i >= n_) return 0;
   const Belief& b = b_[i];
   char stamp[64];
   if (!timestream::buildStamp(stamp, sizeof(stamp), ts)) return 0;
   int m = snprintf(
       out, cap,
-      "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
+      "\n---\n\n@LAT%dLON%d | sid:00000000 | created:%lu | updated:%lu | "
       "relates:believes_about@LAT0LON0,reconciles@LAT92LON0,derived_from@LAT97LON0\n"
       "[ew]\n"
       "conf:%ld\n"
@@ -505,6 +513,19 @@ size_t Reconciler::buildBelief(char* out, size_t cap, int i, int lon, uint32_t t
       b.contradiction ? 1 : 0,
       PERCEPTLEARN_LANE, records_);
   if (m < 0 || (size_t)m >= cap) return 0;
+
+  // Stamp the placeholder. KEY identity: the subject, and nothing that changes about it.
+  // ⚠ `lon` is deliberately NOT an input — a belief that moves slot keeps its name, which
+  // is TTDB-RFC-0004 §4 in one line and the reason this lane went first.
+  char key[48];
+  if (!beliefKey(key, sizeof(key), b.peer, b.proto)) return 0;
+  const uint32_t s = sid::stampKey(out, (size_t)m, node_id, PERCEPTLEARN_BELIEF_LANE, key);
+  // ⚠ A record is never half-stamped. If the placeholder was not found, the header format
+  // string and this call have drifted apart — and shipping an unstamped record from a lane
+  // that declares stable ids is worse than shipping none, because a reader would read the
+  // absence as "pre-adoption" rather than "broken".
+  if (!s) return 0;
+  if (sid_out) *sid_out = s;
   return (size_t)m;
 }
 

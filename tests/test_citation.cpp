@@ -113,6 +113,28 @@ int main() {
           "and against a sid-less one");
   }
 
+  // ---- 5b. THE BUFFER DOES NOT START AT THE HEADER LINE ---------------------------------
+  // ⚠ Regression. Every record this fleet renders begins "\n---\n\n@LAT..." — the separator
+  // is part of what `appendRecord` is handed — so a first cut that did `strchr(line, '\n')`
+  // found the newline at index 0 and reported "no sid" for a record that carried one. The
+  // writer and the reader disagreed silently, which is the one failure a stable id exists
+  // to prevent, and only a test spanning BOTH sides could see it: each was self-consistent.
+  {
+    const char* as_rendered =
+        "\n---\n\n@LAT91LON0 | sid:1a2b3c4d | created:0 | updated:0 | "
+        "relates:believes_about@LAT0LON0\n"
+        "[ew]\nconf:112\n[/ew]\n\n**LINK-STABLE** peer:0x00000200 proto:espnow\n";
+    uint32_t s = 0;
+    check(ttdbHeaderSid(as_rendered, s) && s == 0x1a2b3c4du,
+          "a record with its leading separator still yields its sid");
+
+    // ...and a `sid:`-suffixed field still must not match.
+    const char* suffixed = "\n---\n\n@LAT91LON0 | prev_sid:deadbeef | created:0\n\nbody\n";
+    s = 0xffffffffu;
+    check(!ttdbHeaderSid(suffixed, s), "`prev_sid:` is not read as `sid:`");
+    check(s == 0xffffffffu, "and the output is untouched");
+  }
+
   // ---- 6. the header sid is bounded to the header line -----------------------------------
   {
     // A @LAT100 boundary quoting a pruned record's id is the real case.

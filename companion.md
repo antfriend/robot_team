@@ -4697,6 +4697,39 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📋 Next is **stage 2: one lane writes `sid:`** — `@LAT91` first (11 records, no cap, so a
   mistake costs nothing), never a percept lane, and never during a measurement run.
 
+- 🏷️ **2026-08-09 — RFC-0010 STAGE 2: `@LAT91` IS THE FLEET'S FIRST LANE TO WRITE A STABLE
+  ID. Software done; ⚠ NOT YET RUN ON HARDWARE.** `Reconciler::buildBelief` renders
+  `sid:00000000` and calls `sid::stampKey`; `beliefKey()` is public so a reader can
+  **recompute** the id rather than trust it. The `[dream]` log line now carries
+  `sid:%08lx`. Cost: **Cardputer +764 B flash**, T-Deck unchanged, the three 94 %-full V4s
+  **byte-identical**. §4.2.6's promise held exactly — one literal, one call, no second
+  buffer; the record grew 13 B inside a 2624 B builder that needed no change.
+  🎯 **Why this lane first, and it was the measurement's choice not a preference.** It is a
+  **KEY-identity** lane — its 83.2 % input-collision rate is what proved identity needs two
+  kinds — and it is the cheapest lane to be wrong in: **11 records against no cap**, where
+  the percept lanes are what a measurement run depends on.
+  ⚠ **The two properties pinned are the ones that make it an identity and not a checksum:
+  the id SURVIVES A REVISION** (new conf, new rev, new stamp, new `LON` — same name) **and
+  IGNORES THE ORDINAL.** Get either wrong and every citation into this lane silently
+  re-points on the next Dream Cycle, which is the failure `@LAT100` exists to make visible.
+  🐛 **The first cross-component test found a real defect immediately, and it was the exact
+  failure a stable id exists to prevent: the writer wrote an id the reader could not read
+  back.** `ttdbHeaderSid` assumed its buffer began at the header line — but every record
+  this fleet renders begins `\n---\n\n@LAT…`, so `strchr(line, '\n')` hit the newline at
+  index 0 and reported "no sid" for a record that carried one. **Both sides were internally
+  consistent and individually green; only a test spanning the two could see it.** General
+  rule: test the writer against the reader, never each against itself.
+  📎 A second, smaller instance of the same shape in the same hour: my throwaway build
+  command was `compile … | head && ./test.exe`, which ran a **stale binary and printed OK**
+  after the compile had failed — the identical trap to the `tests/Makefile` defect fixed
+  this morning, reproduced by hand within hours of fixing it. Build, *then* run, and let a
+  failure stop you.
+  📋 **Hardware check outstanding, and it needs the Cardputer cabled** (`@LAT91` is
+  structurally Cardputer-only — Rule 1 arms off a `still` `@LAT95` window and only it has an
+  IMU). Watch **two Dream Cycles**, 3 min apart (`DREAM_RECONCILE_MS 180000`): the `[dream]`
+  line must show the **same `sid:` for the same `peer`/`proto` across both**, while `conf`
+  and `rev` move. That is the whole claim, and it cannot be checked in under ~7 minutes.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

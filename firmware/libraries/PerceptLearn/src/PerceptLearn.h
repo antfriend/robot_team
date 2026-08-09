@@ -118,6 +118,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <TimeStream.h>   // the shared time stamp every record carries
+#include <Sid.h>          // stable record identity (TTDB-RFC-0010 section 4)
 
 #ifndef PERCEPTLEARN_MAX_CLAIMS
 // One per (peer, proto) slot, matching LINKPERCEPT_MAX_PEERS.
@@ -461,8 +462,42 @@ class Reconciler {
   // body line carries the same instant in the STREAM frame, which a node always has.
   // That is what a node decays against. Both are emitted every time; they are the same
   // moment in two frames, not two moments.
+  //
+  // ---------------------------------------------------------------------------
+  // THIS IS THE FLEET'S FIRST RECORD TO CARRY A STABLE ID (TTDB-RFC-0010 stage 2)
+  // ---------------------------------------------------------------------------
+  // @LAT91 was chosen first, and deliberately, for two reasons the measurement gave:
+  //
+  //   * It is a KEY-IDENTITY lane. Its 83.2% input-collision rate under the RFC's original
+  //     `(node, lane, stream, t_ms)` proposal is what proved identity needs two kinds --
+  //     a belief is one row per (peer, proto) that is REVISED as Rule 3 folds more
+  //     outcomes, so its name must not move when its content does. `sid::stampKey` hashes
+  //     the subject and nothing else: not the time, not the body, and not the ordinal.
+  //   * It is the cheapest lane to be wrong in: 11 records against NO cap, so a mistake
+  //     here costs nothing, whereas the percept lanes are what a measurement run depends
+  //     on. (RFC section 7.2 stage 2 states this as the rule.)
+  //
+  // The mechanism is exactly what section 4.2.6 promised: one literal (`sid:00000000`) in
+  // the header format string and one call. No second buffer -- the placeholder is patched
+  // in place, which is why a builder that renders header-before-body can carry an id at
+  // all.
+  //
+  // ⚠ THE SID MUST SURVIVE A REVISION AND MUST IGNORE `lon`. Both are pinned in
+  // tests/test_perceptlearn.cpp: the same (peer, proto) written at a different ordinal with
+  // a different conf/streak yields the SAME id. If that ever stops being true, every
+  // citation into this lane silently re-points on the next Dream Cycle -- which is the
+  // failure @LAT100 exists to make visible and stable ids exist to make impossible.
+  //
+  // `sid_out` receives the id written (0 if the record did not fit), so the caller can log
+  // it. Optional: a caller that does not care passes nothing.
   size_t buildBelief(char* out, size_t cap, int i, int lon, uint32_t t_sec,
-                     uint32_t node_id, int rev, const timestream::Stamp& ts) const;
+                     uint32_t node_id, int rev, const timestream::Stamp& ts,
+                     uint32_t* sid_out = nullptr) const;
+
+  // The natural key for a belief -- the subject its identity is, rendered canonically.
+  // Exposed because a reader that wants to recompute an id needs the exact same bytes the
+  // writer used, and a key spelled two ways is two identities.
+  static size_t beliefKey(char* out, size_t cap, uint32_t peer, uint8_t proto);
 
   // Render the block a @LAT100 boundary carries when THIS lane is pruned: what the
   // ended generation held, and what it concluded. `records` is the caller's count of

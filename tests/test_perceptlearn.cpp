@@ -10,6 +10,8 @@
 //     node never made would manufacture evidence,
 //   * nothing here mutates anything (Rule 2) — there is no API to do so, by design.
 #include "PerceptLearn.h"
+#include "Sid.h"        // stage 2: this lane is the fleet's first to carry a stable id
+#include "TtdbParse.h"  // ...and the reader that must agree with the writer about it
 #include <stdio.h>
 #include <string.h>
 
@@ -837,6 +839,85 @@ int main(void) {
     char tight[600];
     CHECK(R.buildBoundary(tight, sizeof(tight), 24) == 0,
           "a buffer too small yields 0 bytes, never a short belief list");
+  }
+
+  // ---------------------------------------------------------------------------
+  // STAGE 2 (TTDB-RFC-0010 §4): @LAT91 is the fleet's first lane to carry a stable id
+  // ---------------------------------------------------------------------------
+  // What is worth pinning is not "a sid appears" — it is the two properties that make it
+  // an IDENTITY rather than a checksum, and they are exactly what this lane's measured
+  // 83.2% input-collision rate demanded:
+  //   * it SURVIVES A REVISION — a belief's whole content may change; its name may not
+  //   * it IGNORES THE ORDINAL — a belief that moves slot is the same belief
+  // Get either wrong and every citation into this lane silently re-points on the next
+  // Dream Cycle, which is the failure @LAT100 exists to make visible.
+  {
+    const char* obs_200 =
+        "**OUTCOME** t_ms:1000 stream:0xe334a7e1 wall:0\n"
+        "**OBSERVED** peer:0x00000200 proto:espnow verdict:met\n";
+    perceptlearn::Reconciler R;
+    R.foldRecord(obs_200, strlen(obs_200));
+    CHECK(R.beliefCount() == 1, "one belief to name");
+
+    char rec[PERCEPTLEARN_BUF];
+    uint32_t sid_a = 0;
+    size_t m = R.buildBelief(rec, sizeof(rec), 0, 0, 0, 0x300, 1, ST(1000, false), &sid_a);
+    CHECK(m > 0 && sid_a != 0, "the belief renders and reports its id");
+    CHECK(strstr(rec, "sid:00000000") == NULL, "the placeholder is gone");
+    char hex[9];
+    sid::format(hex, sid_a);
+    CHECK(strstr(rec, hex) != NULL, "and the header carries the id it reported");
+
+    // A READER RECOMPUTES IT — the contract in full: the id is derivable from the
+    // record's subject, not stored on faith.
+    char key[48];
+    perceptlearn::Reconciler::beliefKey(key, sizeof(key), 0x200, 0 /*espnow*/);
+    CHECK(sid_a == sid::forKey(0x300, PERCEPTLEARN_BELIEF_LANE, key),
+          "the id is exactly forKey(node, lane, 'peer:...|proto:...')");
+    uint32_t read_back = 0;
+    CHECK(ttdbHeaderSid(rec, read_back) && read_back == sid_a,
+          "and TtdbParse reads back the same id the writer wrote");
+
+    // REVISION: fold more testimony so conf, streak and rev all move, then re-render at a
+    // DIFFERENT ordinal with a different stamp.
+    for (int k = 0; k < 5; ++k) R.foldRecord(obs_200, strlen(obs_200));
+    uint32_t sid_b = 0;
+    size_t m2 = R.buildBelief(rec, sizeof(rec), 0, 7, 999, 0x300, 9, ST(50000, true), &sid_b);
+    CHECK(m2 > 0, "the revised belief renders");
+    CHECK(sid_b == sid_a,
+          "THE ID SURVIVES A REVISION — new conf, new rev, new stamp, new LON, same name");
+    CHECK(strstr(rec, "LON7") != NULL, "...and it really was written at a different LON");
+
+    // DIFFERENT SUBJECTS ARE DIFFERENT IDENTITIES.
+    perceptlearn::Reconciler P;
+    const char* obs_010 =
+        "**OUTCOME** t_ms:1000 stream:0xe334a7e1 wall:0\n"
+        "**OBSERVED** peer:0x00000010 proto:espnow verdict:met\n";
+    P.foldRecord(obs_010, strlen(obs_010));
+    uint32_t sid_peer = 0;
+    P.buildBelief(rec, sizeof(rec), 0, 0, 0, 0x300, 1, ST(1000, false), &sid_peer);
+    CHECK(sid_peer != sid_a, "a different peer is a different identity");
+
+    perceptlearn::Reconciler B;
+    const char* obs_ble =
+        "**OUTCOME** t_ms:1000 stream:0xe334a7e1 wall:0\n"
+        "**OBSERVED** peer:0x00000200 proto:ble verdict:met\n";
+    B.foldRecord(obs_ble, strlen(obs_ble));
+    uint32_t sid_proto = 0;
+    B.buildBelief(rec, sizeof(rec), 0, 0, 0, 0x300, 1, ST(1000, false), &sid_proto);
+    CHECK(sid_proto != sid_a, "a different proto is a different identity");
+
+    uint32_t sid_node = 0;
+    R.buildBelief(rec, sizeof(rec), 0, 0, 0, 0x200, 1, ST(1000, false), &sid_node);
+    CHECK(sid_node != sid_a, "a different observing node is a different identity");
+
+    // Nothing rather than a half-stamped record.
+    char tiny[200];
+    uint32_t sid_none = 0xdeadbeef;
+    CHECK(R.buildBelief(tiny, sizeof(tiny), 0, 0, 0, 0x300, 1, ST(1000, false),
+                        &sid_none) == 0,
+          "a short buffer yields 0 bytes");
+    CHECK(sid_none == 0, "and clears the reported id rather than leaving a stale one");
   }
 
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
