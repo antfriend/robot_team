@@ -416,11 +416,33 @@ Absent declaration, every lane is EVIDENCE (§2 fail-safe).
   portable library with cross-language vectors. **Nothing writes a `sid`**, so every
   existing file is untouched and this stage is abandonable by deleting two files.
   *Done 2026-08-09.*
-- **Stage 1 — readers accept `#sid` and ignore it when absent.** Writers unchanged, so
-  every existing file stays byte-valid. Zero-risk and it makes stage 2 testable.
-  ⚠ **`companion.py` and `TtdbParse.cpp` are the two readers**, and the check that matters
-  is that a bare `type@LATxLONy` and a `type@LATxLONy#sid` both resolve — §4.3 makes both
-  forms permanently live, for the same reason `synced:` still parses beside `stream:`.
+- ✅ **Stage 1 — readers accept `#sid` and ignore it when absent.** *Done 2026-08-09.* Both
+  readers: `TtdbParse.{h,cpp}` (`ttdbHeaderSid`, `ttdbResolveCitation`, `TtdbEdge.target_sid`)
+  and `companion.py` (`CITATION_RE` gains an optional group, `header_sid`, and
+  `stale_citations` resolves by sid in preference to the boundary arithmetic). Tests:
+  `tests/test_citation.cpp` (33 checks) and `tests/test_citation_py.py` (15) — both sides,
+  because a citation is resolved on whichever one happens to be holding the file.
+  ✅ **Regression evidence for "every existing file stays byte-valid": `stale_citations`
+  over all 78 archived TTDBs produces a byte-identical result — same SHA-256, same 620
+  findings — before and after.** Writers are unchanged, so that is the claim in full.
+  🔬 **What the stage bought, concretely.** The pre-existing staleness check needs the
+  `@LAT100` lane, the citing record's timestamp, and both being on the same stream — and it
+  answers **`unknown`** whenever they are not, which every pre-2026-08-03 record is. A sid
+  comparison has no such failure mode: it is decided by the file, per citation, with **no
+  boundary record consulted and no `@LAT100` budget spent**. The verdict now carries
+  `by: "sid" | "boundary"` so a reader can tell which mechanism answered.
+  ⚠ **Three traps this stage walked into, all in the same family.** (1) `stale_citations`
+  returned early when there were no `@LAT100` markers — correct while a boundary was the
+  only evidence, and wrong the moment a sid can answer without one; it would have made the
+  sid path unreachable on exactly the files it helps most. (2) The report printed
+  `gen … ended at LON…` unconditionally, which for a sid verdict renders `gen None` — the
+  better mechanism looking like a bug in the worse one. (3) `HEADER_SID_RE` must be anchored
+  on a delimiter: a word boundary matches *inside* a future `prev_sid:`, which is the
+  `prev_stream:` trap for the third time in this corpus.
+  ⚠ **"Unverifiable" is a third verdict and must never render as either of the others.** A
+  sid-less citation, a sid-less target, or a target in another node's file all report
+  **nothing** — not `fresh`, not `stale`. Reporting the archive as broken on adoption day
+  would be worse than saying nothing about it.
 - **Stage 2 — one lane writes `sid:`.** Both forms live (§4.3). Per §4.2.6 this is one
   added literal and one call per builder. ⚠ **Pick a KEY lane first, not a percept lane:**
   `@LAT91` has 11 records against no cap, so a mistake there costs nothing, whereas the
@@ -434,6 +456,22 @@ records/lane that is ~600 B/lane against a 256-record file budget — cheap in f
 **not** cheap in the app partition on a node already at 94% (~74.5 KB free): the three
 spine nodes need `huge_app` before they carry any of this. The two handhelds (41%, 40%)
 have room.
+
+⚠ **The costing above missed the in-memory index, where the price is 3× worse.** A reader
+holds `TtdbRecord records_[TTDB_MAX_RECORDS]` = 256 entries per open file, and the
+reference Cardputer holds **three** open files (mesh globe, RFC corpus, feelings
+landscape). Adding a `sid` field to that struct takes it 16 → 24 bytes with padding:
+**+2 KB per file, +6 KB on a node whose `maxalloc` reads 7–8 KB** and whose memory ceiling
+is still unexplained. So:
+
+> **A `sid` MUST NOT be added to a reader's record index.** It is parsed on demand from the
+> header line the caller already holds. Only the *edge* struct carries one, because edges
+> are parsed into short stack arrays, never into a 256-element index.
+
+Measured cost of stage 1 with that rule applied: **Cardputer +152 B flash / +16 B RAM,
+T-Deck +156 B / +0**, and the three 94 %-full spine nodes **byte-identical** — they never
+call the edge parser, so they pay nothing at all. Without the rule it would have been
++6 KB of `.bss` on the tightest node in the fleet, for a feature it does not use.
 
 ### 7.4 What adoption does NOT change
 - A **wholesale** prune of an EVIDENCE lane still writes a `@LAT100` boundary. Stable ids

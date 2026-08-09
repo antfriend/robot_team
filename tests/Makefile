@@ -91,8 +91,9 @@ test: build
 	./test_tracefield
 	./test_social
 	./test_sid
+	./test_citation
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -107,6 +108,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(TF_SRCS) -o test_tracefield
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SOC_SRCS) -o test_social
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SID_SRCS) -o test_sid
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(CIT_SRCS) -o test_citation
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -119,6 +121,6 @@ clean:
 	      test_timestream test_timestream.exe test_lanegen test_lanegen.exe \
 	      test_tracefield test_tracefield.exe \
 	      test_social test_social.exe \
-	      test_sid test_sid.exe
+	      test_sid test_sid.exe \n	      test_citation test_citation.exe
 
 .PHONY: test build clean

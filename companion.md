@@ -4660,6 +4660,43 @@ If a fact lives in one of these, link to it from here — don't copy it.
   every V4 (94 % flash, needs `huge_app` before it can carry this) — so the fleet table is
   **incomplete by construction** and says so, which was the design.
 
+- 🔗 **2026-08-09 — RFC-0010 STAGE 1: BOTH READERS ACCEPT `#sid`, AND A CITATION CAN NOW BE
+  CHECKED WITHOUT A BOUNDARY.** Writers are still unchanged and **no lane writes a `sid`** —
+  this is the zero-risk stage that makes stage 2 testable. `TtdbParse` gains
+  `ttdbHeaderSid`, `ttdbResolveCitation` and `TtdbEdge.target_sid`; `companion.py` gains an
+  optional group on `CITATION_RE`, `header_sid`, and sid resolution inside
+  `stale_citations`. Tests **33 (C++) + 15 (laptop)**, both sides, because a citation is
+  resolved on whichever one is holding the file.
+  ✅ **The regression evidence is the whole claim: `stale_citations` over all 78 archived
+  TTDBs gives a BYTE-IDENTICAL result before and after — same SHA-256, same 620 findings.**
+  🔬 **What it buys.** The old check needs the `@LAT100` lane, the citing record's
+  timestamp, and both on the same stream — and answers **`unknown`** when they are not,
+  which every pre-2026-08-03 record is. A sid comparison has no such failure mode: decided
+  by the file, per citation, **no boundary consulted, no `@LAT100` budget spent**. Verdicts
+  now carry `by: "sid" | "boundary"` so the report says which mechanism answered.
+  ⚠ **`TtdbRecord` DELIBERATELY DOES NOT CARRY A `sid`, and this is the finding worth
+  keeping.** `Ttdb` holds `TtdbRecord records_[256]` and the Cardputer holds **three**
+  `Ttdb` instances, so adding the field takes the struct 16 → 24 B = **+6 KB of `.bss` on
+  the node whose `maxalloc` reads 7–8 KB** ([[maxalloc-not-free-heap]]). RFC-0010 §7.3
+  priced ids at +13 B per record **on flash** and missed the in-memory index entirely,
+  where the cost is 3× worse; §7.3 now carries the rule. Only the *edge* struct grew, since
+  edges are parsed into 4-element stack arrays. Measured: **Cardputer +152 B flash / +16 B
+  RAM, T-Deck +156 B / +0, and all three 94 %-full V4s BYTE-IDENTICAL** — they never call
+  the edge parser, so they pay nothing.
+  ⚠ **Three traps, all one family.** (1) `stale_citations` returned early with no `@LAT100`
+  markers — right while a boundary was the only evidence, wrong the moment a sid answers
+  without one, and it would have made the sid path unreachable on exactly the files it helps
+  most. (2) The report printed `gen … ended at LON…` unconditionally, rendering `gen None`
+  for a sid verdict: the better mechanism looking like a bug in the worse one. (3)
+  `HEADER_SID_RE` is anchored on a delimiter because a word boundary matches **inside** a
+  future `prev_sid:` — the `prev_stream:` trap for the **third** time in this corpus.
+  ⚠ **"Unverifiable" is a THIRD verdict and never renders as either other one.** A sid-less
+  citation, a sid-less target, or a target in another node's file all report **nothing** —
+  not fresh, not stale. Reporting the archive as broken on adoption day would be worse than
+  saying nothing.
+  📋 Next is **stage 2: one lane writes `sid:`** — `@LAT91` first (11 records, no cap, so a
+  mistake costs nothing), never a percept lane, and never during a measurement run.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

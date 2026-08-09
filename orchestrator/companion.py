@@ -1844,8 +1844,29 @@ PRUNE_RE = re.compile(
 # carries the ids the ended generation explained. Bare (no `stream:` prefix) on
 # purpose — the firmware's @LAT90 needle must not pick them up as the node's own.
 STREAMS_EXPLAINED_RE = re.compile(r"\*\*STREAMS-EXPLAINED\*\*\s+n:(\d+)((?:\s+0x[0-9a-fA-F]{1,8})*)")
-# Any `<verb>@LAT<lane>LON<n>` edge in a record header — how a citation is spelt.
-CITATION_RE = re.compile(r"(\w+)@LAT(\d+)LON(\d+)")
+# Any `<verb>@LAT<lane>LON<n>` edge in a record header — how a citation is spelt,
+# optionally carrying the `#sid` of TTDB-RFC-0010 §4.3.
+# ⚠ THE SID GROUP IS OPTIONAL AND MUST STAY THAT WAY. Every citation in the archive
+# predates the RFC and carries none; a pattern that required one would silently drop the
+# entire corpus. Same rule, same reason, as `synced:` still parsing beside `stream:`.
+CITATION_RE = re.compile(r"(\w+)@LAT(\d+)LON(\d+)(?:#([0-9a-f]{8}))?")
+
+# The `sid:` a record header MAY carry. ⚠ Bounded to the header LINE: a body may
+# legitimately contain the text `sid:` (a @LAT100 boundary quoting a pruned record's id is
+# the real case), and reading that as the record's identity is the same needle collision
+# as `prev_stream:` inside `stream:`.
+# ⚠ A future `prev_sid:` or `carried_sid:` must NOT match, and a word boundary does NOT
+# save you — it matches INSIDE `prev_sid:`. That is exactly the trap `prev_stream:` set for
+# the @LAT90 reader and `**COVERED-SPAN**` set for the @LAT92 fold; two members of that
+# family have already cost real bugs here, so the needle is anchored on a delimiter.
+HEADER_SID_RE = re.compile(r"(?:^|[|\s])sid:([0-9a-f]{8})")
+
+
+def header_sid(header):
+    """The stable id in a record header line, or None. None is the ORDINARY answer:
+    nothing writes a sid yet, and every archived record predates the mechanism."""
+    m = HEADER_SID_RE.search(header.split("\n", 1)[0])
+    return int(m.group(1), 16) if m else None
 
 
 def parse_prune_markers(text):
@@ -1909,8 +1930,20 @@ def stale_citations(text):
     answer. Pre-2026-08-03 records carry `synced:1` and no stream id, so they are
     genuinely unplaceable against a boundary, and saying so is the honest output.
     """
+    # ⚠ NO EARLY RETURN ON "no markers" ANY MORE. That was correct while a boundary record
+    # was the only way to know a slot had been reclaimed; a `#sid` citation is decided by
+    # comparing it with the record now at that coordinate, which needs no boundary, no
+    # timeline and no @LAT100 budget at all (TTDB-RFC-0010 §4.3). Returning early here
+    # would have made the sid path unreachable on exactly the files it helps most: the ones
+    # whose boundary lane is full or was never written.
     markers = parse_prune_markers(text)
-    if not markers:
+    sid_at = {}
+    for header, _body in _records(text):
+        m = re.match(r"@LAT(-?\d+)LON(-?\d+)", header)
+        s = header_sid(header)
+        if m and s is not None:
+            sid_at[(int(m.group(1)), int(m.group(2)))] = s
+    if not markers and not sid_at:
         return []
     # ⚠ NOT "the boundary with the highest last_lon per lane". That was the first
     # cut and it is wrong: a later prune of a SHORTER generation (say last_lon 5)
@@ -1933,8 +1966,29 @@ def stale_citations(text):
             tf = parse_time_fields(line)
             if tf:
                 break
-        for verb, lane_s, lon_s in CITATION_RE.findall(header):
+        for verb, lane_s, lon_s, sid_s in CITATION_RE.findall(header):
             lane, lon = int(lane_s), int(lon_s)
+
+            # ⚠ THE SID PATH WINS WHEN IT APPLIES, and it is worth being explicit about why
+            # rather than treating it as an optimisation. The boundary arithmetic below
+            # answers "unknown" whenever the citing record and the marker are not on the
+            # same stream — and pre-2026-08-03 records never are. A sid comparison has no
+            # such failure mode: it is decided by the file, and it is decided per citation.
+            if sid_s:
+                cited = int(sid_s, 16)
+                now = sid_at.get((lane, lon))
+                if now is not None:
+                    if now == cited:
+                        continue                  # FRESH: the slot still holds it
+                    out.append({"citing": citing, "verb": verb, "lane": lane, "lon": lon,
+                                "gen": None, "boundary": None, "verdict": "stale",
+                                "by": "sid", "cited_sid": cited, "found_sid": now})
+                    continue
+                # The target is not in this file (a cross-node citation) or carries no sid.
+                # Fall through: the boundary may still know something. If it does not, the
+                # citation is simply not reported, which is the honest answer — "I cannot
+                # check this" must not render as either "fine" or "broken".
+
             hit = None
             for mk in sorted(by_lane.get(lane, []), key=lambda m: m["gen"]):
                 if lon > mk["last_lon"]:
@@ -1949,7 +2003,8 @@ def stale_citations(text):
                 mk, verdict = hit
                 out.append({"citing": citing, "verb": verb, "lane": lane,
                             "lon": lon, "gen": mk["gen"],
-                            "boundary": mk["last_lon"], "verdict": verdict})
+                            "boundary": mk["last_lon"], "verdict": verdict,
+                            "by": "boundary"})
     return out
 
 
@@ -1985,8 +2040,15 @@ def prunes(path):
           f"({n_stale} stale, {n_unk} unplaceable in time):")
     for s in stale:
         mark = "STALE  " if s["verdict"] == "stale" else "unknown"
-        print(f"  {mark} {s['citing']:<14} {s['verb']}@LAT{s['lane']}LON{s['lon']}"
-              f"   (gen {s['gen']} ended at LON{s['boundary']})")
+        # ⚠ A sid verdict has no generation and no boundary — it did not need one, which is
+        # the point. Printing `gen None ended at LONNone` would make the better mechanism
+        # look like a bug in the worse one.
+        if s.get("by") == "sid":
+            why = (f"   (sid {s['cited_sid']:08x} cited, "
+                   f"{s['found_sid']:08x} found — no boundary needed)")
+        else:
+            why = f"   (gen {s['gen']} ended at LON{s['boundary']})"
+        print(f"  {mark} {s['citing']:<14} {s['verb']}@LAT{s['lane']}LON{s['lon']}{why}")
     print("\nThese are NOT repaired: a citation cannot be honestly rewritten after "
           "the fact. The boundary is what makes them readable as history rather "
           "than resolving into the generation that followed.")
