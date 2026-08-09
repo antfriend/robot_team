@@ -4724,11 +4724,28 @@ If a fact lives in one of these, link to it from here — don't copy it.
   after the compile had failed — the identical trap to the `tests/Makefile` defect fixed
   this morning, reproduced by hand within hours of fixing it. Build, *then* run, and let a
   failure stop you.
-  📋 **Hardware check outstanding, and it needs the Cardputer cabled** (`@LAT91` is
-  structurally Cardputer-only — Rule 1 arms off a `still` `@LAT95` window and only it has an
-  IMU). Watch **two Dream Cycles**, 3 min apart (`DREAM_RECONCILE_MS 180000`): the `[dream]`
-  line must show the **same `sid:` for the same `peer`/`proto` across both**, while `conf`
-  and `rev` move. That is the whole claim, and it cannot be checked in under ~7 minutes.
+  ✅ **HARDWARE-VERIFIED 2026-08-09, and in a stronger form than the planned check.** The
+  planned "two Dream Cycles 3 min apart" turned out to be uncheckable on a quiet bench:
+  with run-length on `@LAT92` a still node accrues **no new outcome records**, so every
+  in-session cycle takes the `conf steady` skip path and never reprints (observed: dreams
+  at +169 s and +349 s, both `no change`). What IS checkable — and stronger — is **across
+  reboots**: `gLastConfN` starts at 0, so the first dream after boot always takes the
+  changing path — fresh fold, **full lane rewrite**, new stamps, `rev` reset. Two boots
+  (the post-flash reset, then an esptool hard reset), same three sids both times:
+  `ab8f77ba` (peer 0x100 espnow) · `ca9b482d` (peer 0x10 ble) · `2b4da8c8` (peer 0x10
+  espnow), while the TTDB bytes moved 101384 → 101095 B under the rewrite. Distinct keys
+  got distinct ids (same peer, two protos, two sids).
+  🎯 **The closing leg was the one the RFC calls the entire point: the laptop recomputed
+  all three ids from `(node, lane, key)` alone** — `sid_probe.sid_key(0x300, 91,
+  "peer:0x00000010|proto:ble")` = `ca9b482d`, digit for digit against the wire, never
+  having seen the records. A reader can now *verify* a belief's name, not just trust it.
+  📎 The dream schedule is "at boot, then every 180 s" — the first dream fires ~2 s after
+  boot, not at +180 s. And `peer:0x10` in the `[dream]` line is **V4-A** (the V4s are
+  0x10/0x11/0x12, `RobotTeamConfig.h` — not the 0x100-family the handhelds use); the print
+  is unpadded (`%lx`) but the key preimage uses `%08lx`, so the id is built on the full
+  width. The dream cycle also fires the first `[loop]` worst-pass alarm of a session
+  (~1.9–2.9 s inside `linkperc`) — that is the lane rewrite's flash cost, already budgeted
+  in the TIMING line, not a new stall.
 
 Keep this section current. It is the first thing the next session reads.
 

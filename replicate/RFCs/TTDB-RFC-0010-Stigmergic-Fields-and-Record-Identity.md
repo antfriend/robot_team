@@ -1,10 +1,11 @@
 # TTDB-RFC-0010: Stigmergic Fields, Lane Discipline, and Stable Record Identity
 
 **Version:** 0.2
-**Status:** Draft. §4 (record identity) is **DECIDED and implemented as a library with
-cross-language vectors, but NO LANE WRITES A `sid` YET** — that is stage 2 (§7.2) and is
-deliberately separate. The lane register (§3) is a classification of what already exists
-and is normative on adoption; §5–§6 still describe a mechanism no node has run.
+**Status:** Draft. §4 (record identity) is **DECIDED, implemented, and running on
+hardware: `@LAT91` is the first lane to write a `sid`, hardware-verified 2026-08-09**
+(stage 2, §7.2 — same ids across two boots and two lane rewrites, recomputed on the
+laptop from the key alone). The lane register (§3) is a classification of what already
+exists and is normative on adoption; §5–§6 still describe a mechanism no node has run.
 **Changes in 0.2 (2026-08-09):** §4.2 rewritten around a measurement over the 78 archived
 TTDBs (§4.2.5) that **falsified v0.1's proposed hash input**; identity split into EVENT and
 KEY kinds (§4.2.1) with a per-lane register (§4.2.7); uniqueness scoped to `(node_id, lane)`
@@ -443,8 +444,8 @@ Absent declaration, every lane is EVIDENCE (§2 fail-safe).
   sid-less citation, a sid-less target, or a target in another node's file all report
   **nothing** — not `fresh`, not `stale`. Reporting the archive as broken on adoption day
   would be worse than saying nothing about it.
-- ✅ **Stage 2 — one lane writes `sid:`.** *Software done 2026-08-09; NOT YET RUN ON
-  HARDWARE.* `@LAT91` LINK-STABLE is the fleet's first lane to carry a stable id, chosen
+- ✅ **Stage 2 — one lane writes `sid:`.** *Software done 2026-08-09; HARDWARE-VERIFIED
+  the same day.* `@LAT91` LINK-STABLE is the fleet's first lane to carry a stable id, chosen
   first for the two reasons the measurement gave: it is a **KEY-identity** lane (its 83.2 %
   collision rate is what proved identity needs two kinds), and it is the cheapest lane to
   be wrong in — 11 records against no cap. `Reconciler::buildBelief` renders
@@ -466,6 +467,17 @@ Absent declaration, every lane is EVIDENCE (§2 fail-safe).
   consistent and individually tested; only a test spanning the two could see it.** Any
   implementation of this RFC MUST test writer and reader against each other, not merely
   each against itself.
+  ✅ **Hardware, 2026-08-09 (Cardputer, the only node that can author this lane).** The
+  planned "same sid across two Dream Cycles" was unobservable on a quiet bench — run-length
+  on `@LAT92` means a still node accrues no new outcomes, so every in-session cycle takes
+  the `conf steady` skip path and reprints nothing. The check that IS observable is
+  stronger: **across reboots**, where the first dream always takes the changing path (fresh
+  fold, full lane rewrite, new stamps, `rev` reset). Two boots produced the same three ids
+  — `ab8f77ba` · `ca9b482d` · `2b4da8c8` — for the same `(peer, proto)` keys while the
+  TTDB moved 101384 → 101095 B under the rewrite, and the **laptop then recomputed all
+  three from `(node, lane, key)` alone** (`sid_probe.sid_key`), digit for digit, never
+  having seen the records. That last step is the property this section exists for: a
+  reader *verifies* a record's name, it does not trust it.
 - **Stage 3 — the first FIELD lane at `@LAT101`,** decay-on-read, reclaim-lowest.
 - **Stage 4 — retire that lane's prune.** `@LAT100` consumption stops growing.
 
