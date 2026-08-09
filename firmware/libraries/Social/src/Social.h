@@ -71,6 +71,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include <TimeStream.h>   // timestream::Stamp — the one stamp every record carries
 
 namespace social {
 
@@ -161,6 +162,71 @@ const size_t DIGEST_LEN_MAX = DIGEST_HDR + DIGEST_PEER * SOCIAL_DIGEST_PEERS;
 inline uint16_t shortId(uint32_t node) { return (uint16_t)(node & 0xFFFFu); }
 
 // ---------------------------------------------------------------------------
+// @LAT101 — the fleet's FIRST FIELD LANE (TTDB-RFC-0010 §5, stage 3)
+// ---------------------------------------------------------------------------
+// The SOCIAL field: one **PEER** trace per known peer, co-presence reinforced by the
+// beacons this node already hears, decaying on a half-life. The live medium is this
+// table, in RAM; the lane is its durable shadow, rewritten only on material change plus
+// a slow heartbeat, so "decay is evaluated on read and never written" (§5.1) holds on
+// flash as well as in RAM — steady state writes nothing.
+//
+// ⚠ THE LANE HAS NO PRUNE PATH, AND THAT IS THE STAGE-3 FALSIFIER (RFC-0010 §8.1).
+// Reclamation is §5.3's reclaim-lowest, in RAM, when the table is full; a reclamation
+// writes NO @LAT100 boundary because under KEY naming there is nothing to re-point.
+// `lanegen::prune` already refuses anything outside 94-97, so no guard was widened to
+// make this true. If operating this lane ever requires adding a `--lane 101` clear op,
+// the RFC says to abandon it: the treadmill was not the cost that mattered.
+//
+// ⚠ Its identity kind is KEY (§4.2.7: every FIELD lane necessarily is — a trace renamed
+// by its own reinforcement would be a new trace). The natural key is `node:0x%08lx`,
+// FULL width: every 1-byte squeeze of this fleet's ids collides, and a key is one more
+// place that lesson applies.
+#define SOCIAL_FIELD_LANE 101
+
+// Co-presence half-life. Long enough to out-live a brief absence (a reboot, a walk to
+// the garden), short enough that "was here this morning" reads faded by lunch.
+#ifndef SOCIAL_COPRE_HALF_LIFE_MS
+#define SOCIAL_COPRE_HALF_LIFE_MS 600000u
+#endif
+
+// Deposit per reception heard from a peer (any toot — presence IS co-presence).
+// Saturates at 255 in ~8 beacons (16 s of 2 s HELLOs) against a 10 min half-life.
+#ifndef SOCIAL_COPRE_DEPOSIT
+#define SOCIAL_COPRE_DEPOSIT 32
+#endif
+
+// ⚠ RFC-0010 §5.4: a trace whose age is UNKNOWN must not be treated as fully decayed.
+// A record reloaded at boot is always unknown-age on these boards — setup() runs before
+// the 6 s stream listen window, so the stamp available at load time is stream 0 —
+// therefore reload clamps strength to this value and marks the trace, rather than
+// either trusting the stored strength (overstates) or zeroing it (the forbidden
+// "faded rendered as absent"). A same-stream ageing path was deliberately NOT built:
+// on this fleet it could never run, and a mechanism that cannot run is the mistake
+// stage 1's staleness response almost was.
+#ifndef SOCIAL_COPRE_UNKNOWN_AGE
+#define SOCIAL_COPRE_UNKNOWN_AGE 64
+#endif
+
+// Persist policy: material change (new peer, capability change, reclaim) waits out a
+// minimum gap — a lane rewrite is a whole-file flash pass, and 60 s also keeps the
+// first persist of a boot clear of the 30 s STREAM-ORIGIN settle hold — and unchanged
+// reinforcement alone persists at most once per heartbeat, so the on-flash trace ages
+// but its recency survives a reboot.
+#ifndef SOCIAL_PERSIST_MIN_GAP_MS
+#define SOCIAL_PERSIST_MIN_GAP_MS 60000u
+#endif
+#ifndef SOCIAL_PERSIST_HEARTBEAT_MS
+#define SOCIAL_PERSIST_HEARTBEAT_MS 1800000u
+#endif
+
+// Record builder buffer. The builder writes NOTHING rather than truncating, so this is
+// pinned in tests/test_social.cpp against a worst-case render in BOTH directions (fits
+// this constant, would NOT fit a 320 B habit buffer).
+#ifndef SOCIAL_PEER_RECORD_BUF
+#define SOCIAL_PEER_RECORD_BUF 512
+#endif
+
+// ---------------------------------------------------------------------------
 // Status of one capability on one node
 // ---------------------------------------------------------------------------
 // ⚠ UNKNOWN and ABSENT are different answers and must render differently. A V4 running
@@ -186,6 +252,31 @@ struct Peer {
   uint32_t last_ms   = 0;   // last time we heard ANYTHING from it
   bool     heard     = false;
   bool     spoke     = false;  // has it ever sent a valid digest? (UNKNOWN vs ABSENT)
+  // --- the @LAT101 co-presence trace (stored pair; effective value computed on read) ---
+  uint8_t  copre         = 0;   // strength at copre_last_ms — never read directly,
+  uint32_t copre_last_ms = 0;   //   use Table::copresenceAt() for the decayed value
+  uint16_t reinforced    = 0;   // receptions folded since the last persist (§5.2 run-length)
+  bool     age_unknown   = false;  // reloaded from flash with no relatable clock (§5.4)
+};
+
+// A parsed @LAT101 record — the READER's half, kept in the library so the native suite
+// can test the writer against the reader (the stage-2 lesson: both sides individually
+// green missed the one defect that mattered).
+struct PeerRecord {
+  uint32_t node        = 0;
+  bool     spoke       = false;
+  uint16_t declared    = 0;
+  uint16_t verified    = 0;
+  uint16_t exercised   = 0;
+  uint8_t  cap_epoch   = 0;
+  uint8_t  copresence  = 0;
+  uint32_t half_life_ms = 0;
+  uint16_t reinforced  = 0;
+  uint64_t t_ms        = 0;
+  uint32_t stream      = 0;
+  int      wall        = -1;   // -1 = field absent
+  uint32_t sid         = 0;
+  bool     has_sid     = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -291,15 +382,68 @@ class Table {
   // The best pose the fleet's capabilities could support. See PoseCeiling.
   PoseCeiling poseCeiling() const;
 
+  // ---- the @LAT101 field (TTDB-RFC-0010 §5) ------------------------------------
+  // Decayed co-presence of a peer at `now_ms`. Pure — §5.1's "evaluated on read".
+  uint8_t copresenceAt(const Peer& p, uint32_t now_ms) const;
+
+  // §5.3 reclamations so far, and who went last — an instrument like staleReports():
+  // with <=5 peers against SOCIAL_MAX_PEERS 8 slots this is EXPECTED to read zero on
+  // this fleet, and the native suite is where the mechanism is actually exercised.
+  uint16_t reclaims() const { return reclaims_; }
+  uint32_t lastReclaimed() const { return last_reclaimed_; }
+
+  // Does the on-flash shadow owe a rewrite? Material change gated by the minimum gap,
+  // or unchanged reinforcement at most once per heartbeat.
+  bool persistDue(uint32_t now_ms) const;
+  // The lane was rewritten: close every open run (§5.2 — the persisted records stated
+  // what they folded, so the counts restart) and start the gap/heartbeat clocks.
+  void notePersisted(uint32_t now_ms);
+  // A persist attempt was REFUSED (index full, removeLane failure): restart the gap
+  // clock WITHOUT closing the runs or clearing the dirt, so the retry comes in one
+  // minimum gap instead of every loop pass — the refusal prints once per gap, not as
+  // a flood, and nothing pretends the lane was written.
+  void deferPersist(uint32_t now_ms) { last_persist_ms_ = now_ms; }
+
+  // Render peer `i`'s @LAT101 record into `out`, sid stamped (KEY: `node:0x%08lx`).
+  // Strength is written DECAYED TO NOW — the TraceField digest rule: a persisted value
+  // is a statement about the moment it was built, needing nothing but arrival.
+  // Returns bytes, or 0 (never a truncated record). `sid_out` optional.
+  size_t buildPeerRecord(char* out, size_t cap, uint8_t i, int lon, uint32_t t_sec,
+                         const timestream::Stamp& ts, uint32_t now_ms,
+                         uint32_t* sid_out = nullptr);
+
+  // The natural key, public so a reader can RECOMPUTE the id rather than trust it —
+  // the same contract as Reconciler::beliefKey.
+  static size_t peerKey(char* out, size_t cap, uint32_t node);
+
+  // Parse an @LAT101 record (writer's counterpart; see PeerRecord).
+  // ⚠ `rec` MUST be NUL-terminated at or after `len`: bytes arrive from Ttdb::readBytes
+  // un-terminated, and the numeric conversions read past `len` on an unterminated
+  // buffer. The glue writes buf[got] = 0 before calling; a test buffer is a C string.
+  static bool parsePeerRecord(const char* rec, size_t len, PeerRecord& out);
+
+  // Seed the table from a reloaded record: §5.4 unknown-age clamp, masks re-clamped
+  // exactly as ingest() clamps them, FADED until actually heard, and NEVER overwriting
+  // a peer the radio has already told us more about. Does not mark the field dirty —
+  // a reload followed by a persist of the same bytes would be a pointless rewrite.
+  bool loadPeer(const PeerRecord& r, uint32_t now_ms);
+
  private:
   Peer*       slot(uint32_t node, uint32_t now_ms);   // find-or-make, evicting if needed
   const Peer* slotConst(uint32_t node) const;
+  void        reinforce(Peer& p, uint32_t now_ms);    // decay-to-now, deposit, count
 
   Peer     self_;
   Peer     peers_[SOCIAL_MAX_PEERS];
   uint8_t  cursor_         = 0;   // round-robin over peers for the digest's peer list
   uint16_t stale_reports_  = 0;
   uint32_t last_stale_from_ = 0;
+  // Field bookkeeping. `field_dirty_` is set by anything a persisted record would state
+  // differently: a peer created, a capability mask or epoch changed, a slot reclaimed.
+  bool     field_dirty_    = false;
+  uint16_t reclaims_       = 0;
+  uint32_t last_reclaimed_ = 0;
+  uint32_t last_persist_ms_ = 0;
 };
 
 }  // namespace social

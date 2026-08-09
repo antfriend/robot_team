@@ -1,10 +1,11 @@
 # The default network — capabilities, testimony, and shape
 
-*Design exploration — 2026-08-09. **Stage 1 (§6) is BUILT and natively tested; stages 2–5
-are not.** Not in PLAN.md. companion.md remains the source of truth for what is true of the
-fleet — see its 2026-08-09 entry for the state, including what has NOT been flashed. This
-is the exploratory half of a proposal; if it survives, its normative half is an extension
-to TTDB-RFC-0010 (lane classes) and TTN-RFC-0005 (trust), not a new corpus.*
+*Design exploration — 2026-08-09. **Stages 1 and 4 (§6) are BUILT and natively tested;
+stages 2, 3 and 5 are not.** Not in PLAN.md. companion.md remains the source of truth for
+what is true of the fleet — see its 2026-08-09 entries for the state, including what has
+NOT been flashed. This is the exploratory half of a proposal; if it survives, its
+normative half is an extension to TTDB-RFC-0010 (lane classes) and TTN-RFC-0005 (trust),
+not a new corpus.*
 
 Companion documents: [stigmergy.md](stigmergy.md) (the field discipline this sits inside),
 [ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the hypothesis §5 serves).
@@ -207,14 +208,21 @@ is only available because the design is being made now rather than retrofitted.
 
 `@LAT101` is the fleet's first FIELD lane, which RFC-0010 §3 requires be a **new** lane at
 101+ (never a conversion — reclassifying a lane retroactively reclassifies the archives in
-`master/` too). One record per known peer:
+`master/` too). ✅ **BUILT 2026-08-09 (RFC-0010 §7.2 stage 3).** One record per known
+peer, in the shipped form (three masks, like the wire; the draft's two-mask `caps/status`
+could not express three levels — same correction §4 records):
 
 ```
-**PEER** sid:… node:0x0200 caps:0x0193 status:0x0011 cap_epoch:7
-  copresence:180 half_life_ms:600000 reinforced:9 last_ms:8260961
-  shape:x=-1.42 y=0.87 sigma=2.1 frame:0x0110
-  stream:0xe334a7e1 wall:1
+@LAT101LON0 | sid:1c68e2a4 | created:… | updated:… |
+**PEER** node:0x00000200 spoke:1 declared:0x7f93 verified:0x7793 exercised:0x1011 cap_epoch:7
+**TRACE** copresence:180 half_life_ms:600000 reinforced:9 last_ms:8260961
+t_ms:3710811 stream:0xe334a7e1 wall:1
 ```
+
+The `shape:` line from the draft is deliberately absent — it belongs to stage 5 (the
+relaxation), and a record field written before anything computes it would be a fabricated
+pose. The natural key is **`node:0x%08lx`** (§7's question 4, answered): full width,
+because every 1-byte squeeze of this fleet's ids collides.
 
 **Acceptance test (RFC-0010 §6.3), and it passes:** a node that just booted has an empty
 `@LAT101`, plays nothing, believes nothing about anyone — and that is a correct state, not a
@@ -333,12 +341,16 @@ Each stage is independently abandonable, per RFC-0010 §7.2's staging.
   is where `verified` and `exercised` start being earned rather than asserted.
 - **Stage 3 — `@LAT102` attributed testimony**, cardinality-bounded, depth-capped at 1,
   with the two confidences kept separate.
-- **Stage 4 — `@LAT101` as the fleet's first FIELD lane.** ✅ Its gate — RFC-0010 §4's
-  `sid:` naming — was **decided 2026-08-09** by measurement over the archive, so this is no
-  longer blocked on a corpus decision. ⚠ It inherits one constraint from that measurement:
-  **a FIELD lane is necessarily KEY-identified**, since a trace renamed by its own
-  reinforcement is a new trace. Whatever `@LAT101` keys its deposits on is part of the
-  lane's public contract, not an implementation detail — decide it before writing code.
+- ✅ **Stage 4 — `@LAT101` as the fleet's first FIELD lane. BUILT 2026-08-09** (this is
+  RFC-0010 §7.2's **stage 3** — the two documents number their stages differently; the
+  RFC's staging entry is the fuller account). The key is `node:0x%08lx` (KEY-identified,
+  as the measurement required); deposits are receptions of the HELLO blocks stage 1
+  already ships (no new wire bytes); the lane is the RAM table's durable shadow,
+  change-triggered + heartbeat, born with **no prune path** — which is the RFC's stage-3
+  falsifier, pre-committed structurally.
+  ⚠ Note this stage landed BEFORE stages 2 and 3 above: the field needed no Rule-1/2
+  epistemics and no testimony lane, only the sid decision, and building it first is what
+  §7.2's "each stage independently abandonable" is for. Stages 2/3 remain open.
 - **Stage 5 — the scene.** Voicing and relaxation.
 
 **Where it lands:** the two handhelds (Cardputer 41%, T-Deck 40%). ⚠ The three V4s are at
@@ -366,9 +378,12 @@ so rather than reporting a V4 as capability-less.
    and stays there, §3's middle layer is dead weight — that is TTN-RFC-0005's whole subject
    and it may simply have no work to do here until a node is faulty. Worth pre-registering
    as a falsifier rather than discovering after building it.
-3. **Whether `@LAT101` should be shared as deposits at all**, or held per-node and merged
-   only on pull — RFC-0010 §9 leaves this open fleet-wide, and this proposal assumes the
-   former without having argued it.
+3. ~~**Whether `@LAT101` should be shared as deposits at all**, or held per-node and
+   merged only on pull.~~ ✅ **Answered by building it (2026-08-09): per-node, merged only
+   on pull.** Its deposits are receptions of blocks HELLO already carries, so sharing
+   them again would be a second copy that can disagree with the first. RFC-0010 §9 keeps
+   the question open only for a field whose deposits are not already on the air.
 4. ~~**`sid` naming remains the gate for stage 4**, unchanged and unpriced.~~ ✅ **Closed
-   2026-08-09** (TTDB-RFC-0010 v0.2 §4). The replacement question is narrower and belongs
-   to this document: **what is `@LAT101`'s natural key?**
+   2026-08-09** (TTDB-RFC-0010 v0.2 §4). ~~The replacement question: **what is
+   `@LAT101`'s natural key?**~~ ✅ Also closed the same day: **`node:0x%08lx`**, full
+   width (§3's record form).

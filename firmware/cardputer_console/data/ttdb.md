@@ -36,6 +36,13 @@ umwelt:
 typed_edges:
   enabled: true
   syntax: "type@LATxLONy"
+lane_classes:
+  # TTDB-RFC-0010 §7.1. @LAT101 is the SOCIAL field — the fleet's first FIELD lane
+  # (decay-on-read, reclaim-lowest, no prune path). Absent this block every lane is
+  # EVIDENCE, which is the fail-safe direction, so an un-reflashed filesystem is safe.
+  evidence: [0, 91, 92, 93, 94, 95, 96, 97]
+  provenance: [90, 98, 99, 100]
+  field: [101]
 librarian:
   enabled: false
   primitive_queries: []

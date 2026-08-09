@@ -49,7 +49,11 @@ firmware/
                         third HELLO block after the anchor and the trace digest. Not an
                         inventory — it is the list of who can collapse which positioning
                         ambiguity, so `poseCeiling()` is the fleet stating how much of its
-                        own shape it can currently know. RAM-only; SocialNode.h is the glue.
+                        own shape it can currently know. Also carries the fleet's FIRST
+                        FIELD lane, `@LAT101` (RFC-0010 §5 stage 3): one **PEER**
+                        co-presence trace per peer, decay-on-read, reclaim-lowest, NO
+                        prune path by design — the RAM table is the live medium and the
+                        lane its change-triggered durable shadow. SocialNode.h is the glue.
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)

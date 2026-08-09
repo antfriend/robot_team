@@ -2205,6 +2205,14 @@ void setup() {
   // board and unreachable. "Declared, never verified" is the true statement and the whole
   // reason the status has three levels.
 
+  // Reload the @LAT101 field — the fleet's first FIELD lane (TTDB-RFC-0010 §5, stage 3).
+  // Safe against races by construction: radio callbacks only QUEUE, and service() first
+  // runs in loop(), after this line — so a peer heard live finds its row already seeded
+  // rather than "joining" fresh every boot and marking the field dirty with nothing new.
+  // Every reloaded trace is unknown-age (§5.4) — setup() runs before the stream listen
+  // window — so it enters clamped and FADED, never absent.
+  gSocial.loadField(gDb, millis());
+
 #if USE_GPS
   gpsProbeBaud();   // ~1 s: lock the NMEA baud (SP2 roaming anchor). No fix needed here.
   Serial.printf("GPS UART1 (rx %d tx %d) @ %lu baud\n", PIN_GPS_RX, PIN_GPS_TX,
@@ -2262,6 +2270,13 @@ void loop() {
   if (gGpsBaud) gSocial.table().verify(social::CAP_GPS);
   if (gGpsFixMs) gSocial.table().exercise(social::CAP_GPS);
 #endif
+
+  // The @LAT101 field's durable shadow (RFC-0010 §5, stage 3). Change-triggered plus a
+  // slow heartbeat — persistDue() is false almost always, and steady state writes
+  // nothing (§5.1 on flash). The rewrite is a whole-file flash pass like a prune's, so
+  // it runs here in loop() and shows up in `lp` when it fires.
+  if (gSocial.table().persistDue(millis()))
+    gSocial.persistField(gDb, gStreamWallSec, gStamp, millis());
   // Time this pass. The toot link is serviced once per loop pass, so the SLOWEST pass is
   // what the mesh feels as rtt — which makes `lp` on the interoception pane this node's own
   // sense of having gone sluggish, rather than something only the laptop can tell it.

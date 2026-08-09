@@ -3748,6 +3748,14 @@ void setup() {
   gSocial.table().verify(social::CAP_BLE);
 #endif
 
+  // Reload the @LAT101 field — the fleet's first FIELD lane (TTDB-RFC-0010 §5, stage 3).
+  // Safe against races by construction: radio callbacks only QUEUE, and service() first
+  // runs in loop(), after this line — so a peer heard live finds its row already seeded
+  // rather than "joining" fresh every boot and marking the field dirty with nothing new.
+  // Every reloaded trace is unknown-age (§5.4) — setup() runs before the stream listen
+  // window — so it enters clamped and FADED, never absent.
+  gSocial.loadField(gDb, millis());
+
 #if USE_BLE
   blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
   Serial.println("BLE near-range tier up (advert + passive scan)");
@@ -3815,6 +3823,14 @@ void loop() {
   // because one bit used to conflate *we agree with each other* with *we know what day it
   // is*. Storing it independently would re-create that conflation in a new place.
   gSocial.table().refreshWall(gTs.wall());
+
+  // The @LAT101 field's durable shadow (RFC-0010 §5, stage 3). Change-triggered plus a
+  // slow heartbeat — persistDue() is false almost always, and steady state writes
+  // nothing (§5.1 on flash). The rewrite is a whole-file flash pass like the dream's, so
+  // it runs here in loop() and shows up in `lp` when it fires; that cost is the TIMING
+  // line's, not a stall.
+  if (gSocial.table().persistDue(now))
+    gSocial.persistField(gDb, gStreamWallSec, gStamp, now);
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Trusted, un-deduped link.

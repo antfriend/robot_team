@@ -62,6 +62,24 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
 // the index can never silently drift from the file.
 bool Ttdb::appendRecord(const char* text, size_t len) {
   if (!fs_ || !text || len == 0) return false;
+  // ⚠ REFUSE A FULL INDEX BEFORE WRITING A BYTE. The old order wrote the block, then
+  // noticed the index was full mid-scan, rolled back to a full begin() — WHICH RETURNS
+  // TRUE — so the caller believed the append succeeded while the record sat on flash
+  // OUTSIDE the index, invisible to every reader and destroyed by the next lane rewrite
+  // (removeLaneRange copies indexed spans only). Found on hardware 2026-08-09: the
+  // Cardputer's file is legitimately AT the cap (its lane caps sum there), five @LAT101
+  // records were appended "successfully", and the next Dream Cycle's belief-lane rewrite
+  // silently erased them. Count the headers in the block first; a block that cannot be
+  // indexed whole is refused whole.
+  {
+    int headers = 0;
+    bool ls = false;   // text[0]=='@' is rejected below anyway; a block starts "\n---"
+    for (size_t i = 0; i < len; ++i) {
+      if (ls && text[i] == '@') ++headers;
+      ls = (text[i] == '\n');
+    }
+    if (record_count_ + headers > TTDB_MAX_RECORDS) return false;
+  }
   File f = fs_->open(path_, "a");
   if (!f) return false;
   const size_t base = f.size();     // authoritative, not the cached file_size_

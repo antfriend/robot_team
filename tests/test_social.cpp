@@ -14,9 +14,23 @@
 //     REFUSED rather than read as capabilities
 //   * the peer list ROTATES, so with more peers than slots every one is eventually named
 //   * the low-16-bit id invariant `shortId` depends on actually holds for the fleet's ids
+// Stage 3 (TTDB-RFC-0010 §5) adds the @LAT101 SOCIAL field — the fleet's FIRST FIELD
+// lane — and with it the properties worth pinning are §5's normative ones:
+//   * decay is evaluated on read and never written; a deposit accumulates against the
+//     DECAYED value, not the stored one
+//   * reclaim-lowest: a full table replaces the lowest DECAYED trace, ties to oldest
+//   * the WRITER is tested against the READER (the stage-2 lesson: both individually
+//     green missed the one defect that mattered), including the `last_ms:` needle whose
+//     tail is literally `t_ms:`
+//   * the sid is KEY-identified: same peer = same sid across reinforcement, rewrites and
+//     ordinals; recomputable from (node, lane, key) alone
+//   * §5.4 reload: unknown age clamps, never zeroes; UNKNOWN capabilities survive a
+//     reboot as UNKNOWN, not ABSENT; flash never overwrites what the radio said
 #include <cstdio>
 #include <cstring>
 #include "Social.h"
+#include "Sid.h"
+#include "TtdbParse.h"
 
 static int gChecks = 0, gFails = 0;
 static void check(bool ok, const char* what) {
@@ -336,6 +350,241 @@ int main() {
     check(capName(CAP_COUNT)[0] == 'b', "an unnamed bit renders as b<n>, never blank");
     check(strcmp(statusGlyph(ST_UNKNOWN), statusGlyph(ST_ABSENT)) != 0,
           "unknown and absent are visually distinct");
+  }
+
+  // ---- 15. co-presence: deposit, decay-on-read, accumulate-against-decayed -----------
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    t.sawNode(PEER, 1000);
+    const Peer* p = t.find(PEER);
+    check(p != nullptr, "a reception creates the trace");
+    check(t.copresenceAt(*p, 1000) == SOCIAL_COPRE_DEPOSIT, "one deposit = one deposit");
+    // §5.1: nothing was written; the effective value halves purely on read.
+    check(t.copresenceAt(*p, 1000 + SOCIAL_COPRE_HALF_LIFE_MS) == SOCIAL_COPRE_DEPOSIT / 2,
+          "one half-life on read halves the trace");
+    check(p->copre == SOCIAL_COPRE_DEPOSIT, "…and the STORED value did not move");
+    // A second deposit a half-life later accumulates against the decayed value.
+    t.sawNode(PEER, 1000 + SOCIAL_COPRE_HALF_LIFE_MS);
+    check(t.copresenceAt(*p, 1000 + SOCIAL_COPRE_HALF_LIFE_MS) ==
+              SOCIAL_COPRE_DEPOSIT / 2 + SOCIAL_COPRE_DEPOSIT,
+          "a deposit adds to the decayed value, not the stale one");
+    // Saturation: a burst of receptions pins at 255 and stays there.
+    for (int i = 0; i < 20; ++i) t.sawNode(PEER, 2000000 + i);
+    check(t.copresenceAt(*p, 2000020) == 255, "the trace saturates at 255");
+  }
+
+  // ---- 16. reclaim-lowest (RFC-0010 §5.3): lowest DECAYED goes, ties to oldest --------
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    // Fill the table. Peer 0x10 is deposited once at t=0 (long decayed by t=900000);
+    // everyone else is fresh at t=900000. The victim must be 0x10 — the lowest decayed
+    // strength — even though it is NOT the longest-unheard by much on every row.
+    t.sawNode(0x10, 0);
+    for (uint8_t i = 1; i < SOCIAL_MAX_PEERS; ++i) t.sawNode(0x100u + i, 900000);
+    check(t.peerCount() == SOCIAL_MAX_PEERS, "the table is full");
+    check(t.reclaims() == 0, "no reclamation yet");
+    t.sawNode(0x777, 900001);
+    check(t.reclaims() == 1, "a full table reclaims exactly one slot");
+    check(t.lastReclaimed() == 0x10, "…and it is the lowest DECAYED trace");
+    check(t.find(0x10) == nullptr, "the reclaimed trace is gone");
+    check(t.find(0x777) != nullptr, "the new trace is in");
+    // No @LAT100 boundary is even expressible from here — the table has no Ttdb. That is
+    // §5.3's rule made structural rather than behavioural.
+
+    // Ties: two fully-decayed traces; the OLDER one goes.
+    Table t2;
+    t2.begin(SELF, CAP_MIC);
+    t2.sawNode(0x11, 1000);   // older
+    t2.sawNode(0x12, 2000);
+    for (uint8_t i = 2; i < SOCIAL_MAX_PEERS; ++i) t2.sawNode(0x200u + i, 90000000);
+    t2.sawNode(0x888, 90000001);   // both 0x11/0x12 read 0 by now — tie
+    check(t2.lastReclaimed() == 0x11, "a strength tie resolves to the oldest trace");
+  }
+
+  // ---- 17. the WRITER against the READER (the stage-2 rule) ---------------------------
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    uint8_t d[DIGEST_LEN_MAX] = {0};
+    d[0] = DIGEST_MAGIC; d[1] = DIGEST_VERSION;
+    d[2] = (uint8_t)(CAP_GPS | CAP_MIC); d[3] = 0;
+    d[4] = (uint8_t)(CAP_GPS | CAP_MIC); d[5] = 0;
+    d[6] = (uint8_t)CAP_GPS; d[7] = 0;
+    d[8] = 7; d[9] = 0;
+    t.ingest(PEER, d, DIGEST_HDR, 5000);
+
+    timestream::Stamp st;
+    st.t_ms = 123456789ull;
+    st.stream_id = 0xe334a7e1u;
+    st.wall = true;
+
+    char rec[SOCIAL_PEER_RECORD_BUF];
+    uint32_t sid_w = 0;
+    const size_t m = t.buildPeerRecord(rec, sizeof(rec), 0, 3, 1786000000u, st, 6000,
+                                       &sid_w);
+    check(m > 0, "the record renders");
+    check(sid_w != 0, "…with a sid");
+    check(strstr(rec, "sid:00000000") == nullptr, "the placeholder was patched");
+
+    PeerRecord r;
+    check(Table::parsePeerRecord(rec, m, r), "the reader reads it back");
+    check(r.node == PEER, "node round-trips");
+    check(r.spoke, "spoke round-trips");
+    check(r.declared == (uint16_t)(CAP_GPS | CAP_MIC), "declared round-trips");
+    check(r.exercised == (uint16_t)CAP_GPS, "exercised round-trips");
+    check(r.cap_epoch == 7, "cap_epoch round-trips");
+    check(r.half_life_ms == SOCIAL_COPRE_HALF_LIFE_MS, "half-life round-trips");
+    check(r.stream == 0xe334a7e1u, "stream round-trips");
+    check(r.wall == 1, "wall round-trips");
+    check(r.has_sid && r.sid == sid_w, "the reader reads the sid the writer wrote");
+
+    // ⚠ THE NEEDLE: `last_ms:` ends in `t_ms:`. The record carries last_ms 6000-ish and
+    // t_ms 123456789 — a reader matching the bare substring returns the wrong field with
+    // both sides individually looking correct.
+    check(r.t_ms == 123456789ull, "t_ms is the stamp's, not last_ms's tail");
+
+    // The id is recomputable from (node, lane, key) alone — the verification property.
+    char key[24];
+    check(Table::peerKey(key, sizeof(key), PEER) > 0, "the key renders");
+    check(strcmp(key, "node:0x00000200") == 0, "…at FULL width (1-byte squeezes collide)");
+    check(sid::forKey(SELF, SOCIAL_FIELD_LANE, key) == sid_w,
+          "a reader recomputes the sid from the key alone");
+  }
+
+  // ---- 18. KEY identity: reinforcement, rewrites and ordinals do not rename ----------
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    t.sawNode(PEER, 1000);
+    timestream::Stamp st;
+    st.t_ms = 111; st.stream_id = 0xAAAA0001u; st.wall = false;
+    char rec[SOCIAL_PEER_RECORD_BUF];
+    uint32_t sid1 = 0, sid2 = 0, sid3 = 0;
+    check(t.buildPeerRecord(rec, sizeof(rec), 0, 0, 1000, st, 2000, &sid1) > 0, "build 1");
+    // Reinforce, decay, new ordinal, new stamp, new wall-clock — the trace's name holds.
+    for (int i = 0; i < 5; ++i) t.sawNode(PEER, 3000 + i);
+    st.t_ms = 999999; st.stream_id = 0xBBBB0002u; st.wall = true;
+    check(t.buildPeerRecord(rec, sizeof(rec), 0, 7, 2000, st, 900000, &sid2) > 0, "build 2");
+    check(sid1 == sid2, "same peer = same sid across reinforcement + ordinal + stamp");
+    // A different subject gets a different name.
+    t.sawNode(0x10, 5000);
+    const Peer* p1 = t.peerAt(1);
+    check(p1 && t.buildPeerRecord(rec, sizeof(rec), 1, 1, 2000, st, 5000, &sid3) > 0,
+          "build 3");
+    check(sid3 != sid1, "a different peer gets a different sid");
+  }
+
+  // ---- 19. §5.4 reload: unknown age clamps, never zeroes; flash never beats radio -----
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    PeerRecord r;
+    r.node = PEER; r.spoke = true;
+    r.declared = (uint16_t)(CAP_GPS | CAP_MIC);
+    r.verified = (uint16_t)(CAP_GPS | CAP_MIC);
+    r.exercised = (uint16_t)CAP_GPS;
+    r.cap_epoch = 9;
+    r.copresence = 200;   // strong when persisted; age now unknowable
+    check(t.loadPeer(r, 1000), "a reloaded trace enters the table");
+    const Peer* p = t.find(PEER);
+    check(p != nullptr, "…and is findable");
+    check(t.copresenceAt(*p, 1000) == SOCIAL_COPRE_UNKNOWN_AGE,
+          "unknown age CLAMPS the strength");
+    check(t.copresenceAt(*p, 1000) > 0, "…and never zeroes it (faded, not absent)");
+    check(p->age_unknown, "the trace is marked unknown-age");
+    check(t.faded(*p, 1001), "a reloaded peer is FADED until actually heard");
+    check(t.statusOf(PEER, CAP_GPS) == ST_EXERCISED, "reloaded masks report");
+    check(t.persistDue(200000) == false,
+          "a reload alone never schedules a rewrite of identical content");
+
+    // A weak persisted trace reloads as itself — the clamp is a ceiling, not a floor.
+    PeerRecord r2; r2.node = 0x10; r2.copresence = 30;
+    t.loadPeer(r2, 1000);
+    check(t.copresenceAt(*t.find(0x10), 1000) == 30, "below the clamp, stored wins");
+
+    // A live reception re-dates the trace and clears the mark.
+    t.sawNode(PEER, 2000);
+    check(!t.find(PEER)->age_unknown, "a live reception dates the trace again");
+    check(!t.faded(*t.find(PEER), 2001), "…and un-fades the peer");
+
+    // Flash never overwrites what the radio already said: masks stay the LIVE ones.
+    Table t2;
+    t2.begin(SELF, CAP_MIC);
+    uint8_t d[DIGEST_LEN_MAX] = {0};
+    d[0] = DIGEST_MAGIC; d[1] = DIGEST_VERSION;
+    d[2] = (uint8_t)CAP_MIC; d[3] = 0; d[8] = 3; d[9] = 0;
+    t2.ingest(PEER, d, DIGEST_HDR, 500);
+    PeerRecord stale; stale.node = PEER; stale.spoke = true;
+    stale.declared = (uint16_t)CAP_GPS; stale.verified = (uint16_t)CAP_GPS;
+    stale.cap_epoch = 1; stale.copresence = 10;
+    t2.loadPeer(stale, 1000);
+    check(t2.statusOf(PEER, CAP_MIC) == ST_DECLARED, "live masks survive a reload");
+    check(t2.statusOf(PEER, CAP_GPS) == ST_ABSENT, "the gravestone's masks do not");
+
+    // A corrupt record's masks re-clamp exactly as a corrupt digest's do.
+    Table t3;
+    t3.begin(SELF, CAP_MIC);
+    PeerRecord bad; bad.node = 0x11; bad.spoke = true;
+    bad.declared = (uint16_t)CAP_MIC;
+    bad.verified = (uint16_t)(CAP_MIC | CAP_GPS);      // claims beyond its declaration
+    bad.exercised = (uint16_t)CAP_GPS;                 // exercises the undeclared
+    t3.loadPeer(bad, 1000);
+    check(t3.statusOf(0x11, CAP_GPS) == ST_ABSENT, "flash is one more untrusted mouth");
+
+    // UNKNOWN survives a reboot as UNKNOWN — never collapsed into ABSENT.
+    Table t4;
+    t4.begin(SELF, CAP_MIC);
+    PeerRecord silent; silent.node = 0x12; silent.spoke = false; silent.copresence = 40;
+    t4.loadPeer(silent, 1000);
+    check(t4.statusOf(0x12, CAP_GPS) == ST_UNKNOWN,
+          "a silent peer reloads as UNKNOWN, not capability-less");
+  }
+
+  // ---- 20. the persist policy: change-triggered, gapped, heartbeat needs reinforcement
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    check(!t.persistDue(1000), "an empty field owes nothing");
+    t.sawNode(PEER, 1000);
+    check(!t.persistDue(1000), "a change inside the minimum gap waits");
+    check(t.persistDue(SOCIAL_PERSIST_MIN_GAP_MS + 1), "…and fires once the gap passes");
+    t.notePersisted(SOCIAL_PERSIST_MIN_GAP_MS + 1);
+    check(!t.persistDue(SOCIAL_PERSIST_MIN_GAP_MS + 2), "persisting clears the debt");
+    check(t.find(PEER)->reinforced == 0, "…and closes every open run (§5.2)");
+    // Reinforcement alone: nothing until the heartbeat, then once.
+    t.sawNode(PEER, SOCIAL_PERSIST_MIN_GAP_MS + 5000);
+    check(!t.persistDue(SOCIAL_PERSIST_MIN_GAP_MS + 6000),
+          "reinforcement alone is not a material change");
+    const uint32_t hb = SOCIAL_PERSIST_MIN_GAP_MS + 1 + SOCIAL_PERSIST_HEARTBEAT_MS;
+    check(t.persistDue(hb), "…until the heartbeat");
+    t.notePersisted(hb);
+    check(!t.persistDue(hb + SOCIAL_PERSIST_HEARTBEAT_MS + 1),
+          "a heartbeat with nothing reinforced writes nothing — a node alone in a "
+          "field is silent forever (§5.1 on flash)");
+  }
+
+  // ---- 21. the builder never truncates, and the buffer fits the worst case ------------
+  {
+    Table t;
+    t.begin(SELF, CAP_MIC);
+    uint8_t d[DIGEST_LEN_MAX] = {0};
+    d[0] = DIGEST_MAGIC; d[1] = DIGEST_VERSION;
+    d[2] = 0xFF; d[3] = 0xFF; d[4] = 0xFF; d[5] = 0xFF; d[6] = 0xFF; d[7] = 0xFF;
+    d[8] = 255; d[9] = 0;
+    t.ingest(PEER, d, DIGEST_HDR, 0xFFFFFFF0u);
+    for (int i = 0; i < 70000; ++i) t.sawNode(PEER, 0xFFFFFFF0u);   // reinforced pegs
+    timestream::Stamp st;
+    st.t_ms = 0xFFFFFFFFFFFFFFFFull; st.stream_id = 0xFFFFFFFFu; st.wall = true;
+    char rec[SOCIAL_PEER_RECORD_BUF];
+    const size_t m = t.buildPeerRecord(rec, sizeof(rec), 0, 99, 0xFFFFFFFFu, st,
+                                       0xFFFFFFF0u, nullptr);
+    check(m > 0 && m < SOCIAL_PEER_RECORD_BUF, "the worst-case record fits the buffer");
+    check(t.find(PEER)->reinforced == 0xFFFF, "the run-length counter saturates");
+    // An undersized destination refuses whole — never a truncated record on flash.
+    check(t.buildPeerRecord(rec, 200, 0, 0, 1, st, 1, nullptr) == 0,
+          "an undersized buffer writes NOTHING, not a fragment");
   }
 
   printf("%s  (%d checks, %d failures)\n", gFails ? "FAILED" : "OK", gChecks, gFails);

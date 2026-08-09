@@ -4747,6 +4747,56 @@ If a fact lives in one of these, link to it from here — don't copy it.
   (~1.9–2.9 s inside `linkperc`) — that is the lane rewrite's flash cost, already budgeted
   in the TIMING line, not a new stall.
 
+- 🏷️ **2026-08-09 — RFC-0010 STAGE 3: `@LAT101` IS THE FLEET'S FIRST FIELD LANE, BUILT
+  AND HARDWARE-VERIFIED ON BOTH HANDHELDS THE SAME DAY.** The SOCIAL field
+  (default-network.md §3): one `**PEER**` record per known peer — the three capability
+  masks plus a co-presence trace reinforced by beacons the node already hears, decaying
+  on a 10 min half-life. The live medium is the `Social` table in RAM; the lane is its
+  **durable shadow**, rewritten on material change behind a 60 s gap plus a 30 min
+  heartbeat that fires only if something was reinforced — §5.1's *only reinforcement
+  writes* holding on flash, so a node alone in a field writes nothing, forever. Natural
+  key `node:0x%08lx` (KEY sid, full width). No new wire bytes. **No prune path, and that
+  is the stage-3 falsifier pre-committed**: reclaim-lowest happens in RAM (§5.3), spends
+  zero `@LAT100`, and `lanegen::prune`'s ≥98 refusal was not widened.
+  ✅ **Verified on hardware:** two rewrites in one Cardputer boot with **ordinals
+  shuffled and every sid identical**; the T-Deck's trace entered at `27cc5401`, **the id
+  the laptop had computed from the key before the record existed**; ten of ten sids
+  recomputed digit-for-digit across both nodes, with the same subject carrying different
+  ids under different observers (per-`(node,lane)` scoping, demonstrated). After a hard
+  reset both handhelds reloaded 5 traces `co:…~` FADED-until-heard (§5.4 unknown-age
+  clamp 64), UNKNOWN capabilities stayed UNKNOWN, **no boot-storm rewrite** — and
+  `poseCeiling()` said `<=translation` from reloaded knowledge alone: the fleet's sense
+  of its own shape now survives a power cycle. The staleness instrument also fired its
+  first REAL report (a self epoch bump racing the 2 s beacon; converged next beacon).
+  🐛 **THE BIG CATCH IS UPSTREAM OF THIS FEATURE: `Ttdb::appendRecord` PAST
+  `TTDB_MAX_RECORDS` WROTE THE BYTES, FAILED TO INDEX THEM, AND RETURNED TRUE.** The
+  Cardputer's file is legitimately AT the old cap of 256 (its lane caps sum there), so
+  the first five `@LAT101` records were appended "successfully", were invisible to every
+  reader, and were then **destroyed by the next Dream Cycle's belief-lane rewrite**
+  (`removeLaneRange` copies indexed spans only). Any lane could have hit this; the field
+  lane was merely the first new lane since the file filled. Fixed three ways:
+  `TTDB_MAX_RECORDS` 256 → **288** (+512 B .bss per open file — do NOT raise it for a
+  lane that grows with uptime), `appendRecord` now counts the block's headers and
+  **refuses before writing a byte**, and `persistField` pre-checks the index budget and
+  defers with one plain sentence. 📎 A smaller catch first: sharing a buffer through a
+  `char* rec` alias and measuring `sizeof(rec)` — 4 — so every build refused and the
+  first persist wrote `0 trace(s)`; that log line existing is what made both defects
+  visible at all.
+  📎 `lane_classes` (§7.1) added to both handhelds' repo `data/ttdb.md` — it reaches the
+  devices at the next FS flash (deliberately NOT flashed now: an FS image wipes the
+  learned lanes), and the fail-safe reads absent-declaration as EVIDENCE, so the delay is
+  safe. Cost vs HEAD: Cardputer **+4100 B flash / +592 B RAM** (42 %), T-Deck **+4776 B
+  / +608 B** (41 %), V4s **zero content bytes** (byte-diff; only the image's two
+  embedded hash fields differ). Native suite 153 checks; `check_makefile.py` green.
+  ⚠ **Seen twice while verifying, unrelated to stage 3: the T-Deck's `@LAT90` lane is
+  FULL at 16** ("the timeline is flapping, not settling"). Same condition the Cardputer
+  had; repair is the `--lane 90` prune, but the lane is telling us the T-Deck flaps
+  timelines across reboots — worth a look before pruning the evidence of it.
+  📋 Next: stage 4 is pre-satisfied for `@LAT101` (born without a prune); the open RFC
+  stages are the default network's 2 (capability claims through Rule 1/2) and 3
+  (`@LAT102` attributed testimony), and @LAT98's natural key still wants a real
+  re-attestation.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

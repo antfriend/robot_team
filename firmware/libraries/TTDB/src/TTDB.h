@@ -10,8 +10,16 @@
 #include <FS.h>
 #include "TtdbParse.h"
 
+// ⚠ 256 -> 288 on 2026-08-09, when the Cardputer's file was found legitimately AT the
+// old cap: its lane caps sum to ~256 (4x48 percepts + 24 outcomes + 16 timeline + the
+// fleet map + beliefs), so the new @LAT101 field lane had no index room at all — its
+// records were appended past the index and destroyed by the next lane rewrite. 288 is
+// the old budget plus the field lane's 8 and margin; the cost is +512 B of .bss per
+// OPEN FILE (16 B/entry), x3 files on a handheld. Do not raise this for a lane that
+// grows with uptime — that pressure is the signal the lane's design is wrong, and
+// appendRecord now REFUSES at the cap rather than half-succeeding.
 #ifndef TTDB_MAX_RECORDS
-#define TTDB_MAX_RECORDS 256
+#define TTDB_MAX_RECORDS 288
 #endif
 
 // The percept lanes — semantic-positioning evidence a node writes about its own

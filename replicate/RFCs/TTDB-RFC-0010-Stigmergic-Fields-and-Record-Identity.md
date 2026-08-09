@@ -4,8 +4,10 @@
 **Status:** Draft. §4 (record identity) is **DECIDED, implemented, and running on
 hardware: `@LAT91` is the first lane to write a `sid`, hardware-verified 2026-08-09**
 (stage 2, §7.2 — same ids across two boots and two lane rewrites, recomputed on the
-laptop from the key alone). The lane register (§3) is a classification of what already
-exists and is normative on adoption; §5–§6 still describe a mechanism no node has run.
+laptop from the key alone). **§5–§6 are no longer hypothetical: `@LAT101` — the SOCIAL
+field — is the fleet's first FIELD lane, built and hardware-verified on both handhelds
+the same day** (stage 3, §7.2). The lane register (§3) is a classification of what
+exists and is normative on adoption.
 **Changes in 0.2 (2026-08-09):** §4.2 rewritten around a measurement over the 78 archived
 TTDBs (§4.2.5) that **falsified v0.1's proposed hash input**; identity split into EVENT and
 KEY kinds (§4.2.1) with a per-lane register (§4.2.7); uniqueness scoped to `(node_id, lane)`
@@ -102,20 +104,24 @@ that bounds the lane today; `prune` is the operation that can empty it.
 | `@LAT98` | `BELIEF-ADOPTED` attestations (TTN-RFC-0009) | **PROVENANCE** | — | none — guard refuses |
 | `@LAT99` | Time-sync log (TTN-RFC-0008) | **PROVENANCE** | — | none — guard refuses |
 | `@LAT100` | `LANE-PRUNED` boundaries (lane generations) | **PROVENANCE** | 32 | **none, and this is the binding constraint** |
-| `@LAT101+` | *unallocated* | — | — | — |
+| `@LAT101` | SOCIAL field: one `**PEER**` co-presence trace per peer (stage 3, 2026-08-09) | **FIELD** | 8 (`SOCIAL_MAX_PEERS`) | **none, by design — §5.3 reclaims in RAM; `lanegen::prune` already refuses ≥98** |
+| `@LAT102+` | *unallocated* (`@LAT102` is reserved by `default-network.md` §3 for ATTRIBUTED testimony) | — | — | — |
 
 Three consequences worth stating plainly:
 
-1. **There is not one FIELD lane on the fleet today.** Everything is evidence or
-   provenance. Nothing below §4 is in use anywhere.
-2. **The first FIELD lane MUST be a new lane at `@LAT101` or above.** It MUST NOT be an
-   existing lane converted in place: the archived records in `master/` were written under
-   EVIDENCE rules and reclassifying a lane retroactively reclassifies them too.
+1. **`@LAT101` is the fleet's first and only FIELD lane** (stage 3, 2026-08-09 — the
+   register above was all evidence and provenance before it). Everything in §5 is in use
+   there and nowhere else.
+2. **The first FIELD lane had to be a new lane at `@LAT101` or above** — and it was. It
+   MUST NOT have been an existing lane converted in place: the archived records in
+   `master/` were written under EVIDENCE rules and reclassifying a lane retroactively
+   reclassifies them too.
    ⚠ `@LAT89` and below is unavailable regardless — `isNodeRecord()` bounds navigation to
    `lat > -90 && lat < 90`, so a lane there renders as *a place on the globe*.
 3. **`@LAT100` is provenance about provenance, and it has no prune path by design.** Its
    cap is therefore a lifetime budget, not a working set. Any proposal that consumes it
-   faster is a proposal to shorten the fleet's life.
+   faster is a proposal to shorten the fleet's life. A `@LAT101` reclamation spends
+   **none of it** — under KEY naming there is nothing to re-point (§5.3).
 
 ---
 
@@ -304,7 +310,8 @@ which matters on a node whose largest record builder already holds 2 624 bytes.
 | `@LAT98` | PROVENANCE | **KEY** | `src:0x%08lx\|target:@LAT%dLON%d` |
 | `@LAT99` | PROVENANCE | EVENT | — |
 | `@LAT100` | PROVENANCE | **KEY** | `gen:%u\|lane:%u` |
-| `@LAT101+` FIELD | FIELD | **KEY** | the field's own key (a trace must survive reinforcement) |
+| `@LAT101` SOCIAL | FIELD | **KEY** | `node:0x%08lx` — FULL width; every 1-byte squeeze of this fleet's ids collides (stage 3, 2026-08-09) |
+| future FIELD lanes | FIELD | **KEY** | the field's own key (a trace must survive reinforcement) |
 
 Note that **every FIELD lane is necessarily KEY**: §5.2 reinforcement updates a trace in
 place, and a trace whose name changed when it was reinforced would be a new trace.
@@ -478,8 +485,70 @@ Absent declaration, every lane is EVIDENCE (§2 fail-safe).
   three from `(node, lane, key)` alone** (`sid_probe.sid_key`), digit for digit, never
   having seen the records. That last step is the property this section exists for: a
   reader *verifies* a record's name, it does not trust it.
-- **Stage 3 — the first FIELD lane at `@LAT101`,** decay-on-read, reclaim-lowest.
-- **Stage 4 — retire that lane's prune.** `@LAT100` consumption stops growing.
+- ✅ **Stage 3 — the first FIELD lane at `@LAT101`: the SOCIAL field.** *Software done
+  2026-08-09, natively tested (153 checks); HARDWARE-VERIFIED the same day on both
+  handhelds — see the hardware block at the end of this entry.* One `**PEER**` record per known peer —
+  capability masks plus a co-presence trace reinforced by the beacons the node already
+  hears. The live medium is the `Social` table in RAM; the lane is its **durable shadow**,
+  rewritten only on material change (new peer, capability change, reclaim) behind a 60 s
+  minimum gap, plus a 30 min heartbeat that fires only if something was reinforced — so
+  §5.1's *only reinforcement writes* holds on flash too, and a node alone in a field
+  writes nothing, forever.
+  🎯 **The stage-3 falsifier (§8.1) is pre-committed in the lane's structure:** there is
+  no prune path — `lanegen::prune` refuses ≥ 98 unchanged, reclamation happens in RAM
+  under §5.3 (lowest decayed, ties to oldest) and spends zero `@LAT100`. If operating
+  this lane ever requires adding a `--lane 101` clear op, this RFC is abandoned.
+  📎 Three design decisions stage 3 recorded:
+  (1) **No new wire bytes** — deposits are receptions of the HELLO blocks stage 1 of the
+  default network already ships; co-presence is *hearing you*, which is local. (2) **The
+  natural key is `node:0x%08lx`**, full width, closing default-network.md §7's question.
+  (3) **A reloaded trace is always unknown-age** (§5.4): setup() runs before the stream
+  listen window, so reload clamps to `SOCIAL_COPRE_UNKNOWN_AGE` and marks the trace
+  (rendered `~`), FADED until actually heard — never trusted fresh, never zeroed. A
+  same-stream ageing path was deliberately NOT built, because on these boards it could
+  never run — a mechanism that cannot run is the mistake the stage-1 staleness response
+  almost was.
+  ⚠ **§5.3's reclaim itself is expected to read ZERO on this fleet** (≤5 peers against 8
+  slots): like the staleness counter, it is an instrument whose interesting reading is
+  zero, and the native suite is where the mechanism is exercised. UNKNOWN capabilities
+  survive a reboot as UNKNOWN — a reload must not collapse "never told us" into "absent",
+  which is the same rule the live table already enforced, now across a power cycle.
+  Cost vs HEAD: Cardputer **+4100 B flash / +592 B RAM** (42 %), T-Deck **+4776 B /
+  +608 B** (41 %); the three 94 %-full V4s: **zero content bytes changed** (verified by
+  byte-diff — the only differing bytes are the image's two embedded hash fields).
+  ✅ **Hardware, 2026-08-09, both handhelds — and the run found two real defects, one of
+  them structural and older than this RFC.**
+  *What passed:* the Cardputer persisted 4 traces, a T-Deck capability change triggered a
+  second rewrite minutes later in the same boot with the **ordinals shuffled and every
+  sid identical**, and the T-Deck's own trace entered at **`27cc5401` — the
+  exact id the laptop had computed from `(0x300, 101, "node:0x00000200")` before the
+  record existed** (a pre-registered prediction, not a post-hoc check). The T-Deck's five
+  ids were likewise all recomputed digit-for-digit — ten for ten across two nodes, and
+  the SAME subject carries DIFFERENT ids under different observers, which is §4.2.3's
+  per-`(node, lane)` scoping demonstrated rather than asserted. After a hard reset, both
+  handhelds printed `field: 5 peer trace(s) reloaded … clamped … FADED until heard`, the
+  boot fleet table rendered every trace `co:…~` and FADED **before any beacon arrived**,
+  UNKNOWN capabilities survived the reboot as UNKNOWN, no boot-storm rewrite occurred —
+  and `poseCeiling()` reported `<=translation` from reloaded knowledge alone: the fleet's
+  sense of its own shape now survives a power cycle.
+  🐛 *Defect 1 (mine, hours old):* sharing one buffer through a `char* rec` alias and
+  then measuring `sizeof(rec)` — sizeof(POINTER), 4 — so every builder call refused and
+  the first persist wrote nothing. Caught by the `field persisted: 0 trace(s)` line,
+  which existed because a lane that silently does nothing is this corpus's least
+  favourite failure mode.
+  🐛 *Defect 2 (structural, pre-existing):* **the Cardputer's file was legitimately AT
+  `TTDB_MAX_RECORDS` (256 — its lane caps sum there), and `appendRecord` past the cap
+  wrote the bytes, failed to index them, and returned TRUE.** The records were invisible
+  to every reader and the next Dream-Cycle lane rewrite — which copies indexed spans
+  only — destroyed them. Silent partial success upstream of every lane this RFC
+  classifies. Fixed three ways: `TTDB_MAX_RECORDS` 256 → **288** (+512 B .bss per open
+  file; the field lane's 8 slots plus margin — NOT to be raised for any lane that grows
+  with uptime), `appendRecord` now counts the block's headers and **refuses before
+  writing a byte**, and `persistField` pre-checks the index budget and defers with one
+  plain sentence instead of five cryptic failures.
+- **Stage 4 — retire that lane's prune.** For `@LAT101` this is pre-satisfied — it was
+  BORN without one (see stage 3). The stage stays open for the day a FIELD lane replaces
+  an existing pruned lane's function, where "retire" means an operation actually removed.
 
 ### 7.3 Cost
 Per citation `#sid` is +9 bytes; per record `sid:` is +13. At the reference fleet's 48
@@ -555,7 +624,11 @@ Stated before implementation, per the practice this fleet applies to its own mea
 - Whether a FIELD lane should be shared over the air as deposits (HELLO carries 21 of 250
   bytes today, and an un-reflashed node contributing 0 bytes is already a non-participant
   rather than a parse error) or held per-node and merged only on pull. `stigmergy.md` §4.A
-  argues the former for transport trails; this RFC does not decide it.
+  argues the former for transport trails; this RFC does not decide it. 📎 *Narrowed by
+  stage 3 (2026-08-09): the SOCIAL field chose **per-node, merged only on pull** — its
+  deposits are receptions of blocks HELLO already carries, so sharing them again would be
+  a second copy that can disagree with the first. The question stays open only for a
+  field whose deposits are not already on the air.*
 - Whether `@LAT100`'s cap should rise. It should not rise as a *response to pressure* —
   the pressure is the signal that the naming is wrong.
 

@@ -74,8 +74,15 @@ TF_SRCS := test_tracefield.cpp \
         $(LIB)/TraceField/src/TraceField.cpp
 # The default network, stage 1 (default-network.md §6): capability advertisement, the
 # three-level status, and the staleness instrument whose own falsifier is pre-registered.
+# ⚠ Stage 3 (RFC-0010 §5, the @LAT101 field) added FOUR dependencies in one go — decay
+# arithmetic (TraceField), the stamp (TS), the sid (Sid) and the header-sid reader
+# (TtdbParse). Omitting ANY of them links NOTHING and `make test` re-runs a stale
+# binary; that has happened four times in this file. check_makefile.py now catches it —
+# run it before committing a Makefile change.
 SOC_SRCS := test_social.cpp \
-        $(LIB)/Social/src/Social.cpp
+        $(LIB)/Social/src/Social.cpp \
+        $(LIB)/TraceField/src/TraceField.cpp $(TS) \
+        $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
 # Stable record identity (TTDB-RFC-0010 §4, decided 2026-08-09). Carries the CROSS-LANGUAGE
 # vectors: the same eight values are computed by scripts/sid_probe.py, and a divergence
 # between them is silent and total (every citation would resolve `stale` against a good

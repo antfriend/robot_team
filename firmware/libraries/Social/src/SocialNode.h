@@ -18,6 +18,7 @@
 #pragma once
 #include <Arduino.h>
 #include "Social.h"
+#include "TTDB.h"   // the @LAT101 field's durable shadow lives in the node's TTDB
 
 #ifndef SOCIAL_QUEUE
 #define SOCIAL_QUEUE 6
@@ -92,12 +93,107 @@ class SocialNode {
                       (unsigned long)src_[tail_], t_.epoch(), t_.staleReports());
       tail_ = (uint8_t)((tail_ + 1) % SOCIAL_QUEUE);
     }
+    // §5.3 reclamation made audible. Expected NEVER on this fleet (<=5 peers against 8
+    // slots) — like the staleness counter, this is an instrument whose interesting
+    // reading is zero, and a firing is the finding.
+    if (t_.reclaims() != last_reclaims_) {
+      last_reclaims_ = t_.reclaims();
+      Serial.printf("[social] field FULL: reclaimed lowest-decayed trace 0x%03lx "
+                    "(RFC-0010 s5.3, #%u) — no boundary written, none owed\n",
+                    (unsigned long)t_.lastReclaimed(), t_.reclaims());
+    }
   }
 
   // Append our capability digest to a HELLO body already holding the anchor and the trace
   // digest. Returns bytes added.
   size_t helloAppend(uint8_t* p, size_t cap, uint32_t now_ms) {
     return t_.buildDigest(p, cap, now_ms);
+  }
+
+  // ---- the @LAT101 field's durable shadow (TTDB-RFC-0010 §5, stage 3) --------------
+  // Reload the field at boot. Call from setup(), after the TTDB mounts and begin() ran.
+  // Every reloaded trace is UNKNOWN-AGE (§5.4) — setup() runs before the stream listen
+  // window — so it re-enters clamped and FADED, never absent and never trusted fresh.
+  uint8_t loadField(Ttdb& db, uint32_t now_ms) {
+    // ⚠ `recbuf_` (shared with persistField — never live at once) is used by NAME here:
+    // an earlier cut aliased it through a `char* buf` and then measured `sizeof(buf)` —
+    // which is sizeof(POINTER), 4 — so every record was truncated to 3 bytes and the
+    // whole reload silently loaded nothing. Caught on hardware by persistField's
+    // "0 trace(s)" line, the same defect one function over.
+    uint8_t loaded = 0;
+    for (int i = 0; i < db.recordCount(); ++i) {
+      if (db.record(i).lat != SOCIAL_FIELD_LANE) continue;
+      size_t off = 0, len = 0;
+      if (!db.recordSpan(i, off, len)) continue;
+      if (len >= sizeof(recbuf_)) len = sizeof(recbuf_) - 1;
+      const size_t got = db.readBytes(off, (uint8_t*)recbuf_, len);
+      if (!got) continue;
+      recbuf_[got] = 0;   // parsePeerRecord requires termination; readBytes does not give it
+      social::PeerRecord r;
+      if (social::Table::parsePeerRecord(recbuf_, got, r) && t_.loadPeer(r, now_ms)) ++loaded;
+      yield();
+    }
+    if (loaded)
+      Serial.printf("[social] field: %u peer trace(s) reloaded from @LAT%d — age unknown, "
+                    "clamped to %u and FADED until heard (RFC-0010 s5.4)\n",
+                    loaded, SOCIAL_FIELD_LANE, (unsigned)SOCIAL_COPRE_UNKNOWN_AGE);
+    return loaded;
+  }
+
+  // Rewrite the lane from the live table — the ONLY writer of @LAT101. Call from loop()
+  // when persistDue() says so (a lane rewrite is a whole-file flash pass, so this is
+  // change-triggered plus a slow heartbeat, never periodic).
+  // ⚠ Watch the sids across persists: same peer, same sid, every time, while copresence
+  // and the ordinal move — the property stage 2 pinned for @LAT91, now on a lane whose
+  // records are DESIGNED to be rewritten.
+  bool persistField(Ttdb& db, uint32_t t_sec, const timestream::Stamp& ts,
+                    uint32_t now_ms) {
+    // ⚠ Check the INDEX budget before touching the file. The Cardputer's TTDB sat
+    // exactly at TTDB_MAX_RECORDS on 2026-08-09 and the first persist "succeeded" into
+    // records the index could not hold — which the next lane rewrite then destroyed.
+    // appendRecord now refuses at the cap; this pre-check turns five cryptic per-record
+    // failures into one sentence naming the actual problem, and deferPersist() keeps
+    // the retry (and the sentence) to once per minimum gap instead of every loop pass.
+    int held = 0;   // the lane's own records are about to be replaced, so they are room
+    for (int i = 0; i < db.recordCount(); ++i)
+      if (db.record(i).lat == SOCIAL_FIELD_LANE) ++held;
+    if (db.recordCount() - held + (int)t_.peerCount() > TTDB_MAX_RECORDS) {
+      Serial.printf("[social] field NOT persisted: index at %d of %d records — no room "
+                    "for %u trace(s). The RAM field keeps working; the shadow waits.\n",
+                    db.recordCount(), TTDB_MAX_RECORDS, t_.peerCount());
+      t_.deferPersist(now_ms);
+      return false;
+    }
+    if (!db.removeLane(SOCIAL_FIELD_LANE)) {
+      Serial.printf("[social] field persist FAILED (removeLane @LAT%d)\n",
+                    SOCIAL_FIELD_LANE);
+      t_.deferPersist(now_ms);
+      return false;
+    }
+    uint8_t written = 0;
+    for (uint8_t i = 0; i < t_.peerCount(); ++i) {
+      uint32_t sid = 0;
+      const size_t m = t_.buildPeerRecord(recbuf_, sizeof(recbuf_), i, written, t_sec, ts,
+                                          now_ms, &sid);
+      if (!m) continue;   // builder refuses rather than truncates; nothing half-written
+      if (!db.appendRecord(recbuf_, m)) {
+        Serial.printf("[social] field append FAILED @LAT%dLON%u\n", SOCIAL_FIELD_LANE,
+                      written);
+        continue;
+      }
+      const social::Peer* p = t_.peerAt(i);
+      Serial.printf("[social] field @LAT%dLON%u sid:%08lx node:0x%03lx co:%u "
+                    "reinforced:%u\n",
+                    SOCIAL_FIELD_LANE, written, (unsigned long)sid,
+                    (unsigned long)(p ? p->node : 0),
+                    p ? t_.copresenceAt(*p, now_ms) : 0, p ? p->reinforced : 0);
+      ++written;
+      yield();
+    }
+    t_.notePersisted(now_ms);
+    Serial.printf("[social] field persisted: %u trace(s) (TTDB %uB)\n", written,
+                  (unsigned)db.fileSize());
+    return true;
   }
 
   // ---- render ----------------------------------------------------------------------
@@ -115,7 +211,11 @@ class SocialNode {
     for (uint8_t i = 0; i < t_.peerCount(); ++i) {
       const social::Peer* p = t_.peerAt(i);
       if (!p) continue;
-      Serial.printf("[social]   0x%03lx  %s   %s%s\n", (unsigned long)p->node,
+      // `co:` is the DECAYED value — §6.4: a faded trace renders as faded, never as
+      // absent. `~` marks an unknown-age trace reloaded from flash (§5.4), which stays
+      // marked until a live reception dates it again.
+      Serial.printf("[social]   0x%03lx  co:%3u%s  %s   %s%s\n", (unsigned long)p->node,
+                    t_.copresenceAt(*p, now_ms), p->age_unknown ? "~" : " ",
                     capsLine(p->node),
                     t_.faded(*p, now_ms) ? "FADED " : "",
                     p->spoke ? "" : "(no digest: capabilities UNKNOWN, not absent)");
@@ -170,5 +270,10 @@ class SocialNode {
   // always reports — a node whose capabilities never change after boot must still say what
   // they are, and `begin()` leaves the epoch at 0.
   uint16_t last_self_epoch_ = 0xFFFF;
+  uint16_t last_reclaims_   = 0;
   char     line_[160] = {0};
+  // One record buffer for both field I/O paths (load at setup, persist from loop) —
+  // they are never live at once, and this is a node whose buffers are sized against
+  // maxalloc, not free heap.
+  char     recbuf_[SOCIAL_PEER_RECORD_BUF] = {0};
 };
