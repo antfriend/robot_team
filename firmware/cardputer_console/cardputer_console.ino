@@ -57,6 +57,7 @@
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
 #include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
+#include <SocialNode.h>      // the default network: who is here and what can they do
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
 
@@ -174,6 +175,29 @@ static acousticpercept::Log gAcousticLog;  // @LAT94 what it heard
 // the system stays correct with the field EMPTY — holds trivially: a fresh node has a flat
 // field, voices nothing, and the band plays exactly as it did before.
 static TraceFieldNode gField;
+
+// --- the default network, stage 1 (default-network.md §6) -----------------------------
+// What this node CLAIMS. ⚠ A declaration is a claim, not a fact — this board is the reason
+// that sentence is in the library: its BMI270 is at I2C 0x69 and not the published 0x68, so
+// the first build declared an IMU it could not find. `verify`/`exercise` are what turn a
+// claim into a fact, and the render keeps all three apart.
+//
+// THIS NODE IS THE FLEET'S ONLY EAR AND ITS ONLY INNER EAR. CAP_MIC and CAP_IMU are unique
+// to it, and the consequences are structural rather than cosmetic:
+//   * CAP_IMU is the fleet's only STILLNESS WITNESS. PerceptLearn's Rule 1 arms solely off
+//     a `still` @LAT95 window, so no other node can author a belief at all.
+//   * CAP_MIC is the fleet's only ear, which is why multi-node TDoA is unexercised: a
+//     shared transient needs two of these and there is one. `quorum(CAP_MIC)` reading 1 is
+//     that fact, stated by the fleet about itself.
+// ⚠ NO CAP_GPS and NO CAP_LORA — this board has neither. It therefore cannot pin a single
+// pose degree of freedom, however much it hears.
+static const uint16_t CARD_CAPS =
+    (uint16_t)(social::CAP_MIC | social::CAP_SPEAKER | social::CAP_IMU |
+               social::CAP_WIFI_SCAN | social::CAP_BLE | social::CAP_DISPLAY |
+               social::CAP_KEYS | social::CAP_STORE | social::CAP_BATTERY |
+               social::CAP_TEMP | social::CAP_WALL | social::CAP_CONDUCT);
+static SocialNode gSocial;
+
 // The step a deposit is quantised onto: the last step the pulse actually struck.
 // ⚠ Quantise on DEPOSIT, never on playback — `score::noteAt` is an exact step match, so a
 // trace parked between slots would be silently unplayable.
@@ -1147,6 +1171,22 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       t.payload_len >= timestream::ANCHOR_LEN + tracefield::DIGEST_LEN)
     gField.queueDigest(t.payload + timestream::ANCHOR_LEN,
                        (size_t)t.payload_len - timestream::ANCHOR_LEN);
+
+  // The capability digest is the THIRD block in the same HELLO, after the anchor and the
+  // trace digest. Same additive contract for the third time, and it earns its keep hardest
+  // here: the three V4s speak neither this protocol nor the field's, so the length check is
+  // what keeps them non-participants instead of nodes whose bytes get read as capabilities.
+  //
+  // ⚠ `queuePresence` runs for EVERY toot, outside the HELLO branch on purpose. A V4 that never
+  // sends a digest must still appear in the table — as a peer whose capabilities are
+  // UNKNOWN, which is a different report from a peer that has none.
+  if (t.src_node_id) gSocial.queuePresence(t.src_node_id);
+  {
+    const size_t off = timestream::ANCHOR_LEN + tracefield::DIGEST_LEN;
+    if (t.type == toot::HELLO && t.payload_len >= off + social::DIGEST_HDR)
+      gSocial.queueDigest(t.src_node_id, t.payload + off,
+                          (size_t)t.payload_len - off);
+  }
 
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
@@ -3676,6 +3716,30 @@ void setup() {
   // optional, a shared timeline is not.
   gTs.begin(kNodeId, &gDb, millis());
 
+  // The default network starts with DECLARATIONS ONLY, then promotes what the boot
+  // sequence has actually proven. ⚠ `gCodecOk` and `gImuOk` are exactly the right gates
+  // and exactly the right level: the codec answering promotes the mic and speaker to
+  // VERIFIED, never to exercised — an ES8311 whose volume register silently failed to take
+  // "looks exactly like a speaker that is just small", and a table that reported that as
+  // working would be repeating the mistake in a new place.
+  gSocial.begin(kNodeId, CARD_CAPS);
+  gSocial.table().verify((uint16_t)(social::CAP_BATTERY | social::CAP_TEMP |
+                                    social::CAP_CONDUCT));
+  // ⚠ CAP_STORE is conditional. The mount failure above prints FATAL and CONTINUES, so an
+  // unconditional verify here would report a filesystem on a node running without one —
+  // and on THIS node the store is load-bearing: four percept tiers append to it.
+  if (gDb.recordCount() > 0) gSocial.table().verify(social::CAP_STORE);
+  // ⚠ CAP_WALL is NOT verified here, deliberately: refreshWall() in loop() is its only
+  // writer, and marking it at boot would assert a date this node does not have yet.
+#if USE_CARD_HW
+  gSocial.table().verify((uint16_t)(social::CAP_DISPLAY | social::CAP_KEYS));
+  if (gCodecOk) gSocial.table().verify((uint16_t)(social::CAP_MIC | social::CAP_SPEAKER));
+  if (gImuOk)   gSocial.table().verify(social::CAP_IMU);
+#endif
+#if USE_BLE
+  gSocial.table().verify(social::CAP_BLE);
+#endif
+
 #if USE_BLE
   blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
   Serial.println("BLE near-range tier up (advert + passive scan)");
@@ -3707,6 +3771,11 @@ void setup() {
                 (unsigned)TRACEFIELD_VOICE_FLOOR, (unsigned)tracefield::DIGEST_LEN,
                 (unsigned)gFieldSens);
 
+  // The default network says what it is, at boot, in one line — the same reason the
+  // trace field prints `[field] armed:`. A capability table that only ever appears on a
+  // keypress cannot be checked from a serial log, and this fleet's verification is
+  // serial logs.
+  gSocial.printTable(millis());
   // Take the body's first reading here, AFTER WiFi/BLE/ESP-NOW are up: `maxalloc` before
   // the radios is a number that never comes back, and the first STATUS reply can be
   // asked for immediately. This is also the line that prints the raw ADC millivolts for
@@ -3730,6 +3799,14 @@ void loop() {
   // usually a no-op — a digest arrives every 2 s per peer and says nothing new almost
   // every time, so the merge is silent unless it actually raised a cell.
   gField.service(now);
+  gSocial.service(now);   // same rule, same reason: the callback only copied bytes
+
+  // ⚠ refreshWall() is the ONE writer of CAP_WALL and it takes the time stream's answer
+  // rather than forming a second opinion. "Can this node tell you the date" is `wall:<0|1>`
+  // and has been fleet-wide since 2026-08-03, kept separate from `stream:` precisely
+  // because one bit used to conflate *we agree with each other* with *we know what day it
+  // is*. Storing it independently would re-create that conflation in a new place.
+  gSocial.table().refreshWall(gTs.wall());
 
   // Serve TTDB-share / commands arriving from the laptop over USB-CDC (direct pull,
   // negchecks). Trusted, un-deduped link.
@@ -3861,9 +3938,14 @@ void loop() {
       char rec[1024];
       size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                         gStamp, now);
-      if (m && gDb.appendRecord(rec, m))
+      if (m && gDb.appendRecord(rec, m)) {
+        // EXERCISED: a percept reached a lane. That is the whole definition, and it is
+        // deliberately the appendRecord — not the scan, not the buildRecord — because a
+        // window that was built and then dropped taught the fleet nothing.
+        gSocial.table().exercise(social::CAP_WIFI_SCAN);
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+      }
     }
   }
 #endif
@@ -3899,9 +3981,15 @@ void loop() {
       char rec[MOTIONPERCEPT_RECORD_BUF];
       size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                         gStamp, now);
-      if (m && gDb.appendRecord(rec, m))
+      if (m && gDb.appendRecord(rec, m)) {
+        // ⚠ This is the fleet's ONLY stillness witness reporting for duty. Rule 1 arms
+        // solely off a `still` @LAT95 window, so until this line runs once, no node in the
+        // fleet can author a belief at all — which is why the capability is worth stating
+        // as exercised rather than assumed from an IMU that merely answered on I2C.
+        gSocial.table().exercise(social::CAP_IMU);
         Serial.printf("[motion] percept window -> @LAT95LON%d covers:%d (TTDB %uB)\n",
                       lane, gMotionLog.runOffset() + 1, (unsigned)gDb.fileSize());
+      }
 
       // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
       // window asserts the node was anchored for 60 s; that assertion is what makes
@@ -3969,9 +4057,14 @@ void loop() {
       char rec[400];
       size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                           gStamp, now, I2S_RATE);
-      if (m && gDb.appendRecord(rec, m))
+      if (m && gDb.appendRecord(rec, m)) {
+        // The fleet's only ear, on the record. ⚠ `quorum(CAP_MIC) == 1` is not a
+        // deficiency report — it is the reason multi-node TDoA is unexercised, stated by
+        // the fleet about itself rather than living only in a comment.
+        gSocial.table().exercise(social::CAP_MIC);
         Serial.printf("[acoustic] percept window -> @LAT94LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+      }
     }
   }
 #endif
@@ -4090,6 +4183,12 @@ void loop() {
       // '5' is the trace field. Like '3' and '4' it works from either stack, because
       // the field is not a place on a globe and has no globe to be reached from.
       case '5': setFaceView(FACE_FIELD); break;
+      // `w` — who is here and what can they do. Serial only for now, and deliberately so:
+      // this is stage 1, and its whole job is to be observable enough to decide whether
+      // the staleness machinery is needed at all. A screen view is stage 5's business.
+      // ⚠ Same key as the T-Deck's, because the fleet's two handhelds disagreeing about
+      // which key answers "who is here" would be its own small joke.
+      case 'w': gSocial.printTable(millis()); break;
       case '+': case '=':
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -4288,7 +4387,8 @@ void loop() {
   static uint32_t lastBeacon = 0;
   if (now - lastBeacon >= 2000) {
     lastBeacon = now;
-    uint8_t body[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN];
+    uint8_t body[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN +
+                 social::DIGEST_LEN_MAX];
     size_t bn = gTs.helloPayload(body, sizeof(body), millis());
     // The field goes out DECAYED TO NOW, appended after the anchor. Decaying at the sender
     // is what makes the digest clock-free: it is a statement about this instant, true when
@@ -4298,6 +4398,12 @@ void loop() {
     // "after the anchor", so shipping it at offset 0 would put strengths where a receiver
     // reads stream ids.
     if (bn) bn += gField.helloAppend(body + bn, sizeof(body) - bn, millis());
+    // ⚠ Chained on the trace digest, not just on the anchor: the capability block's
+    // position is defined as "after the field", so appending it when the field was skipped
+    // would put capability masks where a receiver reads strengths. 21 + 18 + up to 22 = 61
+    // of the 250-byte HELLO.
+    if (bn > timestream::ANCHOR_LEN)
+      bn += gSocial.helloAppend(body + bn, sizeof(body) - bn, millis());
     emit(toot::HELLO, bn ? body : nullptr, bn, sendEspNow, nullptr);
   }
 

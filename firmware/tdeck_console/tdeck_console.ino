@@ -36,6 +36,31 @@
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
+#include <SocialNode.h>      // the default network: who is here and what can they do
+
+// --- the default network, stage 1 (default-network.md §6) -----------------------------
+// What this node CLAIMS. ⚠ A declaration is a claim, not a fact — `verify` and `exercise`
+// below are what turn it into one, and the render keeps the three apart.
+//
+// LORA is declared and will never be verified while `USE_LORA` is gated: the SX1262 is on
+// the board and unreachable from the firmware. That is the honest report — "the hardware is
+// there and this build cannot reach it" — and it is exactly what the three-level status
+// exists to say. Do not drop the bit to make the table look tidy.
+//
+// ⚠ NO CAP_MIC. This node cannot hear, which is why its trace-field deposits come from the
+// `f` key. ⚠ NO CAP_IMU either: it cannot witness its own stillness, so nothing here can
+// author an @LAT91 belief (that is structurally the Cardputer's job).
+//
+// CAP_GPS IS THIS NODE'S SINGULAR CONTRIBUTION and the reason the capability table is a
+// positioning instrument rather than an inventory: everything the fleet infers from mutual
+// observation is invariant under moving the whole fleet, so the four pose degrees of
+// freedom fall only to an absolute fix. This is the only node that can take one.
+static const uint16_t TDECK_CAPS =
+    (uint16_t)(social::CAP_SPEAKER | social::CAP_GPS | social::CAP_WIFI_SCAN |
+               social::CAP_BLE | social::CAP_LORA | social::CAP_DISPLAY |
+               social::CAP_KEYS | social::CAP_STORE | social::CAP_BATTERY |
+               social::CAP_TEMP | social::CAP_WALL | social::CAP_CONDUCT);
+static SocialNode gSocial;
 
 // --- the trace field (TTDB-RFC-0010 §5, stigmergy.md §4.E) ----------------------------
 // 16 cells on the pulse's 16-step grid, shared with the Cardputer over HELLO and merged by
@@ -1152,6 +1177,26 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       t.payload_len >= timestream::ANCHOR_LEN + tracefield::DIGEST_LEN)
     gField.queueDigest(t.payload + timestream::ANCHOR_LEN,
                        (size_t)t.payload_len - timestream::ANCHOR_LEN);
+
+  // The capability digest rides in the SAME HELLO, after the anchor AND the trace digest.
+  // Third block, same additive contract: a node on older firmware appends nothing, the
+  // length check declines, and it is a NON-PARTICIPANT rather than a mis-parse. That
+  // matters more here than for the field — the three V4s send no digest at all, and
+  // reading somebody else's bytes as capability masks would report peripherals that do
+  // not exist.
+  //
+  // ⚠ `queuePresence` is called for EVERY toot and is deliberately outside the HELLO branch: a
+  // V4 that never speaks this protocol must still appear in the table, as a peer whose
+  // capabilities are UNKNOWN. A table that showed it as capability-less would report the
+  // fleet's LoRa spine as having no radio.
+  if (t.src_node_id) gSocial.queuePresence(t.src_node_id);
+  {
+    const size_t off = timestream::ANCHOR_LEN + tracefield::DIGEST_LEN;
+    if (t.type == toot::HELLO && t.payload_len >= off + social::DIGEST_HDR)
+      gSocial.queueDigest(t.src_node_id, t.payload + off,
+                          (size_t)t.payload_len - off);
+  }
+
   if (accepted && (t.flags & toot::FLAG_WANT_ACK))
     emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
 }
@@ -2136,6 +2181,30 @@ void setup() {
   // shared timeline is not.
   gTs.begin(kNodeId, &gDb, millis());
 
+  // The default network starts with DECLARATIONS ONLY. Everything below that succeeded is
+  // then promoted to `verified` from the boot state that already knows — the display came
+  // up, the filesystem mounted, the keyboard answered. Nothing is exercised yet, and that
+  // is not pedantry: on this fleet a declared-and-present speaker was silenced by a pin
+  // conflict for a week, and the table's job is to be able to say so.
+  gSocial.begin(kNodeId, TDECK_CAPS);
+  gSocial.table().verify((uint16_t)(social::CAP_BATTERY | social::CAP_TEMP |
+                                    social::CAP_CONDUCT));
+  // ⚠ CAP_STORE is conditional. The mount failure above prints FATAL and CONTINUES, so an
+  // unconditional verify here would report a filesystem on a node running without one.
+  if (gDb.recordCount() > 0) gSocial.table().verify(social::CAP_STORE);
+  // ⚠ CAP_WALL is NOT verified here, deliberately: refreshWall() in loop() is its only
+  // writer, and marking it at boot would assert a date this node does not have yet.
+#if USE_TDECK_HW
+  gSocial.table().verify((uint16_t)(social::CAP_DISPLAY | social::CAP_KEYS |
+                                    social::CAP_SPEAKER));
+#endif
+#if USE_BLE
+  gSocial.table().verify(social::CAP_BLE);
+#endif
+  // ⚠ CAP_LORA is deliberately NOT verified: USE_LORA is gated, so the SX1262 is on the
+  // board and unreachable. "Declared, never verified" is the true statement and the whole
+  // reason the status has three levels.
+
 #if USE_GPS
   gpsProbeBaud();   // ~1 s: lock the NMEA baud (SP2 roaming anchor). No fix needed here.
   Serial.printf("GPS UART1 (rx %d tx %d) @ %lu baud\n", PIN_GPS_RX, PIN_GPS_TX,
@@ -2150,6 +2219,11 @@ void setup() {
   Serial.println("BLE near-range tier up (advert + passive scan)");
 #endif
 
+  // The default network says what it is, at boot, in one line — the same reason the
+  // trace field prints `[field] armed:`. A capability table that only ever appears on a
+  // keypress cannot be checked from a serial log, and this fleet's verification is
+  // serial logs.
+  gSocial.printTable(millis());
   Serial.printf("T-Deck console 0x%08X online (hw %s, LoRa %s, GPS %s)\n", kNodeId,
                 USE_TDECK_HW ? "on" : "off", USE_LORA ? "on" : "off",
                 USE_GPS ? "on" : "off");
@@ -2169,6 +2243,25 @@ void loop() {
   // that moved between them.
   gTs.service(millis());
   gField.service(millis());   // merge queued peer digests: callback copies, loop() mutates
+  gSocial.service(millis());  // same rule, same reason: the callback only copied bytes
+
+  // Promote our own capabilities from what has actually happened. Idempotent and
+  // change-only — the epoch moves solely on a real change, because an epoch that ticked
+  // every pass would make every peer permanently "stale" and drown the falsifier's
+  // instrument in its own noise.
+  //
+  // ⚠ refreshWall() is the ONE writer of CAP_WALL, and it takes the time stream's answer
+  // rather than forming a second opinion. "Can this node tell you the date" is `wall:<0|1>`
+  // and has been since 2026-08-03, kept separate from `stream:` precisely because one bit
+  // used to conflate *we agree with each other* with *we know what day it is*.
+  gSocial.table().refreshWall(gTs.wall());
+#if USE_GPS
+  // ⚠ EXERCISED means a fix has actually landed, not that a module answered. A declared,
+  // wired, chattering GPS that has never seen the sky pins no degree of freedom, and
+  // poseCeiling() counts exercised for exactly that reason.
+  if (gGpsBaud) gSocial.table().verify(social::CAP_GPS);
+  if (gGpsFixMs) gSocial.table().exercise(social::CAP_GPS);
+#endif
   // Time this pass. The toot link is serviced once per loop pass, so the SLOWEST pass is
   // what the mesh feels as rtt — which makes `lp` on the interoception pane this node's own
   // sense of having gone sluggish, rather than something only the laptop can tell it.
@@ -2322,6 +2415,10 @@ void loop() {
                       gFieldStep, gField.field().energy(millis()));
         break;
       }
+      // `w` — who is here and what can they do. The default network's whole stage-1
+      // surface: the fleet table, the three-level status per capability, and the one line
+      // that says how much of its own shape the fleet can currently know.
+      case 'w': gSocial.printTable(millis()); break;
       case '+': case '=':                        // zoom in (closer)
         if (gZoomIdx < kZoomMax) { gZoomIdx++; gZoom = kZoomLevels[gZoomIdx]; }
         gGlobeDirty = true; gScreenDirty = true;
@@ -2562,11 +2659,17 @@ void loop() {
   static uint32_t lastBeacon = 0;
   if (millis() - lastBeacon >= 2000) {
     lastBeacon = millis();
-    uint8_t hb[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN];
+    uint8_t hb[timestream::ANCHOR_LEN + tracefield::DIGEST_LEN + social::DIGEST_LEN_MAX];
     size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
     // Decayed at the sender, so the digest is clock-free: a statement about this instant
     // that a receiver can use without any part of our time base.
     if (hn) hn += gField.helloAppend(hb + hn, sizeof(hb) - hn, millis());
+    // ⚠ Chained on the trace digest, not just on the anchor: the capability block's
+    // position is defined as "after the field", so appending it when the field was skipped
+    // would put capability masks where a receiver reads strengths. 21 + 18 + up to 22 = 61
+    // of the 250-byte HELLO.
+    if (hn > timestream::ANCHOR_LEN)
+      hn += gSocial.helloAppend(hb + hn, sizeof(hb) - hn, millis());
     emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
   }
 #if USE_TDECK_HW

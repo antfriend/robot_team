@@ -4450,6 +4450,216 @@ If a fact lives in one of these, link to it from here — don't copy it.
   already follow. The header now also shows `gen`, since an empty field looks the same
   whether it was cleared or never used.
 
+- 🧭 **2026-08-09 — THE DEFAULT NETWORK, STAGE 1: `firmware/libraries/Social`. BUILT AND
+  NATIVELY TESTED ON BOTH HANDHELDS; NOT YET FLASHED.** `default-network.md` is the
+  exploratory half (the same pairing `stigmergy.md` has with TTDB-RFC-0010). Nodes now
+  advertise **what they can do** as a third HELLO block after the anchor and the trace
+  digest — **21 + 18 + up to 22 = 61 of 250 bytes** — and each holds a table of the fleet.
+  Cost, measured against a HEAD worktree: **T-Deck +3220 B flash (+0.10 %), +520 B RAM;
+  Cardputer +3300 B (+0.10 %), +520 B.** Both read one percentage point higher (40→41,
+  41→42) *purely from rounding*. Native suite **89 checks, 0 failures**. `w` prints the
+  table on either handheld.
+  🔬 **THE REFRAME THAT MADE THIS WORTH BUILDING: capabilities are a POSITIONING
+  instrument, not an inventory.** Everything inferable from common information is
+  relational, so it is invariant under moving the whole fleet — common information yields
+  the fleet's **shape** and never its **pose**, and in 2D that leaves **four degrees of
+  freedom** (translation 2, rotation 1, reflection 1) that no amount of mutual observation
+  can touch. They fall only to a node holding a capability nobody else has, which on this
+  fleet means the T-Deck's GPS. So the table is *the list of who can collapse which
+  ambiguity*, and `poseCeiling()` is the fleet stating how much of its own shape it can
+  currently know. ⚠ It is a ceiling **for the instant and a floor for a roamer** — one
+  roaming GPS visiting ≥3 places gets there over time (`anchor`'s ≥3-ties rule) and a
+  capability table cannot see that. The render must not collapse the two.
+  ⚠ **THREE STATUSES, BECAUSE A SELF-DECLARED CAPABILITY IS A CLAIM.** `declared` (the
+  build says so) → `verified` (it answered at boot) → `exercised` (it produced a percept
+  that reached a lane), clamped so a tier cannot exercise what the board never declared.
+  This fleet has been wrong at each of the first two steps: the BMI270 at `0x69` not
+  `0x68`; `TFT_BL 45` silencing a speaker that was declared **and** present; the T-Deck's
+  4.71 V battery constant nobody metered. `exercise()` is called at the **`appendRecord`**,
+  not the scan — a window that was built and dropped taught the fleet nothing.
+  ⚠ **UNKNOWN IS NOT ABSENT, and on this fleet that distinction is load-bearing right
+  now:** the three V4s are at 94 % flash, need `huge_app` before they can carry any of
+  this, and send no digest at all. They appear as peers whose capabilities are **UNKNOWN**.
+  A table that printed them as capability-less would report the fleet's LoRa spine as
+  having no radio. `sawNode()` therefore runs for **every** toot, outside the HELLO branch.
+  ⚠ **`CAP_WALL` IS DERIVED, NEVER STORED.** "Can this node tell you the date" is
+  `wall:<0|1>` and has been fleet-wide since 2026-08-03. `refreshWall()` is the single
+  writer and takes `gTs.wall()`; a second opinion would re-create the exact conflation
+  (*we agree with each other* vs *we know what day it is*) that `stream:`/`wall:` cost a
+  release to remove. It is also the one capability that can be **lost** while the hardware
+  is fine, and the code says so.
+  🔬 **THE FALSIFIER IS HALF-ANSWERED ALREADY, BY ARGUMENT.** §2.1 models capability
+  *disagreement* rather than "have I told X" (you cannot know a broadcast was received, and
+  on this fleet an absent ACK proves nothing). But writing it exposed why it should never
+  fire: **a node's whole capability vector is in its every beacon, so at one radio hop a
+  peer's view cannot lag.** `staleReports()` was therefore built as a **counter only** — an
+  instrument whose expected reading is **zero**, and zero is the finding that licenses
+  deleting the machinery rather than keeping it "just in case". ⚠ Building a *response* to
+  it would have been the mistake: a rate-control loop that cannot matter looks like a
+  working mechanism forever. Three places it could still fire, all now watchable: multi-hop
+  peers, a digest whose peer list has rotated past the node in question (5 nodes, 4 slots —
+  live today), and a LoRa budget too small to carry the vector every beacon.
+  📎 **The peer id on the wire is 2 bytes and that is not slack.** Every `RobotTeamNodeId`
+  is ≤ `0x300` so the low 16 bits are unique, but **every 1-byte squeeze collides on this
+  fleet** (`0x001`/`0x011` under a nibble fold, `0x100`/`0x200` under a byte truncation),
+  and a collision merges two robots into one table row that each overwrites every 2 s.
+  `test_social.cpp` pins the uniqueness invariant against the id list, so a colliding id
+  fails the build.
+  📋 **Next is NOT stage 4.** Stage 2 (capability claims through PerceptLearn Rule 1/2 —
+  "I have a mic" is a falsifiable prediction against `@LAT94`, so it needs no new
+  epistemics) and stage 3 (`@LAT102` attributed testimony, bounded by *cardinality* not
+  time so it never needs a prune). **Stage 4 is the first FIELD lane and stays blocked on
+  TTDB-RFC-0010 §4's `sid` naming decision, which is corpus-wide and unpriced.**
+
+- 🐛 **2026-08-09 — `tests/Makefile` WAS SILENTLY NOT BUILDING THREE OF ITS TWELVE
+  BINARIES, and the suite's own "12/12" was true of code nobody had compiled.**
+  `TSTREAM_SRCS`, `LG_SRCS` and `TF_SRCS` were **referenced and never defined**, so make
+  expanded them to nothing and invoked the compiler with no input files; because the recipe
+  leaves the previous session's `.exe` in place, `make test` then ran the **stale**
+  binaries and passed. This is the same defect the file's own `PL_SRCS` comment describes,
+  in three more places — and fixing it immediately exposed a **second, stacked** one:
+  `LG_SRCS` also needed `$(TS)`, exactly as the file's top comment warns every percept tier
+  does, so `test_lanegen` had never linked either. Both fixed; `test_lanegen` genuinely
+  passes now. ⚠ **The general lesson is about the recipe, not the variables:** a build step
+  that leaves the old artefact in place converts a build failure into a false pass. Any
+  claim of "the suite is green" made before today should be re-checked against which
+  binaries actually got built.
+
+- 🔑 **2026-08-09 — THE `sid` NAMING DECISION IS ANSWERED, BY MEASUREMENT, AND THE RFC'S
+  OWN PROPOSAL WAS WRONG.** This was the corpus-wide gate on FIELD lanes (stigmergy.md §3,
+  §4.B) and on the default network's stage 4. `TTDB-RFC-0010` goes **0.1 → 0.2**; §4 is
+  rewritten; `firmware/libraries/TTDB/src/Sid.{h,cpp}` + `tests/test_sid.cpp` (**47 checks**)
+  + `scripts/sid_probe.py` are the reference implementation and the measurement. ⚠ **NO
+  LANE WRITES A `sid` YET** — that is stage 2, deliberately separate, and every existing
+  file is untouched. This stage is abandonable by deleting two files.
+  📊 **The measurement (`scripts/sid_probe.py`, all 78 archived TTDBs in `master/`, 6683
+  records in lanes ≥90).** RFC-0010 §9's proposed input `(node_id, lane, stream, t_ms)`
+  produced **538 INPUT collisions — 8.1 %**. Those are *two different records with the same
+  name*, which no hash width fixes. Adding a digest of the record **body** takes it to
+  **2 (0.03 %)**, and both survivors are byte-identical bodies on `synced:0` — i.e. real
+  duplicates, not hash failures. Hash quality was never the problem: **0 true 32-bit
+  collisions in 6672 distinct ids**, plus 9 cases of the same record in two archived pulls
+  getting the **same** sid, which is the stability the whole scheme is for.
+  🔬 **The finding that reshaped the design: identity has TWO KINDS, and the axis is
+  orthogonal to EVIDENCE/FIELD/PROVENANCE.**
+  **EVENT** (an observation; body and time are IN) vs **KEY** (a standing row, revised or
+  reinforced; body and time are OUT, because both change while the id must not —
+  TTDB-RFC-0004 §4). The data said so unmistakably: `@LAT91` collided at **83.2 %** and
+  `@LAT100` at **42.7 %**, and a further **62 archived records carry no `t_ms` at all** (28
+  `LINK-STABLE`, 25 `BELIEF-ADOPTED`, 9 `BELIEF-PUSH`) — for those lanes KEY identity is not
+  a preference, there is no timestamp to hash. ⚠ Getting it backwards breaks a *different*
+  thing each way: body-in on a KEY lane re-names a belief on every Rule 3 fold (every
+  citation dangles); body-out on an EVENT lane is the 8.1 %. **Every FIELD lane is
+  necessarily KEY** — a trace renamed by its own reinforcement is a new trace.
+  ⚠ **`@LAT94/95/96/97/92`'s collisions are ALL on `synced:0` / `stream:0x00000000`**, where
+  `t_ms` is bare local `millis()` that restarts at boot. The value documented as "comparable
+  with nothing but that node's own records" turns out **not to be comparable with itself
+  across a reboot** either. EVENT identity on a stream-less node is therefore only
+  "unique within a boot", and that is written down rather than glossed.
+  ⚠ **v0.1's "perturb the discriminator and retry" is WITHDRAWN as self-defeating.** The
+  whole value of a stable id is that *a reader holding only the file can recompute and check
+  it*; a perturbed sid is not recomputable, so a reader could no longer tell "perturbed on
+  write" from "the lane was pruned under this citation" — destroying the property being
+  bought. At 2.6e-7 per lane, **refuse-and-count** is affordable. EVENT duplicates
+  duplicate-suppress; a KEY collision is a lane-design error and must be loud.
+  📎 **Uniqueness is scoped, not widened: a sid is unique within `(node_id, lane)`.**
+  Birthday risk at 32 bits is 2.6e-7 at a lane's cap, 7.6e-6 at a node's file budget,
+  5.2e-3 over the present archive — and **0.69 at 100k records**. `master/` grows without
+  bound, so any cross-node index MUST key on `(node_id, lane, sid)`.
+  📎 **Adoption is one literal per builder.** Builders render header-then-body into one
+  buffer, so a body digest cannot be known when the header is written — the fix is not to
+  restructure eleven builders but to render `sid:00000000` and let `sid::stampEvent()` patch
+  the eight hex characters in place. ⚠ The patch is bounded to the **header line**: a body
+  may legitimately contain `sid:` (a boundary quoting a pruned id), and patching that would
+  corrupt provenance while looking like it worked — the **fourth** member of the
+  `prev_stream:` / `**COVERED-SPAN**` needle-collision family, and the native test caught a
+  real instance of the same shape in my own `bodyOffset` (a body-only buffer read as all
+  header).
+  🧪 **Cross-language vectors are pinned on BOTH sides** — the same eight values in
+  `test_sid.cpp` and `scripts/sid_probe.py --vectors`, agreeing first try. A divergence
+  between a node's arithmetic and the laptop's would be silent and total: every citation
+  would resolve `stale` against a perfectly good record.
+  📋 **Next:** stage 1 = both readers (`companion.py`, `TtdbParse.cpp`) accept `#sid` and
+  ignore it when absent, with a bare `type@LATxLONy` staying valid forever (same rule as
+  `synced:` beside `stream:`). Stage 2 = **pick `@LAT91` first, not a percept lane** — 11
+  records against no cap, so a mistake costs nothing, whereas the percept lanes are what a
+  measurement run depends on. New open question logged in §9: **`@LAT98`'s natural key is
+  the least certain row in the register** and should be decided against a real
+  re-attestation, not by inspection.
+
+- ✅ **2026-08-09 — DEFAULT NETWORK STAGE 1 IS VERIFIED ON HARDWARE (Cardputer half).**
+  Flashed to the Cardputer on COM14 (firmware only — **not** `Upload-Cardputer-FS.ps1`, so
+  its 101 KB / 256-record TTDB and three globes survived; it reloaded them). 42 % flash.
+  Boards identified by the documented `flash-id` discriminator, never inferred: **COM14 =
+  Cardputer** (8 MB embedded GD, no PSRAM), **COM6 = V4-A** (16 MB + 2 MB PSRAM).
+  ```
+  [social] fleet table  self 0x300 ep 6  peers 0 (0 silent)  stale-reports 0
+  [social]   0x300  mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
+  [social]   pose: shape only  (gps exercised 0 of 0 declared)  stillness-witnesses 0  ears 0
+  [social] 0x010 present, no digest: capabilities UNKNOWN (not absent)
+  [motion] percept window -> @LAT95LON39 covers:1 (TTDB 101559B)
+  [social] self ep 7: mic:v spk:v imu:X wifi:d ...
+  ```
+  ✅ **Both properties that matter, confirmed against real hardware rather than a test
+  double.** (1) V4-A, powered and running pre-stage-1 firmware, reports as **UNKNOWN, not
+  absent** — the case a synthetic test can only assert. (2) At 60.5 s the motion tier's
+  `appendRecord` promoted `imu` **v → X**: the fleet's only stillness witness earning its
+  capability by producing a percept that reached a lane, not by answering on I2C. `mic`
+  correctly stays `v` (no @LAT94 window yet) and `wifi` stays `d` (its window is 600 s).
+  ⚠ **NOT verified: the peer-to-peer half.** No node has yet *parsed* a capability digest —
+  that needs the T-Deck flashed, and it is the half that exercises `ingest`, the offset
+  arithmetic and the epoch report. Until then the receive path has native tests only.
+  🐛 **THE HARDWARE STEP FOUND A REAL DEFECT THE NATIVE TESTS COULD NOT.** The first cut
+  called `Table::sawNode` **directly from the ESP-NOW recv callback**, on the reasoning that
+  it "only stamps a slot". It does not: `sawNode` reaches `slot()`, which on a full table
+  **evicts the longest-unheard peer and rewrites that entry** — so a callback firing while
+  `service()` was mid-`ingest` could land one peer's capabilities on another peer's row.
+  This is precisely the rule `TimeStreamNode` exists to enforce, violated in a new library
+  the same day it was written. Now queued as a zero-length ring entry and applied from
+  `service()`. ⚠ **A native test cannot express "two contexts touch this at once"** — the
+  fault was found by asking what the hardware would print, which is an argument for doing
+  the hardware step before the merge and not after.
+  📎 Two smaller fixes from the same session: a **boot capability line** (the table was
+  invisible without a keypress, and this fleet's verification is serial logs — the same
+  argument as `[field] armed:`), and **ASCII-only in `Serial.printf`** (a UTF-8 em-dash
+  arrived on the CDC console as a replacement character).
+
+- ✅ **2026-08-09 — AND THE PEER-TO-PEER HALF, ON HARDWARE: STAGE 1 IS FULLY VERIFIED.**
+  T-Deck flashed on **COM10** (16 MB + **8 MB** PSRAM — three-way distinct from V4-A's 2 MB
+  and the Cardputer's 8 MB-flash/no-PSRAM, so `flash-id` identified all three by
+  measurement). 41 % flash. Firmware only; its three globes reloaded intact. ⚠ esptool
+  entered the bootloader **unaided** again — second clean automatic flash, so the BOOT/RST
+  dance stays the fallback, not the default.
+  ```
+  [social]   0x200  spk:v gps:d wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+  [social]   pose: shape only  (gps exercised 0 of 1 declared)
+  [social] self ep 5: ... gps:v ...            <- gpsProbeBaud found the module: d -> v
+  [social] 0x300 present, no digest: capabilities UNKNOWN (not absent)
+  [social] 0x300 joined: mic:v spk:v imu:X wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
+  ```
+  ✅ **The T-Deck parsed the Cardputer's capability digest over the air** — `ingest`, the
+  offset arithmetic past the anchor and trace digest, and the epoch report, all exercised on
+  real hardware. Note **`imu:X` crossed the mesh intact**: the exercised bit the Cardputer
+  earned at its own `appendRecord` is now knowledge the T-Deck holds, so the fleet knows
+  where its stillness witness is without anyone having asked.
+  ✅ **Three-level status telling the truth in the two places it is hardest.** `lora:d` —
+  declared, never verified, because the SX1262 is on the board and unreachable while
+  `USE_LORA` is gated; that is the honest report and the reason the status has three levels.
+  `gps 0 exercised of 1 declared` → `gps:v` once the module answered at 38400, and no
+  further, because it has no fix: **a declared, wired, chattering GPS pins no pose degree of
+  freedom**, which is exactly why `poseCeiling()` counts exercised.
+  🔬 **FALSIFIER, FIRST DATA POINT: `stale-reports` HELD AT 0 over ~50 beacons each way
+  (100 s), and no `[social]` line printed at all in steady state.** This is the predicted
+  result, argued before it was run: a node's whole capability vector is in its every beacon,
+  so at one radio hop a peer's view cannot lag. ⚠ **One quiet run is not the verdict** —
+  the three conditions that would break the assumption (a multi-hop peer, a rotated peer
+  list, a LoRa budget too small to carry the vector) are all absent from this bench. Keep
+  the counter; delete the machinery only after it has stayed 0 somewhere it could have
+  fired. The zero-log steady state also confirms the change-only discipline works.
+  ⚠ **Still unexercised:** `mic:X` (needs an @LAT94 window), `wifi:X` (600 s window), and
+  every V4 (94 % flash, needs `huge_app` before it can carry this) — so the fleet table is
+  **incomplete by construction** and says so, which was the design.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
