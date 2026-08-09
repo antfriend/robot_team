@@ -42,8 +42,15 @@ MP_SRCS := test_motionpercept.cpp \
 # testimony, and Rule 3's fold into an @LAT91 belief. This variable was MISSING — the
 # recipe below referenced an undefined $(PL_SRCS), so `make` invoked the compiler with
 # no input files and test_perceptlearn could never have been built by it.
+# ⚠ Sid.cpp AND TtdbParse.cpp joined this list at RFC-0010 stage 2: @LAT91 is the first
+# lane to write a stable id, so the belief builder calls sid::stampKey and the test reads
+# it back with ttdbHeaderSid. Omitting either links NOTHING — the same trap as $(TS), and
+# the THIRD instance of this defect in one day. It was missed here because the test was
+# being built by hand with an explicit source list, which is precisely the habit that lets
+# a Makefile rot unnoticed: if you build by hand, check `make` too before committing.
 PL_SRCS := test_perceptlearn.cpp \
-        $(LIB)/PerceptLearn/src/PerceptLearn.cpp $(TS)
+        $(LIB)/PerceptLearn/src/PerceptLearn.cpp $(TS) \
+        $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
 # TTDB-RFC-0003 v1.1 §7.1: symmetric types are written in BOTH directions by the
 # author, never inferred by a parser — so a one-directional `opposes` is a defect a
 # validator must report. Runs against the globes the handhelds actually carry.
@@ -75,6 +82,13 @@ SOC_SRCS := test_social.cpp \
 # record), so it is pinned on both sides.
 SID_SRCS := test_sid.cpp \
         $(LIB)/TTDB/src/Sid.cpp
+# RFC-0010 §7.2 stage 1: readers accept `#sid`. The laptop half is test_citation_py.py and
+# the two MUST agree — a citation is resolved on whichever side is holding the file.
+# ⚠ This variable was the FOURTH undefined-variable defect in this file in one day, added
+# by the same session that fixed the first three. `check_makefile.py` now makes that
+# impossible to miss; run it before committing a Makefile change.
+CIT_SRCS := test_citation.cpp \
+        $(LIB)/TTDB/src/TtdbParse.cpp
 
 test: build
 	./test_toot
@@ -121,6 +135,7 @@ clean:
 	      test_timestream test_timestream.exe test_lanegen test_lanegen.exe \
 	      test_tracefield test_tracefield.exe \
 	      test_social test_social.exe \
-	      test_sid test_sid.exe \n	      test_citation test_citation.exe
+	      test_sid test_sid.exe \
+	      test_citation test_citation.exe
 
 .PHONY: test build clean
