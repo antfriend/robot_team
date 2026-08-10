@@ -2353,12 +2353,24 @@ void loop() {
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
       gEntityLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
-      char rec[1024];
+      // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
+      // record can carry a **CORE** list and the run's **COVERED** union (worst
+      // case 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the
+      // old 1024 nor the loop task's stack, and buildRecord writes NOTHING rather
+      // than truncating -- so an undersized buffer here loses windows silently.
+      static char rec[ENTITYPERCEPT_RECORD_BUF];
       size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                       gStamp, millis());
       if (m && gDb.appendRecord(rec, m))
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+      else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED)
+        // SAY THIS OUT LOUD. Under run-length "wrote nothing" is the NORMAL case
+        // for a node in a stable environment, and a lane that silently does nothing
+        // is this corpus's least favourite failure mode. The run length and core
+        // size are how an operator tells a working fold from a dead tier.
+        Serial.printf("[entity] window covered (run %d, core %d)\n",
+                      gEntityLog.runLength(), gEntityLog.coreCount());
     }
   }
 #endif

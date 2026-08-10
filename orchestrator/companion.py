@@ -2470,6 +2470,26 @@ ENTWIN_WINDOW_RE = re.compile(r"\*\*ENTWIN\*\*.*?\swindow_ms:(\d+)")
 ENTITY_RE = re.compile(
     r"\*\*ENTITY\*\*\s+kind:(\w+)\s+id:([0-9a-fA-F]{12})\s+n:(\d+)\s+rssi:(-?\d+)")
 
+# Part 2 (2026-08-10): @LAT96 became change-triggered with run-length, so a record can
+# also carry the UNION of the windows it suppressed. That union is not decoration — the
+# lane's consumer below (`_entity_set` -> the Jaccard proximity bound) computes a union,
+# and folding without carrying it would silently move a position estimate.
+#
+# ⚠ `**COVERED-ENTITY**` deliberately does NOT match ENTITY_RE: `.search()` needs the
+# literal `**ENTITY**`, and the covered line reads `...D-ENTITY**`. That is on purpose
+# and it is load-bearing in BOTH directions — a per-window set must never absorb the
+# run's union (it would over-report what the node saw in that window and corrupt drift),
+# and the union must never miss the covered entities (it would under-report co-visibility
+# and loosen every proximity bound). Fourth member of the prev_stream: needle family.
+COVERED_ENTITY_RE = re.compile(
+    r"\*\*COVERED-ENTITY\*\*\s+kind:(\w+)\s+id:([0-9a-fA-F]{12})\s+n:(\d+)"
+    r"\s+rssi:(-?\d+)\s+windows:(\d+)")
+ENTITY_RUN_RE = re.compile(
+    r"\*\*RUN\*\*\s+windows_since_last:(\d+)\s+reason:(\w+)")
+ENTITY_COVERED_RE = re.compile(
+    r"\*\*COVERED\*\*\s+windows:(\d+)\s+entities:(\d+)")
+ENTITY_CORE_RE = re.compile(r"\*\*CORE\*\*\s+entities:(\d+)(?:\s+ids:([0-9a-fA-F,]+))?")
+
 # WiFi co-visibility bound (spec §2.2): sharing APs caps distance to ~30–100 m.
 # Higher Jaccard -> tighter bound. Coarse heuristic, recalibratable per site.
 ENTITY_BOUND_TIGHT_M = 30.0    # near-total AP overlap
@@ -2478,15 +2498,27 @@ ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
 
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
-    {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}]}.
-    `id` is the 12-hex BSSID string (lowercased)."""
+    {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}],
+     covered_entities: [...+windows], run: {...} or None, core: {...} or None}.
+    `id` is the 12-hex BSSID string (lowercased).
+
+    ⚠ BOTH FORMATS ARE LIVE AND BOTH MUST PARSE, exactly as `synced:`/`stream:` are.
+    A pre-2026-08-10 record has no **RUN** line and is exactly one window, which is the
+    default here — a node's TTDB is appended to for its whole life, so plain and
+    run-carrying records sit on the same flash.
+
+    ⚠ `entities` is THIS window's set; `covered_entities` is the union of the windows
+    this record's run suppressed. Keep them apart: the union is what proximity reads,
+    the per-window set is what drift reads, and mixing them corrupts one or the other."""
     windows = []
     cur = None
     for line in text.splitlines():
         if line.startswith("@LAT96LON"):
             lane = int(re.match(r"@LAT96LON(\d+)", line).group(1))
             cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
-                   "synced": None, "window_ms": None, "entities": []}
+                   "synced": None, "window_ms": None, "entities": [],
+                   "covered_entities": [], "covered_windows": 0,
+                   "run": None, "core": None}
             windows.append(cur)
             continue
         if line.startswith("@"):     # any other record header ends the window
@@ -2502,6 +2534,29 @@ def parse_entity_percepts(text):
             if m:
                 cur["window_ms"] = int(m.group(1))
             continue
+        m = ENTITY_RUN_RE.search(line)
+        if m:
+            cur["run"] = {"windows_since_last": int(m.group(1)), "reason": m.group(2)}
+            continue
+        m = ENTITY_CORE_RE.search(line)
+        if m:
+            ids = [i.lower() for i in (m.group(2) or "").split(",") if i]
+            cur["core"] = {"entities": int(m.group(1)), "ids": ids}
+            continue
+        m = ENTITY_COVERED_RE.search(line)
+        if m:
+            cur["covered_windows"] = int(m.group(1))
+            continue
+        # ⚠ COVERED-ENTITY BEFORE ENTITY. Both `.search()` the line, and while the
+        # regexes do not collide today, ordering the specific needle first is what
+        # keeps that true if either is ever loosened.
+        m = COVERED_ENTITY_RE.search(line)
+        if m:
+            cur["covered_entities"].append({
+                "kind": m.group(1), "id": m.group(2).lower(),
+                "n": int(m.group(3)), "rssi": int(m.group(4)),
+                "windows": int(m.group(5))})
+            continue
         m = ENTITY_RE.search(line)
         if m:
             cur["entities"].append({
@@ -2510,12 +2565,27 @@ def parse_entity_percepts(text):
     return windows
 
 
+def entity_lane_is_folded(windows):
+    """True when any @LAT96 record carries a **RUN** line, i.e. the lane is
+    change-triggered and its records are no longer one-per-window."""
+    return any(w.get("run") for w in windows)
+
+
 def _entity_set(windows, last=None, since_ms=None, refs=None):
-    """Union of BSSIDs a node saw across its (recent) windows -> set of ids."""
+    """Union of BSSIDs a node saw across its (recent) windows -> set of ids.
+
+    ⚠ INCLUDES `covered_entities`, AND THAT IS THE WHOLE POINT OF THAT FIELD. Since
+    @LAT96 became change-triggered a record also speaks for the windows its run
+    suppressed, and this union is the consumer that made carrying them mandatory: an
+    AP seen only in a folded window is co-visibility evidence like any other, and
+    dropping it would loosen a proximity bound by exactly the amount the fold saved.
+    Pre-2026-08-10 records have no covered entities and this is a no-op for them."""
     windows, _ = apply_recency(windows, last, since_ms, refs)
     ids = set()
     for w in windows:
         for e in w["entities"]:
+            ids.add(e["id"])
+        for e in w.get("covered_entities", ()):
             ids.add(e["id"])
     return ids
 
@@ -2666,6 +2736,26 @@ def entity_drift(path, spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_
         text = f.read().decode("utf-8", errors="replace")
     ew = parse_entity_percepts(text)
     mr = parse_motion_percepts(text)
+
+    # ⚠ THE INSTRUMENT MUST NOT MEASURE A LANE THAT NO LONGER HOLDS ITS INPUT.
+    # This function's quantity is drift between CONSECUTIVE WINDOWS. On a
+    # change-triggered lane consecutive RECORDS are not consecutive windows — the
+    # suppressed ones are gone as sets (the COVERED block carries their union, which is
+    # deliberately not the same thing) — so the pairs it would form span whole runs.
+    #
+    # It would not silently lie: gate 4's 600+-120 s spacing check discards run-spanning
+    # pairs, so the run would fail for "not enough pairs" and refuse. But that failure
+    # names the wrong cause, and a wrong cause is how an operator re-runs a night that
+    # could never have worked. Say it plainly instead, and keep --force honest by
+    # refusing there too: no flag makes a dropped window come back.
+    if entity_lane_is_folded(ew):
+        print("%s\n" % path)
+        print("REFUSING: this @LAT96 lane is CHANGE-TRIGGERED (records carry **RUN**).")
+        print("Consecutive records are not consecutive windows here — the suppressed")
+        print("windows survive only as a union in **COVERED-ENTITY**, which is what the")
+        print("proximity bound reads, NOT the per-window sets this measurement needs.")
+        print("Measure drift on periodic firmware; there is no --force for this.")
+        return
     seg_note = None
     if segment:
         st, _, sw = longest_stream_segment(ew)
@@ -2791,9 +2881,21 @@ def entities(port, baud, node, save):
         print(f"wrote {len(data)} bytes to {save}")
     windows = parse_entity_percepts(data.decode("utf-8", errors="replace"))
     nobs = sum(e["n"] for w in windows for e in w["entities"])
+    nobs += sum(e["n"] for w in windows for e in w["covered_entities"])
     seen = _entity_set(windows)
-    print(f"{node}: {len(windows)} entity-percept window(s), {nobs} sighting(s), "
-          f"{len(seen)} distinct AP(s) (@LAT96 lane)")
+    folded = entity_lane_is_folded(windows)
+    # ⚠ len(windows) IS NO LONGER THE WINDOW COUNT on a change-triggered lane, and it is
+    # wrong in the flattering direction — the records it misses are the ones where the
+    # environment held steady. Same trap `motion_totals` carries for @LAT95, same fix:
+    # state the real total, from the **RUN** gaps rather than from a record count.
+    real = sum((w["run"] or {}).get("windows_since_last", 1) for w in windows)
+    print(f"{node}: {len(windows)} entity-percept record(s)"
+          + (f" covering {real} window(s)" if folded else "")
+          + f", {nobs} sighting(s), {len(seen)} distinct AP(s) (@LAT96 lane)")
+    if folded:
+        print("  lane is CHANGE-TRIGGERED (stable-core): a record speaks for its run, and "
+              "the\n  suppressed windows survive as **COVERED-ENTITY**, which the distinct-AP "
+              "count\n  above includes. Per-window sets are NOT recoverable — see entity-drift.")
     if not windows:
         print("no @LAT96 records yet — needs a node built with USE_WIFI_SCAN and a "
               "scan window (default 60 s); re-run after one elapses")

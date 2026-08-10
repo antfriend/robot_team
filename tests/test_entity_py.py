@@ -108,6 +108,74 @@ check(c.consolidate_entity_jaccard({"v4a_bridge": [], "v4b_relay": []}) == [],
       "no entities anywhere -> no beliefs")
 
 # ---------------------------------------------------------------------------
+# 7) CHANGE-TRIGGERED @LAT96 (Part 2, 2026-08-10) — both formats live, and the
+#    fold must be LOSSLESS FOR THE UNION, which is what this tier's consumer reads.
+# ---------------------------------------------------------------------------
+FOLDED = """```mmpdb
+db_id: x
+```
+
+---
+
+@LAT96LON0 | created:1780000000 | updated:1780000000 | relates:observes@LAT0LON0
+
+**ENTWIN** t_ms:1780000000000 stream:0x5ea51de7 wall:1 window_ms:600000 entities:2
+**ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:3 rssi:-55
+**ENTITY** kind:wifi_ap id:bbbbbbbbbbbb n:2 rssi:-70
+**RUN** windows_since_last:1 reason:first max_run:6 core_n:3 core_m:5 core_windows:1
+**CORE** entities:0
+
+---
+
+@LAT96LON1 | created:1780003600 | updated:1780003600 | relates:observes@LAT0LON0
+
+**ENTWIN** t_ms:1780003600000 stream:0x5ea51de7 wall:1 window_ms:600000 entities:2
+**ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:4 rssi:-54
+**ENTITY** kind:wifi_ap id:bbbbbbbbbbbb n:4 rssi:-69
+**RUN** windows_since_last:6 reason:heartbeat max_run:6 core_n:3 core_m:5 core_windows:5
+**CORE** entities:2 ids:aaaaaaaaaaaa,bbbbbbbbbbbb
+**COVERED** windows:5 entities:3 window_ms:3000000 first_t_ms:1780000600000 \
+last_t_ms:1780003000000 covered_by:@LAT96LON0
+**COVERED-ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:18 rssi:-53 windows:5
+**COVERED-ENTITY** kind:wifi_ap id:bbbbbbbbbbbb n:15 rssi:-68 windows:5
+**COVERED-ENTITY** kind:wifi_ap id:cccccccccccc n:1 rssi:-88 windows:1
+"""
+fw = c.parse_entity_percepts(FOLDED)
+check(len(fw) == 2, "folded lane parses as 2 records")
+check(fw[1]["run"] == {"windows_since_last": 6, "reason": "heartbeat"},
+      "**RUN** line parsed (gap and reason)")
+check(fw[1]["core"]["entities"] == 2 and
+      fw[1]["core"]["ids"] == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+      "**CORE** parsed with its id list")
+check(fw[0]["core"] == {"entities": 0, "ids": []},
+      "an empty CORE parses as empty, not as absent (no `ids:` field to read)")
+
+# ⚠ THE NEEDLE. `**COVERED-ENTITY**` must never land in a window's own `entities`:
+# that would over-report what the node saw in THAT window and corrupt drift, which is
+# the exact shape of the prev_stream: / **COVERED-SPAN** family.
+check([e["id"] for e in fw[1]["entities"]] == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+      "a window's own entities exclude COVERED-ENTITY lines")
+check(len(fw[1]["covered_entities"]) == 3, "the run's union is parsed separately")
+check(fw[1]["covered_entities"][2] ==
+      {"kind": "wifi_ap", "id": "cccccccccccc", "n": 1, "rssi": -88, "windows": 1},
+      "COVERED-ENTITY carries its aggregate, including how many windows it appeared in")
+
+# THE PROPERTY THE WHOLE DESIGN RESTS ON: an AP seen only in a suppressed window is
+# still co-visibility evidence, so the union the proximity bound reads must contain it.
+check("cccccccccccc" in c._entity_set(fw),
+      "an AP seen ONLY in a folded window survives into the proximity union")
+check(c._entity_set(fw) == {"aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"},
+      "the union is exactly the run's union — nothing lost, nothing invented")
+
+# Both formats live: the plain lane above has no **RUN** anywhere.
+check(c.entity_lane_is_folded(fw), "a lane carrying **RUN** reads as folded")
+check(not c.entity_lane_is_folded(c.parse_entity_percepts(LANE)),
+      "a pre-2026-08-10 lane reads as NOT folded and keeps parsing unchanged")
+check(all(w["run"] is None and w["covered_entities"] == []
+          for w in c.parse_entity_percepts(LANE)),
+      "old records carry no run and no covered union — one record IS one window")
+
+# ---------------------------------------------------------------------------
 print()
 if fails:
     print(f"{fails} FAILED")

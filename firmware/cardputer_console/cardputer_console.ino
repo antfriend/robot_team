@@ -3959,7 +3959,12 @@ void loop() {
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
       gEntityLog.reset(now);
     } else {
-      char rec[1024];
+      // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
+      // record can carry a **CORE** list and the run's **COVERED** union (worst case
+      // 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the old
+      // 1024 nor the loop task's stack, and buildRecord writes NOTHING rather than
+      // truncating — so an undersized buffer here loses whole windows silently.
+      static char rec[ENTITYPERCEPT_RECORD_BUF];
       size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
                                         gStamp, now);
       if (m && gDb.appendRecord(rec, m)) {
@@ -3969,6 +3974,18 @@ void loop() {
         gSocial.table().exercise(social::CAP_WIFI_SCAN);
         Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
                       (unsigned)gDb.fileSize());
+      } else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED) {
+        // ⚠ A COVERED WINDOW MUST NOT CLAIM THE CAPABILITY. `exercise()` means "a percept
+        // reached a lane", and a fold reached no lane — the observation is real and is
+        // carried in the NEXT record's union, but the wifi bit is earned by an
+        // appendRecord and nothing else. Widening it here would let the fleet's
+        // capability table say `wifi:X` for a tier that had not written since boot.
+        //
+        // Say it out loud, though: under run-length "wrote nothing" is the NORMAL case
+        // for a still node in a stable room, and a lane that silently does nothing is
+        // this corpus's least favourite failure mode.
+        Serial.printf("[entity] window covered (run %d, core %d)\n",
+                      gEntityLog.runLength(), gEntityLog.coreCount());
       }
     }
   }

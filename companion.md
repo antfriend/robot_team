@@ -4958,6 +4958,65 @@ If a fact lives in one of these, link to it from here — don't copy it.
   picture transfers."** The corrected runbook and the `--lane 96` prune rule in the entry
   above are unchanged.
 
+- 🧱 **2026-08-10 — PART 2 IS BUILT: `@LAT96` IS CHANGE-TRIGGERED ON A STABLE CORE, AND THE
+  FOLD IS LOSSLESS FOR THE ONLY THING THAT READS IT. ⚠ SOFTWARE ONLY — NOT FLASHED, AND IT
+  MUST NOT BE FLASHED BEFORE NIGHT 3 (see the interlock below).** The design decided in the
+  entry above is now code, on both sides, with the native and laptop suites green.
+  - **Firmware** (`EntityPercept.{h,cpp}`, all six sketches): a window writes a record only
+    when it opens a run, **changes the stable core**, fills the run budget, or would
+    overflow the union the `**COVERED**` block has to carry. Otherwise it folds. New lines:
+    `**RUN** windows_since_last: reason:<first|changed|heartbeat|union_full> max_run: core_n:
+    core_m: core_windows:`, `**CORE** entities: ids:`, `**COVERED** windows: entities: …
+    covered_by:`, and one `**COVERED-ENTITY** kind: id: n: rssi: windows:` per entity in the
+    run's union.
+  - **Laptop** (`companion.py`): `parse_entity_percepts` returns `covered_entities` and
+    `run`/`core` separately from the window's own `entities`; **`_entity_set` unions the
+    covered ones in**, which is the whole reason they are carried; `entities` reports records
+    *and* the windows they cover; `entity-drift` **refuses a folded lane outright**.
+  - `ENTITYPERCEPT_MAX_RUN` **6**, not 30: the simulated mechanism does 3.7–4.6×, so a cap of
+    6 sits just above it and the heartbeat almost never binds — the compression comes from
+    the part that can be reasoned about, and the lane's freshest record stays ≤1 h old. Lane
+    life at rest **8 h → 48 h**.
+  🎯 **The union is lossless BY CONSTRUCTION, not by luck, and that is the one design move
+  worth carrying to the next lane.** `ENTITYPERCEPT_MAX_UNION` is a cap on what a covered
+  block can describe — so a window whose entities would not fit **ends the run**
+  (`reason:union_full`) instead of being folded and dropped. The record's capacity bounds
+  the run, not the other way round. ⚠ Like `Social`'s reclaim and the staleness counter,
+  that arm is **expected to read zero on this fleet** (a 6-window run against a ten-BSSID
+  room); the native suite is where it is exercised — and the first cut of that test used one
+  newcomer per window, hit the heartbeat first, and **passed while testing nothing**.
+  ⚠ **THIS IS NOT A RECLASSIFICATION. `@LAT96` STAYS EVIDENCE** under RFC-0010 §3 —
+  append-only, pruned with an `@LAT100` boundary, and it must, because §6.1 forbids a
+  measured constant coming from a FIELD lane and the drift threshold comes from this lane.
+  Run-length is compression *within* EVIDENCE, which is exactly what made it legitimate on
+  `@LAT92`. 📎 A welcome side effect: at 6× fewer prunes the lane stops being the thing that
+  eats the `@LAT100` budget the entry above is rationing.
+  ⚠ **FLASH ORDER IS AN INTERLOCK, NOT A PREFERENCE: NIGHT 3 MUST RUN ON THE CURRENT
+  (PERIODIC) FIRMWARE.** Night 3's remaining job is to validate `n`/`m`, and that needs the
+  **per-window sets** — which a folded lane does not keep (it keeps their union, which is a
+  different quantity on purpose). Flashing this first would silently remove the only input
+  the run exists to collect. `entity-drift` now says so itself rather than letting gate 4
+  fail for "not enough pairs", **and `--force` does not override it**: no flag brings back a
+  window that was never written.
+  📊 **Cost, measured against a HEAD worktree** (both compiles, both boards): Cardputer
+  **+2140 B flash / +3472 B RAM** (42 %), V4-A **+2152 B / +3480 B**, still **94 %** with
+  **68 103 B free** (was 70 255). ⚠ Most of the RAM is deliberate: `ENTITYPERCEPT_RECORD_BUF`
+  (2560 B) moved from a `char rec[1024]` on the **loop task's 8 KB stack** into `static`
+  .bss. The old buffer fits the plain record and **not** one carrying a core and a union, and
+  `buildRecord` writes NOTHING rather than truncating — so leaving it would have dropped
+  precisely the run-closing records ([[render-buffers-belong-in-libraries]], 5th instance).
+  🧪 Native **15/15 binaries green, all rebuilt from source** (no `make` on this machine —
+  built with the portable `zig c++`, every target compiled before anything was run);
+  laptop **11/11**; `check_makefile.py` green. `test_entitypercept.cpp` pins the buffer in
+  **both** directions (worst real record **2322 B** — fits 2560, does not fit the old 1024).
+  ✅ **Regression evidence: the validated night-1 baseline re-reports IDENTICALLY through the
+  new parser** — 41-window segment, 37 pairs, p50 **0.143** / p90 **0.375** / max 0.500, all
+  four gates PASS. The reader changes are additive on every archived file.
+  📋 Next: night 3 on current firmware (operator), then flash this and confirm on hardware
+  that a still node's `@LAT96` actually folds — the log line is `[entity] window covered
+  (run N, core K)`, which exists because a lane that silently does nothing is this corpus's
+  least favourite failure mode.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

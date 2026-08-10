@@ -219,6 +219,55 @@ check(not okm and not gm[2][1],
       "window, it does not lower the bar")
 
 # ---------------------------------------------------------------------------
+# The instrument must refuse a lane that no longer holds its input (2026-08-10).
+#
+# Part 2 made @LAT96 change-triggered, so consecutive RECORDS stopped being
+# consecutive WINDOWS -- the suppressed ones survive only as a union, which is a
+# different quantity. Gate 4's spacing check would already discard the run-spanning
+# pairs and refuse, so this is not about preventing a wrong number; it is about
+# refusing for the RIGHT REASON. "not enough pairs" sends an operator to re-run a
+# night that could never have worked.
+# ---------------------------------------------------------------------------
+import io                                                   # noqa: E402
+import contextlib                                           # noqa: E402
+import tempfile                                             # noqa: E402
+
+GOOD = lane(41) + witness(span_s=600 * 40)
+FOLDED = GOOD.replace(
+    "**ENTWIN**",
+    "**RUN** windows_since_last:6 reason:heartbeat max_run:6 core_n:3 core_m:5 "
+    "core_windows:5\n**ENTWIN**", 1)
+check(not c.entity_lane_is_folded(c.parse_entity_percepts(GOOD)),
+      "a periodic lane does not read as folded")
+check(c.entity_lane_is_folded(c.parse_entity_percepts(FOLDED)),
+      "one **RUN** line anywhere marks the lane as change-triggered")
+
+
+def drift_out(text, **kw):
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                     encoding="utf-8") as f:
+        f.write(text)
+        path = f.name
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            c.entity_drift(path, **kw)
+        return buf.getvalue()
+    finally:
+        os.unlink(path)
+
+
+out = drift_out(FOLDED)
+check("CHANGE-TRIGGERED" in out and "REFUSING" in out,
+      "entity-drift REFUSES a change-triggered lane and names that as the cause")
+check("gates" not in out.lower(),
+      "and it refuses BEFORE the gates, so no gate gets blamed for a lane it cannot read")
+check("REFUSING" in drift_out(FOLDED, force=True),
+      "--force does NOT override it: no flag brings back a window that was never written")
+check("validation gates" in drift_out(GOOD),
+      "a periodic lane still reaches the gates untouched")
+
+# ---------------------------------------------------------------------------
 print()
 if fails:
     print("%d FAILED" % fails)
