@@ -3680,6 +3680,20 @@ void setup() {
   Serial.printf("LittleFS: %u / %u bytes used (%u free)\n",
                 (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes(),
                 (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
+#if USE_WIFI_SCAN
+  // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
+  // inside EntityPercept.cpp — a separate translation unit — so it can only be changed
+  // by a BUILD PROPERTY, never a sketch #define (the PULSE_DEFAULT_BEAT_MS trap), and a
+  // build property is invisible from the outside. `max_run:1` is the MEASUREMENT build:
+  // every window writes its own record, so the lane still carries per-window sets and
+  // `entity-drift` will accept it; the default 6 folds them into runs and it will not.
+  // Every record carries `max_run:` too, so the lane says this as well — but ten minutes
+  // after boot, and a flag that silently failed to land looks exactly like one that did.
+  Serial.printf("[entity] @LAT96 build: max_run:%d core:%d-of-%d scan:%lus%s\n",
+                ENTITYPERCEPT_MAX_RUN, ENTITYPERCEPT_CORE_N, ENTITYPERCEPT_CORE_M,
+                (unsigned long)(WIFI_SCAN_PERIOD_MS / 1000),
+                ENTITYPERCEPT_MAX_RUN == 1 ? "  <- MEASUREMENT BUILD (no folding)" : "");
+#endif
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
 
   // The two view-only globes, exactly as on the T-Deck: they never join the mesh.
@@ -3957,6 +3971,19 @@ void loop() {
   if (gEntityLog.due(now)) {
     int lane = laneCount(96);
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
+      // ⚠ SAY THIS OUT LOUD — the same argument `@LAT95` got after 2026-08-02, and it took
+      // a live debugging session on 2026-08-10 to notice `@LAT96` never got it. A full
+      // entity lane looks EXACTLY like a healthy node: `[wifi] scan: N AP(s)` still prints
+      // every 10 min, every other tier still flushes, and the window is dropped in silence.
+      // Both handhelds sat at 48/48 with freshly-flashed Part 2 firmware and wrote nothing,
+      // which read as a broken feature rather than a full lane.
+      static uint32_t last_ent_full_log = 0;
+      if (now - last_ent_full_log > 300000 || last_ent_full_log == 0) {
+        last_ent_full_log = now;
+        Serial.printf("[entity] @LAT96 lane FULL (%d/%d) - windows are being DISCARDED. "
+                      "Prune with `companion.py cmd --op clear-percepts --lane 96`.\n",
+                      lane, ENTITYPERCEPT_MAX_LANE);
+      }
       gEntityLog.reset(now);
     } else {
       // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a

@@ -2566,9 +2566,18 @@ def parse_entity_percepts(text):
 
 
 def entity_lane_is_folded(windows):
-    """True when any @LAT96 record carries a **RUN** line, i.e. the lane is
-    change-triggered and its records are no longer one-per-window."""
-    return any(w.get("run") for w in windows)
+    """True when any @LAT96 record actually SPEAKS FOR MORE THAN ITS OWN WINDOW.
+
+    ⚠ THE PREDICATE IS THE FOLD, NOT THE FORMAT. A record carrying a **RUN** line is
+    not by itself a problem — what breaks a per-window measurement is a record that
+    covers windows whose sets were never written. A build with
+    `ENTITYPERCEPT_MAX_RUN 1` writes every window and reports `windows_since_last:1`
+    throughout, so its lane is exactly as measurable as the old periodic one while
+    still exercising the new record format on hardware. Keying on the presence of
+    **RUN** would have refused that lane for looking new rather than for being lossy —
+    the same mistake as stage 1's `stale_citations` returning early on files that had
+    no @LAT100 marker."""
+    return any((w.get("run") or {}).get("windows_since_last", 1) > 1 for w in windows)
 
 
 def _entity_set(windows, last=None, since_ms=None, refs=None):
@@ -2750,7 +2759,8 @@ def entity_drift(path, spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_
     # refusing there too: no flag makes a dropped window come back.
     if entity_lane_is_folded(ew):
         print("%s\n" % path)
-        print("REFUSING: this @LAT96 lane is CHANGE-TRIGGERED (records carry **RUN**).")
+        print("REFUSING: this @LAT96 lane is FOLDED (records cover windows they do not")
+        print("itemise — some **RUN** line reports windows_since_last > 1).")
         print("Consecutive records are not consecutive windows here — the suppressed")
         print("windows survive only as a union in **COVERED-ENTITY**, which is what the")
         print("proximity bound reads, NOT the per-window sets this measurement needs.")

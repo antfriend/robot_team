@@ -4869,8 +4869,17 @@ If a fact lives in one of these, link to it from here — don't copy it.
   # a) re-identify BOTH ports BY APP IMAGE (never from memory, never from a mesh reply)
   python -m esptool --chip esp32s3 --port COMx --baud 460800 read-flash 0x10000 0x80000 app.bin
   #    grep for "Cardputer console" / "V4-A bridge"
-  # b) prune ONE lane on the Cardputer. NOT --lane 0: that costs 4 of the 4 markers left.
+  # b) prune the TWO gate-input lanes. NOT --lane 0: that costs 4 of the 4 markers left,
+  #    and would then leave @LAT90 unprunable (28+4 = 32/32, and pruneTimeline needs 1).
   python orchestrator/companion.py cmd --op clear-percepts --lane 96 --node cardputer_1 --port <COM> --attempts 6
+  python orchestrator/companion.py cmd --op clear-percepts --lane 95 --node cardputer_1 --port <COM> --attempts 6
+  #    ⚠ @LAT95 TOO — corrected 2026-08-10 after reading the device: it sits at 47/48 and
+  #    GATE 3 IS THE STILLNESS WITNESS. One more record fills it, after which no motion
+  #    window is written and gate 3 loses its ≥90 % span coverage for the rest of the run.
+  #    The first cut of this runbook named only lane 96 and would have failed gate 3.
+  #    @LAT94/@LAT97 stay full: neither is a gate input, and a full lane refuses writes
+  #    rather than churning. (A full @LAT97 does disarm the learning loop every window —
+  #    irrelevant to these gates, relevant to any run about the outcome lane.)
   #    V4-A needs NO prune (its lanes are not analysed and it has no PerceptLearn to disarm)
   # c) verify the prune landed and the budget moved 28 -> 29, not 28 -> 32:
   python orchestrator/companion.py pull   --node cardputer_1 --port <COM> --out master/ui/cardputer_prerun_night3.md
@@ -5016,6 +5025,82 @@ If a fact lives in one of these, link to it from here — don't copy it.
   that a still node's `@LAT96` actually folds — the log line is `[entity] window covered
   (run N, core K)`, which exists because a lane that silently does nothing is this corpus's
   least favourite failure mode.
+
+- ✅ **2026-08-10 — PART 2 IS HARDWARE-VERIFIED ON THE T-DECK, AND THE FLEET IS SPLIT ON
+  PURPOSE: CARDPUTER = MEASUREMENT BUILD, T-DECK = THE REAL THING.** Both handhelds flashed
+  (firmware only — no `Upload-*-FS.ps1`, so every lane and all three globes survived).
+  Ports identified by measurement, never inferred: **COM14 = Cardputer** (8 MB GigaDevice,
+  no PSRAM, MAC `50:78:7D:CE:88:10`), **COM10 = T-Deck** (16 MB + **8 MB** embedded PSRAM,
+  MAC `20:6E:F1:A7:D7:80`). ⚠ The T-Deck entered its bootloader **unaided** again — third
+  consecutive automatic flash, so the BOOT/RST dance is now firmly the fallback.
+  🎯 **The split resolves the flash-order interlock instead of paying it.** The Cardputer
+  carries `-DENTITYPERCEPT_MAX_RUN=1`: every window still writes its own record, so night 3
+  keeps the per-window sets it needs *and* the new format gets exercised. The T-Deck carries
+  the default `MAX_RUN 6` with the fold live, so the mechanism gets verified on hardware
+  today, on the node that is not the instrument.
+  ⚠ **`ENTITYPERCEPT_MAX_RUN` CAN ONLY BE A BUILD PROPERTY, NEVER A SKETCH `#define`** — it
+  is read inside `EntityPercept.cpp`, a separate translation unit (the
+  `PULSE_DEFAULT_BEAT_MS` trap). And a build property is invisible from the outside, so the
+  flag was **proved twice**: a native build with the same define makes the fold tests FAIL
+  (nothing folds — the deliberate negative control), and the string
+  `MEASUREMENT BUILD (no folding)` is live in the flashed image while **absent** from a
+  default build compiled as a control. Every record also carries `max_run:`, so the lane
+  states its own build; a boot line now says it 10 minutes earlier.
+  ✅ **THE FOLD, ON HARDWARE, EXACTLY AS THE NATIVE TEST PREDICTS** (T-Deck, `@LAT96` pruned
+  first so the run was the sample):
+  ```
+  11:56:22  [entity] percept window -> @LAT96LON1        <- run opens, reason:first
+  12:05:54  [entity] window covered (run 2, core 0)      <- 2-of-2 < CORE_N 3: core still
+                                                            empty, unchanged -> FOLDED
+  12:15:54  [entity] percept window -> @LAT96LON2        <- 3-of-3: core APPEARS -> changed
+  ```
+  and `@LAT96LON2` on flash carries `windows_since_last:2 reason:changed core_windows:3`,
+  `**CORE** entities:4` with its four ids, `**COVERED** windows:1 entities:4
+  covered_by:@LAT96LON1`, and four `**COVERED-ENTITY**` lines. Internally consistent to the
+  millisecond: `window_ms:600001` plus the covered block's `571624` accounts for the whole
+  19.5 min between the two records.
+  ✅ **Writer against reader, on real firmware output** — the RFC-0010 stage-2 rule applied:
+  `companion.py` parsed the pulled file to **3 records covering 4 real windows**, read the
+  lane as folded, and `entity-drift` **refused it, with `--force` refusing too.**
+  ⚠⚠ **BUT THE UNION PROPERTY ITSELF WAS *NOT* EXERCISED, AND SAYING SO IS THE POINT.**
+  Every one of the four covered APs also appears in the closing record, so
+  `_entity_set` returns the same 9 distinct APs with or without the covered lines — the
+  fold cost **nothing here because there was nothing to lose**, not because the mechanism
+  was tested. The case it protects against (an AP visible ONLY in a suppressed window) is
+  pinned in `tests/test_entitypercept.cpp` and has still never happened on hardware. Unlike
+  the staleness counter this one is **not** expected to read zero forever — the bench churns
+  (scans returned 6, 6, 4, 6 APs across four windows) — so watch for it rather than
+  concluding it is decorative.
+  🐛 **A REAL DEFECT, FOUND BY USING THE THING: THE `@LAT96` LANE-FULL PATH WAS SILENT.**
+  Both handhelds sat at **48/48** with freshly-flashed Part 2 firmware and wrote nothing for
+  two minutes of watching, which read as a broken feature. `@LAT95` got a loud warning after
+  2026-08-02 and `@LAT96` never did — a full entity lane looks EXACTLY like a healthy node:
+  `[wifi] scan: N AP(s)` still prints every 10 min and every other tier still flushes. All
+  six sketches now print a rate-limited `[entity] @LAT96 lane FULL (n/48)` with the prune
+  command. ⚠ **Both boards were flashed BEFORE this fix**, so they carry the silent version
+  until the next flash.
+  📊 **Lane census, Cardputer, read from the device** (`master/ui/cardputer_prerun_night3.md`,
+  106 165 B / 274 records): `@LAT94` **48/48**, `@LAT95` **47/48**, `@LAT96` **48/48**,
+  `@LAT97` **48/48**, `@LAT90` **16/16**, `@LAT92` 20/24, `@LAT100` **28/32**, `@LAT101` 5/8.
+  ⚠ **THE NIGHT-3 RUNBOOK ABOVE WAS WRONG AND IS NOW FIXED: IT MUST PRUNE `@LAT95` TOO.**
+  Gate 3 is the stillness witness; at 47/48 one more record fills that lane and no motion
+  window is written for the rest of the night, so the run would fail gate 3 having spent a
+  marker. (My own lane table had `@LAT95`'s cap as 30; it is **48**.) Targeted prunes cost
+  **2** markers for the gates (95 + 96) and a third only if `@LAT90`'s diagnostic is wanted
+  — against the old `--lane 0`, which spends all four and then leaves `@LAT90`
+  **unprunable** at 32/32.
+  📎 **The budget asymmetry is the operational fact worth carrying: `@LAT100` is 28/32 on the
+  Cardputer (4 ever) and 1/32 on the T-Deck (31).** That is why this verification was done on
+  the T-Deck — one marker it can easily afford — and why the Cardputer's prune is being held
+  until the night-3 run actually starts, rather than spent now and refilled before use.
+  ⚠ This pulled T-Deck file is **not** a measurement sample: `@LAT96LON0` and `LON1` sit on
+  different streams with `t_ms` going backwards (52799 → 37169), because the prune, three
+  console opens and the pull each reset the board. That is the flap `@LAT90` would have
+  recorded if its lane were not full at 16/16.
+  🧪 All six sketches compile: K10 20 %, V4-A/B/C **94 %** (65 603 B free), T-Deck 41 %,
+  Cardputer 42 %. 📎 The lane-full patch broke five sketches first — a heredoc collapsed
+  `\n` into a real newline inside a string literal — and **compiling before flashing is the
+  only reason that never reached a board.**
 
 Keep this section current. It is the first thing the next session reads.
 

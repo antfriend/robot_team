@@ -1052,7 +1052,20 @@ void loop() {
     for (int i = 0; i < gDb.recordCount(); ++i)
       if (gDb.record(i).lat == 96) ++lane;
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
-      gEntityLog.reset(millis());  // lane full: drop the window, keep observing
+      // SAY THIS OUT LOUD -- the same argument @LAT95 got after 2026-08-02, and it
+      // cost a live debugging session on 2026-08-10 to notice @LAT96 never got it.
+      // A full entity lane looks EXACTLY like a healthy node: the scan still runs and
+      // prints, the other tiers still flush, and the window is dropped in silence.
+      // Rate-limited to one line per 5 min so it informs without flooding.
+      static uint32_t last_ent_full_log = 0;
+      uint32_t nowf = millis();
+      if (nowf - last_ent_full_log > 300000 || last_ent_full_log == 0) {
+        last_ent_full_log = nowf;
+        Serial.printf("[entity] @LAT96 lane FULL (%d/%d) - windows are being "
+                      "DISCARDED. Prune with `companion.py cmd --op clear-percepts "
+                      "--lane 96`.\n", lane, ENTITYPERCEPT_MAX_LANE);
+      }
+      gEntityLog.reset(nowf);      // lane full: drop the window, keep observing
     } else {
       // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
       // record can carry a **CORE** list and the run's **COVERED** union (worst

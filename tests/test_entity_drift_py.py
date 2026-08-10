@@ -240,7 +240,21 @@ FOLDED = GOOD.replace(
 check(not c.entity_lane_is_folded(c.parse_entity_percepts(GOOD)),
       "a periodic lane does not read as folded")
 check(c.entity_lane_is_folded(c.parse_entity_percepts(FOLDED)),
-      "one **RUN** line anywhere marks the lane as change-triggered")
+      "one record covering windows it does not itemise marks the lane as folded")
+
+# ⚠ THE PREDICATE IS THE FOLD, NOT THE FORMAT. A measurement build
+# (ENTITYPERCEPT_MAX_RUN 1) writes every window and reports windows_since_last:1
+# throughout -- new record format, no loss. Refusing it for carrying a **RUN** line
+# would refuse a lane for looking new rather than for being lossy, and that is what
+# the Cardputer is flashed with while night 3 runs.
+MAXRUN1 = GOOD.replace(
+    "**ENTWIN**",
+    "**RUN** windows_since_last:1 reason:heartbeat max_run:1 core_n:3 core_m:5 "
+    "core_windows:5\n**ENTWIN**")
+w1 = c.parse_entity_percepts(MAXRUN1)
+check(all(w["run"] is not None for w in w1), "the measurement build DOES carry **RUN**")
+check(not c.entity_lane_is_folded(w1),
+      "-- and is NOT refused: every record is one window, so drift is measurable")
 
 
 def drift_out(text, **kw):
@@ -258,14 +272,16 @@ def drift_out(text, **kw):
 
 
 out = drift_out(FOLDED)
-check("CHANGE-TRIGGERED" in out and "REFUSING" in out,
-      "entity-drift REFUSES a change-triggered lane and names that as the cause")
+check("FOLDED" in out and "REFUSING" in out,
+      "entity-drift REFUSES a FOLDED lane and names that as the cause")
 check("gates" not in out.lower(),
       "and it refuses BEFORE the gates, so no gate gets blamed for a lane it cannot read")
 check("REFUSING" in drift_out(FOLDED, force=True),
       "--force does NOT override it: no flag brings back a window that was never written")
 check("validation gates" in drift_out(GOOD),
       "a periodic lane still reaches the gates untouched")
+check("validation gates" in drift_out(MAXRUN1),
+      "a max_run:1 measurement build reaches the gates like any periodic lane")
 
 # ---------------------------------------------------------------------------
 print()
