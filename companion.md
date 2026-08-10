@@ -4894,6 +4894,70 @@ If a fact lives in one of these, link to it from here — don't copy it.
   re-attestation; the three V4s needing `huge_app` before they can carry any of this; and
   the Cardputer's unexplained 7–8 KB `maxalloc`.
 
+- 🧩 **2026-08-10 — PART 2's DESIGN DECISION IS ANSWERED, OFFLINE, BEFORE ANY CODE: the
+  `**COVERED**` BLOCK MUST CARRY THE RUN'S UNION, AND THE TRIGGER IS STABLE-CORE, NOT A
+  JACCARD THRESHOLD.** The outstanding-items list said to decide what a covered block must
+  carry *before* writing the lane, because `@LAT95`'s verdict is a 2-state label and
+  `@LAT96`'s would be a threshold on a continuous drift — a judgement the reader cannot
+  re-derive. That decision needed no hardware: it was simulated over the **validated**
+  night-1 segment (all four gates passed). `scratchpad/lat96_trigger_sim.py`.
+
+  🔬 **First, the premise is smaller than it looked: the entire night-1 segment is TEN
+  distinct BSSIDs.** 41 windows, 4–8 APs each (p50 5), union of 10. So "continuous drift"
+  is a misdescription — one AP appearing or vanishing moves Jaccard by ~0.2 at the median
+  set size, and the metric takes a handful of discrete values. The lane spends 48 records
+  per 8 h to carry about ten bits of set membership. ⚠ That is a property of **this bench's
+  radio environment**, not of the tier; a 40-AP room would look different, and the entry
+  below says where that matters.
+
+  **The two mechanisms, over both nights** (`lost` = APs appearing ONLY in dropped windows,
+  i.e. what `_entity_set`'s union — the lane's actual consumer, the coarse proximity bound
+  — would no longer contain):
+  ```
+                          night 1 (gates passed)      night 2 (cancelled, 16 win)
+                          records  compress  lost     records  compress  lost
+  A  thr 0.375             6/41     6.83x    10%       2/16     8.00x    18%
+  A  thr 0.500             3/41    13.67x    10%       1/16    16.00x    36%
+  B  core 2 of last 3     11/41     3.73x     0%       7/16     2.29x     9%
+  B  core 3 of last 5      9/41     4.56x     0%       5/16     3.20x    27%
+  ```
+  ⚠ **A's LOSS DOES NOT TRANSFER, WHICH IS A STRONGER OBJECTION THAN THE ONE WE HAD.** Same
+  node, same bench, two nights: a fixed threshold loses 10 % one night and 36 % the next.
+  The worry on record was that the *threshold* might not transfer; this says that even a
+  transferable threshold would not give a transferable **loss**. At comparable compression B
+  loses less and degrades gracefully instead of falling off a cliff.
+
+  🎯 **BUT THE DECISIVE ANSWER IS ABOUT THE RECORD, NOT THE TRIGGER.** Both mechanisms lose
+  APs only under the assumption that a dropped window contributes nothing — and it does not
+  have to. The consumer computes a **union**, so if the `**COVERED**` block carries the
+  run's union (the stable core plus the fringe seen during it), **the loss column goes to
+  zero by construction, for either trigger**, and the compression survives because the cap
+  that matters is `ENTITYPERCEPT_MAX_LANE 48` **records**, not bytes.
+  📎 **This is the honest analogue of Part 1's losslessness argument, and it is worth
+  stating in the same shape.** Run-length was legitimate on `@LAT92` because folding a
+  verdict N times equals folding it once per window. The equivalent claim here is: *the
+  run's union must be recoverable from the record that covers it.* A block carrying
+  `core:` + `fringe:` satisfies it. A block carrying only `windows:` and a distance does
+  **not** — it asserts the set stayed within some radius of a reference the reader cannot
+  see, which is exactly the un-re-derivable judgement the outstanding-items note warned
+  about.
+  ✅ **With that settled, the trigger choice reduces to compression-per-record, and B still
+  wins** — and B's block is **self-describing** (it states the set it claims held constant)
+  where A's is a claim about an invisible reference. Neither is fully re-derivable from the
+  written records alone; that is not the available property, and B gets the one that is.
+
+  ⚠ **What this does NOT settle, stated plainly.** One bench, one node, one radio
+  environment. A larger AP alphabet could change A's picture — its loss should *grow* with
+  the alphabet rather than shrink, so B's advantage likely holds or widens, but that is an
+  argument and not a measurement. Night 2's 16-window segment failed the gates and is used
+  here **only as a second draw, never as a baseline**. And `n`/`m` still want a validated
+  second night — though they are a **counting rule over recorded sets**, a materially
+  weaker dependency than a constant fitted to a continuous quantity.
+  📋 **Night 3's purpose therefore NARROWS: it is no longer "decide between the two
+  mechanisms" — this decides that — it is "validate `n`/`m` and confirm the still-node
+  picture transfers."** The corrected runbook and the `--lane 96` prune rule in the entry
+  above are unchanged.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
