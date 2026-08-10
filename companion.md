@@ -5102,6 +5102,142 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `\n` into a real newline inside a string literal — and **compiling before flashing is the
   only reason that never reached a board.**
 
+- 🛰 **2026-08-10 — V4-A AND V4-B CARRY PART 2 TOO; THE SPINE IS NOW ON IT AND THE FLEET IS
+  FOUR-FOR-FOUR.** Identified the only way this fleet permits — **by reading the app image**,
+  not by port, MAC or a mesh reply: 512 KB from `0x10000` at 460800 (12.2 s each) grepped to
+  **COM6 = `V4-A bridge`**, **COM9 = `V4-B relay`**, both already carrying
+  `older_stream_wins`. Default build on both (fold live) — neither is the measurement
+  instrument. Flashed, hash-verified, `ping` ACKed on attempt 1 on each board's own cable,
+  and both TTDBs pulled byte-clean over that same cable (38 209 B / 62 564 B).
+  ✅ **The V4s carry the loud `@LAT96 lane FULL` warning and the two handhelds do NOT** — the
+  fix landed between the two flash sessions. So the spine will announce a full entity lane
+  and the handhelds will still fail silently until their next flash. Worth knowing before
+  reading any log from this fleet in the next few days.
+  🎯 **THE FINDING THAT CHANGES THE NIGHT-3 BUDGET: `@LAT90` IS 9/16 ON BOTH V4s — SEVEN
+  SLOTS FREE.** The Cardputer's timeline lane is full at 16/16, which is why a third marker
+  was on the table to repair it. It is **not needed**: night 1's diagnosis came from
+  **V4-A's** `@LAT90` ("a `STREAM-ORIGIN` for every stream the Cardputer joined"), and V4-A —
+  the stream holder, the node that has to stay powered anyway — can still record seven
+  timeline changes. So night 3 costs the Cardputer **2 markers (95 + 96), not 3**, and the
+  witness comes from the other side of the link for free. `@LAT100` is 8/32 on V4-A and 1/32
+  on V4-B, so neither spine node is anywhere near its budget.
+  ⚠ **ALL FOUR NODES NOW HOLD `@LAT96` AT 48/48**, each carrying 48 old-format records (48
+  records = 48 real windows, `folded=False` through the new parser — the old format still
+  reads exactly as one record per window, which is the compatibility claim holding on real
+  archived flash). Until they are pruned the SP0 entity tier contributes **nothing** new to
+  the proximity consolidation fleet-wide — not a regression, but it means a `proximity` run
+  today is reading history, not observation.
+
+- 🔮 **2026-08-10 — SECOND, INDEPENDENT HARDWARE EXERCISE OF THE FOLD: V4-A, WITH THE
+  PREDICTION WRITTEN DOWN FIRST.** `@LAT96` pruned on V4-A (1 of its 24 spare `@LAT100`
+  markers, `8/32 → 9/32`) so the run is the sample. Independence is real and not
+  cosmetic: different board class (Heltec V4 vs LilyGo T-Deck), different sketch,
+  different antenna, and a **measurably quieter radio environment** — over its own 48
+  archived windows V4-A sees a union of just **6 BSSIDs** at drift p50 **0.000** / p90
+  0.200, against the T-Deck bench's 9 at p50 0.143.
+  🎯 **PRE-REGISTERED, from `scratchpad/lat96_predict.py` replaying the exact firmware
+  algorithm over those 48 real windows — stated BEFORE the board was pruned:**
+  ```
+  records written : 16 of 48   (compression 3.00x)
+  reasons         : first=1, changed=11, heartbeat=4
+  opening pair    : w0/first (core 0) then w2/changed (core 3, covered union 4)
+  UNION PROPERTY  : fires at windows 15, 24 and 40 -> 3 of 16 records carry an AP
+                    that NOTHING ELSE WOULD KEEP (64677217947d x2, e6b32d2cea8b)
+  ```
+  ⚠ **This is a claim about the algorithm on this board's environment, NOT a replay** —
+  the live run sees a new window sequence, so the counts will not match digit for digit.
+  What is exactly checkable is the **structure**: the first record must be
+  `reason:first` / `core_windows:1` / `**CORE** entities:0`, and the core must appear on
+  the third window and write `reason:changed` with a `**COVERED**` block.
+  ⚠ **AND THE STATISTICS NEED 48 WINDOWS = 8 HOURS**, because the scan is 600 s. A
+  40-minute watch gets ~4 windows: enough for the structure, nowhere near the predicted
+  union hits at windows 15/24/40. **So the long half rides on night 3 for free** — V4-A
+  has to sit powered and untouched holding the stream anyway, its `@LAT96` is not a gate
+  input, and at the predicted 3× a 48-record lane now covers ~144 windows ≈ 24 h, so it
+  cannot fill during the run. One night, two experiments, no extra apparatus.
+  📎 Why this matters more than another green test: on the T-Deck the fold was verified
+  but **the union property was not exercised** — every covered AP also appeared in the
+  closing record. This is the first setup where the prediction says it will fire, and it
+  says exactly where.
+  ✅ **AND THE PREDICTOR ITSELF WAS VALIDATED AGAINST THE DEVICE FIRST, because it is a
+  SECOND implementation of the firmware algorithm and a prediction from a parallel
+  algorithm predicts nothing.** The T-Deck's observed run is recoverable from flash — with
+  exactly one covered window its `**COVERED-ENTITY**` set **is** that window's set — so the
+  real three-window sequence was fed back through `simulate()`: it returned
+  `first`/core 0, one fold, `changed`/core 4/covered union 4, **matching the hardware on
+  every field**, and it independently reported that *this* sequence exercises no
+  covered-only AP, which is what the device showed. Same discipline as RFC-0010 stage 2:
+  writer against reader, never each against itself.
+  🐛 Found by doing that: importing the predictor ran its whole report as a side effect.
+  It now guards `main()` — a scratchpad script that cannot be imported cannot be checked
+  against anything.
+
+  ✅ **RESULT, 21 MINUTES LATER — THE STRUCTURE MATCHED EXACTLY AND THE UNION PROPERTY
+  FIRED ON THE VERY FIRST FOLD.** `master/ui/v4a_fold_check.md`, 2 records covering 3 real
+  windows:
+  ```
+  @LAT96LON0  **RUN** windows_since_last:1 reason:first  core_windows:1
+              **CORE** entities:0                              <- as pre-registered
+  @LAT96LON1  **RUN** windows_since_last:2 reason:changed core_windows:3
+              **CORE** entities:5 ids:f83e...,02c5...,bc10...,e6b3...,84a3...
+              **COVERED** windows:1 entities:9 covered_by:@LAT96LON0
+              9 x **COVERED-ENTITY**
+  ```
+  🎯 **THREE APs EXIST ONLY IN THE COVERED BLOCK — `5ce28c488e0c`, `64677217947d`,
+  `acdf9f4ca21c`.** The two written records itemise 6 distinct APs between them; the
+  proximity union is **9**. So without `**COVERED-ENTITY**` this node would have silently
+  lost **33 % of its own co-visibility evidence at the first fold** — and co-visibility is
+  the entity tier's whole output, the coarse distance bound in
+  ttn-semantic-positioning.md §2.2. This is the claim the design was built on, observed on
+  hardware rather than asserted, and it is the thing the T-Deck run could not show.
+  📌 **`64677217947d` is one of the two APs the prediction NAMED** (it was predicted
+  covered-only at windows 15 and 24; it turned up covered-only at window 1). Predicting
+  which specific BSSID the mechanism would rescue, before pruning the board, is a stronger
+  result than the compression ratio would have been.
+  ⚠ **The COUNTS did not match, exactly as flagged in advance, and the reason is
+  informative:** the run saw **9 APs in one window** where the whole 48-window archive had
+  a union of 6 — V4-A's radio environment is materially busier now than when that archive
+  was written, so `**CORE** entities:5` against a predicted 3 and a 9-AP covered union
+  against a predicted 4 are a different sample, not a mis-prediction. The **structural**
+  claims (first → `core_windows:1` → `**CORE** entities:0`; core appearing on the third
+  window with a `**COVERED**` block naming `covered_by:@LAT96LON0`) were exact.
+  📋 **The statistical half is still outstanding and now rides on night 3**: 16-of-48 at
+  3.00×, `first=1 changed=11 heartbeat=4`. V4-A's lane is at **2/48** and, at the predicted
+  rate, cannot fill in 24 h — so the run collects it for free. ⚠ Do **not** touch COM6
+  during the night: every `companion.py` call resets the board and restarts the run, which
+  is what makes a 48-window sample expensive to re-take.
+
+- 🌙 **2026-08-10 — NIGHT 3 IS ARMED. The Cardputer is pruned and verified; the run starts
+  at bedtime on continuous WALL power, not the laptop.** Every board identified by app image
+  first: **COM13 = `V4-C edge`** (flashed today too, `ping` ACK attempt 1 — so all five
+  active nodes now carry Part 2; the K10 stays deferred, being a multi-month jump onto a
+  different core that buys nothing tonight), **COM14 = `Cardputer console`** and — the check
+  that matters — its image still contains `MEASUREMENT BUILD (no folding)`, so
+  `ENTITYPERCEPT_MAX_RUN=1` is confirmed on the board rather than assumed from this morning.
+  ✅ **Prune landed exactly on budget: `@LAT96` and `@LAT95` both emptied, `@LAT100` 28 →
+  30/32 — two markers, not four.** Boundaries `lane:96 gen:6 removed:48` and `lane:95 gen:7
+  removed:48`; file 106 165 → 65 781 B, 274 → 181 records. `@LAT94`/`@LAT97` left full on
+  purpose (neither is a gate input, and a full lane refuses writes rather than churning).
+  🛑 **TWO MARKERS REMAIN. Night 3 is the last comfortable attempt** — one more 2-lane prune
+  exists after it and then the Cardputer can never clear a percept lane again without a
+  firmware change. That is the reason not to disturb the run for a look.
+  ⚠ **The `@LAT95` boundary is stamped `t_ms:0 stream:0x00000000`** — the lane-96 prune had
+  just reset the board, so it had not yet adopted a stream. Meaningful, not broken (a
+  stream-0 stamp is local `millis()`), and harmless here: the boundary is provenance, while
+  gate 3 reads the `@LAT95` records written *during* the run, which will carry the run's own
+  stream.
+  📎 **The operator's sequencing is better than the advice it replaced, and the correction is
+  worth keeping: powering the boards DOWN between the prune and bedtime costs nothing.** The
+  8.0 h ceiling is 48 *records*, and records accrue only while a board is powered and
+  scanning — so the earlier "every 10 minutes eats slack" only applied to boards left
+  running. The full ~8 h is preserved for the run itself against a 5.2 h gate floor.
+  📋 Overnight configuration, deliberately matching night 1 rather than improving on it:
+  **Cardputer + V4-A only**, both on wall power, everything else unplugged. V4-A carries the
+  pre-registered fold prediction at 2/48 and **must not be pruned**; its `@LAT90` at 9/16 is
+  the fleet's timeline witness, since the Cardputer's is full at 16/16. ⚠ Do not open COM6
+  or COM14 during the night: every `companion.py` call resets the board, restarts V4-A's run
+  and fragments the stream — which is exactly how nights 1 and 2 were lost.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

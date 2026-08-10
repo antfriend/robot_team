@@ -165,11 +165,25 @@ python -m esptool --chip esp32s3 --port COMx --baud 460800 \
 #   "V4-A bridge" | "V4-B relay" | "V4-C edge" | "Cardputer console" | "T-Deck"
 # and for "older_stream_wins" to tell whether it predates the time stream.
 ```
+⚠ **THE GREP CAN RETURN MORE THAN ONE BANNER, AND THE EXTRA ONES ARE NOT THE BOARD.** A
+node's image contains OTHER nodes' names because it renders them — the Cardputer's read
+back both `Cardputer console` **and** `T-Deck` (2026-08-10). The discriminator is the
+sketch's **own** banner, i.e. the one matching the FQBN/partition scheme you are about to
+flash; treat any additional hit as a peer label, not a second identity. A read that returns
+zero banners is the real alarm.
+📎 Useful second grep on the same image: a **string that only today's build contains** tells
+you whether a board is current without decoding a version. `"@LAT96 lane FULL"` dates a
+build to 2026-08-10 or later; `"MEASUREMENT BUILD (no folding)"` proves a
+`-DENTITYPERCEPT_MAX_RUN=1` measurement build, which is otherwise invisible from outside.
 
 ⚠ **Read 0x80000 at 460800, not the whole 0x140000 at 921600.** The full-image read at
 921600 died mid-transfer with `A fatal error occurred: Corrupt data, expected 0x1000
 bytes but received 0xe85 bytes` at ~9% and **left no file at all** (2026-08-06, both
-boards, repeatable). The banner literals live in the DROM/`.rodata` segment that maps
+boards, repeatable). ⚠ **And the 0x80000-at-460800 fallback is not immune: it failed the
+same way on the Cardputer** (2026-08-10, `received 0xe4a bytes`, no file). `0x40000` at
+**230400** completed and still carried every string that mattered. The rule generalises —
+**halve the bytes and halve the baud until it completes**; the banners live in the DROM
+that maps first, so a 256 KB window is still plenty. The banner literals live in the DROM/`.rodata` segment that maps
 first, so the leading **512 KB** carries them — a `V4-A bridge` and a `Cardputer console`
 were both found in that window. Half the bytes at half the baud, and it completes.
 📎 `flash-id` (3 s) is a useful *pre-filter* on this fleet but never a substitute:
