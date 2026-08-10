@@ -4127,6 +4127,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
   threshold. Its purpose is **transfer**, not more precision: does night 2 agree with
   night 1 (p50 0.143 · p90 0.375 · p95/max 0.500)? Runbook:
 
+  🛑 **THIS RUNBOOK IS SUPERSEDED — DO NOT COPY IT.** Step (a)'s `--lane 0` spends **four**
+  `@LAT100` markers where **one** would do, which is what put the budget at 28/32 and one
+  round from never. The corrected night-3 runbook is the 2026-08-10 entry at the end of
+  this section; the block below is kept only as the record of what was run.
+
   ```bash
   # a) prune BOTH boards first (the run must BE the sample). EVERY companion.py call
   #    below is blocked by the permission classifier for Claude -- `pull` as well as
@@ -4796,6 +4801,98 @@ If a fact lives in one of these, link to it from here — don't copy it.
   stages are the default network's 2 (capability claims through Rule 1/2) and 3
   (`@LAT102` attributed testimony), and @LAT98's natural key still wants a real
   re-attestation.
+
+- 🔬 **2026-08-10 — NIGHT 2 WAS NOT A WRITE-OFF: IT FAILED ONE GATE, FOR LENGTH ONLY. Three
+  findings, all from data already on disk — no hardware, no port opened, no board reset.**
+  The infrastructure arc (TraceField → default network stage 1 → sid → the first FIELD lane)
+  is closed; **the primary hypothesis has not moved since 2026-08-06** and the next move
+  belongs to it. Before spending the fleet's scarcest resource on a night 3, the banked
+  evidence was read.
+
+  **Finding 1 — the cancelled run's gate verdict.** `entity-drift --segment` over
+  `master/entity-baseline/cardputer_night2_cancelled.md` (91 705 B):
+  ```
+  SEGMENT: longest contiguous single-stream run = stream 50956f00, 16 of 46 window(s)
+    [PASS] one stream id                              16 window(s), 1 stream(s)
+    [PASS] t_ms monotonic                             0 backwards step(s)
+    [PASS] @LAT95 witnesses stillness, same timeline  8 motion record(s), 0 moving,
+                                                      100% span covered, timeline match
+    [FAIL] pairs at 600+/-120 s spacing               14 kept, 1 off-cadence (need 30)
+  ```
+  ✅ **Stillness, monotonicity and timeline unity all held. The only failure is DURATION** —
+  a clean ~2.7 h interval (16 × 600 s) sitting inside a 7.7 h window, against the 30 pairs
+  (~5.2 h) the gate requires. The run was disqualified by fragmentation, not by dirt.
+  ⚠ **On having looked at a file the previous session deliberately left unanalysed.** That
+  decision was about refusing to launder a contaminated run into a baseline, and it stands:
+  **no distribution was printed and `--force` was not passed.** The gates were declared
+  2026-08-04, before this run existed, and they refused to report — which is exactly the
+  case in which looking costs nothing. What was taken from the file is a *verdict on the
+  apparatus*, not a number about the world.
+
+  **Finding 2 — why it fragmented, and it is not a firmware defect.** The Cardputer's
+  `@LAT90` in that same file carries **two consecutive `STREAM-ORIGIN` records**
+  (`LON3` 0x5c68cae2, `LON4` 0xb94644d8, both `from:0x300`, `t_ms:0`) before reconciling
+  onto 0x50956f00 `from:0x10`. It rebooted while **nobody was holding a stream** — V4-A had
+  been unplugged mid-run. Night 1 survived two reboots *only* because V4-A held one
+  throughout.
+  🎯 **`TimeStream.h` already argues down the tempting fix**: persisting the id across a
+  reboot is wrong, because a node cannot know how long it was powered off and would stamp
+  records earlier than a peer wrote during the downtime. So there is nothing to repair —
+  **the continuously-powered stream holder is part of the measuring apparatus**, and it
+  must be treated as instrumentation rather than as a spare node that happens to be on.
+  📎 The T-Deck's own `@LAT90` (from the 2026-08-06 pull, so this predates the 08-09 flag)
+  shows the same thing from the other side: `LON8..LON15` carry **eight distinct stream ids
+  in eight records**, adopted alternately `from:0x10` and `from:0x300`. That is the fleet
+  re-minting a timeline every reboot round, logged faithfully. Whether that is pathology or
+  simply a bench that gets rebooted a lot is still open — but it is now clear it is a FLEET
+  property, not a T-Deck one, so pruning the T-Deck's lane would only hide it.
+
+  **Finding 3 — the runbook was spending 4× the `@LAT100` budget it needs, and this is the
+  actionable one.** `cmd --op clear-percepts --lane 0` writes **one marker per non-empty
+  lane in 94–97 = four**. But `lanegen::prune` sets `lo = hi = lane` whenever a lane is
+  named (`LaneGenNode.h`, the `lane ? lane : TTDB_PERCEPT_LANE_LO` pair), so
+  **`--lane 96` costs exactly one.**
+  🛑 At **28/32** on the last pull, the old runbook takes the Cardputer to 32/32 and it can
+  then **never clear a percept lane again** without a firmware change. The one-lane prune
+  takes it to 29/32 and leaves **three** further attempts.
+  ✅ **And one lane is all the gates read.** `@LAT96` is the only gate-input lane near its
+  cap (**46/48**). `@LAT95` sits at **21/30** and, change-triggered with run-length, writes
+  ~2 records per 8 h of stillness — it does not need clearing. `@LAT94` (48/48) and `@LAT97`
+  (48/48) are full and are *not* read by `entity-drift`; a full lane refuses writes, it does
+  not churn. With `TTDB_MAX_RECORDS` now 288 and `@LAT96`'s 46 freed, the file has headroom.
+  📎 `pruneTimeline` (`--lane 90`) likewise costs **one** marker, drawn from **that node's
+  own** `@LAT100` — the T-Deck's 16/16 repair does not touch the Cardputer's budget.
+
+  📋 **CORRECTED NIGHT-3 RUNBOOK.** Supersedes the 2026-08-06 block above. Operator's to
+  run — `cmd` and `pull` both open the port and reset the board.
+  ```bash
+  # a) re-identify BOTH ports BY APP IMAGE (never from memory, never from a mesh reply)
+  python -m esptool --chip esp32s3 --port COMx --baud 460800 read-flash 0x10000 0x80000 app.bin
+  #    grep for "Cardputer console" / "V4-A bridge"
+  # b) prune ONE lane on the Cardputer. NOT --lane 0: that costs 4 of the 4 markers left.
+  python orchestrator/companion.py cmd --op clear-percepts --lane 96 --node cardputer_1 --port <COM> --attempts 6
+  #    V4-A needs NO prune (its lanes are not analysed and it has no PerceptLearn to disarm)
+  # c) verify the prune landed and the budget moved 28 -> 29, not 28 -> 32:
+  python orchestrator/companion.py pull   --node cardputer_1 --port <COM> --out master/ui/cardputer_prerun_night3.md
+  python orchestrator/companion.py prunes --file master/ui/cardputer_prerun_night3.md
+  # d) BOTH boards on a wall charger. V4-A powered and UNTOUCHED for the whole run --
+  #    it is the stream holder, i.e. part of the apparatus. >= 5.2 h, Cardputer still.
+  # e) one pull at the end, then the gates:
+  python orchestrator/companion.py pull --node cardputer_1 --port <COM> --out master/entity-baseline/cardputer_baseline_night3.md
+  python orchestrator/companion.py entity-drift --file master/entity-baseline/cardputer_baseline_night3.md --segment
+  ```
+  🎯 **Pre-committed stop rule, stated before the run per the practice the gates
+  established:** the run must hold **one stream for ≥ 30 pairs**. If the `@LAT90` lane shows
+  a `STREAM-ORIGIN` or an id change during the window, the run is void as a baseline — bank
+  it, do **not** re-time it, and do **not** spend a second marker retrying the same night.
+  Two consecutive voids means the fleet cannot hold a timeline long enough to measure this
+  at all, and the finding is about the time stream, not about entity drift.
+  ⚠ Unchanged interlocks: never `Upload-Cardputer-FS.ps1` during a run (a firmware flash is
+  fine, an FS image wipes the lanes); no RFC stage applied to a node mid-run.
+  📌 Still open and off the hypothesis path: default-network stages 2 (capability claims
+  through Rule 1/2) and 3 (`@LAT102` testimony); `@LAT98`'s natural key, which wants a real
+  re-attestation; the three V4s needing `huge_app` before they can carry any of this; and
+  the Cardputer's unexplained 7–8 KB `maxalloc`.
 
 Keep this section current. It is the first thing the next session reads.
 
