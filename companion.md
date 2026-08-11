@@ -5399,20 +5399,32 @@ If a fact lives in one of these, link to it from here — don't copy it.
   🛑 **THE FINDING THAT REORDERED THE PLAN — THE FALSIFIER HAS A FALSE-POSITIVE MODE
   AND THE FLEET IS SITTING IN IT.** Measured from the two night-3 archives, no
   hardware touched: two nodes a few metres apart, all night, **cross-node entity
-  Jaccard distance ~0.125** (overlap p50 0.875, min 0.750) against the **same node's
-  own ten-minute drift p50 0.111 / p90 0.222**. The between-node signal is *smaller
-  than the within-node noise*: at this AP density the entity tier cannot tell two
-  different nodes from one node at two different times. **Run §4.3's ablation here and
-  it reports "the semantic layer adds nothing" — which is the hypothesis's own
-  falsifier — as a test-geometry artifact.** The multi-tier field re-run has been PLAN
-  item 1 for a month; it is now gated behind a separation measurement, and
-  `companion.py entity-separation` (the admissible/not-admissible gatekeeper) is the
-  first thing to build. ⚠ Caveat kept in the doc: V4-A ran the folding build, so its
-  sets are run-unions and the overlap is biased **upward** — the true figure is likely
-  lower, which strengthens the conclusion. The clean version needs two nodes on
-  `-DENTITYPERCEPT_MAX_RUN=1`. 📎 Also verified rather than assumed, since it was the
-  main objection to a bigger fleet on a measurement night: **no fleet MAC appears as an
-  AP** in either node's `@LAT96` (12 distinct BSSIDs; the three MACs on hand checked).
+  Jaccard distance p50 0.250** (n=11) against the **same node's own ten-minute drift
+  p90 0.222 / p95 0.250**. A typical between-node difference lands on the still node's
+  **p95** — a margin of **~1.1x**, against a **pre-registered 2.0x** requirement. The
+  tier's contribution at bench separation is inside a factor of two of its own noise.
+  **Run §4.3's ablation here and it reports "the semantic layer adds nothing" — which
+  is the hypothesis's own falsifier — as a test-geometry artifact.** The multi-tier
+  field re-run has been PLAN item 1 for a month; it is now gated behind a separation
+  measurement, and `companion.py entity-separation` (the admissible/not-admissible
+  gatekeeper) is the first thing to build.
+
+  📌 **CORRECTION, same day, before any of this was built on: the first version of
+  this entry said the cross-node distance was ~0.125 and therefore SMALLER than the
+  within-node noise, and blamed a folding-build bias that it claimed made the
+  conclusion safer. Both halves were wrong.** A folded record **still itemises its own
+  window** in `**ENTITY**` lines — only the *suppressed* windows are gone — so V4-A's
+  per-window sets were available all along. Folding the `**COVERED**` union into the
+  cross-node set inflated the overlap and **halved** the distance (0.250 → 0.125), and
+  that bias runs **toward** the not-admissible verdict, not away from it. **The verdict
+  survives; the reason changed** from "no signal" to "signal indistinguishable from
+  noise at this margin and n". 🎯 **The design rule this bought, and it is now the
+  instrument's spec:** cross-node separation and within-node drift **need different
+  inputs** — cross-node may read a folded lane, within-node may not — and one command
+  must not treat them alike.
+  📎 Also verified rather than assumed, since it was the main objection to a bigger
+  fleet on a measurement night: **no fleet MAC appears as an AP** in either node's
+  `@LAT96` (12 distinct BSSIDs; the three MACs on hand checked).
 
   📋 **The six corrections, briefly** — the doc carries the full argument:
   1. **Shape vs pose (§0.1).** The ambiguity is **4 DoF** (translation 2, rotation 1,
@@ -5449,6 +5461,50 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📋 Next (PLAN.md "Solo-buildable now"): `entity-separation`, then `pose_ceiling` /
   `dof_pinned` through the position pipeline, then KEY-kind sids, then the two render
   rules on the laptop leg. None needs a cable.
+
+- ✅ **2026-08-11 — THE ABLATION GATEKEEPER IS BUILT, AND WRITING IT FOUND A BUG IN
+  ITS OWN VERDICT PLUS AN ERROR IN THE ENTRY ABOVE.** `companion.py entity-separation
+  --file A --file B` answers one question — *can the entity tier tell these two nodes
+  apart at the current geometry?* — as **ADMISSIBLE / NOT ADMISSIBLE**. First verdict
+  on the real pair:
+  ```
+  [PASS] time-alignable on one shared stream   stream b4347c09, 11 matched pair(s)
+  [PASS] a still-node floor exists             A: 41 pair(s); B: lane is FOLDED
+  [FAIL] separation clears the floor by 2.0x   cross p50 0.250 vs floor p90 0.222 = 1.12x
+  VERDICT: ABLATION *NOT* ADMISSIBLE at this geometry
+  ```
+  📌 **CORRECTION to the entry above, found while building this.** That entry said the
+  cross-node distance was **~0.125 and therefore smaller than the within-node noise**,
+  and blamed a folding-build bias it claimed made the conclusion *safer*. **Both halves
+  were wrong.** A folded record **still itemises its own window** in `**ENTITY**` — only
+  the *suppressed* windows are gone — so per-window sets were available for V4-A all
+  along; folding the `**COVERED**` union in inflated the overlap and **halved** the
+  distance (0.250 → 0.125), and that bias runs **toward** the not-admissible verdict,
+  not away from it. **The verdict is unchanged; the reasoning is not** — it is "signal
+  indistinguishable from noise at this margin and n", not "no signal". Spec §0.3 and
+  §4.3, PLAN.md and the memory pointer all carry the corrected figures.
+  😐 The sting: **`parse_entity_percepts`'s own docstring already said** *"the union is
+  what proximity reads, the per-window set is what drift reads, and mixing them corrupts
+  one or the other."* The rule was written down and the next ad-hoc script broke it,
+  which is precisely the argument for the instrument being a command with tests rather
+  than a scratch snippet ([[verify-before-believing]]).
+  🎯 **The design rule this bought is now the command's shape: the two halves need
+  DIFFERENT inputs.** Cross-node separation may read a **folded** lane (`cross_node_pairs`
+  uses `entities`, never `covered_entities`); the within-node floor may **not**
+  (`within_node_floor` refuses one, for the same reason `entity-drift` does).
+  🐛 **And the test caught a real bug before it ever ran on data: a zero floor made the
+  ratio INFINITE**, so two *identical* lanes — the least separated geometry there is —
+  came out **ADMISSIBLE**. 0/0 is not "infinitely separated". Fixed with an explicit
+  three-way arm; the fixture of two identical nodes is the regression.
+  🧪 **20 checks, all green; laptop suite 11 → 12 files, all green; `check_makefile.py`
+  green.** The bench regression fixture is built to sit at **ratio 1.00** — within
+  rounding of the 1.12x actually measured — so it guards against reality rather than
+  against an easy case, and 2-of-8 APs different (1.8x) still fails, which shows 2.0x
+  is a real bar. 📌 **`ENTITY_SEP_MARGIN = 2.0` was pre-registered before any geometry
+  satisfying it existed**, and a test asserts the constant so changing it reads as a
+  spec change rather than a tweak.
+  📋 Next, still all solo-buildable: `pose_ceiling`/`dof_pinned` through the position
+  pipeline (and stop anchoring on V4-A), KEY-kind sids, the two render rules.
 
 Keep this section current. It is the first thing the next session reads.
 

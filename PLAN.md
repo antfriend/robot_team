@@ -42,12 +42,14 @@ garden run said RSSI-only ranging is shadowing-limited outdoors.
 🛑 **What changed on 2026-08-11, and it reorders this list.** The multi-tier field
 re-run — item 1 for a month — **is not ready to run as an ablation.** Measured from
 the night-3 archives: two nodes metres apart show a cross-node entity Jaccard
-distance of ~0.125, *smaller than the same node's own ten-minute drift* (p50 0.111,
-p90 0.222). At bench and probably garden separation the entity tier has no signal to
-contribute, so an ablation there would report "the semantic layer adds nothing" as a
-**test-geometry artifact** — and that sentence is the hypothesis's falsifier. Running
-it prematurely would lose the hypothesis for the wrong reason (spec §0.3, §4.3).
-**The separation must be established by measurement first.** That is now item 1.
+distance of **p50 0.250** against the same node's own ten-minute drift of **p90
+0.222 / p95 0.250** — a margin of **~1.1x**, on n=11, against a **pre-registered
+2.0x** requirement. At bench and probably garden separation the tier's contribution
+sits inside a factor of two of its own noise, so an ablation there would report "the
+semantic layer adds nothing" as a **test-geometry artifact** — and that sentence is
+the hypothesis's falsifier. Running it prematurely would lose the hypothesis for the
+wrong reason (spec §0.3, §4.3). **The separation must be established by measurement
+first.** That is now item 1.
 
 So the moves that matter now:
 
@@ -56,7 +58,10 @@ So the moves that matter now:
 These are laptop-side or portable-lib work, native-testable, and every one of them
 is a precondition for an experiment further down. **Committing 0.3 unblocks all four.**
 
-1. **`companion.py entity-separation` — the ablation's gatekeeper (SP0).** Measure
+1. ✅ **DONE 2026-08-11 — `companion.py entity-separation`, the ablation's gatekeeper
+   (SP0).** First verdict on the real pair: **`ABLATION *NOT* ADMISSIBLE`, 1.12x
+   against the pre-registered 2.0x.** 20 checks green; laptop suite 11 → 12 files.
+   *Original scope, kept for the record:* Measure
    cross-node entity Jaccard *between* two nodes and compare it against each node's
    own within-node drift. Reports **admissible / not admissible** for an ablation at
    the current geometry, per spec §4.3's three preconditions. This is the instrument
@@ -597,16 +602,22 @@ with something measured.
       ⚠ **Night 1 remains the constant to design against** — the two nights are not
       independent draws (same 9-BSSID room; per-window set size p50 5 → 8, so most
       of night 3's narrowing is Jaccard *quantisation*, not a quieter bench).
-- [ ] 🆕 **`companion.py entity-separation` — the ablation gatekeeper (spec §4.3).**
+- [x] 🆕 **`companion.py entity-separation` — the ablation gatekeeper (spec §4.3).
+      ✅ BUILT 2026-08-11, 20 checks green, and its first verdict on the real pair is
+      `ABLATION *NOT* ADMISSIBLE` at 1.12x.**
       Cross-node entity Jaccard between two nodes vs. each node's own within-node
       drift → **admissible / not admissible** verdict for an ablation at the current
       geometry, plus the alphabet size the result must be stated with. **This gates
       SP1's entity leg and the whole field re-run.** First measurement already taken
-      by hand (2026-08-11: two nodes metres apart, cross-node distance ~0.125 vs
-      within-node p90 0.222 → **NOT admissible at bench scale**); this item turns
-      that into a repeatable command. ⚠ Wants **two nodes on the measurement build**
-      (`-DENTITYPERCEPT_MAX_RUN=1`) — a folded lane keeps the run's union, which is
-      a different quantity.
+      by hand (2026-08-11: two nodes metres apart, cross-node p50 **0.250** vs
+      within-node p90 **0.222** = **1.1x** against a pre-registered **2.0x** →
+      **NOT admissible at bench scale**); this item turns that into a repeatable
+      command. ⚠ **The two halves need DIFFERENT inputs and the command must not
+      treat them alike:** cross-node separation may use a **folded** lane (each
+      record still itemises its own window in `**ENTITY**`), but the within-node
+      floor may **not** (the suppressed windows are gone). ⚠ Mixing the
+      `**COVERED**` union into a cross-node set **halves the measured distance** —
+      measured, not estimated; it is the error the first hand-run made.
 
 **Done when:** `pull` returns a percept lane with link + entity observations
 from every powered node; verified with a serial dump. Pure plumbing, no inference.

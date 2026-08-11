@@ -2822,6 +2822,198 @@ def entity_drift(path, spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_
         print("  the last M windows) is the alternative to measure next.")
 
 
+ENTITY_SEP_MIN_PAIRS = 10                       # matched cross-node windows
+ENTITY_SEP_MATCH_TOL_S = ENTITY_SCAN_PERIOD_S // 2   # nearest-window matching is only
+                                                     # unambiguous within half a period
+ENTITY_SEP_MARGIN = 2.0
+"""Pre-registered 2026-08-11 (spec 4.3), BEFORE a geometry that satisfies it exists:
+cross-node p50 must clear the still-node p90 by this factor for an ablation to be
+admissible. Below 2x, a difference between two nodes cannot be attributed to distance
+rather than to the tier's own restlessness. Stated first, measured after -- the same
+discipline that made V4-A's fold prediction a test instead of a description."""
+
+
+def _pctl(vals, p):
+    """companion.py's percentile rule (shared with entity_drift)."""
+    return vals[min(len(vals) - 1, int(len(vals) * p))]
+
+
+def within_node_floor(windows, spacing_s=ENTITY_SCAN_PERIOD_S,
+                      tol_s=ENTITY_SPACING_TOL_S):
+    """Consecutive-window Jaccard drift for ONE node: the noise a still node makes
+    against itself. Returns (sorted distances, note) or (None, why-not).
+
+    REFUSES A FOLDED LANE -- and that is deliberately NOT the rule the cross-node half
+    uses. Drift is between CONSECUTIVE WINDOWS; on a folded lane the suppressed windows
+    are gone as sets, so consecutive RECORDS span whole runs. The COVERED union is a
+    different quantity and substituting it here would corrupt the floor.
+    """
+    if entity_lane_is_folded(windows):
+        return None, "lane is FOLDED: consecutive records are not consecutive windows"
+    sets = [set(e["id"] for e in w["entities"]) for w in windows]
+    out = []
+    for i in range(len(windows) - 1):
+        a, b = windows[i], windows[i + 1]
+        if a["t_ms"] is None or b["t_ms"] is None:
+            continue
+        if a["stream"] != b["stream"]:
+            continue
+        if abs((b["t_ms"] - a["t_ms"]) / 1000.0 - spacing_s) > tol_s:
+            continue
+        d = jaccard_distance(sets[i], sets[i + 1])
+        if d is not None:
+            out.append(d)
+    if not out:
+        return None, "no consecutive pairs at the expected cadence"
+    return sorted(out), "%d pair(s)" % len(out)
+
+
+def cross_node_pairs(wa, wb, stream, match_tol_s=ENTITY_SEP_MATCH_TOL_S):
+    """Time-matched Jaccard DISTANCE between two nodes' windows on ONE shared stream.
+
+    Uses each record's OWN window set (`entities`) and NEVER `covered_entities`. A
+    folded record still itemises its own window, so this half IS valid on a folded
+    lane -- but folding the run's union in inflates the overlap and halved the measured
+    distance when it was first done by hand (0.250 -> 0.125, 2026-08-11). The parser's
+    own docstring says to keep them apart; this is the function that must obey it.
+
+    Two nodes' t_ms are comparable only on a SHARED stream -- the clock is
+    elapsed-since-that-stream's-origin, so matching across streams compares two
+    different zeros. Iterates the sparser side so one window is not reused often.
+    Returns (sorted distances, distinct partner windows used).
+    """
+    a = [w for w in wa if w["stream"] == stream and w["t_ms"] is not None]
+    b = [w for w in wb if w["stream"] == stream and w["t_ms"] is not None]
+    if not a or not b:
+        return [], 0
+    if len(a) > len(b):
+        a, b = b, a
+    out, used = [], set()
+    for w in a:
+        m = min(b, key=lambda x: abs(x["t_ms"] - w["t_ms"]))
+        if abs(m["t_ms"] - w["t_ms"]) / 1000.0 > match_tol_s:
+            continue
+        d = jaccard_distance(set(e["id"] for e in w["entities"]),
+                             set(e["id"] for e in m["entities"]))
+        if d is None:
+            continue
+        used.add(m["lane"])
+        out.append(d)
+    return sorted(out), len(used)
+
+
+def entity_separation(path_a, path_b, spacing_s=ENTITY_SCAN_PERIOD_S,
+                      tol_s=ENTITY_SPACING_TOL_S,
+                      match_tol_s=ENTITY_SEP_MATCH_TOL_S,
+                      min_pairs=ENTITY_SEP_MIN_PAIRS, margin=ENTITY_SEP_MARGIN):
+    """THE ABLATION GATEKEEPER (spec 4.3). Is the current geometry one at which the
+    entity tier can contribute anything -- ADMISSIBLE or NOT ADMISSIBLE?
+
+    The hypothesis's falsifier is "the semantic layer adds nothing over plain radio
+    ranging" (spec 0). Run at a separation where two nodes see the same access points,
+    an ablation reports exactly that -- as an artifact of the test geometry. This
+    command exists so that sentence is never recorded as a falsification by accident.
+    """
+    texts = []
+    for p in (path_a, path_b):
+        with open(p, "rb") as f:
+            texts.append(f.read().decode("utf-8", errors="replace"))
+    wa, wb = (parse_entity_percepts(t) for t in texts)
+
+    print("A: %s  (%d @LAT96 window(s))" % (path_a, len(wa)))
+    print("B: %s  (%d @LAT96 window(s))\n" % (path_b, len(wb)))
+    if not wa or not wb:
+        print("REFUSING: one of the lanes has no @LAT96 windows at all.")
+        return
+
+    # -- pick the shared stream with the most windows in both. Outcome-independent:
+    #    distances are never consulted, exactly as longest_stream_segment promises.
+    def counts(ws):
+        c = {}
+        for w in ws:
+            if w["stream"] is not None:
+                c[w["stream"]] = c.get(w["stream"], 0) + 1
+        return c
+    sa, sb = counts(wa), counts(wb)
+    shared = set(sa) & set(sb)
+    stream = max(shared, key=lambda s: min(sa[s], sb[s])) if shared else None
+
+    gates = []
+    pairs, used = ([], 0)
+    if stream is None:
+        gates.append(("time-alignable on one shared stream", False,
+                      "NO SHARED STREAM: t_ms is elapsed-since-origin, so these two "
+                      "lanes have no common zero"))
+    else:
+        pairs, used = cross_node_pairs(wa, wb, stream, match_tol_s)
+        gates.append(("time-alignable on one shared stream", len(pairs) >= min_pairs,
+                      "stream %08x, %d matched pair(s) within %d s (need %d); %d "
+                      "distinct partner window(s)"
+                      % (stream, len(pairs), match_tol_s, min_pairs, used)))
+
+    # -- the still-node floor. Cross-node may read a folded lane; this may not.
+    floors, floor_notes = {}, []
+    for name, w in (("A", wa), ("B", wb)):
+        f, note = within_node_floor(w, spacing_s, tol_s)
+        floor_notes.append("%s: %s" % (name, note))
+        if f:
+            floors[name] = f
+    floor_p90 = max(_pctl(f, .90) for f in floors.values()) if floors else None
+    gates.append(("a still-node floor exists (unfolded lane)", bool(floors),
+                  "; ".join(floor_notes)))
+
+    cross_p50 = _pctl(pairs, .50) if pairs else None
+    if cross_p50 is not None and floor_p90 is not None:
+        # A zero floor must NOT make the ratio infinite: 0/0 is "two nodes that see
+        # exactly the same thing, in a room that never changes", which is the LEAST
+        # separated geometry there is, not the most. Caught by the fixture of two
+        # identical lanes, which this arm previously declared ADMISSIBLE.
+        if floor_p90 > 0:
+            ratio = cross_p50 / floor_p90
+        elif cross_p50 > 0:
+            ratio = float("inf")
+        else:
+            ratio = 0.0
+        gates.append(("separation clears the floor by %.1fx" % margin,
+                      ratio >= margin,
+                      "cross-node p50 %.3f vs still-node p90 %.3f = %.2fx"
+                      % (cross_p50, floor_p90, ratio)))
+    else:
+        ratio = None
+        gates.append(("separation clears the floor by %.1fx" % margin, False,
+                      "not computable without both halves"))
+
+    print("preconditions (spec 4.3; margin %.1fx pre-registered 2026-08-11):" % margin)
+    for name, ok, detail in gates:
+        print("  [%s] %-42s %s" % ("PASS" if ok else "FAIL", name, detail))
+    ok = all(g[1] for g in gates)
+
+    alphabet = set()
+    for w in wa + wb:
+        alphabet |= set(e["id"] for e in w["entities"])
+    print("\nBSSID alphabet across both nodes: %d" % len(alphabet))
+    if pairs:
+        print("cross-node Jaccard DISTANCE, n=%d: min %.3f  p50 %.3f  p90 %.3f  max %.3f"
+              % (len(pairs), pairs[0], _pctl(pairs, .50), _pctl(pairs, .90), pairs[-1]))
+    for name, f in sorted(floors.items()):
+        print("still-node floor %s, n=%d: p50 %.3f  p90 %.3f  max %.3f"
+              % (name, len(f), _pctl(f, .50), _pctl(f, .90), f[-1]))
+
+    print("\nVERDICT: %s" % ("ABLATION ADMISSIBLE at this geometry" if ok
+                             else "ABLATION *NOT* ADMISSIBLE at this geometry"))
+    if not ok:
+        print("  Do NOT run the entity leg of the spec 4.3 ablation here. A null result")
+        print("  would say 'the semantic layer adds nothing' -- the hypothesis's own")
+        print("  falsifier -- when what it measured was the test geometry. Move the")
+        print("  nodes apart and re-measure; the tier's resolution is ~50-100 m.")
+    else:
+        print("  State WITH the result: the separation, the %d-BSSID alphabet, and the"
+              % len(alphabet))
+        print("  %.2fx margin. A tier result without its alphabet size is as incomplete"
+              % (ratio if ratio else 0.0))
+        print("  as an RSSI result without its terrain.")
+
+
 def entity_jaccard_bound(jaccard):
     """Map a Jaccard overlap in [0,1] to a coarse distance BOUND in metres, or
     None when the sets are disjoint (no bound — they may be anywhere). This is an
@@ -4318,6 +4510,26 @@ def main():
                     help="print the distribution even if the gates fail — for looking, "
                          "NEVER for deriving a threshold")
 
+    es = sub.add_parser(
+        "entity-separation",
+        help="THE ABLATION GATEKEEPER (spec 4.3): can the entity tier tell these two "
+             "nodes apart at the current geometry? ADMISSIBLE / NOT ADMISSIBLE")
+    es.add_argument("--file", required=True, action="append", dest="files",
+                    metavar="TTDB",
+                    help="a pulled TTDB; pass --file twice, once per node")
+    es.add_argument("--spacing", type=int, default=ENTITY_SCAN_PERIOD_S,
+                    help="expected seconds between scans (WIFI_SCAN_PERIOD_MS/1000)")
+    es.add_argument("--tol", type=int, default=ENTITY_SPACING_TOL_S,
+                    help="spacing tolerance for the WITHIN-node floor")
+    es.add_argument("--match-tol", type=int, default=ENTITY_SEP_MATCH_TOL_S,
+                    help="how close in time two nodes' windows must be to count as "
+                         "simultaneous (default half a scan period, beyond which "
+                         "nearest-window matching stops being unambiguous)")
+    es.add_argument("--min-pairs", type=int, default=ENTITY_SEP_MIN_PAIRS)
+    es.add_argument("--margin", type=float, default=ENTITY_SEP_MARGIN,
+                    help="required cross-node p50 / still-node p90 ratio; the default "
+                         "was pre-registered before a geometry satisfying it existed")
+
     ec = sub.add_parser(
         "entities",
         help="pull + print a node's entity-percept windows (@LAT96 WiFi APs, SP0)")
@@ -4507,6 +4719,12 @@ def main():
     elif args.cmd == "entity-drift":
         entity_drift(args.file, args.spacing, args.tol, args.min_pairs, args.force,
                      args.segment)
+    elif args.cmd == "entity-separation":
+        if len(args.files) != 2:
+            sys.exit("entity-separation needs exactly two --file arguments (one per "
+                     "node); separation is a relation, not a property")
+        entity_separation(args.files[0], args.files[1], args.spacing, args.tol,
+                          args.match_tol, args.min_pairs, args.margin)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":

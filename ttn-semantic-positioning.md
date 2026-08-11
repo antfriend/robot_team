@@ -101,27 +101,41 @@ hypothesis fails, and this document records why.
 
 🛑 **NEW IN 0.3 — THE FALSIFIER HAS A FALSE-POSITIVE MODE, AND THE FLEET IS
 CURRENTLY SITTING IN IT.** Measured 2026-08-11 from the night-3 archives, two nodes
-a few metres apart on the same bench, all night:
+a few metres apart on the same bench, all night (**corrected same day — see the
+box below**):
 
 ```
-cross-node entity overlap (V4-A vs Cardputer)  p50 0.875  min 0.750  max 1.000
-  -> Jaccard DISTANCE between two different nodes:   ~0.125
-same-node drift, 10 min apart (night 3, n=31)  p50 0.111  p90 0.222  max 0.375
+cross-node entity DISTANCE (V4-A vs Cardputer, n=11)  min 0.125  p50 0.250  max 0.250
+same-node drift, 10 min apart (night 3, n=31)         p50 0.111  p90 0.222  max 0.375
+                                                                 p95 0.250
 ```
 
-**The between-node signal is smaller than the within-node noise.** At this bench's
-AP density the entity tier cannot distinguish *two different nodes* from *one node
-at two different times*. Run §4.3's ablation here and it will report — correctly,
-and uselessly — that the semantic layer adds nothing.
+**A typical between-node difference lands on the still node's p95 — margin over p90
+is ~1.1x.** So the entity tier *can* barely tell these two nodes apart at bench
+separation, but not by enough to attribute anything to distance: an ablation run
+here would be reading its own noise. Run §4.3's ablation at this geometry and it
+will report — uselessly — that the semantic layer adds nothing.
 
 **That would be a test-geometry artifact, not a result about the tier**, and
 recording it as a falsification would lose the hypothesis for the wrong reason.
 §4.3 is therefore amended to require a **stated separation** at which the entity
-sets measurably differ, established *before* the ablation runs.
-⚠ Caveat carried honestly: V4-A ran the folding build, so its sets are run-unions
-and the overlap is biased **upward** — the true figure is likely lower, which
-strengthens the conclusion rather than weakening it. The clean measurement needs two
-nodes on `-DENTITYPERCEPT_MAX_RUN=1` simultaneously and is listed in PLAN.md SP0.
+sets measurably differ, established *before* the ablation runs, with a
+**pre-registered margin of 2.0x** over the still-node floor (§4.3).
+
+> 📌 **CORRECTION, 2026-08-11, same day: the first draft of this box said the
+> between-node signal was *smaller* than the within-node noise (distance ~0.125),
+> and blamed an upward overlap bias from V4-A's folding build that it claimed made
+> the conclusion safer. Both halves were wrong.** A folded record still itemises
+> **its own** window in `**ENTITY**` lines — only the *suppressed* windows are gone
+> — so per-window sets were available for V4-A all along. Including the
+> `**COVERED**` union inflated the overlap and **halved** the measured distance
+> (0.250 → 0.125), and the bias runs toward *understating* separation, i.e. toward
+> the "not admissible" verdict rather than away from it. **The verdict is unchanged
+> and the reasoning is not.** Rule that falls out, and it is the instrument's design:
+> **for CROSS-NODE separation use each record's own window set (valid on a folded
+> lane); for WITHIN-NODE drift a folded lane is unusable (the suppressed windows are
+> gone).** The two measurements have different input requirements and one command
+> must not treat them alike.
 
 ---
 
@@ -577,22 +591,30 @@ different screens from the same TTDB.*
 
    🛑 **AMENDED IN 0.3 — THE ABLATION HAS A PRECONDITION, AND RUNNING IT WITHOUT
    THAT PRECONDITION FALSIFIES THE HYPOTHESIS FOR THE WRONG REASON.** Per §0.3, two
-   nodes metres apart show a cross-node Jaccard distance (~0.125) **smaller than the
-   same node's own ten-minute drift** (p50 0.111, p90 0.222). At bench separation
-   the entity tier has no signal to contribute, so the ablation would be measuring
-   the geometry rather than the tier.
+   nodes metres apart show a cross-node Jaccard distance of **p50 0.250** against
+   the same node's own ten-minute drift of **p90 0.222 / p95 0.250** — a margin of
+   **~1.1x**, on n=11. At bench separation the tier's contribution is inside a
+   factor of two of its own noise, so the ablation would be measuring the geometry
+   rather than the tier.
 
-   **Preconditions, all three required before an ablation result is admissible:**
+   **Preconditions, all four required before an ablation result is admissible:**
    - **a stated separation** at which the nodes' entity sets measurably differ,
      established by measurement *before* the ablation runs — the entity tier's
      resolution is ~50–100 m (§1.1), so bench scale and probably garden scale are
      both inside its blind spot;
+   - **a margin of ≥ 2.0x** of cross-node p50 over the still-node p90. Pre-registered
+     here, before the geometry that will satisfy it exists. Below 2x, a difference
+     cannot be attributed to distance rather than to the tier's own restlessness;
    - **the alphabet size stated** with the result (this bench: ~10 BSSIDs), exactly
      as an RSSI result must state its terrain;
-   - **per-window sets, not folded ones** — the folding build keeps the run's
-     union, which is a different quantity on purpose.
+   - **the right input for each half**, which is *not* the same input:
+     **cross-node separation** may use a folded lane (each record still itemises its
+     own window in `**ENTITY**`), but the **within-node floor** may not (the
+     suppressed windows are gone, and the `**COVERED**` union is a different
+     quantity). ⚠ Mixing the covered union into a cross-node set **halves the
+     measured distance** — measured, not estimated (§0.3's correction box).
 
-   ⚠ **A null result that does not meet all three is a statement about the test,
+   ⚠ **A null result that does not meet all four is a statement about the test,
    not about the hypothesis, and must be recorded as such.**
 4. **Stress test:** move V4-C 50 m and measure how many Dream Cycles until the map catches up — on both TTCP renders.
 
