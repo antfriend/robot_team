@@ -5238,6 +5238,155 @@ If a fact lives in one of these, link to it from here — don't copy it.
   or COM14 during the night: every `companion.py` call resets the board, restarts V4-A's run
   and fragments the stream — which is exactly how nights 1 and 2 were lost.
 
+- ✅ **2026-08-11 — NIGHT 3 PASSED ALL FOUR GATES. THE SECOND MEASUREMENT EXISTS, `n`/`m` IS
+  VALIDATED — AND THE CONSTANT THAT MADE IT LOSSLESS IS NOT THE ONE THE DESIGN NOTE
+  CREDITED.** One pull on the Cardputer's own cable at COM14 (110 220 B, 260 records; the
+  pre-run file was 65 781 B, so the night wrote ~44 KB), then
+  `entity-drift --file master/entity-baseline/cardputer_baseline_night3.md --segment`:
+  ```
+  SEGMENT: longest contiguous single-stream run = stream b4347c09, 35 of 48 window(s)
+    [PASS] one stream id                              35 window(s), 1 stream(s)
+    [PASS] t_ms monotonic                             0 backwards step(s)
+    [PASS] @LAT95 witnesses stillness, same timeline  14 motion records, 0 moving,
+                                                      100% span covered, timeline match
+    [PASS] pairs at 600+/-120 s spacing               31 kept, 3 off-cadence (need 30)
+  AP set size per window: min 5  p50 8  max 9
+  drift, node still, n=31: min 0.000 p50 0.111 p75 0.125 p90 0.222 p95 0.250 max 0.375
+  ```
+  The segment runs `t_ms` 60 s → 5.52 h. It cleared the length gate **by one pair and about
+  twenty minutes** — night 3 was not comfortable, it was sufficient.
+
+  ⚠ **THE TWO NIGHTS ARE NOT INDEPENDENT DRAWS, AND THE TIGHTER NUMBER IS MOSTLY
+  QUANTISATION.** The alphabet is the *same room*: **9 of night 3's 9 BSSIDs are among night
+  1's 10**. What moved is how much of it each window saw — per-window set size **p50 5 →
+  8**. One AP flickering moves Jaccard by ~0.2 at set size 5 and ~0.125 at 8, so night 3's
+  narrower distribution (p90 **0.222** vs night 1's **0.375**) largely reflects a bigger
+  denominator, not a quieter bench. 🎯 **What transfers is the claim that matters and it
+  transfers in the safe direction:** the still-node floor sits far below any usable threshold
+  on both nights (4.5× headroom here), and **night 1 remains the conservative baseline to
+  design against** — a second night did not licence a tighter constant, which is the outcome
+  a second night is *for*. ❓ Unexplained: why a still node on the same bench saw 8 of 9 APs
+  per window in August 11's run and 5 of 10 in August 6's. Not a firmware difference in the
+  scan; left open rather than guessed at.
+
+  ✅ **`n`/`m` VALIDATED — the shipped `core 3-of-5, MAX_RUN 6, MAX_UNION 16` preserves the
+  union EXACTLY on night 3, as it did on night 1.** Over the 35-window segment: **8 records,
+  4.38× compression** (inside the 3.7–4.6× the simulation predicted), 27 windows folded,
+  **global loss 0 BSSIDs**.
+  ⚠ **But the reasons are `first=1 changed=2 heartbeat=5`, and that inverts the stated
+  rationale.** `ENTITYPERCEPT_MAX_RUN` was set to 6 so that "the heartbeat almost never binds
+  — the compression comes from the part that can be reasoned about." On night 3 the stable
+  core changed **twice in 5.5 hours** and the heartbeat wrote **5 of the 8 records**. The cap
+  is not the freshness backstop here; it is the lane's author.
+  🎯 **And it is also what makes 3-of-5 lossless — the cap chosen as a freshness bound turned
+  out to be the correctness bound.** The *cap-free* core trigger at 3-of-5 loses **1 BSSID
+  (11.1 % of the union)** on night 3 where it lost nothing on night 1; the forced write at
+  run length 6 is what rescues it. 📎 **2-of-3 is the only `n/m` with zero cap-free loss on
+  BOTH gate-passing nights** (and the least on night 2: 9.1 % vs 3-of-5's 27.3 %), at 3.73×/
+  5.83× against 3-of-5's 4.56×/11.67×. So the ranking is: 3-of-5 compresses more and is safe
+  *because of* `MAX_RUN`; 2-of-3 is safe on its own. **Anyone who later raises `MAX_RUN` for
+  compression must move to 2-of-3 in the same commit**, or they remove the net without
+  noticing it was one.
+
+  ✅ **`**COVERED-ENTITY**` IS LOAD-BEARING ON REAL DATA FOR THE FIRST TIME.** Night 1's
+  archive could not test it — `lat96_predict.py` says so itself and refuses to call a clean
+  run a pass ("it only fails to contradict it"). Night 3 contradicts nothing and *exercises*
+  it: **2 of the 8 records carry an AP their own window does not itemise** — window 21
+  (`18a5ffbae2d6`, `5ce28c488e0c`) and window 33 (`5ce28c488e0c`). Since `_entity_set` unions
+  over *recent* windows, a proximity bound computed across that interval would be short a
+  BSSID without those lines. The offline design decision (carry the union, 2026-08-10) is now
+  backed by a night on which it did something.
+
+  ⚠ **THE RUN FRAGMENTED AGAIN, AND THE WITNESS LANE WAS FULL WHEN IT HAPPENED.** 48 windows
+  across **three** streams: one pre-run residue window (`95cc309e`, same stream as the
+  `lane:96` prune marker — correctly outside the segment), the 35-window run (`b4347c09`),
+  then at **+5.52 h the fleet moved to a fresh stream** (`c49e1cd4`, the Cardputer's first
+  window on it at `t_ms 188106`). ⚠ **The obvious reading — "V4-A did not hold the timeline"
+  — is WRONG, and V4-A's own `@LAT90` disproves it; see the entry below.** 🛑 And the
+  Cardputer's `@LAT90` is **full at 16/16**, so *nothing was written about
+  it*: tonight's timeline change is legible only from the `stream:` stamps on `@LAT96`. **The
+  lane whose job is to witness timeline changes could not witness the one event we now want
+  explained** — the first time the unexamined refusal-on-full policy has cost a diagnostic
+  rather than a record. That policy now has a case attached to it.
+  📋 **The stop rule needs one word of repair, not a re-run.** As written it says an id change
+  "during the window" voids the baseline; as *applied* (night 1, 41 of 48, two streams; night
+  3, 35 of 48, three) the gates read the **segment**, and the segment is selected
+  outcome-independently. Scope the clause to the segment explicitly, or it retroactively voids
+  night 1 too.
+
+  📊 **Lane state after the run** (and the budget is intact): `@LAT96` **48/48 — FULL, so the
+  run was cap-limited at the 8.0 h ceiling, not night-limited**; `@LAT95` **29/30 — one
+  record from full**, i.e. gate 3 cleared with nothing to spare and the corrected runbook's
+  late decision to prune lane 95 as well was load-bearing, exactly as it claimed; `@LAT100`
+  **30/32 — two markers left, unchanged** (the run itself cost none); `@LAT90` 16/16,
+  `@LAT94` 48/48, `@LAT97` 48/48.
+  📋 **Next: pull V4-A** (done same morning — see below), then **the flash-order interlock is
+  DISCHARGED**: night 3 is banked, so the Cardputer can come off `-DENTITYPERCEPT_MAX_RUN=1`
+  onto the default build and the fold can be confirmed on the node that is also the instrument.
+
+- ✅ **2026-08-11 — V4-A's PRE-REGISTERED PREDICTION LANDED, THE FOLD IS PROVEN LOSSY WITHOUT
+  ITS COVERED UNION *ON FLASH*, AND V4-A's `@LAT90` OVERTURNS THIS MORNING'S DIAGNOSIS OF THE
+  REBOOT.** Pulled on its own cable (COM6, 42 272 B, 92 records) after identifying the board
+  by app image: **exactly one banner, `V4-A bridge`**, with `@LAT96 lane FULL` present (build
+  ≥ 2026-08-10) and `MEASUREMENT BUILD` **absent** — i.e. the real folding `MAX_RUN 6` build,
+  confirmed rather than assumed. ⚠ Two operational notes for the identify step: `flash-id`
+  pre-filtered it in 3 s (**16 MB**, MAC `8c:fd:49:b7:ac:f4` — neither handheld), the
+  `0x80000 @ 460800` read **failed at 16 % with the documented `Corrupt data` error**, and
+  `0x40000 @ 230400` completed in 11.8 s and carried every string. Halve and halve again
+  works. 📎 **`strings` is not installed on this machine** — the first grep returned silence
+  that looked like "no banners", the one result CLAUDE.md calls the real alarm. Search the
+  image bytes from Python instead.
+
+  📊 **The scorecard against the prediction registered 2026-08-10** (16 records / 48 windows =
+  3.00×, `first=1 changed=11 heartbeat=4`), actual **20 records / 63 windows = 3.15×**,
+  `first=4 changed=11 heartbeat=5`:
+  🎯 **`changed=11` is EXACT — and `changed` is the only count that is a claim about the
+  mechanism.** `first` went 1 → 4 because the prediction assumed one unbroken run and the
+  night delivered four boots (one record per run-open); `heartbeat` 4 → 5 and the window count
+  48 → 63 because V4-A ran ~10.5 h, not 8. Every deviation is a difference in the *run*, not
+  in the algorithm, and the compression came out at 3.15× against 3.00× predicted.
+  🎯 **The fold's headline, same fleet and same night:** the measurement build filled `@LAT96`
+  to **48/48 and stopped at the 8 h cap**, while the folding build sat at **20/48 after
+  10.5 h**. That is the lane-life claim demonstrated side by side rather than simulated.
+
+  ✅ **`**COVERED-ENTITY**` IS NOT A PRECAUTION — IT PREVENTED REAL LOSS, ON HARDWARE, FROM
+  FIRMWARE THAT ACTUALLY FOLDED.** **10 of 20 records** carry an AP their own window does not
+  itemise, and per stream the written-only union versus the union with the covered block is
+  **7 vs 9**, **8 vs 9**, **9 vs 9** — so a fold *without* the covered union would have
+  permanently dropped **`5ce28c488e0c`** and **`acdf9f4ca21c`** from exactly the quantity
+  `_entity_set` computes. Night 1's archive could only fail to contradict the property; the
+  Cardputer showed it in simulation; V4-A shows it on flash. The offline design call of
+  2026-08-10 is now paid for.
+
+  ⚠ **CORRECTION TO THE ENTRY ABOVE — THE REBOOT WAS COMMON-MODE, AND "KEEP A PEER POWERED"
+  DOES NOT COVER IT.** V4-A's `@LAT90` carries `**STREAM-ORIGIN** stream:0xb4347c09 … from:0x10`
+  **and** `**STREAM-ORIGIN** stream:0xc49e1cd4 … from:0x10`: **V4-A originated both streams
+  itself**, and the Cardputer adopted the second. Under *older stream wins* a Cardputer still
+  holding `b4347c09` at 5.5 h elapsed could **never** adopt a stream stamped `t_ms:0` — so it
+  had lost `b4347c09` too. **Both boards reset together at +5.52 h**, which is the same
+  signature as the 2026-08-06 failure and this time **cannot be the laptop's USB host: both
+  were on wall chargers with no host attached.** Cause open — a shared outlet or mains event
+  is the obvious candidate and is untested. 🎯 The lesson from night 2 (*a powered peer is
+  apparatus, not a spare*) is unchanged but **insufficient**: a second powered node protects
+  against one node rebooting, not against the power domain they share. Splitting the two
+  boards across separate outlets costs nothing and is the next run's cheapest change.
+  🛑 **AND THE WITNESS IS ALMOST OUT OF ROOM: V4-A's `@LAT90` is now 13/16**, having written
+  4 records across this run. It is the fleet's **only** timeline witness (the Cardputer's is
+  full at 16/16), and it is the sole reason the paragraph above could be written instead of
+  guessed. **Prune it before the next run** — `cmd --op clear-percepts --lane 90` costs **1**
+  of V4-A's `@LAT100` markers and V4-A has **23** free, so this is cheap for the one node
+  where it is cheap. A fourth night with both witnesses full is a night that cannot be
+  diagnosed if it fails.
+  ✅ **DONE the same morning, ACK on attempt 1, and verified by re-pull rather than by the
+  ACK** ([[band-play-ack-false-negative]] is why): `@LAT90` **13 → 1**, boundary
+  `**LANE-PRUNED** lane:90 gen:3 removed:14 last_lon:13`, `@LAT100` **9 → 10 — exactly one
+  marker, 22 free**. 📎 `removed:14` against the 13 records read minutes earlier is not a
+  discrepancy: `pull` resets the board on port open, so the reboot wrote a 14th timeline
+  record before the prune arrived. **The witness is empty and the fleet can diagnose the next
+  run.** 📎 The single record now in the lane is a `STREAM-RECONCILED … from:0x300`, so the
+  Cardputer is still powered and on the mesh with V4-A unplugged from it — worth knowing
+  before assuming an unplugged board is an absent one.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

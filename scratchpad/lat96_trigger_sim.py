@@ -21,6 +21,7 @@ import companion as C
 PATHS = [
     ("night 1 (GATES PASSED)", "master/entity-baseline/cardputer_baseline_2026-08-06.md"),
     ("night 2 (cancelled)",    "master/entity-baseline/cardputer_night2_cancelled.md"),
+    ("night 3 (GATES PASSED)", "master/entity-baseline/cardputer_baseline_night3.md"),
 ]
 
 
