@@ -5584,6 +5584,43 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📋 Next and last of the solo-buildable four: the two render rules on the laptop leg
   (faded-not-absent; never draw `pose_ceiling: 0` as a confident map).
 
+- ✅ **2026-08-11 — THE TWO RENDER RULES ARE ON THE LAPTOP LEG, AND RULE 1 TURNED OUT TO
+  BE UNSATISFIABLE ON THE OLD OUTPUT RATHER THAN MERELY UNSTATED.** Solo-buildable item
+  4 of 4 — **all four are now done, none needed a cable.**
+  🐛 **The defect: `fleetmap` stamped every record `created:1750000000` — a frozen
+  constant.** A belief from six weeks ago and one from a minute ago were byte-identical
+  downstream, so **nothing could render decay at all**. "A faded trace must render as
+  faded" is not a styling note when the emitted data has no date in it: *a renderer
+  cannot fade what it cannot date.* Each record now carries its own `touched`-derived
+  stamp and `age_s`.
+  ⚠ **No staleness threshold was invented, deliberately.** There is no measured cadence
+  for these beliefs to justify one, and a made-up cut-off is the same unearned constant
+  Draft 0.3 spent the day removing. Emit the age; let fading be continuous. An **undated**
+  belief still renders and is marked `UNDATED` — absent is the one thing it must not be.
+  ✅ **Rule 2:** every record carries `pose_ceiling: N of 4` + `dof_pinned` and
+  `render: SHAPE_NOT_MAP` while any DoF is free; the globe carries `fleet_pose_ceiling`
+  = the **minimum** across nodes, because pose is a property of the *frame*, not of one
+  record. `render: MAP` appears only when all four are pinned — the rule is not "always
+  refuse". ⚠ A record with **no** `pose_ceiling` defaults to **0**: a pre-0.3 record is
+  exactly one with no GPS tie behind it, so the fail-safe direction is to under-claim.
+  🛑 **SP6 IS NOT CLOSED, AND THE GAP IS NOW SHARPER THAN BEFORE.** The T-Deck's globe
+  (`firmware/tdeck_console/data/ttdb.md`, regenerated, **unflashed**) says
+  `render: SHAPE_NOT_MAP` — and the firmware **ignores it**, drawing the same confident
+  map it always did. A render that states a caveat and then contradicts it is worse than
+  one that never stated it. New SP6-T item logged: draw the shape, fade by `age_s`,
+  never drop a stale node.
+  🧪 **26 checks in `tests/test_render_py.py`; laptop suite 14 → 15 files, all green;
+  `check_makefile.py` green.** Two of its assertions were wrong first time and both are
+  worth the note: one hand-computed epoch (replaced with a `time.gmtime` **round-trip**,
+  which is the real claim anyway), and `text.count("pose_ceiling: 0 of 4")` — which
+  silently counted the **`fleet_pose_ceiling`** banner as a third record. Same
+  needle-collision family as `prev_stream:` in `@LAT90` and `**COVERED-SPAN**` in
+  `@LAT92`; the fix is a line-anchored regex.
+  📋 **The four solo-buildable items are done. What remains needs hardware:** the SP6-T
+  firmware half above; the reboot experiment (staggered power-on, third node on battery);
+  a second mic-equipped node for TDoA; and the separation walk that would make the
+  ablation admissible.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

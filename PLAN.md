@@ -100,7 +100,26 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    A living belief must keep its name across revisions or Phase 4 breaks its own
    edges. `@LAT91` already does this; recompute-from-key on the laptop side is the
    pattern to copy.
-4. **The two render rules on the laptop leg (SP6).** Faded-not-absent, and never
+4. ✅ **DONE 2026-08-11 — the two render rules on the laptop leg (SP6).**
+   🐛 **Rule 1 had a concrete defect: `fleetmap` stamped every record
+   `created:1750000000`, a frozen constant** — so a belief from six weeks ago and one
+   from a minute ago were byte-identical downstream and **nothing could render decay at
+   all**. A renderer cannot fade what it cannot date. Each record now carries its own
+   `touched`-derived stamp plus `age_s`. ⚠ **No staleness threshold was invented**:
+   there is no measured cadence to justify one, so the age is emitted and fading is
+   continuous. An undated belief still renders, marked `UNDATED` — absent is the one
+   thing it must not be.
+   ✅ **Rule 2:** every record carries `pose_ceiling: N of 4` + `dof_pinned`, and
+   `render: SHAPE_NOT_MAP` while any DoF is free; the globe carries a
+   `fleet_pose_ceiling` equal to the **minimum** across nodes (pose is a property of
+   the frame, not of one record). `render: MAP` appears only when all four are pinned.
+   ⚠ A record with **no** `pose_ceiling` defaults to **0**, not "assume fine" — a
+   pre-0.3 record is exactly one with no GPS tie behind it.
+   26 checks in `tests/test_render_py.py`; laptop suite 14 → 15 files.
+   🛑 **BUT SEE THE NEW SP6-T ITEM: the T-Deck firmware IGNORES these fields.** The
+   laptop now emits what the rules require; the device does not yet obey them, so SP6
+   is **not** closed.
+   *Original scope, kept for the record:* Faded-not-absent, and never
    draw `pose_ceiling: 0` as a confident map. Cheap now, and it stops the payoff
    render being the place the dishonesty lands.
 
@@ -854,6 +873,19 @@ delivery dies and returns when back in range — zero manual transport config.
 
 ## SP6 — TTCP rendering (proof leg 3: the payoff render, the end goal)
 
+- [x] ✅ **Laptop half DONE 2026-08-11.** `fleetmap` now emits per-record `age_s` from
+      each belief's own `touched` (it used to stamp a **frozen** `created:1750000000`,
+      so nothing downstream could render decay), plus `pose_ceiling: N of 4`,
+      `dof_pinned`, and `render: SHAPE_NOT_MAP` / `render: MAP`. The globe carries a
+      `fleet_pose_ceiling` = **min** across nodes. 26 checks in `test_render_py.py`.
+- [ ] 🛑 **SP6-T FIRMWARE OWES THE OTHER HALF — the T-Deck IGNORES these fields today.**
+      The globe it carries now says `render: SHAPE_NOT_MAP` and the renderer draws the
+      same confident map it always did, which is *precisely* the failure rule 2 names.
+      Needed on-device: (a) draw an unpinned frame as a **shape** — no absolute claim,
+      and show which DoF are pinned and by whom; (b) **fade by `age_s`** rather than
+      drawing every node at full strength; (c) never drop a node for being stale.
+      ⚠ Until this lands, **SP6 is not closed** — the laptop states the caveat and the
+      payoff render still contradicts it, which is worse than either alone.
 - [ ] 🆕 **TWO NORMATIVE RENDER RULES (spec §3 Phase 6).** Both are the same
       principle — *if a view can show less than the whole truth, it must say so on
       screen* — which this fleet has already paid to learn twice.

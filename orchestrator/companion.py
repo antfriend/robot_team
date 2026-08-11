@@ -16,6 +16,7 @@ Usage:
 Requires: pyserial  (pip install -r requirements.txt)
 """
 import argparse
+import calendar
 import hashlib
 import hmac
 import math
@@ -4444,9 +4445,29 @@ def _parse_positions_full(path):
         def g(key):
             mm = re.search(rf"{key}:\s*(-?[\d.]+)", chunk)
             return float(mm.group(1)) if mm else 0.0
+
+        # pose_ceiling defaults to 0, NOT to "unknown-so-assume-fine": a pre-0.3 record
+        # that predates the field is a record with no GPS tie behind it, and rendering
+        # it as a confident map is the failure spec 3 Phase 6 rule 2 names.
+        m_pose = re.search(r"pose_ceiling:\s*(\d+)", chunk)
+        m_dof = re.search(r"dof_pinned:\s*\{([^}]*)\}", chunk)
+        m_touch = re.search(r"touched:\s*(\S+)", chunk)
         nodes[m.group(1)] = {"x_m": g("x_m"), "y_m": g("y_m"),
-                             "sigma_m": g("sigma_m"), "conf": g("conf")}
+                             "sigma_m": g("sigma_m"), "conf": g("conf"),
+                             "pose_ceiling": int(m_pose.group(1)) if m_pose else 0,
+                             "dof_pinned": m_dof.group(1).strip() if m_dof else None,
+                             "touched": m_touch.group(1) if m_touch else None}
     return nodes
+
+
+def iso_to_unix(iso):
+    """'2026-08-11T15:55:40Z' -> unix seconds, or None if it will not parse."""
+    if not iso:
+        return None
+    try:
+        return int(calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")))
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_proximity(path):
@@ -4489,7 +4510,17 @@ def fleetmap(positions_path, proximity_path, out):
         sys.exit(f"no @BELIEF:POSITION in {positions_path} — run `positions` first")
     edges = _parse_proximity(proximity_path)
     coord = _fleet_coords(nodes)
-    ts = 1750000000
+    # RENDER RULE 1 (spec 3 Phase 6, TTDB-RFC-0010 6.4): a faded trace renders as FADED,
+    # never as absent. This line used to be `ts = 1750000000` -- a frozen constant
+    # stamped onto every record, so a belief from six weeks ago and one from a minute
+    # ago were indistinguishable downstream and NOTHING could render decay. A renderer
+    # cannot fade what it cannot date. Each record now carries its own `touched`.
+    #
+    # No staleness THRESHOLD is invented here on purpose: there is no measured cadence
+    # for these beliefs to justify one, and a made-up cut-off would be exactly the kind
+    # of unearned constant 0.3 spent the day removing. Emit the age; let the renderer
+    # fade continuously.
+    fallback_ts = int(time.time())
     anchor_node = "v4a_bridge" if "v4a_bridge" in coord else next(iter(coord))
     alat, alon = coord[anchor_node]
 
@@ -4518,7 +4549,19 @@ librarian:
   enabled: false
   primitive_queries: []
 ```
-""", f"\n```cursor\nlat: {alat}\nlon: {alon}\n```\n"]
+"""]
+    # Rule 2, stated ONCE for the whole globe as well as per record: pose is a property
+    # of the frame, so the weakest node's ceiling is the map's ceiling. A reader that
+    # honours only this banner still cannot draw a confident map from an unpinned frame.
+    fleet_pose = min((p["pose_ceiling"] for p in nodes.values()), default=0)
+    parts.append(
+        f"\nfleet_pose_ceiling: {fleet_pose} of {POSE_DOF_TOTAL}\n"
+        + ("render: SHAPE_NOT_MAP   # unpinned degrees of freedom remain -- this is a\n"
+           "#   SHAPE. Its edge lengths are claims; its placement and handedness are not.\n"
+           "#   Draw it as a shape and say which DoF are pinned (spec 3 Phase 6 rule 2).\n"
+           if fleet_pose < POSE_DOF_TOTAL else
+           "render: MAP   # all four DoF pinned by GPS ties\n"))
+    parts.append(f"\n```cursor\nlat: {alat}\nlon: {alon}\n```\n")
 
     for name, p in nodes.items():
         lat, lon = coord[name]
@@ -4530,12 +4573,25 @@ librarian:
                     olat, olon = coord[other]
                     rel.append(f"{e['proto']}@LAT{olat}LON{olon}")
         relates = "relates:" + ",".join(rel)
+        ts = iso_to_unix(p.get("touched")) or fallback_ts
+        age_s = max(0, fallback_ts - ts)
         parts.append("\n---\n")
         parts.append(f"\n@LAT{lat}LON{lon} | created:{ts} | updated:{ts} | {relates}\n")
         parts.append(f"\n**POSITION** node:{name}\n")
         parts.append(f"name: {FLEET_FRIENDLY.get(name, name)}\n")
         parts.append(f"x_m: {p['x_m']:.2f}  y_m: {p['y_m']:.2f}\n")
         parts.append(f"sigma_m: {p['sigma_m']:.2f}   conf: {p['conf']:.2f}\n")
+        # Rule 1: the age travels with the record so the device can fade it.
+        parts.append(f"age_s: {age_s}   # since this belief was last touched\n")
+        # RENDER RULE 2 (spec 3 Phase 6): the pose renders its own ambiguity. With
+        # pose_ceiling 0 the shape is right and the map is one of infinitely many
+        # placements; drawing it as a map is the same class of lie as rule 1.
+        parts.append(f"pose_ceiling: {p['pose_ceiling']} of {POSE_DOF_TOTAL}\n")
+        if p.get("dof_pinned"):
+            parts.append(f"dof_pinned: {{ {p['dof_pinned']} }}\n")
+        if p["pose_ceiling"] < POSE_DOF_TOTAL:
+            parts.append("render: SHAPE_NOT_MAP   # unpinned DoF remain; "
+                         "draw the shape, not a location\n")
         for pair, e in edges.items():
             if name in pair:
                 other = next(n for n in pair if n != name)
@@ -4546,10 +4602,19 @@ librarian:
         f.write(ttdb)
     print(f"fleetmap: {len(nodes)} node(s), {len(edges)} link(s) -> {out} "
           f"({len(ttdb.encode('utf-8'))} B)")
+    if fleet_pose < POSE_DOF_TOTAL:
+        print(f"  RENDER: SHAPE, NOT MAP -- pose_ceiling {fleet_pose} of "
+              f"{POSE_DOF_TOTAL} DoF.")
+        print("  Edge lengths are claims; placement and handedness are NOT. A globe")
+        print("  that draws this as a confident map fails SP6 (spec 3 Phase 6 rule 2).")
     for name in nodes:
         lat, lon = coord[name]
+        p = nodes[name]
+        age = iso_to_unix(p.get("touched"))
+        age_txt = ("age %5ds" % max(0, fallback_ts - age)) if age else "age UNDATED"
         print(f"  {FLEET_FRIENDLY.get(name, name):<7} @LAT{lat}LON{lon}  "
-              f"sigma {nodes[name]['sigma_m']:.1f} m")
+              f"sigma {p['sigma_m']:.1f} m  pose {p['pose_ceiling']}/{POSE_DOF_TOTAL}  "
+              f"{age_txt}")
     print("flash it: python scripts/... then Upload-Tdeck-FS.ps1 -Port COM10")
 
 
