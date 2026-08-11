@@ -3624,11 +3624,23 @@ DEFAULT_POSITIONS_OUT = os.path.join("master", "positions.md")
 POSITIONS_HEADER = """# Fleet Position Beliefs (semantic positioning SP2)
 
 Authored by `companion.py positions`: the @BELIEF:PROXIMITY pair matrix embedded
-into 2D by weighted spring relaxation, then canonicalized — anchor at the
-origin, second node on +x, third node at +y. The frame is RELATIVE (one anchor
-fixes translation only): rotation and reflection are unresolved until a second
-anchor (the T-Deck GPS) pins them, so flip_resolved stays false. sigma_m folds
-each node's incident edge residuals + pair sigmas; stress is the fit's honesty.
+into 2D by weighted spring relaxation, then canonicalized — frame ORIGIN at
+v4a_bridge, second node on +x, third node at +y.
+
+⚠ THE FRAME IS RELATIVE AND `pose_ceiling` IS 0 OF 4. Every record here is a SHAPE
+claim: `sigma_m` measures how well the shape fits its evidence and says nothing
+about where that shape sits. Common information cannot reach translation (2),
+rotation (1) or reflection (1) — spec §0.1 — and only a GPS fix pins any of them
+(`companion.py anchor`).
+
+⚠ v4a_bridge is the frame ORIGIN, NOT an anchor. Before Draft 0.3 these records
+carried `anchor_chain: [v4a_bridge]` off a CONFIGURED coordinate, which asserted the
+pose and then reported the assertion back as a result (spec §1.2). A configured
+constant is not a measurement, so `anchor_chain` is now empty until GPS says
+otherwise.
+
+sigma_m folds each node's incident edge residuals + pair sigmas; stress is the fit's
+honesty.
 """
 
 
@@ -3746,6 +3758,88 @@ def ascii_map(pos, width=57, height=19):
     return "\n".join(lines)
 
 
+# --- Pose: the part of position that common information CANNOT reach ------------
+#
+# spec 0.1/0.2 (Draft 0.3). A relation between two nodes is invariant under moving
+# the WHOLE fleet, so everything inferable from common information alone is inferable
+# only up to the plane's symmetry group: translation (2) + rotation (1) +
+# reflection (1) = FOUR degrees of freedom. `sigma_m` is a SHAPE uncertainty and
+# covers none of them -- a fleet with a perfect shape and no fix has sigma -> 0 and
+# UNBOUNDED position error. So every @BELIEF:POSITION states both numbers.
+#
+# V4-A IS NOT AN ANCHOR. Draft 0.2 pinned the map to its configured @LATxLONy and
+# reported that back as a result; a configured constant is not a measurement. V4-A is
+# the frame ORIGIN -- a labelling choice with no epistemic content. Only GPS fixes
+# (and the tape measure) pin pose.
+POSE_DOF = (("translation", 2), ("rotation", 1), ("reflection", 1))
+POSE_DOF_TOTAL = sum(w for _, w in POSE_DOF)
+
+
+def _perp_spread(pts):
+    """Max perpendicular distance of `pts` from the line through its two most
+    separated members (0.0 for fewer than 3 points).
+
+    This is what makes "non-collinear" CHECKABLE rather than assumed. Three ties
+    strung out along a line map to themselves under reflection across that line, so
+    they do not resolve the mirror however many of them there are -- and the previous
+    code tested only `len(ties) >= 3`.
+    """
+    pts = list(pts)
+    if len(pts) < 3:
+        return 0.0
+    best = (0.0, None, None)
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            d2 = (pts[i][0] - pts[j][0]) ** 2 + (pts[i][1] - pts[j][1]) ** 2
+            if d2 > best[0]:
+                best = (d2, pts[i], pts[j])
+    d2, p, q = best
+    if d2 <= 0.0:
+        return 0.0
+    length = d2 ** 0.5
+    return max(abs((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]))
+               / length for r in pts)
+
+
+def pose_ceiling(tie_pts=(), tol_m=0.0):
+    """How many of the four degrees of freedom are PINNED, and by what.
+
+    Returns (dof_count, {dof_name: "gps"|"none"}, note). Rule, spec 0.1:
+      0 ties -> nothing;  1 -> translation (2 dof);  2 -> + rotation (3 dof);
+      >=3 NON-COLLINEAR -> + reflection (4 dof).
+
+    `tol_m` is the fit residual the off-line spread must beat: three ties whose
+    perpendicular spread sits inside the tie error are collinear as far as this
+    measurement can tell, and claiming a resolved mirror from them would be the same
+    class of overclaim as anchoring on a configured coordinate.
+    """
+    tie_pts = list(tie_pts)
+    n = len(tie_pts)
+    by = {name: "none" for name, _ in POSE_DOF}
+    spread = _perp_spread(tie_pts)
+    non_collinear = n >= 3 and spread > max(tol_m, 1e-9)
+    if n >= 1:
+        by["translation"] = "gps"
+    if n >= 2:
+        by["rotation"] = "gps"
+    if non_collinear:
+        by["reflection"] = "gps"
+    dof = sum(w for name, w in POSE_DOF if by[name] != "none")
+    if n == 0:
+        note = "no GPS ties: this is a SHAPE, not a map"
+    elif n >= 3 and not non_collinear:
+        note = ("%d tie(s) but COLLINEAR (perp spread %.2f m <= tie error %.2f m): "
+                "reflection stays free" % (n, spread, tol_m))
+    else:
+        note = "%d tie(s), perpendicular spread %.2f m" % (n, spread)
+    return dof, by, note
+
+
+def dof_pinned_line(by):
+    """The `dof_pinned:` record line in spec 2.1's brace form."""
+    return "dof_pinned: { %s }" % ", ".join("%s: %s" % (k, by[k]) for k, _ in POSE_DOF)
+
+
 def positions(proximity_path, out, iters):
     """SP2: embed the proximity beliefs into @BELIEF:POSITION records + a map."""
     pairs = parse_proximity_file(proximity_path)
@@ -3774,6 +3868,10 @@ def positions(proximity_path, out, iters):
             inc[nd].append((got - p["dist"]) ** 2 + p["sigma"] ** 2)
             conf_inc[nd].append(p["conf"])
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # No GPS ties exist in the relative frame, so NOTHING pins pose here. This comes
+    # out 0 of 4 and that is the honest reading, not a regression: before Draft 0.3
+    # these records claimed `anchor_chain: [v4a_bridge]` off a CONFIGURED coordinate.
+    pose_dof, pose_by, pose_note = pose_ceiling()
 
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
@@ -3783,19 +3881,25 @@ def positions(proximity_path, out, iters):
             conf = sum(conf_inc[nd]) / len(conf_inc[nd]) if conf_inc[nd] else 0.1
             conf = round(max(0.1, min(0.8, conf - min(0.3, stress / 4.0))), 2)
             f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
-                    f"frame: relative   # anchor v4a_bridge at origin, "
-                    f"2nd node on +x, 3rd at +y\n"
+                    f"frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y\n"
                     f"x_m: {x:.2f}\ny_m: {y:.2f}\n"
-                    f"sigma_m: {sigma:.2f}\n"
-                    f"anchor_chain: [v4a_bridge]\n"
+                    f"sigma_m: {sigma:.2f}   # SHAPE uncertainty only (spec 0.2)\n"
+                    f"pose_ceiling: {pose_dof}   # of {POSE_DOF_TOTAL} DoF: "
+                    f"{pose_note}\n"
+                    f"{dof_pinned_line(pose_by)}\n"
+                    f"frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)\n"
+                    f"anchor_chain: []   # no GPS tie: nothing pins pose\n"
                     f"embedding_rev: {rev}\n"
-                    f"flip_resolved: false   # one anchor; T-Deck GPS resolves\n"
+                    f"flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling\n"
                     f"stress_m: {stress:.2f}\n"
                     f"conf: {conf}\n"
                     f"touched: {now_iso}\n")
 
     print(f"positions: embedded {len(pos)} node(s) from {len(pairs)} pair "
           f"belief(s)  (rev {rev}, stress {stress:.2f} m)")
+    print(f"  pose_ceiling {pose_dof} of {POSE_DOF_TOTAL} DoF -- {pose_note}")
+    print("  this is a SHAPE, not a map: sigma_m below says how well it fits, NOT")
+    print("  where it is. Run `companion.py anchor` with GPS ties to pin pose.")
     print(f"{'node':<12} {'x_m':>7} {'y_m':>7} {'sigma_m':>8}")
     for nd, (x, y) in sorted(pos.items()):
         sigma = (sum(inc[nd]) / len(inc[nd])) ** 0.5 if inc[nd] else 0.0
@@ -4158,7 +4262,12 @@ def anchor(positions_path, fixes_path, out):
     src = [pos[nd] for nd in ties]
     dst = [geo_to_enu(*ties_geo[nd]) for nd in ties]
     fit = procrustes_2d(src, dst)
-    flip_resolved = len(ties) >= 3
+    # spec 0.1/0.2: the ties are the ONLY things that pin pose. flip_resolved is now
+    # a consequence of pose_ceiling rather than a separate count -- and it demands
+    # NON-COLLINEAR ties, which `len(ties) >= 3` never checked. Three ties along a
+    # line map to themselves under reflection across it.
+    pose_dof, pose_by, pose_note = pose_ceiling(dst, fit["rmse"])
+    flip_resolved = pose_by["reflection"] != "none"
     # Scale should be ~1 (both frames are metric); a big departure flags a calibration
     # or tie-measurement error worth surfacing rather than silently absorbing.
     scale_warn = "" if 0.85 <= fit["scale"] <= 1.15 else "  <-- WARN: far from 1.0"
@@ -4175,19 +4284,27 @@ def anchor(positions_path, fixes_path, out):
                 "Authored by `companion.py anchor`: the relative @BELIEF:POSITION map\n"
                 "(positions.md) fitted onto the T-Deck GPS tie points (gps-fixes.md) by\n"
                 "a 2D similarity (scale+rotation+translation, reflection allowed). GPS is\n"
-                "the verifier + anchor, never an inference input. flip_resolved is true\n"
-                "only with >=3 non-collinear ties (2 leave the mirror ambiguous).\n\n"
+                "the verifier + anchor, never an inference input, and since Draft 0.3 it\n"
+                "is the ONLY anchor: v4a_bridge is the frame origin, not a tie point.\n"
+                "1 tie pins translation, 2 pins rotation, >=3 NON-COLLINEAR pins the\n"
+                "mirror (spec 0.1). pose_ceiling counts the DoF actually pinned, out of\n"
+                "4; sigma_m is a SHAPE uncertainty and covers none of them.\n\n"
                 f"fit: ties={len(ties)} {ties}  scale={fit['scale']:.4f}{scale_warn}  "
                 f"reflected={fit['reflect']}  tie_rmse={fit['rmse']:.2f} m  "
-                f"flip_resolved={flip_resolved}\n")
+                f"flip_resolved={flip_resolved}\n"
+                f"pose_ceiling: {pose_dof} of {POSE_DOF_TOTAL} DoF — {pose_note}\n"
+                f"{dof_pinned_line(pose_by)}\n")
         for nd in sorted(geo):
             lat, lon = geo[nd]
             f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
                     f"frame: geo   # absolute, GPS-anchored\n"
                     f"lat_deg: {lat:.7f}\nlon_deg: {lon:.7f}\n"
                     f"x_m: {pos[nd][0]:.2f}\ny_m: {pos[nd][1]:.2f}   # relative frame\n"
-                    f"sigma_m: {sig.get(nd, 0.0):.2f}\n"
-                    f"anchor_chain: [v4a_bridge, gps]\n"
+                    f"sigma_m: {sig.get(nd, 0.0):.2f}   # SHAPE uncertainty only\n"
+                    f"pose_ceiling: {pose_dof}   # of {POSE_DOF_TOTAL} DoF: {pose_note}\n"
+                    f"{dof_pinned_line(pose_by)}\n"
+                    f"frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)\n"
+                    f"anchor_chain: [gps x{len(ties)}]   # GPS ties only\n"
                     f"is_tie: {'yes' if nd in ties else 'no'}\n"
                     f"flip_resolved: {'true' if flip_resolved else 'false'}\n"
                     f"tie_rmse_m: {fit['rmse']:.2f}\n"
@@ -4196,9 +4313,11 @@ def anchor(positions_path, fixes_path, out):
     print(f"anchor: fitted {len(pos)} node(s) to {len(ties)} GPS tie(s) {ties}")
     print(f"  scale {fit['scale']:.4f}{scale_warn}  reflected {fit['reflect']}  "
           f"tie rmse {fit['rmse']:.2f} m  flip_resolved {flip_resolved}")
+    print(f"  pose_ceiling {pose_dof} of {POSE_DOF_TOTAL} DoF -- {pose_note}")
+    print(f"  {dof_pinned_line(pose_by)}")
     if not flip_resolved:
-        print("  NOTE: 2 ties fix rotation+translation but NOT the mirror. A 3rd "
-              "non-collinear GPS tie resolves flip_resolved.")
+        print("  NOTE: the mirror is NOT resolved, so this map is one of two. A 3rd "
+              "GPS tie, well off the line\n        through the others, resolves it.")
     print(f"  {'node':<12} {'lat_deg':>13} {'lon_deg':>13}  tie")
     for nd in sorted(geo):
         lat, lon = geo[nd]

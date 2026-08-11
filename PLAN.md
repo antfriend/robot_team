@@ -69,7 +69,17 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    protects the whole hypothesis. ⚠ Needs **two nodes on the measurement build**
    (`-DENTITYPERCEPT_MAX_RUN=1`) for a clean number — the folded lane keeps the
    run's union, a different quantity.
-2. **`pose_ceiling` + `dof_pinned` through the position pipeline (SP2).** Add to
+2. ✅ **DONE 2026-08-11 — `pose_ceiling` + `dof_pinned` through the position
+   pipeline, and V4-A is no longer an anchor.** `master/positions.md` regenerated
+   (rev 6): every record now reads **`pose_ceiling: 0` of 4** with
+   `anchor_chain: []` and `frame_origin: v4a_bridge`. 🆕 **Also fixed a defect the
+   spec always described and the code never checked: `>=3 NON-COLLINEAR` ties.** The
+   old test was `len(ties) >= 3`; three ties along a line map to themselves under
+   reflection across it and resolve nothing. ✅ The fleet's real ties survive it
+   (perpendicular spread **4.93 m** vs tie rmse 2.35 m → `pose_ceiling 4 of 4`,
+   mirror still resolved — but only by ~2.1x, so it is not a wide margin).
+   33 checks in `tests/test_pose_py.py`; laptop suite 12 → 13 files.
+   *Original scope, kept for the record:* Add to
    `@BELIEF:POSITION`, compute from the GPS-tie count (1 → translation, 2 →
    rotation, ≥3 non-collinear → reflection), and **stop treating V4-A as an anchor**
    — it is the relative-frame origin only (spec §1.2). Every current

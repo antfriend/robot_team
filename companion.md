@@ -5506,6 +5506,47 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📋 Next, still all solo-buildable: `pose_ceiling`/`dof_pinned` through the position
   pipeline (and stop anchoring on V4-A), KEY-kind sids, the two render rules.
 
+- ✅ **2026-08-11 — POSE IS IN THE PIPELINE, V4-A IS NO LONGER AN ANCHOR, AND A DEFECT
+  THE SPEC ALWAYS DESCRIBED BUT THE CODE NEVER CHECKED IS FIXED.** Solo-buildable item
+  2 of 4. `master/positions.md` regenerated (rev 6) and every record now reads:
+  ```
+  sigma_m: 4.04   # SHAPE uncertainty only (spec 0.2)
+  pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
+  dof_pinned: { translation: none, rotation: none, reflection: none }
+  frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
+  anchor_chain: []   # no GPS tie: nothing pins pose
+  ```
+  🎯 **`pose_ceiling: 0` is not a regression — it is the first honest reading of what
+  the fleet knows.** These records previously carried `anchor_chain: [v4a_bridge]`,
+  pinning the map to a **configured** `@LATxLONy` and reporting the assertion back as a
+  result. `sigma_m` was 4.04 either way; what changed is that the record no longer
+  implies that number bounds its *position*.
+  🆕 **The defect: `>=3 NON-COLLINEAR ties` was tested as `len(ties) >= 3`.** Three ties
+  strung along a line map to **themselves** under reflection across that line, so they
+  resolve the mirror not at all — and `flip_resolved` would have said `true`.
+  `pose_ceiling()` now measures the ties' perpendicular spread and requires it to beat
+  the fit residual, on the same reasoning that killed the V4-A anchor: an offset inside
+  the noise is not a measurement. ✅ **The fleet's real ties survive it** — spread
+  **4.93 m** vs tie rmse **2.35 m**, so `pose_ceiling 4 of 4` and the mirror stays
+  resolved. ⚠ But only by **~2.1x**, which is worth knowing before anyone treats the
+  existing anchored map as comfortably flip-resolved.
+  📐 The scale: 1 tie pins translation (2 DoF), 2 adds rotation (3), ≥3 non-collinear
+  adds reflection (4). `anchor_chain` is now **GPS only** (`[gps x3]`).
+  🧪 **33 checks in `tests/test_pose_py.py`; laptop suite 12 → 13 files, all green;
+  `check_makefile.py` green.** The push path was verified to carry the new fields
+  through to `/belief.md` unchanged, so no firmware change is needed.
+  😐 One test needed narrowing rather than the code: a whole-file search for
+  `anchor_chain: [v4a_bridge]` matched the **header prose that quotes the retracted
+  form to explain it**. Prose about a withdrawn claim is not the claim; the check is
+  now scoped to records.
+  ⚠ **`master/anchored.md` was deliberately NOT regenerated.** It dates from 2026-07-13
+  and a 4-node embedding; re-fitting it against today's 5-node map is a data decision,
+  not a format one, and the fit carries a **scale 0.5652 warning** (far from the 1.0 two
+  metric frames should agree on). Run `anchor` when that warning is understood, not to
+  make the file look current.
+  📋 Next, still solo-buildable: KEY-kind sids on position/proximity beliefs, then the
+  two render rules on the laptop leg.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
