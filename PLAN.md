@@ -659,6 +659,37 @@ with something measured.
       `**COVERED**` union into a cross-node set **halves the measured distance** —
       measured, not estimated; it is the error the first hand-run made.
 
+- [x] 🆕 **`companion.py entity-survey` — ONE WALK, MANY GEOMETRIES. ✅ BUILT
+      2026-08-11, 35 checks green (laptop suite 15 → 16 files).** The gatekeeper above
+      returns a single bit, and its NOT-ADMISSIBLE says nothing about **how much further
+      to walk** — which is why the field re-run has been item 1 for a month. This walks
+      one node through labelled stations and reports the curve, naming the smallest
+      admissible station. ✅ Replaying night 3 through it reproduces `entity-separation`
+      exactly (floor p50 0.111 / p90 0.222, cross-node p50 0.250, **1.12×**) from an
+      independent path.
+      ⚠⚠ **The floor comes from the ANCHOR and only the anchor.** A walker's
+      consecutive-window drift is not noise — it is the signal arriving as drift — so
+      folding it in raises the bar in exact proportion to how well the walk worked. The
+      command refuses rather than substituting the walker's lane.
+      ⚠ **Never shorten the scan period to fit more stations in.** The floor is a
+      *temporal* drift, so a shorter spacing shrinks it and inflates every ratio; 2.0×
+      was registered against a 600 s floor. A `--spacing` ≠ 600 now prints a
+      NOT-comparable warning.
+- [ ] 🚶 **RUN THE SEPARATION WALK.** Needs an operator and daylight; **costs ZERO prune
+      markers.** Roles are chosen by marker cost, not convenience: **anchor = V4-A**
+      (mains, 27 free `@LAT96` slots, must not move), **walker = T-Deck** (battery, fresh
+      FS, GPS measures each station), **Cardputer sits out** (its `@LAT96` is 48/48 FULL
+      and it has two `@LAT100` markers left, ever).
+      🎯 **Firmware precondition, measured not argued: BOTH nodes need
+      `-DENTITYPERCEPT_MAX_RUN=1`.** Over the same 5.52 h of night 3 the unfolded
+      Cardputer wrote 48 windows and folded V4-A wrote 20, giving only 11 matched pairs —
+      a folded lane writes ~1 record/hour while a node **stands still**, which is exactly
+      what it does at a station. Both builds compile (T-Deck 41 %, V4-A 94 %/66 KB left)
+      and both sketches now declare their `@LAT96` build at boot.
+      📊 An afternoon buys ~40 min/station ⇒ ~3 pairs, labelled **UNDERPOWERED** — scouting
+      that prices the real run, decisive only for the binary "is there anywhere within
+      reach where the AP populations diverge?". Full runbook in `companion.md` §6.
+
 **Done when:** `pull` returns a percept lane with link + entity observations
 from every powered node; verified with a serial dump. Pure plumbing, no inference.
 

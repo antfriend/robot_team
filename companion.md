@@ -5704,6 +5704,89 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ⚠ **Nothing here needs a clean lane, a measurement build, or an untouched run**, so
   night 4 can be re-taken freely — which is precisely what nights 1–3 could not.
 
+- 🚶 **2026-08-11 — `companion.py entity-survey` BUILT (35 checks; laptop suite 15 → 16
+  files): ONE WALK, MANY GEOMETRIES.** `entity-separation` answers a single bit — is
+  *this* geometry admissible — and its NOT-ADMISSIBLE verdict (1.12×) says nothing about
+  **how much further to walk**. The fleet has been sitting on that answer with no way to
+  price the next attempt, which is why the field re-run has been PLAN item 1 for a month.
+  The survey walks one node through labelled stations and reports the whole curve, so
+  "how far apart is far enough?" costs one afternoon instead of one overnight run per
+  candidate distance.
+  ✅ **Cross-checked against the real archives**: replaying night 3 through the survey
+  reproduces `entity-separation`'s numbers **exactly** — anchor floor p50 0.111 / p90
+  0.222, cross-node p50 0.250, **1.12×** — from an independent code path.
+  ⚠⚠ **THE FLOOR COMES FROM THE ANCHOR AND ONLY THE ANCHOR, and that is the whole
+  design.** `entity_separation` may take it from either node because both are still. Here
+  one node is **walking**, and a walker's consecutive-window drift is not sensor noise —
+  it is the signal, arriving as apparent drift. Fold it in and the bar rises *in exact
+  proportion to how well the walk worked*: the experiment suppresses its own result, and
+  it does so silently, looking like a disappointing site. A `--walker` lane can never
+  stand in for a missing `--anchor` floor; the command refuses instead.
+  ⚠ **DO NOT SHORTEN THE SCAN PERIOD TO FIT MORE STATIONS IN.** At 600 s windows a
+  fully-powered station needs ~100 min, so a fast build is the obvious way to fit a
+  survey into an afternoon — and it is wrong. The floor is a **temporal** drift between
+  consecutive windows, so halving the spacing halves the time the AP set has to change:
+  the floor shrinks, every ratio inflates, and a fast build clears a bar a real one never
+  could. The 2.0× was registered against a 600 s floor. `entity-survey` now prints a
+  NOT-comparable warning whenever `--spacing` differs from 600.
+
+- 🧭 **2026-08-11 — THE SEPARATION WALK: roles chosen by MARKER COST, and a firmware
+  precondition that was not obvious.**
+  🎯 **A SURVEY NEEDS BOTH NODES ON A MEASUREMENT BUILD (`-DENTITYPERCEPT_MAX_RUN=1`).**
+  This is measured, not argued: over the *same* 5.52 h of night 3 the Cardputer
+  (unfolded) wrote **48** windows and V4-A (folded) **20**, yielding only **11** matched
+  pairs. A folded lane writes ~1 record per hour while a node **stands still** — and
+  standing still is exactly what a node does at a station, so folding deletes the
+  walker's entire per-station contribution. Folding is right for lane life and wrong for
+  an instrument; the survey is an instrument.
+  ⚠ Consequence: `entity-separation`'s documented asymmetry (*cross-node is valid on a
+  folded lane*) is about **correctness, not sufficiency**. The records present are
+  correctly itemised — there are just far too few of them.
+  📋 **Roles, and why:**
+  ```
+  ANCHOR  = V4-A     mains; @LAT96 21/48 -> 27 free slots ~ 4.5 h unfolded;
+                     @LAT100 10/32. Supplies the floor, so IT MUST NOT MOVE.
+  WALKER  = T-Deck   battery; fresh FS (@LAT96 0/48 ~ 8 h, @LAT100 0/32);
+                     GPS measures each station instead of pacing it; screen
+                     shows link state while walking.
+  SITS OUT= Cardputer  @LAT96 is 48/48 FULL -> cannot record another window
+                     without a prune, and it is at @LAT100 30/32 with TWO
+                     markers left, ever. Excluding it costs nothing.
+  ```
+  **Total marker cost of the walk: ZERO.** Both participants have lane headroom; the one
+  board that would have to spend a marker is the one left out.
+  ✅ Both measurement builds compile: **T-Deck 41 %**, **V4-A 94 % (66 KB left)**.
+  🆕 **Both sketches now DECLARE their own `@LAT96` build at boot**, the line the Cardputer
+  has carried since 2026-08-10 (`[entity] @LAT96 build: max_run:1 … <- MEASUREMENT BUILD
+  (no folding)`). `ENTITYPERCEPT_MAX_RUN` lives in `EntityPercept.cpp`, a separate
+  translation unit, so it can only be a **build property** — and a build property is
+  invisible from outside. It stopped being a Cardputer-only question the moment a survey
+  needed two unfolded nodes.
+  📋 **Procedure.** (1) Flash both measurement builds, **firmware only** — no
+  `Upload-*-FS.ps1`, or the T-Deck loses the fresh lane that makes it the walker; confirm
+  the boot line on each. (2) Power both on the bench and let them settle onto **one shared
+  stream** — `t_ms` is elapsed-since-origin, so without a common zero no window can be
+  matched to another. (3) ⚠ **The walker must not reboot during the walk**: out of range
+  of every peer it would originate a NEW stream and the survey would refuse. (4) Station 0
+  = together on the bench, the control (expect ~0.25, the known bench value). (5) At each
+  station stand still and record arrival/departure **minutes from the first window** plus
+  a GPS fix. (6) Leave a window's gap between stations — transit windows are excluded by
+  design, and the tool reports how many. (7) Pull both **over their own cables** and run:
+  ```
+  python orchestrator/companion.py entity-survey \
+    --anchor master/<v4a>.md --walker master/<tdeck>.md \
+    --station "0,40,bench 0 m" --station "50,90,garden 30 m" ...
+  ```
+  📊 **What an afternoon actually buys:** ~40 min per station ⇒ ~3 pairs, which the tool
+  labels **UNDERPOWERED** and refuses to call admissible. That is still decisive for the
+  binary question the walk exists to answer — *is there anywhere within reach where the AP
+  populations diverge at all?* — because the effect size is large (0.25 at the bench, up
+  to 1.000 if disjoint). Treat it as **scouting that prices the real run**, not as the run.
+  🛑 **If no station clears 2.0×, that is a fact about the SITE, not a falsification.** One
+  AP population over the whole route is a test-geometry result; the tier's resolution is
+  ~50–100 m and it wants **different buildings**. The command says this itself so the
+  sentence can never be recorded as a falsification by accident.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
