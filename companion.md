@@ -5621,6 +5621,89 @@ If a fact lives in one of these, link to it from here — don't copy it.
   a second mic-equipped node for TDoA; and the separation walk that would make the
   ablation admissible.
 
+- 🛰 **2026-08-11 — SP6-T IS FLASHED: THE T-DECK NOW OBEYS THE RENDER RULES ITS OWN GLOBE
+  WAS ALREADY STATING.** Firmware + FS both on COM10, hands-free (**fourth consecutive
+  automatic flash** — the BOOT/RST dance is firmly the fallback). Board identified by
+  **MAC `20:6e:f1:a7:d7:80`**, which matches the measurement recorded 2026-08-10; a MAC is
+  decisive in a way a banner is not, since two boards cannot share one — the banner rule
+  exists for the three V4s, whose MACs were never recorded.
+  - **Rule 1 on device:** `age_s` parsed per record; `ageFade()` dims a node continuously
+    with age and **never returns black**. `AGE_HALFLIFE_S` is documented as a *display*
+    scale, not a claim about when a belief stops being true; **`AGE_FLOOR 0.28` is the
+    normative part** — a stale node fades toward dim, never toward invisible, and is
+    never dropped.
+  - **Rule 2 on device:** `pose_ceiling` parsed per record, `gFleetPose` = the **min**
+    across them (pose is a property of the frame), and the globe draws an amber
+    **`SHAPE  pose 0/4`** + `placement unpinned` banner, or a green `MAP pose 4/4` once
+    all four are pinned. Gated off the feelings globe, and recomputed on every view
+    switch (`activateView` calls `parseNodeAttrs`).
+  📊 **41 % flash / 29 % RAM** on huge_app — ample.
+  🐛 **A buffer this would have silently broken, caught by measuring instead of assuming.**
+  `parseNodeAttrs` read each record through `char buf[400]`. The SP6-T fields took a real
+  fleetmap record from ~370 B to **470–571 B** (measured over the five-node globe). Every
+  parsed field still landed inside 400 — `pose_ceiling` sits at byte 235–269 — so nothing
+  actually broke, but the margin on the largest record was **~30 B**, and one more emitted
+  line would have stopped pose parsing on exactly the busiest nodes. Truncation here is
+  **not an error path**: the tail is `link …` text nothing reads, so a short buffer fails
+  *silently*. Now 640 B. Sixth instance of this shape
+  ([[render-buffers-belong-in-libraries]]).
+  ✅ **CONFIRMED ON SCREEN (operator, 2026-08-11): the SemPos globe reads amber
+  `SHAPE  pose 0/4`.** Corroborated on flash — the pulled globe carries 5 × `age_s`,
+  6 × `pose_ceiling` (5 records + the fleet banner) and 6 × `SHAPE_NOT_MAP` — but the
+  screen is the claim that matters here and the flash grep was only ever corroboration:
+  **SP6 is a rule about what a human sees**, so "the string is in the image" cannot close
+  it. A pixel-level defect (banner drawn then overpainted, wrong colour, off-canvas) is
+  invisible to every check except looking. **SP6 is now CLOSED** — the render leg no
+  longer states a caveat it then contradicts.
+  🎁 **Unplanned win — the FS wipe restored the T-Deck as a timeline witness.** Its
+  `@LAT90` went **16/16 → 1/16**, and its `@LAT100` went to **0/32**. ⚠ **Which means the
+  prune-marker budget is per FILESYSTEM, not per firmware**: an FS reflash resets it, at
+  the cost of every learned lane. That is the escape hatch if the Cardputer's 30/32 ever
+  binds — expensive, but not a dead end as previously written.
+  📎 **Pulled before wiping** (`master/entity-baseline/tdeck_prewipe_2026-08-11.md`,
+  50 889 B) so the `@LAT90` evidence survived the FS flash. Reading it corrected the
+  standing guess: the lane's first six ADOPTED records **all name one stream
+  (`0x26a1b82d`)**, which the 2026-08-03 dedup exists to suppress, while **LON8–LON15
+  contain no duplicates at all**. That pattern is consistent with the duplicates
+  predating the dedup and cannot be proven from the file alone — but there is **no
+  evidence of a live dedup bug**, and post-dedup the lane spends **one record per
+  distinct stream**. So "the T-Deck flaps timelines" is right in substance: it lands on a
+  new timeline nearly every boot, which is the common-mode story again, not a dedup fault.
+
+- 🌙 **2026-08-11 — NIGHT 4 IS A REBOOT DIAGNOSIS, NOT A BASELINE. It costs ZERO prune
+  markers and needs no clean lane.** The question is the one night 3 left open: at +5.52 h
+  both boards reset **on wall power with no USB host**, so the 2026-08-06 explanation is
+  ruled out and the cause is unknown. Two hypotheses, and the fleet cannot currently tell
+  them apart because both boards were powered on together: **(A) internal, at ~5.5 h of
+  uptime** · **(B) external, at a wall-clock moment** (mains, shared strip).
+  🎯 **The discriminator is a STAGGER, and it only works if something survives to be the
+  clock.** If everything resets again, every timeline restarts at `t_ms:0` and there is no
+  shared reference — exactly the ambiguity we have now. So the third node is not garnish;
+  it is the instrument.
+  ```
+  T-Deck   BATTERY,  powered FIRST      -> originates the stream; different power
+                                           domain entirely, so it is both the control
+                                           for a mains event AND the surviving clock
+  V4-A     wall outlet A,  +20 min      -> adopts; witness, @LAT90 1/16
+  Cardputer wall outlet B (different
+           circuit if possible), +40 min -> adopts; participant only
+  ```
+  ⚠ **20 minutes, not 3.** Rejoin takes 5–27 s and is itself unsolved, and an internal
+  ~5.5 h timer has unknown jitter; 3 min sits inside the range of ordinary scheduling
+  artifacts, 20 does not. It costs nothing — the gate floor is 5.2 h against an 8 h cap.
+  📋 **Readout.** Pull all three in the morning and read `@LAT90`. **A reconcile onto the
+  surviving stream is stamped in THAT stream's clock**, so the two reboot moments are
+  directly comparable: **separated by ~20 min ⇒ hypothesis A (internal at uptime);
+  simultaneous ⇒ hypothesis B (external).** If the T-Deck also dies, its battery ran out
+  (endurance unknown — it withholds % above 4.20 V) and the night is inconclusive rather
+  than wrong.
+  🛑 **Do NOT prune the Cardputer's `@LAT90` for this.** It is full at 16/16 and pruning
+  costs one of its **last two** markers. It does not need to witness — V4-A and the T-Deck
+  both can, and the Cardputer's timeline changes stay inferable from the `stream:` stamps
+  on its `@LAT96`.
+  ⚠ **Nothing here needs a clean lane, a measurement build, or an untouched run**, so
+  night 4 can be re-taken freely — which is precisely what nights 1–3 could not.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

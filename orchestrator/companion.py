@@ -3103,6 +3103,183 @@ def entity_separation(path_a, path_b, spacing_s=ENTITY_SCAN_PERIOD_S,
         print("  as an RSSI result without its terrain.")
 
 
+def parse_station(spec):
+    """`t0_min,t1_min,label` -> (t0_s, t1_s, label). Minutes are measured from the
+    FIRST WINDOW OF THE SHARED SEGMENT, not from a wall clock: the stream clock is
+    elapsed-since-its-own-origin, so it has no wall-clock zero to offset against and
+    asking the operator for one would invent an anchor that does not exist.
+    """
+    parts = spec.split(",", 2)
+    if len(parts) != 3:
+        raise ValueError("station %r is not `t0_min,t1_min,label`" % spec)
+    try:
+        t0, t1 = float(parts[0]), float(parts[1])
+    except ValueError:
+        raise ValueError("station %r: t0/t1 must be numbers (minutes)" % spec)
+    if t1 <= t0:
+        raise ValueError("station %r: t1 must be after t0" % spec)
+    return (t0 * 60.0, t1 * 60.0, parts[2].strip())
+
+
+def entity_survey(path_anchor, path_walker, stations,
+                  spacing_s=ENTITY_SCAN_PERIOD_S, tol_s=ENTITY_SPACING_TOL_S,
+                  match_tol_s=ENTITY_SEP_MATCH_TOL_S,
+                  min_pairs=ENTITY_SEP_MIN_PAIRS, margin=ENTITY_SEP_MARGIN):
+    """ONE WALK, MANY GEOMETRIES: cross-node entity distance per station, so the
+    separation the ablation needs is MEASURED instead of guessed at one station a night.
+
+    `entity_separation` answers "is THIS geometry admissible?" -- a single bit, and a
+    NOT-ADMISSIBLE tells you nothing about how much further to walk. This walks the
+    walker through labelled stations and reports the curve, so the answer to "how far
+    apart must two nodes be before the entity tier can tell them apart?" costs one
+    afternoon rather than one overnight run per candidate distance.
+
+    ⚠ THE FLOOR COMES FROM THE ANCHOR NODE ONLY, AND THAT IS THE WHOLE DESIGN.
+    `entity_separation` may take the floor from either node because both are still.
+    Here one node is WALKING, and a walker's consecutive-window drift is not sensor
+    noise -- it is the signal, arriving as apparent drift. Folding it into the floor
+    would raise the bar in exact proportion to how well the walk worked, i.e. the
+    experiment would suppress its own result. The anchor must not move.
+    """
+    texts = []
+    for p in (path_anchor, path_walker):
+        with open(p, "rb") as f:
+            texts.append(f.read().decode("utf-8", errors="replace"))
+    wa, ww = (parse_entity_percepts(t) for t in texts)
+
+    print("ANCHOR (must NOT have moved): %s  (%d @LAT96 window(s))"
+          % (path_anchor, len(wa)))
+    print("WALKER: %s  (%d @LAT96 window(s))\n" % (path_walker, len(ww)))
+    if not wa or not ww:
+        print("REFUSING: one of the lanes has no @LAT96 windows at all.")
+        return None
+
+    def counts(ws):
+        c = {}
+        for w in ws:
+            if w["stream"] is not None:
+                c[w["stream"]] = c.get(w["stream"], 0) + 1
+        return c
+    sa, sw = counts(wa), counts(ww)
+    shared = set(sa) & set(sw)
+    if not shared:
+        print("REFUSING: no shared stream. t_ms is elapsed-since-origin, so these two")
+        print("lanes have no common zero and no window can be matched to another.")
+        return None
+    stream = max(shared, key=lambda s: min(sa[s], sw[s]))
+
+    # The floor: anchor only, and it must be an unfolded lane (suppressed windows are
+    # gone as sets, so consecutive records would not be consecutive windows).
+    floor, floor_note = within_node_floor(wa, spacing_s, tol_s)
+    floor_p90 = _pctl(floor, .90) if floor else None
+    print("stream %08x; anchor floor: %s" % (stream, floor_note))
+    if floor_p90 is None:
+        print("REFUSING: no still-node floor from the ANCHOR, so there is nothing to")
+        print("measure separation AGAINST. The floor may not be taken from the walker:")
+        print("a walker's drift is the signal, and using it would raise the bar in")
+        print("proportion to how well the walk worked.")
+        return None
+    print("anchor floor n=%d: p50 %.3f  p90 %.3f  max %.3f\n"
+          % (len(floor), _pctl(floor, .50), floor_p90, floor[-1]))
+
+    # ⚠ THE MARGIN IS TIED TO THE SPACING, so a shortened scan period silently changes
+    # what "2.0x" means. The floor is a TEMPORAL drift between consecutive windows;
+    # halve the spacing and the AP set has half as long to change, so the floor shrinks
+    # and the ratio inflates -- a survey run on a fast build would clear a bar that a
+    # 10-minute build never could. The pre-registered 2.0x was set against a 600 s
+    # floor (p90 0.222-0.375, nights 1 and 3). Tempting shortcut, wrong answer.
+    if spacing_s != ENTITY_SCAN_PERIOD_S:
+        print("⚠ SPACING %d s != the %d s this fleet's margin was registered against."
+              % (spacing_s, ENTITY_SCAN_PERIOD_S))
+        print("  The floor is a temporal drift, so a shorter spacing SHRINKS it and")
+        print("  inflates every ratio below. These numbers are NOT comparable to the")
+        print("  %.1fx constant or to the night-1/night-3 baselines." % margin)
+        print()
+
+    a = sorted([w for w in wa if w["stream"] == stream and w["t_ms"] is not None],
+               key=lambda w: w["t_ms"])
+    b = sorted([w for w in ww if w["stream"] == stream and w["t_ms"] is not None],
+               key=lambda w: w["t_ms"])
+    if not a or not b:
+        print("REFUSING: the shared stream has no time-stamped windows on one side.")
+        return None
+    t_zero = min(a[0]["t_ms"], b[0]["t_ms"])
+
+    # Match every walker window to its nearest anchor window ONCE, then bucket by
+    # station. Matching before bucketing keeps a station boundary from changing which
+    # windows pair up -- the boundary selects, it must not re-match.
+    matched = []
+    for w in b:
+        m = min(a, key=lambda x: abs(x["t_ms"] - w["t_ms"]))
+        if abs(m["t_ms"] - w["t_ms"]) / 1000.0 > match_tol_s:
+            continue
+        d = jaccard_distance(set(e["id"] for e in w["entities"]),
+                             set(e["id"] for e in m["entities"]))
+        if d is None:
+            continue
+        matched.append({"t_s": (w["t_ms"] - t_zero) / 1000.0, "d": d,
+                        "n_walker": len(w["entities"]), "n_anchor": len(m["entities"])})
+
+    rows, assigned = [], set()
+    for (t0, t1, label) in stations:
+        ds = [m["d"] for m in matched if t0 <= m["t_s"] < t1]
+        for i, m in enumerate(matched):
+            if t0 <= m["t_s"] < t1:
+                assigned.add(i)
+        if not ds:
+            rows.append({"label": label, "n": 0, "p50": None, "ratio": None,
+                         "ok": False, "note": "no matched window in range"})
+            continue
+        ds.sort()
+        p50 = _pctl(ds, .50)
+        ratio = p50 / floor_p90 if floor_p90 > 0 else (
+            float("inf") if p50 > 0 else 0.0)
+        rows.append({"label": label, "n": len(ds), "p50": p50,
+                     "p90": _pctl(ds, .90), "min": ds[0], "max": ds[-1],
+                     "ratio": ratio, "ok": len(ds) >= min_pairs and ratio >= margin,
+                     "note": "" if len(ds) >= min_pairs
+                             else "UNDERPOWERED (%d < %d pairs)" % (len(ds), min_pairs)})
+
+    print("station                          n    p50    p90    ratio  verdict")
+    print("-" * 72)
+    for r in rows:
+        if r["n"] == 0:
+            print("%-30s  %3d      -      -        -  %s" % (r["label"][:30], 0,
+                                                             r["note"]))
+            continue
+        print("%-30s  %3d  %.3f  %.3f  %6.2fx  %s"
+              % (r["label"][:30], r["n"], r["p50"], r["p90"], r["ratio"],
+                 ("ADMISSIBLE" if r["ok"] else "not admissible")
+                 + (" " + r["note"] if r["note"] else "")))
+    unassigned = len(matched) - len(assigned)
+    print("-" * 72)
+    print("%d matched window-pair(s); %d in transit / outside every station (excluded)"
+          % (len(matched), unassigned))
+
+    alphabet = set()
+    for w in wa + ww:
+        alphabet |= set(e["id"] for e in w["entities"])
+    print("BSSID alphabet across both nodes: %d" % len(alphabet))
+
+    passing = [r for r in rows if r["ok"]]
+    print()
+    if passing:
+        print("SMALLEST ADMISSIBLE STATION: %s (%.2fx)"
+              % (passing[0]["label"], passing[0]["ratio"]))
+        print("  Stations are reported in the order given, so 'smallest' is only")
+        print("  meaningful if they were passed in increasing separation. State the")
+        print("  separation and the %d-BSSID alphabet with any result from it."
+              % len(alphabet))
+    else:
+        print("NO STATION CLEARS %.1fx. The entity tier cannot tell these two nodes"
+              % margin)
+        print("  apart anywhere on this walk. That is a fact about the SITE (one AP")
+        print("  population over the whole route), not about the hypothesis -- do not")
+        print("  record it as a falsification. A site with disjoint AP populations")
+        print("  (different buildings, ~50-100 m) is what the tier needs.")
+    return rows
+
+
 def entity_jaccard_bound(jaccard):
     """Map a Jaccard overlap in [0,1] to a coarse distance BOUND in metres, or
     None when the sets are disjoint (no bound — they may be anywhere). This is an
@@ -4805,6 +4982,28 @@ def main():
                     help="required cross-node p50 / still-node p90 ratio; the default "
                          "was pre-registered before a geometry satisfying it existed")
 
+    sv = sub.add_parser(
+        "entity-survey",
+        help="ONE WALK, MANY GEOMETRIES: cross-node entity distance per labelled "
+             "station, so the separation the ablation needs is measured rather than "
+             "guessed one station a night")
+    sv.add_argument("--anchor", required=True, metavar="TTDB",
+                    help="the pulled TTDB of the node that did NOT move; the "
+                         "still-node floor is taken from this lane and ONLY this one")
+    sv.add_argument("--walker", required=True, metavar="TTDB",
+                    help="the pulled TTDB of the node that was carried to each station")
+    sv.add_argument("--station", required=True, action="append", dest="stations",
+                    metavar="T0,T1,LABEL",
+                    help="`t0_min,t1_min,label` — minutes from the FIRST WINDOW of the "
+                         "shared segment (the stream clock has no wall-clock zero). "
+                         "Leave gaps for transit; windows outside every station are "
+                         "excluded. Pass in increasing separation.")
+    sv.add_argument("--spacing", type=int, default=ENTITY_SCAN_PERIOD_S)
+    sv.add_argument("--tol", type=int, default=ENTITY_SPACING_TOL_S)
+    sv.add_argument("--match-tol", type=int, default=ENTITY_SEP_MATCH_TOL_S)
+    sv.add_argument("--min-pairs", type=int, default=ENTITY_SEP_MIN_PAIRS)
+    sv.add_argument("--margin", type=float, default=ENTITY_SEP_MARGIN)
+
     ec = sub.add_parser(
         "entities",
         help="pull + print a node's entity-percept windows (@LAT96 WiFi APs, SP0)")
@@ -5000,6 +5199,13 @@ def main():
                      "node); separation is a relation, not a property")
         entity_separation(args.files[0], args.files[1], args.spacing, args.tol,
                           args.match_tol, args.min_pairs, args.margin)
+    elif args.cmd == "entity-survey":
+        try:
+            st = [parse_station(s) for s in args.stations]
+        except ValueError as e:
+            sys.exit(str(e))
+        entity_survey(args.anchor, args.walker, st, args.spacing, args.tol,
+                      args.match_tol, args.min_pairs, args.margin)
     elif args.cmd == "entities":
         entities(args.port, args.baud, args.node, args.save)
     elif args.cmd == "proximity":

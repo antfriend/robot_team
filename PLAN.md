@@ -782,7 +782,13 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       adoption — no firmware change required. The node *acting on* its own position
       (self-coordinate revision) is SP4, not this item.
 
-- [ ] 🆕 **`pose_ceiling` + `dof_pinned` on every `@BELIEF:POSITION` (spec §0.2,
+- [x] ✅ **BUILT 2026-08-11** (33 checks, `test_pose_py.py`). `master/positions.md` rev 6+
+      reads `pose_ceiling: 0` of 4, `anchor_chain: []`, `frame_origin: v4a_bridge`.
+      🆕 It also fixed a defect the spec always described and the code never checked:
+      **`>=3 NON-COLLINEAR` was tested as `len(ties) >= 3`** — three ties along a line map
+      to themselves under reflection and resolve nothing. `_perp_spread()` now makes it
+      checkable; the fleet's real ties survive, but only by ~2.1×.
+      🆕 **`pose_ceiling` + `dof_pinned` on every `@BELIEF:POSITION` (spec §0.2,
       §1.2, §2.1).** Computed from the GPS-tie count: **1 fix pins translation, 2
       pins rotation, ≥3 non-collinear pins reflection.** 🛑 **And stop anchoring on
       V4-A** — its coordinate is *configured, not measured*, so pinning the map to
@@ -791,7 +797,16 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       roaming T-Deck GPS is the fleet's **only** anchor. Expect every record in
       `master/positions.md` to come out **`pose_ceiling: 0`** — that is the honest
       reading of what the fleet knows today, not a regression.
-- [ ] 🆕 **KEY-kind `sid` on `@BELIEF:POSITION` and `@BELIEF:PROXIMITY`
+- [x] ✅ **BUILT 2026-08-11** (34 checks incl. all 8 cross-language vectors,
+      `test_sid_py.py`). `master/positions.md` rev 7 carries `| sid:03c5ab25` per record,
+      **identical across a re-embed that changed every number** — the property SP4 needs.
+      Uniqueness domain is author `ORCHESTRATOR_ID` + a **negative** lane (`-1` position,
+      `-2` proximity), provably disjoint from node lanes (all ≥ 0); registered in
+      RFC-0010 §4.2.7. ⚠ The proximity pair **must be sorted by node id** or a change in
+      iteration order silently renames every pair belief; an unknown node id yields **no
+      sid**, never a guessed one. `companion.py` owns the Python hash and
+      `scripts/sid_probe.py` imports it — two languages, one implementation each.
+      🆕 **KEY-kind `sid` on `@BELIEF:POSITION` and `@BELIEF:PROXIMITY`
       (spec §2.4, `TTDB-RFC-0010` §4.2).** A living belief must survive revision
       without being renamed, or SP4 breaks every edge pointing at it. Natural keys:
       `node:0x%08lx` and the ordered pair. Collision policy is **refuse, do not
@@ -878,15 +893,30 @@ delivery dies and returns when back in range — zero manual transport config.
       so nothing downstream could render decay), plus `pose_ceiling: N of 4`,
       `dof_pinned`, and `render: SHAPE_NOT_MAP` / `render: MAP`. The globe carries a
       `fleet_pose_ceiling` = **min** across nodes. 26 checks in `test_render_py.py`.
-- [ ] 🛑 **SP6-T FIRMWARE OWES THE OTHER HALF — the T-Deck IGNORES these fields today.**
-      The globe it carries now says `render: SHAPE_NOT_MAP` and the renderer draws the
-      same confident map it always did, which is *precisely* the failure rule 2 names.
-      Needed on-device: (a) draw an unpinned frame as a **shape** — no absolute claim,
-      and show which DoF are pinned and by whom; (b) **fade by `age_s`** rather than
-      drawing every node at full strength; (c) never drop a node for being stale.
-      ⚠ Until this lands, **SP6 is not closed** — the laptop states the caveat and the
-      payoff render still contradicts it, which is worse than either alone.
-- [ ] 🆕 **TWO NORMATIVE RENDER RULES (spec §3 Phase 6).** Both are the same
+- [x] ✅ **SP6-T FIRMWARE HALF FLASHED 2026-08-11 (COM10, hands-free — 4th consecutive
+      automatic flash).** The T-Deck now obeys the rules its own globe was stating.
+      (a) **Shape:** `pose_ceiling` parsed per record, `gFleetPose` = the **min** across
+      them, amber `SHAPE  pose 0/4` + `placement unpinned` banner, green `MAP pose 4/4`
+      only when all four are pinned; gated off the feelings globe and recomputed on
+      every view switch. (b) **Fade:** `age_s` per record through `ageFade()`, continuous
+      and asymptotic — `AGE_HALFLIFE_S` is a *display* scale, **`AGE_FLOOR` is the
+      normative part**. (c) **Never dropped:** every node is still drawn.
+      📊 41 % flash / 29 % RAM. 🐛 Two defects found while building it: `parseNodeAttrs`'
+      **400 B** reader buffer against records that grew to **470–571 B** (~30 B margin,
+      and truncation there fails *silently*) → 640 B; and `ageFade` truncating a dim
+      channel to **0**, i.e. fading to black — the exact failure rule 1 forbids → each
+      channel now keeps ≥1.
+      ✅ **CONFIRMED ON SCREEN by the operator 2026-08-11** — the SemPos globe reads amber
+      **`SHAPE  pose 0/4`**. Verified on flash too (5 × `age_s`, 6 × `pose_ceiling`,
+      6 × `SHAPE_NOT_MAP` in the pulled globe), but the screen is the claim that matters:
+      SP6's whole point is what a human sees, so a flash grep could only ever have been
+      corroboration.
+- [x] ✅ **SATISFIED 2026-08-11 by the two halves above — SP6's render leg is CLOSED.**
+      The laptop emits the fields; the T-Deck draws them; the operator confirmed the
+      amber `SHAPE  pose 0/4` on screen. The rules themselves stay written out below
+      because they are **normative for every future view**, not a task that was done once:
+      any new pane on any node has to satisfy them.
+      🆕 **TWO NORMATIVE RENDER RULES (spec §3 Phase 6).** Both are the same
       principle — *if a view can show less than the whole truth, it must say so on
       screen* — which this fleet has already paid to learn twice.
       1. **A faded trace renders as faded, never as absent** (`TTDB-RFC-0010` §6.4).

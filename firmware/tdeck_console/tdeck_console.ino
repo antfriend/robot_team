@@ -1423,6 +1423,52 @@ static float gNodeSigmaM[TTDB_MAX_RECORDS];
 // Mesh node id parsed from a record's `node:` line (0 if none). Non-zero marks a live
 // fleet member on the feelings globe — drawn as an always-on eyeball with mesh status.
 static uint32_t gNodeMeshId[TTDB_MAX_RECORDS];
+
+// ---------------------------------------------------------------------------
+// SP6-T RENDER RULES (ttn-semantic-positioning.md Draft 0.3 §3 Phase 6). Both are the
+// same principle: IF A VIEW CAN SHOW LESS THAN THE WHOLE TRUTH, IT MUST SAY SO ON SCREEN.
+//
+// RULE 1 — a faded trace renders as FADED, never as absent (TTDB-RFC-0010 §6.4).
+//   `age_s` per record; the node dims with age and NEVER disappears (see AGE_FLOOR).
+//   "Nobody has reinforced this for an hour" and "there is no such node" are different
+//   claims and this fleet has already fabricated the second one once.
+// RULE 2 — the pose renders its own ambiguity. With `pose_ceiling < 4` the SHAPE is
+//   right and the placement is one of infinitely many; drawing it as a confident map is
+//   the same class of lie as rule 1. The globe says SHAPE and states the ceiling.
+//
+// ⚠ The laptop began emitting both fields on 2026-08-11 and this firmware IGNORED them,
+// so the globe carried `render: SHAPE_NOT_MAP` while drawing a confident map — a render
+// that states a caveat and then contradicts it is worse than one that never stated it.
+static uint32_t gNodeAgeS[TTDB_MAX_RECORDS];   // seconds since the belief was touched
+static int8_t   gNodePose[TTDB_MAX_RECORDS];   // pose_ceiling, 0..4; -1 = field absent
+static int8_t   gFleetPose = -1;               // MIN across node records; -1 = n/a
+
+// Fading is CONTINUOUS and ASYMPTOTIC. AGE_HALFLIFE_S is a DISPLAY scale, not a claim
+// about when a belief stops being true — no measured cadence exists to justify a
+// staleness threshold, and inventing one is the unearned constant Draft 0.3 spent a day
+// removing. AGE_FLOOR is the normative part: brightness never falls below it, so a stale
+// node fades toward dim and never toward invisible.
+static const float AGE_HALFLIFE_S = 3600.0f;
+static const float AGE_FLOOR      = 0.28f;
+
+// Scale a colour toward black by age. Never returns black: rule 1 is that decay renders
+// as decay, and a node the operator cannot see reads as a node that is not there.
+static uint16_t ageFade(uint16_t col, uint32_t age_s) {
+  float k = 1.0f / (1.0f + (float)age_s / AGE_HALFLIFE_S);
+  if (k < AGE_FLOOR) k = AGE_FLOOR;
+  if (k > 1.0f) k = 1.0f;
+  // ⚠ Each channel keeps at least 1 if it started non-zero. Without this the FLOOR is
+  // not a floor: integer truncation takes a channel of 1 to (uint8_t)(1 * 0.28) == 0,
+  // so a dim colour fades to BLACK and the node vanishes -- which is the exact failure
+  // rule 1 forbids ("faded, never absent"). The scale factor being bounded says nothing
+  // about the result being visible; only this does.
+  const uint8_t r0 = (col >> 11) & 0x1F, g0 = (col >> 5) & 0x3F, b0 = col & 0x1F;
+  uint8_t r = (uint8_t)(r0 * k), g = (uint8_t)(g0 * k), b = (uint8_t)(b0 * k);
+  if (r0 && !r) r = 1;
+  if (g0 && !g) g = 1;
+  if (b0 && !b) b = 1;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
 // ...and the record's outgoing edges, cached the same way — ported from the Cardputer,
 // which measured the defect this fixes. `Ttdb::edgesAt()` re-OPENS the TTDB file on every
 // call, so drawing edges straight from it costs one LittleFS open per record per frame:
@@ -1438,15 +1484,27 @@ static const float DEG_PER_M = 1.0f;      // companion.py fleetmap metres->degre
 static const float SIGMA_VIS_SCALE = 0.35f;  // shrink the (honestly huge) sigma rings
 
 static void parseNodeAttrs() {
+  gFleetPose = -1;
   for (int i = 0; i < gViewDb->recordCount(); ++i) {
     gNodeName[i][0] = 0;
     gNodeSigmaM[i] = 0.0f;
     gNodeMeshId[i] = 0;
+    gNodeAgeS[i] = 0;
+    gNodePose[i] = -1;
     gNodeEdgeCount[i] = 0;
     if (!isNodeRecord(gViewDb->record(i))) continue;
     size_t off, len;
     if (!gViewDb->recordSpan(i, off, len)) continue;
-    char buf[400];
+    // ⚠ SIZED AGAINST A MEASUREMENT, NOT A GUESS. This was char buf[400]; adding the
+    // SP6-T fields took a real fleetmap record from ~370 B to 470-571 B (measured over
+    // the five-node globe, 2026-08-11). Every field parsed below still landed inside
+    // 400 — `pose_ceiling` sits at byte 235-269 — so nothing was broken, but the margin
+    // on the largest record was ~30 B and ONE more emitted line would have silently
+    // stopped pose parsing on exactly the busiest nodes. Truncation here is not an
+    // error path: the tail is `link ...` text nothing reads, so a short buffer fails
+    // SILENTLY. 640 covers the measured 571 with room. Sixth instance of this shape in
+    // this project — see [[render-buffers-belong-in-libraries]].
+    char buf[640];
     size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
     n = gViewDb->readBytes(off, (uint8_t*)buf, n);
     buf[n] = 0;
@@ -1459,6 +1517,28 @@ static void parseNodeAttrs() {
     }
     const char* s = strstr(buf, "sigma_m:");
     if (s) gNodeSigmaM[i] = atof(s + 8);
+
+    // SP6-T rule 1: how old is this belief? Absent `age_s` reads as 0 (fresh) rather
+    // than as stale — an undated record is a record we cannot fade, and dimming it on a
+    // guess would be inventing the decay we refused to invent a threshold for.
+    const char* a = strstr(buf, "age_s:");
+    if (a) gNodeAgeS[i] = (uint32_t)strtoul(a + 6, nullptr, 10);
+
+    // SP6-T rule 2: how much of the pose is pinned? ⚠ The needle is "pose_ceiling:" and
+    // the globe banner line is "fleet_pose_ceiling:" — which CONTAINS it, so a bare
+    // strstr on a whole-file buffer would match the banner. Here the buffer is one
+    // record's span, which holds no banner; the fleet value is taken as the MIN below,
+    // exactly as companion.py computes it. (Same needle-collision family as
+    // `prev_stream:` in @LAT90 — see CLAUDE.md.)
+    const char* pc = strstr(buf, "pose_ceiling:");
+    if (pc) {
+      int v = atoi(pc + 13);
+      if (v < 0) v = 0;
+      if (v > 4) v = 4;
+      gNodePose[i] = (int8_t)v;
+      // Pose is a property of the FRAME, so the weakest node's ceiling is the map's.
+      if (gFleetPose < 0 || v < gFleetPose) gFleetPose = (int8_t)v;
+    }
     // `node:` marks the record as depicting a live mesh member, written either as a hex id
     // (`node: 0x10`, the hand-authored feelings globe) or as a slug (`node: cardputer_1`,
     // what companion.py fleetmap emits). Accept both — see nodeIdFromSlug.
@@ -1630,18 +1710,45 @@ static void renderGlobe() {
     else if (gNodeName[i][0])   snprintf(id, sizeof(id), "%s", gNodeName[i]);
     else                        snprintf(id, sizeof(id), "@%d,%d", r.lat, r.lon);
 
+    // SP6-T rule 1: dim by age. The FLOOR inside ageFade is what keeps this honest —
+    // a stale node fades toward dim, never toward invisible, and is never dropped.
+    const uint16_t aged = ageFade(col, gNodeAgeS[i]);
+
     if (i == gSel || isBand) {
       drawEyeball(sx, sy, cx, cy, col, id);      // living eye (selected, or a band member)
     } else if (feelView) {
       int fr = dotR - 1 < 1 ? 1 : dotR - 1;
       if (z > 0) c.fillCircle(sx, sy, fr, rgb565(50, 56, 78));  // dim, unlabeled feeling
     } else if (z > 0) {
-      c.fillCircle(sx, sy, dotR, col);                   // front node
-      c.setTextColor(col);
+      c.fillCircle(sx, sy, dotR, aged);                  // front node, faded by age
+      c.setTextColor(aged);
       c.setCursor(sx + dotR + 2, sy - 3);
       c.print(id);
     } else {
       c.drawPixel(sx, sy, rgb565(60, 66, 78));           // back-facing indicator
+    }
+  }
+
+  // SP6-T rule 2: the pose renders its own ambiguity. Drawn LAST so nothing overpaints
+  // it. With any degree of freedom free this is a SHAPE: the edge lengths are claims,
+  // the placement and handedness are not, and a globe that draws it as a confident map
+  // fails SP6 however good the shape underneath is.
+  if (!feelView && gFleetPose >= 0) {
+    char banner[26];
+    c.setTextSize(1);
+    if (gFleetPose < 4) {
+      snprintf(banner, sizeof(banner), "SHAPE  pose %d/4", gFleetPose);
+      c.setTextColor(rgb565(255, 176, 64));            // amber: a stated caveat
+    } else {
+      snprintf(banner, sizeof(banner), "MAP  pose 4/4");
+      c.setTextColor(rgb565(120, 200, 140));           // green: all four DoF pinned
+    }
+    c.setCursor(3, 3);
+    c.print(banner);
+    if (gFleetPose < 4) {
+      c.setCursor(3, 13);
+      c.setTextColor(rgb565(150, 110, 40));
+      c.print("placement unpinned");
     }
   }
 }
@@ -2130,6 +2237,20 @@ void setup() {
     Serial.printf("TTDB loaded: %u bytes, %d records\n",
                   (unsigned)gDb.fileSize(), gDb.recordCount());
   }
+#if USE_WIFI_SCAN
+  // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — same line the Cardputer
+  // carries, and for the same reason: `ENTITYPERCEPT_MAX_RUN` lives in EntityPercept.cpp,
+  // a separate translation unit, so it can only be set by a BUILD PROPERTY, and a build
+  // property is invisible from the outside. `max_run:1` is the MEASUREMENT build (every
+  // window writes its own record, so the lane keeps per-window sets); the default 6 folds
+  // them into runs. A survey needs BOTH nodes unfolded — a folded lane writes ~1 record
+  // per hour while a node stands still, which is the walker's whole contribution at a
+  // station — so "which build is this board on?" stopped being a Cardputer-only question.
+  Serial.printf("[entity] @LAT96 build: max_run:%d core:%d-of-%d scan:%lus%s\n",
+                ENTITYPERCEPT_MAX_RUN, ENTITYPERCEPT_CORE_N, ENTITYPERCEPT_CORE_M,
+                (unsigned long)(WIFI_SCAN_PERIOD_MS / 1000),
+                ENTITYPERCEPT_MAX_RUN == 1 ? "  <- MEASUREMENT BUILD (no folding)" : "");
+#endif
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
 
   // Second globe: the read-only RFC corpus (RFCs/rfc.ttdb.md), toggled in with the

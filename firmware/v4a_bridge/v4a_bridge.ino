@@ -744,6 +744,18 @@ void setup() {
     Serial.printf("TTDB loaded: %u bytes, %d records\n",
                   (unsigned)gDb.fileSize(), gDb.recordCount());
   }
+#if USE_WIFI_SCAN
+  // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — see the Cardputer's copy.
+  // `ENTITYPERCEPT_MAX_RUN` lives in EntityPercept.cpp, a separate translation unit, so
+  // it can only be set by a BUILD PROPERTY, and a build property is invisible from the
+  // outside. `max_run:1` is the MEASUREMENT build (every window writes its own record);
+  // the default 6 folds them into runs. An entity SURVEY needs both nodes unfolded, so
+  // this stopped being a Cardputer-only question and the V4 has to answer it too.
+  Serial.printf("[entity] @LAT96 build: max_run:%d core:%d-of-%d scan:%lus%s\n",
+                ENTITYPERCEPT_MAX_RUN, ENTITYPERCEPT_CORE_N, ENTITYPERCEPT_CORE_M,
+                (unsigned long)(WIFI_SCAN_PERIOD_MS / 1000),
+                ENTITYPERCEPT_MAX_RUN == 1 ? "  <- MEASUREMENT BUILD (no folding)" : "");
+#endif
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId,
                          gLocus);
 
