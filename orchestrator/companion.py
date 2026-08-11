@@ -1859,6 +1859,94 @@ CITATION_RE = re.compile(r"(\w+)@LAT(\d+)LON(\d+)(?:#([0-9a-f]{8}))?")
 # save you — it matches INSIDE `prev_sid:`. That is exactly the trap `prev_stream:` set for
 # the @LAT90 reader and `**COVERED-SPAN**` set for the @LAT92 fold; two members of that
 # family have already cost real bugs here, so the needle is anchored on a delimiter.
+# --- Authoring stable ids (TTDB-RFC-0010 §4.2) ---------------------------------------
+# The laptop has only ever READ sids (header_sid, below). Draft 0.3 §2.4 requires it to
+# AUTHOR them on the position/proximity beliefs, because those are revised continuously
+# and an id that changes on revision dangles every citation into it.
+FNV_OFFSET = 0x811C9DC5
+FNV_PRIME = 0x01000193
+
+
+def fnv1a(data, h=FNV_OFFSET):
+    """32-bit FNV-1a. MUST match `firmware/libraries/TTDB/src/Sid.cpp` byte for byte --
+    the same eight vectors are asserted in `tests/test_sid.cpp` (C++) and
+    `tests/test_sid_py.py` (here). A divergence between a node's arithmetic and the
+    laptop's is SILENT AND TOTAL: every citation would resolve `stale` against a
+    perfectly good record, which is why it is pinned in two languages on purpose."""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    for byte in data:
+        h = ((h ^ byte) * FNV_PRIME) & 0xFFFFFFFF
+    return h
+
+
+def sid_body_digest(body):
+    """FNV-1a over every byte AFTER the header line. Excluding the header is what makes
+    this non-circular (the sid lives in the header) and keeps the ordinal out."""
+    return fnv1a(body) if body else 0
+
+
+def sid_event(node, lane, stream, t_ms, body_digest):
+    """EVENT identity: an observation, fixed at an instant. Body digest REQUIRED."""
+    return fnv1a("%08x|%04x|%08x|%016x|%08x"
+                 % (node & 0xFFFFFFFF, lane & 0xFFFF, stream & 0xFFFFFFFF,
+                    t_ms & 0xFFFFFFFFFFFFFFFF, body_digest & 0xFFFFFFFF))
+
+
+def sid_key(node, lane, key):
+    """KEY identity: a standing row about a subject, revised over time. NO timestamp and
+    NO body digest -- both change while the identity must not (RFC-0004 §4). Getting
+    this backwards forks a belief's identity on every revision."""
+    return fnv1a(key or "", fnv1a("%08x|%04x|" % (node & 0xFFFFFFFF, lane & 0xFFFF)))
+
+
+# Laptop-authored beliefs live in no numbered node lane, so they need their own
+# uniqueness domain -- which §4.2.3 scopes as `(node_id, lane)`. Author is
+# ORCHESTRATOR_ID; for the lane, §4.2.2 renders it as the two's-complement hex4 of an
+# int16 *precisely so a negative lane stays deterministic*, which makes negative numbers
+# a namespace provably disjoint from every node lane (all >= 0). Registered here as an
+# extension of §4.2.7's identity-kind register. BOTH are KEY: a position belief is a
+# standing row about a node, revised as evidence accumulates (spec 0.3 §2.4).
+BELIEF_LANE_POSITION = -1      # @BELIEF:POSITION   KEY   `node:0x%08lx`
+BELIEF_LANE_PROXIMITY = -2     # @BELIEF:PROXIMITY  KEY   `pair:0x%08lx|0x%08lx|proto:%s`
+
+
+def position_sid(node_name):
+    """KEY sid for @BELIEF:POSITION, or None when the node id is unknown.
+
+    None means the header carries NO sid, never a guessed one. §4.2.4 is refuse-do-not-
+    perturb, and the property the whole mechanism buys is that a reader holding only the
+    file can RECOMPUTE the id -- a sid nobody can recompute is worse than no sid.
+    Full-width ids: §4.2.7 records that every 1-byte squeeze of this fleet's ids
+    collides."""
+    nid = NODE_IDS.get(node_name)
+    if nid is None:
+        return None
+    return sid_key(ORCHESTRATOR_ID, BELIEF_LANE_POSITION, "node:0x%08x" % nid)
+
+
+def proximity_sid(a, b, proto):
+    """KEY sid for @BELIEF:PROXIMITY, or None when either node id is unknown.
+
+    ⚠ The pair is SORTED BY NODE ID. Proximity is symmetric, so (a,b) and (b,a) are one
+    subject and must hash to one identity however the consolidator happened to order
+    them -- otherwise re-running `proximity` after a change in iteration order silently
+    renames every pair belief. `proto` is part of the key, following @LAT91's
+    `peer:0x%08lx|proto:%s` precedent: an espnow and a ble belief about the same pair
+    are different standing rows."""
+    ia, ib = NODE_IDS.get(a), NODE_IDS.get(b)
+    if ia is None or ib is None:
+        return None
+    lo, hi = sorted((ia, ib))
+    return sid_key(ORCHESTRATOR_ID, BELIEF_LANE_PROXIMITY,
+                   "pair:0x%08x|0x%08x|proto:%s" % (lo, hi, proto))
+
+
+def sid_header_field(sid):
+    """The ` | sid:xxxxxxxx` header fragment, or "" when there is none."""
+    return "" if sid is None else " | sid:%08x" % sid
+
+
 HEADER_SID_RE = re.compile(r"(?:^|[|\s])sid:([0-9a-f]{8})")
 
 
@@ -3535,7 +3623,8 @@ def proximity(port, baud, nodes, out, do_pull, settle,
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write(PROXIMITY_HEADER)
         for b in beliefs:
-            f.write(f"\n---\n\n@BELIEF:PROXIMITY @pair({b['a']}, {b['b']})\n"
+            f.write(f"\n---\n\n@BELIEF:PROXIMITY @pair({b['a']}, {b['b']})"
+                    f"{sid_header_field(proximity_sid(b['a'], b['b'], b['proto']))}\n"
                     f"proto: {b['proto']}\n"
                     f"rssi_est_dbm: {b['rssi_est']}\n"
                     f"rssi_ab_dbm: {b['rssi_ab']}   # {b['a']} hears {b['b']}"
@@ -3880,7 +3969,8 @@ def positions(proximity_path, out, iters):
             sigma = (sum(inc[nd]) / len(inc[nd])) ** 0.5 if inc[nd] else 0.0
             conf = sum(conf_inc[nd]) / len(conf_inc[nd]) if conf_inc[nd] else 0.1
             conf = round(max(0.1, min(0.8, conf - min(0.3, stress / 4.0))), 2)
-            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
+            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})"
+                    f"{sid_header_field(position_sid(nd))}\n"
                     f"frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y\n"
                     f"x_m: {x:.2f}\ny_m: {y:.2f}\n"
                     f"sigma_m: {sigma:.2f}   # SHAPE uncertainty only (spec 0.2)\n"
@@ -4296,7 +4386,8 @@ def anchor(positions_path, fixes_path, out):
                 f"{dof_pinned_line(pose_by)}\n")
         for nd in sorted(geo):
             lat, lon = geo[nd]
-            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})\n"
+            f.write(f"\n---\n\n@BELIEF:POSITION @node({nd})"
+                    f"{sid_header_field(position_sid(nd))}\n"
                     f"frame: geo   # absolute, GPS-anchored\n"
                     f"lat_deg: {lat:.7f}\nlon_deg: {lon:.7f}\n"
                     f"x_m: {pos[nd][0]:.2f}\ny_m: {pos[nd][1]:.2f}   # relative frame\n"

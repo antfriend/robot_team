@@ -27,33 +27,20 @@ REC = re.compile(r'^@LAT(-?\d+)LON(-?\d+)\s*\|', re.M)
 
 # --------------------------------------------------------------------------------------
 # The decided scheme. MUST match firmware/libraries/TTDB/src/Sid.cpp byte for byte.
+#
+# ⚠ IMPORTED FROM companion.py, NOT re-implemented here (2026-08-11). This file used to
+# carry its own copy; when the laptop started AUTHORING sids (Draft 0.3 §2.4) that would
+# have become a SECOND Python implementation of a hash whose whole value is that every
+# reader computes it identically. RFC-0010 §4.2.2 pins it "in two languages deliberately"
+# -- two languages, one implementation each. The numbers this script published in the RFC
+# are unaffected: the functions are byte-identical, and tests/test_sid_py.py asserts the
+# same eight vectors as tests/test_sid.cpp against these imports.
 # --------------------------------------------------------------------------------------
-FNV_OFFSET = 0x811c9dc5
-FNV_PRIME = 0x01000193
-
-
-def fnv1a(data, h=FNV_OFFSET):
-    if isinstance(data, str):
-        data = data.encode('utf-8')
-    for b in data:
-        h = ((h ^ b) * FNV_PRIME) & 0xFFFFFFFF
-    return h
-
-
-def body_digest(body):
-    """Every byte after the header line. Excluding the header is what makes this
-    non-circular (the sid lives in the header) and is what keeps the ordinal out."""
-    return fnv1a(body) if body else 0
-
-
-def sid_event(node, lane, stream, t_ms, bd):
-    pre = "%08x|%04x|%08x|%016x|%08x" % (node & 0xFFFFFFFF, lane & 0xFFFF,
-                                         stream & 0xFFFFFFFF, t_ms & 0xFFFFFFFFFFFFFFFF, bd)
-    return fnv1a(pre)
-
-
-def sid_key(node, lane, key):
-    return fnv1a(key or "", fnv1a("%08x|%04x|" % (node & 0xFFFFFFFF, lane & 0xFFFF)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'orchestrator'))
+from companion import (fnv1a, sid_event, sid_key,          # noqa: E402
+                       sid_body_digest as body_digest,
+                       FNV_OFFSET, FNV_PRIME)              # noqa: F401
 
 
 # --------------------------------------------------------------------------------------

@@ -372,6 +372,22 @@ rewrites, and the laptop recomputes it from the key alone; copy that.
 record that cannot be named is dropped with a diagnostic, never renamed into a
 neighbour's slot.
 
+✅ **BUILT 2026-08-11, and the uniqueness domain needed deciding.** RFC-0010 §4.2.3
+scopes a `sid` to `(node_id, lane)`, and these beliefs are laptop-authored and live in
+no numbered node lane. Resolved without inventing a mechanism: the author is
+`ORCHESTRATOR_ID`, and the lane is **negative** — a namespace provably disjoint from
+every node lane, all of which are `>= 0`. §4.2.2 already renders `lane` as the
+two's-complement `hex4` of an `int16` *"so a negative lane is still deterministic"*, so
+the provision was there to be used. Registered in §4.2.7: **`-1` position, `-2`
+proximity**.
+⚠ **The proximity pair is sorted by node id before hashing** — proximity is symmetric,
+so `(a,b)` and `(b,a)` are one subject, and without the sort a change in the
+consolidator's iteration order silently renames every pair belief in the file.
+⚠ **A subject whose node id is unknown gets NO sid, never a guessed one.** The property
+being bought is that a reader holding only the file can recompute the id; an id derived
+from a name the reader cannot map is not recomputable, so an absent sid is strictly
+better than an unverifiable one.
+
 ---
 
 ## 3. Implementation Plan — Core Features

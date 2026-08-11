@@ -21,7 +21,7 @@ honesty.
 
 ---
 
-@BELIEF:POSITION @node(cardputer_1)
+@BELIEF:POSITION @node(cardputer_1) | sid:5a76e5dd
 frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y
 x_m: 2.12
 y_m: 0.00
@@ -30,15 +30,15 @@ pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
 dof_pinned: { translation: none, rotation: none, reflection: none }
 frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
 anchor_chain: []   # no GPS tie: nothing pins pose
-embedding_rev: 6
+embedding_rev: 7
 flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling
 stress_m: 2.04
 conf: 0.45
-touched: 2026-08-11T15:55:40Z
+touched: 2026-08-11T16:08:10Z
 
 ---
 
-@BELIEF:POSITION @node(tdeck_1)
+@BELIEF:POSITION @node(tdeck_1) | sid:dbdf7fb2
 frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y
 x_m: -0.87
 y_m: 0.02
@@ -47,15 +47,15 @@ pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
 dof_pinned: { translation: none, rotation: none, reflection: none }
 frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
 anchor_chain: []   # no GPS tie: nothing pins pose
-embedding_rev: 6
+embedding_rev: 7
 flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling
 stress_m: 2.04
 conf: 0.44
-touched: 2026-08-11T15:55:40Z
+touched: 2026-08-11T16:08:10Z
 
 ---
 
-@BELIEF:POSITION @node(v4a_bridge)
+@BELIEF:POSITION @node(v4a_bridge) | sid:03c5ab25
 frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y
 x_m: 0.00
 y_m: 0.00
@@ -64,15 +64,15 @@ pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
 dof_pinned: { translation: none, rotation: none, reflection: none }
 frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
 anchor_chain: []   # no GPS tie: nothing pins pose
-embedding_rev: 6
+embedding_rev: 7
 flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling
 stress_m: 2.04
 conf: 0.44
-touched: 2026-08-11T15:55:40Z
+touched: 2026-08-11T16:08:10Z
 
 ---
 
-@BELIEF:POSITION @node(v4b_relay)
+@BELIEF:POSITION @node(v4b_relay) | sid:02c5a992
 frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y
 x_m: 22.99
 y_m: -0.14
@@ -81,15 +81,15 @@ pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
 dof_pinned: { translation: none, rotation: none, reflection: none }
 frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
 anchor_chain: []   # no GPS tie: nothing pins pose
-embedding_rev: 6
+embedding_rev: 7
 flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling
 stress_m: 2.04
 conf: 0.45
-touched: 2026-08-11T15:55:40Z
+touched: 2026-08-11T16:08:10Z
 
 ---
 
-@BELIEF:POSITION @node(v4c_edge)
+@BELIEF:POSITION @node(v4c_edge) | sid:01c5a7ff
 frame: relative   # origin v4a_bridge, 2nd node on +x, 3rd at +y
 x_m: -8.60
 y_m: 0.35
@@ -98,8 +98,8 @@ pose_ceiling: 0   # of 4 DoF: no GPS ties: this is a SHAPE, not a map
 dof_pinned: { translation: none, rotation: none, reflection: none }
 frame_origin: v4a_bridge   # ORIGIN, not an anchor (spec 1.2)
 anchor_chain: []   # no GPS tie: nothing pins pose
-embedding_rev: 6
+embedding_rev: 7
 flip_resolved: false   # T-Deck GPS resolves; see pose_ceiling
 stress_m: 2.04
 conf: 0.45
-touched: 2026-08-11T15:55:40Z
+touched: 2026-08-11T16:08:10Z

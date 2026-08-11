@@ -312,6 +312,27 @@ which matters on a node whose largest record builder already holds 2 624 bytes.
 | `@LAT100` | PROVENANCE | **KEY** | `gen:%u\|lane:%u` |
 | `@LAT101` SOCIAL | FIELD | **KEY** | `node:0x%08lx` — FULL width; every 1-byte squeeze of this fleet's ids collides (stage 3, 2026-08-09) |
 | future FIELD lanes | FIELD | **KEY** | the field's own key (a trace must survive reinforcement) |
+| `-1` `@BELIEF:POSITION` | EVIDENCE | **KEY** | `node:0x%08lx` — laptop-authored |
+| `-2` `@BELIEF:PROXIMITY` | EVIDENCE | **KEY** | `pair:0x%08lx\|0x%08lx\|proto:%s`, ids **sorted ascending** |
+
+⚠ **The last two rows are LAPTOP-AUTHORED and live in no numbered node lane** (added
+2026-08-11 for `ttn-semantic-positioning.md` Draft 0.3 §2.4, which requires them to be
+KEY because SP4 revises a position belief continuously). §4.2.3 scopes uniqueness to
+`(node_id, lane)`, so they need both: the author is `ORCHESTRATOR_ID` (`0x00000001`) and
+the lane is **negative** — a namespace provably disjoint from every node lane, all of
+which are `>= 0`. This is not a special case bolted on: §4.2.2 already renders `lane` as
+the two's-complement `hex4` of an `int16` *"so a negative lane is still deterministic"*.
+
+⚠ **`@BELIEF:PROXIMITY`'s pair MUST be sorted by node id before hashing.** Proximity is
+symmetric, so `(a,b)` and `(b,a)` are one subject; without the sort a change in the
+consolidator's iteration order silently renames every pair belief in the file. `proto` is
+part of the key on `@LAT91`'s precedent — an espnow and a BLE belief about the same pair
+are two standing rows, not one.
+
+⚠ **A subject whose id is unknown gets NO sid, never a guessed one** (§4.2.4's
+refuse-don't-perturb, applied to authoring): the property being bought is that a reader
+holding only the file can recompute the id, and an id derived from a name the reader
+cannot map is not recomputable.
 
 Note that **every FIELD lane is necessarily KEY**: §5.2 reinforcement updates a trace in
 place, and a trace whose name changed when it was reinforced would be a new trace.

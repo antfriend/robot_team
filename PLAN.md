@@ -85,7 +85,18 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    — it is the relative-frame origin only (spec §1.2). Every current
    `master/positions.md` record should come out `pose_ceiling: 0`, which is the
    honest reading of what the fleet knows today.
-3. **KEY-kind `sid` on `@BELIEF:POSITION` / `@BELIEF:PROXIMITY` (spec §2.4).**
+3. ✅ **DONE 2026-08-11 — KEY-kind `sid` on `@BELIEF:POSITION` / `@BELIEF:PROXIMITY`.**
+   `master/positions.md` rev 7 carries one per record (`| sid:03c5ab25`), stable across
+   a re-embed that changed every number. **Uniqueness domain resolved without inventing
+   a mechanism:** author `ORCHESTRATOR_ID`, lane **negative** (`-1` position, `-2`
+   proximity) — provably disjoint from every node lane, using RFC-0010 §4.2.2's own
+   provision that a negative lane hashes as two's-complement `hex4`. Registered in the
+   RFC's §4.2.7 table. 🎯 **`companion.py` now OWNS the Python hash and
+   `scripts/sid_probe.py` imports it** — authoring would otherwise have created a
+   *second* Python implementation of a hash whose entire value is that every reader
+   computes it identically. 34 checks in `tests/test_sid_py.py` incl. all 8
+   cross-language vectors; laptop suite 13 → 14 files.
+   *Original scope, kept for the record:*
    A living belief must keep its name across revisions or Phase 4 breaks its own
    edges. `@LAT91` already does this; recompute-from-key on the laptop side is the
    pattern to copy.

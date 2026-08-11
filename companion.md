@@ -5547,6 +5547,43 @@ If a fact lives in one of these, link to it from here — don't copy it.
   📋 Next, still solo-buildable: KEY-kind sids on position/proximity beliefs, then the
   two render rules on the laptop leg.
 
+- ✅ **2026-08-11 — KEY-KIND `sid`s ON THE POSITION AND PROXIMITY BELIEFS, AND THE
+  LAPTOP NOW OWNS THE PYTHON HASH RATHER THAN HOLDING A SECOND COPY OF IT.**
+  Solo-buildable item 3 of 4. `master/positions.md` (rev 7) carries one per record —
+  `@BELIEF:POSITION @node(v4a_bridge) | sid:03c5ab25` — and the test that matters proves
+  the point of the exercise: **a re-embed that changed every number left every sid
+  identical.** Under an EVENT-kind id each revision renames the record and every typed
+  edge into it dangles, which is precisely what SP4 ("position as living belief") would
+  have done to itself.
+  🎯 **The uniqueness domain needed deciding, and the RFC had already provided for it.**
+  §4.2.3 scopes a sid to `(node_id, lane)`; these beliefs are laptop-authored and live in
+  no numbered node lane. Author = `ORCHESTRATOR_ID`; lane = **negative** (`-1` position,
+  `-2` proximity), a namespace **provably disjoint from every node lane** since all node
+  lanes are `>= 0`. Not a special case bolted on — §4.2.2 already renders `lane` as the
+  two's-complement `hex4` of an `int16` *"so a negative lane is still deterministic"*.
+  Registered in the RFC's §4.2.7 table, which had no row for laptop-authored records.
+  ⚠ **The proximity pair is SORTED BY NODE ID before hashing.** Proximity is symmetric,
+  so `(a,b)` and `(b,a)` are one subject; without the sort, a change in the
+  consolidator's iteration order **silently renames every pair belief in the file**.
+  `proto` is in the key on `@LAT91`'s precedent — espnow and BLE about one pair are two
+  standing rows.
+  ⚠ **An unknown node id yields NO sid, never a guessed one** (§4.2.4 refuse-don't-
+  perturb, applied to authoring). The property being bought is that a reader holding only
+  the file can *recompute* the id; an unverifiable sid is worse than none.
+  🎯 **`companion.py` now owns `fnv1a`/`sid_event`/`sid_key` and `scripts/sid_probe.py`
+  IMPORTS them.** Authoring would otherwise have created a **second Python
+  implementation** of a hash whose entire value is that every reader computes it
+  identically — the divergence RFC-0010 calls "silent and total". Two languages, one
+  implementation each, as §4.2.2 intends. The RFC's published measurement is unaffected:
+  the functions are byte-identical and `--vectors` reproduces the same eight values.
+  🧪 **34 checks in `tests/test_sid_py.py`, including all eight cross-language vectors
+  asserted against `tests/test_sid.cpp`** — which until today existed only in a
+  measurement script no test ran. Laptop suite 13 → 14 files, all green;
+  `check_makefile.py` green; `sid_probe.py` re-runs clean over the archive (now 7805
+  records, up from 6683 — today's pulls).
+  📋 Next and last of the solo-buildable four: the two render rules on the laptop leg
+  (faded-not-absent; never draw `pose_ceiling: 0` as a confident map).
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
