@@ -2,12 +2,34 @@
 
 **Inferring Relative Physical Position of ESP32 Nodes from TTDB Semantic Relationships**
 
-*Draft 0.2 — Toot Toot Engineering — July 2026*
+*Draft 0.3 — Toot Toot Engineering — August 2026*
 
 **Status: PRIMARY HYPOTHESIS of robot_team (adopted 2026-07-07).** This is the
 claim the fleet now exists to prove. The build order is PLAN.md **Act II**;
 companion.md §6 tracks its live state. Everything verified so far — toots,
 HMAC, sync, Dream Cycle, pulse — is the floor this proof stands on.
+
+**What changed in 0.3 (2026-08-11), and why.** Between 0.2 and 0.3 the fleet built
+a great deal of infrastructure that was filed as "off the hypothesis path" —
+stigmergic fields and lane discipline (`TTDB-RFC-0010`), the team time stream, lane
+generations, stable record identity, change-triggered lanes, and the default network
+(`default-network.md`). Read together, that work does not sit beside this document;
+it **corrects** it in six places and **strengthens** it in two. Every change below is
+tagged with the measurement or RFC that forced it, so this revision reads as evidence
+rather than as opinion:
+
+| § | Change | Driven by |
+|---|---|---|
+| 0.1 | Shape vs pose: the ambiguity is **4 DoF**, not just flip | `default-network.md` §1 |
+| 0.2 | Proof leg 1 reports `(sigma, pose_ceiling)`, not `sigma` alone | the above, made honest |
+| 0.3 | **The falsifier can fire falsely at bench scale** | cross-node overlap, 2026-08-11 |
+| 1.1 | The entity tier's resolving power is bounded by AP alphabet | night 1/3 baselines |
+| 1.2 | Anchoring on V4-A is **circular** — its coordinate is configured | this revision |
+| 2.3–2.4 | Lane register + identity kinds for positioning records | `TTDB-RFC-0010` §3, §4.2 |
+| 3.2b | **Distributed embedding** — the fleet shapes itself, no laptop | `default-network.md` §5 |
+| 3.3 | TDoA must use the **pulse**, never the time stream | `TimeStream` is a ratchet |
+| 4.3 | The ablation needs a stated geometry or it proves nothing | cross-node overlap |
+| A | Phase 0's risk is retired; the mitigation was the wrong one | run-length, 2026-08-04 |
 
 ---
 
@@ -17,11 +39,49 @@ HMAC, sync, Dream Cycle, pulse — is the floor this proof stands on.
 > semantic structure of what it perceives** — umwelt overlap implies spatial
 > proximity — **accurately enough to be useful.**
 
+### 0.1 Shape and pose — what "its own physical arrangement" can and cannot mean
+
+**(New in 0.3. Source: `default-network.md` §1, which reached this by a different
+road and got there first.)**
+
+A relation between two nodes — do we hear each other, do we see the same access
+points, did that deposit arrive — is **invariant under moving the whole fleet**.
+So everything inferable from common information alone is inferable only up to the
+symmetry group of the plane: **translation (2) + rotation (1) + reflection (1) =
+four degrees of freedom** that no amount of umwelt overlap can touch. This is not
+a defect to engineer away; it is what "inferred from common information" *means*.
+
+> **Umwelt overlap gives the fleet its SHAPE. Capabilities are what give the shape
+> a POSE.**
+
+Those four fall only to a node holding a capability nobody else has:
+
+| Breaks | Needs | Who has it |
+|---|---|---|
+| translation | one absolute fix | T-Deck GPS |
+| rotation | a second fix at a different place | T-Deck GPS, roaming |
+| reflection | a third non-collinear fix | T-Deck GPS, roaming (`anchor`'s "≥3 ties resolve mirror") |
+| *nothing* | RSSI amplitude | ⚠ measured broken outdoors: 2–7× over-range, decorrelated |
+
+**Consequence, and it supersedes §1.3:** flip ambiguity is not *the* limitation, it
+is *one of four*, and the other three were previously treated as solved by anchoring
+(§1.2) when they are not — see §1.2's correction.
+
+### 0.2 The proof legs
+
 "Useful" is pinned to three concrete, falsifiable proof legs:
 
-1. **Verified.** Position beliefs land within their own stated `sigma` of
+1. **Verified.** Position beliefs land within their own stated uncertainty of
    ground truth, measured against the **T-Deck's GPS** used as a roaming
    verification instrument (§4). The map must be *honest*, not just pretty.
+   ⚠ **Revised in 0.3: the stated uncertainty is `(sigma, pose_ceiling)`, a PAIR,
+   and reporting `sigma` alone fails this leg by its own standard.** Position error
+   has two components with different shapes: shape uncertainty, which `sigma`
+   covers and which is roughly Gaussian, and **pose ambiguity, which `sigma` does
+   not cover at all** — it is a discrete 4-DoF freedom, not a spread. A fleet with
+   perfect shape knowledge and no GPS fix has `sigma → 0` and **unbounded** position
+   error. `pose_ceiling` states how many of the four degrees of freedom are
+   currently pinned, and by whom.
 2. **Actuated.** The inferred pairwise proximity **drives the transport ladder
    automatically**: each node pair selects **ESP-NOW when the belief says
    in-range and falls back to LoRa when it doesn't**, with hysteresis, without
@@ -32,10 +92,36 @@ HMAC, sync, Dream Cycle, pulse — is the floor this proof stands on.
    pattern) and natively on the **T-Deck's 320×240 screen** (§3, Phase 6).
    The fleet draws a live map of itself.
 
+### 0.3 Falsifier — and the way it can fire falsely
+
 **Falsifier:** the ablation study (§4.3) compares RSSI-only against
 RSSI+semantic evidence (entity co-occurrence, BLE near-range, environmental
 TDoA). If the semantic layer adds nothing over plain radio ranging, the
 hypothesis fails, and this document records why.
+
+🛑 **NEW IN 0.3 — THE FALSIFIER HAS A FALSE-POSITIVE MODE, AND THE FLEET IS
+CURRENTLY SITTING IN IT.** Measured 2026-08-11 from the night-3 archives, two nodes
+a few metres apart on the same bench, all night:
+
+```
+cross-node entity overlap (V4-A vs Cardputer)  p50 0.875  min 0.750  max 1.000
+  -> Jaccard DISTANCE between two different nodes:   ~0.125
+same-node drift, 10 min apart (night 3, n=31)  p50 0.111  p90 0.222  max 0.375
+```
+
+**The between-node signal is smaller than the within-node noise.** At this bench's
+AP density the entity tier cannot distinguish *two different nodes* from *one node
+at two different times*. Run §4.3's ablation here and it will report — correctly,
+and uselessly — that the semantic layer adds nothing.
+
+**That would be a test-geometry artifact, not a result about the tier**, and
+recording it as a falsification would lose the hypothesis for the wrong reason.
+§4.3 is therefore amended to require a **stated separation** at which the entity
+sets measurably differ, established *before* the ablation runs.
+⚠ Caveat carried honestly: V4-A ran the folding build, so its sets are run-unions
+and the overlap is biased **upward** — the true figure is likely lower, which
+strengthens the conclusion rather than weakening it. The clean measurement needs two
+nodes on `-DENTITYPERCEPT_MAX_RUN=1` simultaneously and is listed in PLAN.md SP0.
 
 ---
 
@@ -55,17 +141,56 @@ Three families of evidence, all naturally representable as paired `@PERCEPT:befo
 
 2. **Shared-entity co-occurrence.** Nodes log sightings of external entities: WiFi SSIDs/BSSIDs, BLE advertisement MACs, acoustic events, recognized RF beacons. The Jaccard overlap of two nodes' entity sets is a coarse proximity measure. Shared visible WiFi APs alone typically bound two observers to within ~50–100 m of each other; BLE overlap bounds tighter (~10–30 m).
 
+   ⚠ **Measured limit (new in 0.3) — this tier's resolving power scales with the
+   AP alphabet, and this bench is at the low end of it.** The entire night-1
+   segment is **10 distinct BSSIDs**; night 3 is **9**, and 9 of those 9 are
+   shared with night 1's 10 — the same room, twice. With per-window sets of 5–9
+   drawn from an alphabet of ~10, one AP appearing or vanishing moves Jaccard by
+   0.125–0.200, so the metric takes a **handful of discrete values** and
+   "continuous drift" is a misdescription of it. Two consequences the 0.2 text
+   did not anticipate:
+   - The `~50–100 m` bound is *not wrong*, but it is the tier's **resolution**,
+     not merely its reach: below that scale the tier contributes a **cap**, never
+     a distance (§3 Phase 1 already says "caps rather than refines" — 0.3 says
+     *why*, and that the cap is all there will ever be at this density).
+   - A **denser AP environment makes this tier better**, and a sparse one makes it
+     nearly blind. Any conclusion about the entity tier must state the alphabet
+     size it was measured at, exactly as an RSSI conclusion must state the terrain.
+
 3. **Environmental gradient timing.** Spatially propagating transients — rain fronts, temperature drops, sunrise/sunset light curves, pressure waves — arrive at different nodes at different times. Time-difference-of-arrival between correlated environmental percepts yields directional constraints. Solar charge curves (V4-B) additionally encode shading geometry and panel orientation at zero sensor cost.
 
 4. **BLE near-range approximation.** Every board carries BLE 5.0. Nodes advertise and scan: inter-node BLE advertisement visibility (and its RSSI) bounds a pair to roughly 10–30 m — a short-range proximity tier that tightens `dist_sigma_m` exactly where ESP-NOW RSSI is least informative (near-field flattening: past a few meters of separation, strong ESP-NOW RSSI barely changes). Same percept schema as link observations, `proto: ble`. BLE is an *approximation tool*, never a transport: it contributes evidence, not toots.
 
 ### 1.2 Synthesis
 
-Pairwise evidence is fused into a single affinity/distance matrix and embedded into 2D via anchor-free localization (MDS-MAP or spring relaxation). Nodes with authoritative known positions (the bridge/head, V4-A) act as anchors that pin the relative map to absolute `@LATxLONy` coordinates. For meshes of 3–20 nodes this is comfortably within ESP32 compute budgets, or can be delegated to the head node / attached host.
+Pairwise evidence is fused into a single affinity/distance matrix and embedded into 2D via anchor-free localization (MDS-MAP or spring relaxation). For meshes of 3–20 nodes this is comfortably within ESP32 compute budgets, or can be delegated to the head node / attached host — **and as of 0.3 the fully distributed version is a named goal, not a footnote (§3 Phase 2b).**
 
-### 1.3 Known Limitation: Flip Ambiguity
+🛑 **CORRECTION IN 0.3 — ANCHORING ON V4-A IS CIRCULAR, AND 0.2 SAID OTHERWISE.**
+The previous text read: *"Nodes with authoritative known positions (the bridge/head,
+V4-A) act as anchors that pin the relative map to absolute `@LATxLONy`
+coordinates."* **V4-A's coordinate is configured, not measured.** Pinning the map to
+it does not convert shape into pose; it asserts the pose and then reports the
+assertion back as a result. Under §0.1 the only things that pin the four degrees of
+freedom on this fleet are **GPS fixes and the tape measure** — a configured constant
+is neither.
+
+This does not make V4-A useless. It remains the right **origin of the relative
+frame** (a labelling choice, free of epistemic content) and the natural place to run
+the solver. What it must not be is the *source of absolute position*, and any
+`@BELIEF:POSITION` whose `anchor_chain` contains only V4-A is a **shape claim
+wearing pose clothing** — it must report `pose_ceiling: 0` (§0.2), not a small
+`sigma`.
+
+### 1.3 Known Limitation: Flip Ambiguity — *generalised in 0.3, see §0.1*
 
 Three nodes determine a triangle only up to reflection. Disambiguation requires one of: a fourth node, a second anchor with known coordinates, or a declared directional constraint (e.g., "V4-C is east of V4-B"). The system should represent an unresolved flip as *two candidate embeddings with split confidence* rather than silently choosing one.
+
+⚠ **0.3: this section is correct but was mis-scoped.** Reflection is **one of four**
+undetermined degrees of freedom, and it is the only one 0.2 treated as a known
+limitation — translation and rotation were silently assumed away by the circular
+anchoring §1.2 has now retracted. The general statement lives in **§0.1**; the
+dual-candidate representation prescribed here is the right *shape* of answer and
+generalises directly: an unpinned degree of freedom is represented, never guessed.
 
 ---
 
@@ -128,19 +253,110 @@ touched: 2026-07-05T15:00:00Z
 
 ```markdown
 @BELIEF:POSITION @node(V4-C)
+sid: <KEY-kind stable id over node:0x…>   # 0.3, RFC-0010 §4.2 — see §2.4
 lat: 43.64312
 lon: -116.28067
-sigma_m: 45
-anchor_chain: [V4-A]
+sigma_m: 45                                # SHAPE uncertainty only
+pose_ceiling: 3                            # 0.3 — how many of the 4 DoF are pinned
+dof_pinned: { translation: gps@tdeck_1, rotation: gps@tdeck_1, reflection: none }
+anchor_chain: [gps@tdeck_1 x2]             # 0.3 — GPS/tape only; NOT a configured node
 embedding_rev: 9
-flip_resolved: true
+flip_resolved: false                       # implied by reflection: none
 conf: 0.71
 rev: 9
 ```
 
+⚠ **`sigma_m` and `pose_ceiling` are not substitutes and must both be present**
+(§0.2). A record with `pose_ceiling: 0` is a *shape* claim: its `lat`/`lon` are one
+of an infinite family related by translation and rotation, and one of two mirror
+images, however small `sigma_m` is. Renderers must show this (§3 Phase 6); a
+consumer that reads `sigma_m` alone will be confidently wrong.
+
 ### 2.2 Key Design Decision
 
 Raw link percepts are **write-heavy, short-lived**. They exist to feed consolidation, then are pruned (or downsampled to periodic summaries) to respect flash wear and flat-file scale on ESP32-class storage. The durable graph objects are the consolidated `@BELIEF:PROXIMITY` and `@BELIEF:POSITION` nodes. This matches the existing Dream Cycle philosophy: experience is cheap, consolidated belief is the asset.
+
+🎯 **REVISED IN 0.3 — COMPRESS THE LANE; DO NOT PRUNE IT. Pruning was the wrong
+mitigation and the fleet measured it.** "Then are pruned" was 0.2's answer to
+percept volume, and in practice it was a treadmill *and* it consumed a budget 0.2
+did not know existed (§4.5). What worked instead is **change-triggered lanes with
+run-length**: a window whose verdict matches the run in progress writes nothing, and
+the record that closes the run states what it suppressed.
+
+| lane | before | after | mechanism |
+|---|---|---|---|
+| `@LAT95` motion | fills in 48 min | ~24 h | run-length, 2026-08-04 |
+| `@LAT92` outcomes | fills in 24 min | — | run-length, 2026-08-04 |
+| `@LAT96` entity | 8 h | 48 h | stable-core trigger, 2026-08-10 |
+
+⚠ **Compression is legitimate only where it is LOSSLESS FOR THE CONSUMER, and that
+must be argued per lane, not assumed.** Folding a verdict N times equals folding it
+once per window, which is why run-length is safe on a *tally*; dropping unchanged
+windows *without* the count would have removed `conf`'s denominator and made every
+belief over-confident. For `@LAT96` the consumer computes a **union**, so the record
+that closes a run carries the run's union (`**COVERED-ENTITY**`) and loss is zero
+**by construction** — a window whose entities would not fit ends the run rather than
+being dropped. Verified on hardware 2026-08-11: without that union the fold would
+have permanently dropped 2 BSSIDs from exactly the quantity the tier consumes.
+
+**Any new positioning lane must state its consumer and its losslessness argument
+before it is written.**
+
+---
+
+### 2.3 Lane register — which positioning records are EVIDENCE and which are FIELD
+
+**(New in 0.3. Source: `TTDB-RFC-0010` §3, which is normative on adoption and which
+the positioning lanes are already governed by.)**
+
+0.2 proposed record *types* with no statement of record *class*. That gap is no
+longer academic: the fleet now has a live FIELD lane (`@LAT101`, peer co-presence,
+decay-on-read, no prune path by design) carrying what is unmistakably positioning
+evidence. RFC-0010 draws a hard line, and it lands right across this document:
+
+> **§6.1 — no measured constant may come from a FIELD lane.**
+
+| lane | carries | class | may feed a calibration constant? |
+|---|---|---|---|
+| `@LAT97` | per-peer RSSI histograms (`LinkPercept`) | **EVIDENCE** | yes |
+| `@LAT96` | WiFi BSSID sightings (`EntityPercept`) | **EVIDENCE** | yes |
+| `@LAT95` | motion windows (`MotionPercept`) | **EVIDENCE** | yes |
+| `@LAT94` | acoustic transients (`AcousticPercept`) | **EVIDENCE** | yes |
+| `@LAT101` | peer co-presence trace (`Social`) | **FIELD** | 🛑 **no** |
+| `@LAT100` | lane-generation boundaries | PROVENANCE | n/a |
+
+**So: co-presence may inform a belief, but no path-loss exponent, no drift
+threshold, and no distance calibration may be derived from it.** `@LAT96` was
+deliberately kept EVIDENCE for precisely this reason — the still-node drift
+threshold comes from it, and a FIELD lane cannot carry a number anything else is
+measured against. A field is an *optimisation*, never the store of record (§6.3).
+
+⚠ **And RFC-0010 §6.2 forbids a `derived_from` edge targeting a FIELD record**, so a
+`@BELIEF:PROXIMITY` may not cite `@LAT101` as provenance even when co-presence
+contributed to it. If co-presence is to be citable, it needs an EVIDENCE-class
+shadow — that decision is deferred, and named as deferred, rather than taken by
+accident at the first `derived_from` someone writes.
+
+### 2.4 Identity — a position belief must keep its name across revisions
+
+**(New in 0.3. Source: `TTDB-RFC-0010` §4.2, decided 2026-08-09 by measurement.)**
+
+RFC-0010 distinguishes two identity kinds: **EVENT** (body and time fold into the
+id) and **KEY** (both stay out, so a revised record keeps its name). Phase 4 makes
+`@BELIEF:POSITION` a *living* belief, revised continuously as evidence accumulates —
+which settles the question:
+
+> **`@BELIEF:POSITION` and `@BELIEF:PROXIMITY` MUST be KEY-kind**, natural key
+> `node:0x%08lx` and the ordered pair respectively.
+
+Under an EVENT-kind id every revision renames the record, and every typed edge
+pointing at it breaks — the map would lose its own history exactly as it started
+being worth having. `@LAT91` already writes a KEY-kind sid stable across boots and
+rewrites, and the laptop recomputes it from the key alone; copy that.
+
+⚠ On collision, RFC-0010 §4.2.4 is **refuse, do not perturb** — a positioning
+record that cannot be named is dropped with a diagnostic, never renamed into a
+neighbour's slot.
 
 ---
 
@@ -174,11 +390,58 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 
 - Build the symmetric distance matrix from proximity beliefs, weighting entries by `conf` (missing/low-conf pairs get large sigma, not zero weight).
 - **Solver:** for ≤10 nodes, skip classical MDS eigendecomposition and use weighted spring relaxation (stress majorization): iterate `xᵢ ← xᵢ + η·Σⱼ wᵢⱼ·(‖xᵢ−xⱼ‖ − dᵢⱼ)·(xⱼ−xᵢ)/‖xᵢ−xⱼ‖`. It's ~40 lines of C, converges in hundreds of iterations, handles missing entries natively, and warm-starts from the previous embedding so incremental updates are nearly free.
-- **Anchoring:** translate/rotate the relative embedding so V4-A lands on its known `@LATxLONy`. With one anchor, orientation remains free — resolve with a declared bearing constraint or a second anchor. **The T-Deck is the second anchor:** its GPS gives it an authoritative position wherever it happens to be, and because it *roams*, it is effectively many anchors over time — each GPS-stamped position it visits pins the relative embedding a little harder and breaks flip ambiguity statistically (the mobile-node/SLAM-lite mode of §5, promoted to a core role).
+- **Anchoring — revised in 0.3 (§1.2).** V4-A is the **origin of the relative
+  frame**, which is a labelling choice and carries no epistemic content; it is
+  **not** an anchor, because its coordinate is configured rather than measured.
+  Pose comes only from **GPS fixes and the tape measure**. **The T-Deck is
+  therefore the only anchor the fleet has:** its GPS gives it an authoritative
+  position wherever it happens to be, and because it *roams* it is effectively
+  many anchors over time — each GPS-stamped position it visits pins one more
+  degree of freedom (the mobile-node/SLAM-lite mode of §5, promoted to a core
+  role). Track this explicitly: **1 fix pins translation, 2 pins rotation, ≥3
+  non-collinear pins reflection** (§0.1), and the count *is* `pose_ceiling`.
+  ⚠ Until the T-Deck has taken fixes, every position belief carries
+  `pose_ceiling: 0` and must render as a shape, not a map (Phase 6).
 - **Flip handling:** evaluate stress for both mirror images; if within noise of each other, emit both candidates with split `conf` and mark `flip_resolved: false`.
 - Run on the head node (V4-A) or attached host; publish resulting position beliefs back over the mesh so each node stores its own.
 
 *Deliverable:* a self-drawn map of the three-node spine, honest about its uncertainty.
+
+### Phase 2b: Distributed embedding — the fleet shapes itself (NEW IN 0.3)
+
+*Goal: the shape estimate exists with the laptop switched off.*
+
+**(Source: `default-network.md` §5, promoted here from "off the hypothesis path".)**
+
+Phases 1–2 as written permit the embedding to run "on the head node (V4-A) or
+attached host" — so the hypothesis as stated in 0.2 is **provable with a laptop
+doing the mathematics**. That is a weaker claim than the fleet's own premise, and
+the machinery to strengthen it is already built: `TraceField` (decay-on-read,
+HELLO-carried, max-merged), the `Social` capability table, and `pulse::Chart`'s
+band-wide idle scene, which is currently silence.
+
+Per idle bar, each node independently:
+
+1. **Voices the social field** — one cell per peer on the 16-step grid, amplitude =
+   decayed co-presence. The fleet's shape becomes *audible*.
+2. **Takes one damped relaxation step** on its own `(x, y, sigma)` — pull toward
+   peers with high umwelt overlap, push from peers with none.
+3. **Recomputes `pose_ceiling`** from the capability table (§0.1) and adjusts its
+   own re-advertisement rate.
+
+All three are local reads of a shared medium; nothing addresses anybody, which is
+the test that this is stigmergy rather than a protocol with extra steps.
+
+⚠ **Damping and a stated iteration budget are mandatory** — a distributed
+relaxation can oscillate where a central one converges, and this fleet has no
+global step counter to appeal to.
+
+🔬 **Falsifier for Phase 2b specifically:** if the distributed shape estimate agrees
+with `companion.py positions` in every configuration tested, **the distributed
+version added nothing** — say so, record it, and keep the central solver. Phase 2b
+is a strengthening of the hypothesis, not a prerequisite for it: **Phases 1–2 alone
+still prove or refute §0**, and 2b may be abandoned without touching the primary
+proof.
 
 ### Phase 3: Environmental TDoA (2–4 weeks, parallelizable)
 
@@ -186,6 +449,37 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 
 - Onset detection per sensor channel: CUSUM or simple derivative-threshold on temperature, light, pressure. Log `@PERCEPT:ENV` with onset timestamp.
 - **Clock sync is the hard part.** ESP-NOW round-trip timestamp exchange gets nodes to ~1 ms agreement, sufficient for slow fronts (weather: minutes across hundreds of meters) but not acoustic events. Start with slow signals only.
+
+  🛑 **NEW IN 0.3 — USE THE PULSE, NEVER THE TIME STREAM. This is a trap, and the
+  time stream is the thing you will reach for.** The fleet now owns a shared
+  timeline (`TimeStream`, `stream:`/`wall:`) that looks exactly like TDoA
+  infrastructure. It is the wrong instrument: **a stream's clock is a ratchet** —
+  elapsed-since-its-own-origin, fastest crystal heard wins — which is what makes
+  "older stream wins" and monotonicity one rule, and which makes it *correct for
+  ordering and recency and wrong for measuring a duration*. **TDoA is a cross-node
+  duration.** A ratcheting counter can move a node's clock forward by seven weeks
+  and still be behaving exactly as designed.
+
+  The right reference is the **pulse** — conductor-elected, phase-locked, and
+  already counted by every node in the band. Two pieces of it are built and
+  hardware-verified:
+  - `@LAT94` `AcousticPercept` logs the **fleet-clock timestamp of the loudest
+    transient** in each window — a time-of-arrival measurement, not an amplitude
+    one, so it is not subject to the shadowing that broke RSSI outdoors.
+  - **Beat-scheduled recording** (`CMD_RECORD`) captures a window off the band
+    clock so every node records the same instant, and each node **stamps what it
+    BELIEVED the time was** — so clock wobble stays correctable rather than baked
+    in. That is the right design shape for TDoA and it already exists.
+
+  📊 **Measured resolution floor:** band skew is mostly whole-fleet common mode;
+  with the per-run mean removed and the conductor excluded (its 0.0 is true by
+  construction), the residual is **~1.9 m**. That is the spatial resolution class
+  to expect from acoustic TDoA on this fleet — sufficient for bench-to-garden
+  geometry, not for centimetres. State it before running the experiment, not after.
+
+  ⚠ **Only the Cardputer has a microphone**, so multi-node acoustic TDoA is
+  unexercised: one clap heard by two nodes needs a second mic-equipped node. This
+  is the single largest hardware gap on the hypothesis path.
 - Cross-correlate onset times across nodes for the same detected event class within a window; each match yields a "B preceded C by Δt" constraint. Accumulate these as directional priors that (a) break flip ambiguity statistically and (b) add gradient-direction information the distance matrix lacks.
 - Solar node bonus: V4-B's charge-current curve shape vs. clear-sky model encodes shading azimuth — a free compass-like hint.
 
@@ -195,6 +489,18 @@ Raw link percepts are **write-heavy, short-lived**. They exist to feed consolida
 
 - Node self-address update: when `@BELIEF:POSITION` `conf` exceeds a threshold and disagrees with the node's configured `@LATxLONy` beyond `sigma`, raise a revision event. Policy choice per deployment: auto-adopt (fully emergent addressing) or flag-for-operator (conservative).
 - Movement detection falls out for free: a sustained shift in a node's link-RSSI profile drops the `conf` of stale proximity beliefs via `touched` decay, triggering re-embedding. The mesh notices it was rearranged.
+
+  ✅ **NEW IN 0.3 — that detector can now be VALIDATED rather than asserted.** The
+  Cardputer's accelerometer writes `@LAT95` `still|moving` windows, which makes "the
+  observer held still" a **checkable claim instead of an assumption** — it is
+  already load-bearing as gate 3 of the entity-drift baseline. So the RSSI-based
+  movement detector has ground truth to be scored against on at least one node:
+  run both over the same interval and report agreement, false-positive and
+  false-negative rates. **An inferred detector with an available ground truth that
+  nobody scored it against is an assertion**, and this document has now made that
+  mistake once (§1.2's anchor).
+  ⚠ The IMU is Cardputer-only, so this validates the *method* on one node rather
+  than the *fleet's* movement detection — say which is claimed.
 
 ### Phase 5: Transport Auto-Switch (proof leg 2 — actuation)
 
@@ -237,9 +543,24 @@ different screens from the same TTDB.*
   cursor semantics), keyboard keeps its CMD remote role. The T-Deck pulls
   belief updates over the mesh like any Dream-Cycle participant — the map it
   draws is the map it *carries*.
+- 🎨 **TWO RENDER RULES, NORMATIVE, NEW IN 0.3.** Both are cases of the same
+  principle — *if a view can show less than the whole truth, it must say so on
+  screen* — which this fleet has already paid to learn twice.
+  1. **A faded trace renders as faded, never as absent** (`TTDB-RFC-0010` §6.4).
+     "Nobody has reinforced this for an hour" and "there is no such node" are
+     different claims, and this fleet has already **fabricated** the second one
+     once. A stale position belief dims; it does not vanish.
+  2. **The pose renders its own ambiguity** (`default-network.md` §5). If no
+     GPS-capable node has taken a fix, the shape is correct and the map is one of
+     four — drawing it as a map is the same class of lie as rule 1. **Show the
+     shape; show which of the four degrees of freedom are pinned, and by whom.**
+     A globe that draws `pose_ceiling: 0` as a confident map fails Phase 6
+     regardless of how good the shape underneath it is.
+
 - Pass criterion: laptop and T-Deck render **the same fleet state from the
   same TTDB lineage**, and a physical rearrangement of the bench shows up on
-  both screens within a stated number of Dream Cycles.
+  both screens within a stated number of Dream Cycles — **with `pose_ceiling` and
+  trace decay visible on both.**
 
 ---
 
@@ -253,11 +574,55 @@ different screens from the same TTDB.*
    test — keep the legs separate or the proof is circular.)
 2. **Metrics:** pairwise distance error (%), embedded position error (m) after anchoring vs. GPS truth, flip-resolution correctness, time-to-converge after a node move, and transport-switch correctness (Phase 5 pass criterion).
 3. **Ablation:** RSSI-only vs. RSSI+entity vs. RSSI+entity+BLE vs. all four sources — quantifies what the semantic layer adds over plain radio ranging. This comparison is the interesting result: it's the difference between "we did RSSI localization" and "umwelt overlap measurably improves spatial self-knowledge," which is the Locus-flavored claim — and it is the hypothesis's falsifier (§0).
+
+   🛑 **AMENDED IN 0.3 — THE ABLATION HAS A PRECONDITION, AND RUNNING IT WITHOUT
+   THAT PRECONDITION FALSIFIES THE HYPOTHESIS FOR THE WRONG REASON.** Per §0.3, two
+   nodes metres apart show a cross-node Jaccard distance (~0.125) **smaller than the
+   same node's own ten-minute drift** (p50 0.111, p90 0.222). At bench separation
+   the entity tier has no signal to contribute, so the ablation would be measuring
+   the geometry rather than the tier.
+
+   **Preconditions, all three required before an ablation result is admissible:**
+   - **a stated separation** at which the nodes' entity sets measurably differ,
+     established by measurement *before* the ablation runs — the entity tier's
+     resolution is ~50–100 m (§1.1), so bench scale and probably garden scale are
+     both inside its blind spot;
+   - **the alphabet size stated** with the result (this bench: ~10 BSSIDs), exactly
+     as an RSSI result must state its terrain;
+   - **per-window sets, not folded ones** — the folding build keeps the run's
+     union, which is a different quantity on purpose.
+
+   ⚠ **A null result that does not meet all three is a statement about the test,
+   not about the hypothesis, and must be recorded as such.**
 4. **Stress test:** move V4-C 50 m and measure how many Dream Cycles until the map catches up — on both TTCP renders.
+
+5. **🛑 EXPERIMENTS ARE NOT FREE TO REPEAT — NEW IN 0.3, AND IT CONSTRAINS EVERY
+   ITEM ABOVE.** 0.2's validation plan tacitly assumed a run could be re-taken at
+   will. Measured, it cannot:
+   - **Prune markers.** A run needing a clean lane costs `@LAT100` boundary
+     records, and there is **no prune path for `@LAT100` itself**. The Cardputer —
+     the only node with an IMU, hence the only stillness witness — stands at
+     **30/32**: two clean-lane experiments remain **for the life of that firmware**.
+   - **Wall-clock.** An 8 h lane cap plus a ≥5.2 h gate floor means one usable
+     measurement per night, and three of the first three attempts were lost or
+     fragmented by resets.
+   - **The witness lanes.** `@LAT90` caps at 16 and refuses when full; a fleet with
+     every timeline witness full is a fleet whose failed runs **cannot be
+     diagnosed**. Prune the witness before the run, not after.
+
+   **Consequences for the plan:** state the pre-committed stop rule *before* each
+   run; bank a failed run rather than re-timing it; and treat lane **compression**
+   (§2.2) as the enabler of this validation plan rather than as an optimisation.
 
 ---
 
 ## 5. Future Directions (Summary)
+
+📎 **Promoted out of this section in 0.3** (they are core now, not future): the
+**mobile-node / SLAM-lite** mode, which became the T-Deck's anchoring role in Phase
+2 once §1.2's circular anchor was retracted and the roaming GPS became the fleet's
+*only* source of pose; and the **stigmergic/distributed** direction, which became
+Phase 2b. `default-network.md` is the design note behind both.
 
 **Denser evidence, same framework.**
 - BLE scanning as a second entity class (tighter distance bounds than WiFi, ~10–30 m).
@@ -281,15 +646,19 @@ different screens from the same TTDB.*
 
 ## Appendix A: Effort & Risk Summary
 
-| Phase | Effort | Primary risk | Mitigation |
-|---|---|---|---|
-| 0 Instrumentation | 1–2 wk | Flash wear from percept volume | RAM buffering, batched writes, aggressive pruning |
-| 1 Pairwise distance | 1–2 wk | RSSI noise → bad estimates | Median-of-top-quartile, calibration walk, sigma honesty |
-| 2 Embedding | 2–3 wk | Flip ambiguity, single anchor | Dual-candidate beliefs, T-Deck GPS roaming anchor |
-| 3 Env TDoA | 2–4 wk | Clock sync precision | Slow signals first; μs sync deferred |
-| 4 Address loop | 1 wk | Runaway self-revision | Conf threshold + operator flag mode default |
-| 5 Transport auto-switch | 1–2 wk | Link flapping | k·sigma hysteresis + freshness timeout; switch events logged |
-| 6 TTCP rendering | 2–3 wk | Two renderers drifting apart | One TTDB lineage; laptop leg reuses the existing viewer (authoring, not renderer code) |
+*Revised in 0.3: statuses reflect what is on hardware, and two risk lines were
+wrong — Phase 0's mitigation and Phase 2's scope.*
+
+| Phase | Effort | Status | Primary risk | Mitigation |
+|---|---|---|---|---|
+| 0 Instrumentation | 1–2 wk | ✅ **on hardware** (RSSI, entity, motion, acoustic) | ~~Flash wear from percept volume~~ **retired by measurement** | 🛑 **was "aggressive pruning" — WRONG.** Pruning is a treadmill *and* spends a finite marker budget (§4.5). Correct mitigation: **change-triggered lanes with run-length** (§2.2), 6–48× lane life, lossless per consumer |
+| 1 Pairwise distance | 1–2 wk | ✅ calibrated, consolidating | RSSI noise → bad estimates; **⚠ measured shadowing-limited outdoors (2–7× over-range)** | Median-of-top-quartile, calibration walk, sigma honesty; **non-amplitude tiers are the real answer** (Phase 3) |
+| 2 Embedding | 2–3 wk | ✅ solver + first fleet self-map | ~~Flip ambiguity, single anchor~~ → **4 unpinned DoF, and 0.2's anchor was circular** (§1.2) | Dual-candidate beliefs generalised to per-DoF; T-Deck GPS is the **only** anchor; report `pose_ceiling` |
+| **2b Distributed embedding** | 2–3 wk | 🆕 **new in 0.3**, unbuilt | Distributed relaxation oscillates where a central one converges | Mandatory damping + stated iteration budget; **abandonable without touching the primary proof** |
+| 3 Env TDoA | 2–4 wk | 🔬 instrumented (`@LAT94`), consolidator unwritten | Clock sync precision; **⚠ the obvious clock is the wrong one** (§3 Phase 3) | Use the **pulse**, never the time stream; ~1.9 m measured floor; ⚠ **only one node has a mic** |
+| 4 Address loop | 1 wk | unbuilt | Runaway self-revision | Conf threshold + operator flag mode default; **score the RSSI mover against `@LAT95` ground truth** |
+| 5 Transport auto-switch | 1–2 wk | unbuilt (needs `USE_LORA`) | Link flapping | k·sigma hysteresis + freshness timeout; switch events logged |
+| 6 TTCP rendering | 2–3 wk | ✅ T-Deck render live; laptop leg open | Two renderers drifting apart; **a confident map drawn from `pose_ceiling: 0`** | One TTDB lineage; the two normative render rules (Phase 6) |
 
 ## Appendix B: Calibration Procedure (Phase 1)
 

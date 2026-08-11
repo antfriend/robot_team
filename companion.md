@@ -5387,6 +5387,69 @@ If a fact lives in one of these, link to it from here — don't copy it.
   Cardputer is still powered and on the mesh with V4-A unplugged from it — worth knowing
   before assuming an unplugged board is an absent one.
 
+- 🎯 **2026-08-11 — THE HYPOTHESIS IS REALIGNED: `ttn-semantic-positioning.md` IS NOW
+  DRAFT 0.3, AND A MONTH OF "OFF-PATH" WORK TURNS OUT TO CORRECT IT IN SIX PLACES.**
+  The off-path list (`TTDB-RFC-0010`, the time stream, lane generations, stable ids,
+  change-triggered lanes, `default-network.md`) was read against the spec rather than
+  beside it. It does not decorate the hypothesis; it **fixes** it. Every change is
+  tagged in the doc with the measurement or RFC that forced it. PLAN.md Act II is
+  re-ordered to match and now separates **solo-buildable / needs-a-cable /
+  needs-a-walk**, so the next move is pickable without a hardware decision.
+
+  🛑 **THE FINDING THAT REORDERED THE PLAN — THE FALSIFIER HAS A FALSE-POSITIVE MODE
+  AND THE FLEET IS SITTING IN IT.** Measured from the two night-3 archives, no
+  hardware touched: two nodes a few metres apart, all night, **cross-node entity
+  Jaccard distance ~0.125** (overlap p50 0.875, min 0.750) against the **same node's
+  own ten-minute drift p50 0.111 / p90 0.222**. The between-node signal is *smaller
+  than the within-node noise*: at this AP density the entity tier cannot tell two
+  different nodes from one node at two different times. **Run §4.3's ablation here and
+  it reports "the semantic layer adds nothing" — which is the hypothesis's own
+  falsifier — as a test-geometry artifact.** The multi-tier field re-run has been PLAN
+  item 1 for a month; it is now gated behind a separation measurement, and
+  `companion.py entity-separation` (the admissible/not-admissible gatekeeper) is the
+  first thing to build. ⚠ Caveat kept in the doc: V4-A ran the folding build, so its
+  sets are run-unions and the overlap is biased **upward** — the true figure is likely
+  lower, which strengthens the conclusion. The clean version needs two nodes on
+  `-DENTITYPERCEPT_MAX_RUN=1`. 📎 Also verified rather than assumed, since it was the
+  main objection to a bigger fleet on a measurement night: **no fleet MAC appears as an
+  AP** in either node's `@LAT96` (12 distinct BSSIDs; the three MACs on hand checked).
+
+  📋 **The six corrections, briefly** — the doc carries the full argument:
+  1. **Shape vs pose (§0.1).** The ambiguity is **4 DoF** (translation 2, rotation 1,
+     reflection 1), not just flip. 0.2 treated flip as *the* limitation.
+  2. **Anchoring on V4-A is CIRCULAR (§1.2).** Its coordinate is *configured, not
+     measured*, so pinning the map to it asserts the pose and reports the assertion
+     back as a result. V4-A is the relative-frame **origin** only; the roaming T-Deck
+     GPS is the fleet's **only** anchor. Existing `master/positions.md` records
+     therefore overstate what is known and should read `pose_ceiling: 0`.
+  3. **Proof leg 1 was dishonest by its own standard (§0.2).** `sigma` covers shape
+     uncertainty; pose ambiguity is discrete and **not a spread**, so a fleet with
+     perfect shape and no fix has `sigma → 0` and unbounded error. Leg 1 now reports
+     **`(sigma, pose_ceiling)`**.
+  4. **TDoA must use the PULSE, never the time stream (§3 Phase 3).** The stream clock
+     is a **ratchet** — right for ordering, wrong for durations — and TDoA is a
+     duration. The pulse is phase-locked and `@LAT94` + beat-scheduled recording
+     already use it. Expected resolution **~1.9 m** (band-skew residual).
+  5. **Lane register + identity (§2.3, §2.4).** `@LAT101` is FIELD, so RFC-0010 §6.1
+     forbids any calibration constant coming from co-presence and §6.2 forbids a
+     `derived_from` edge targeting it. And `@BELIEF:POSITION` **must be KEY-kind** —
+     a continuously revised belief that gets renamed breaks every edge into it.
+  6. **Phase 0's risk mitigation was the wrong one (Appendix A).** "Aggressive
+     pruning" was a treadmill *and* spent a budget 0.2 did not know existed.
+     **Compress, don't prune**: 6–48× lane life, lossless per consumer.
+  🆕 **Two strengthenings, not corrections:** **Phase 2b / SP2b — distributed
+  embedding**, promoted from `default-network.md` §5, because SP1+SP2 as written are
+  provable with the laptop doing the mathematics, which is weaker than this project's
+  own premise; it carries its own falsifier and is **abandonable without touching the
+  primary proof**. And **§3 Phase 4** can now *score* the RSSI movement detector
+  against `@LAT95` ground truth instead of asserting it.
+  ⚠ **§4.5 is new and constrains everything: experiments are not free to repeat.**
+  The Cardputer stands at **30/32 `@LAT100`** with no prune path for that lane — **two
+  clean-lane experiments remain for the life of that firmware.**
+  📋 Next (PLAN.md "Solo-buildable now"): `entity-separation`, then `pose_ceiling` /
+  `dof_pinned` through the position pipeline, then KEY-kind sids, then the two render
+  rules on the laptop leg. None needs a cable.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

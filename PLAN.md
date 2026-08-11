@@ -24,49 +24,103 @@ and is verified. We never wire the long-range mesh before the in-range default
 
 ## What's Next for antfriend
 
-**All the mechanisms are built and on hardware** — the floor, SP0 instrumentation
-(ESP-NOW + BLE), SP1 calibration, the SP2 embedding + GPS anchor (flip resolved
-outdoors, DGPS ties recorded), and the SP6-T T-Deck render (the fleet drawn as a
-globe, plus an on-device RFC browser). What's left is proving the **hypothesis
-itself** (now `TTN-RFC-0011`, Experimental) — and the 2026-07-10 garden run said
-RSSI-only ranging is shadowing-limited outdoors. So the moves that matter now:
+> 📌 **Re-aligned 2026-08-11 to `ttn-semantic-positioning.md` Draft 0.3.** The
+> hypothesis doc was revised in ten places by a month of "off-path" work
+> (`TTDB-RFC-0010`, the time stream, lane generations, stable ids, change-triggered
+> lanes, `default-network.md`). Three of those changes move work *into* this plan
+> and one **blocks an experiment that was previously considered ready**. Read §0.1
+> (shape vs pose), §0.3 (the falsifier's false-positive mode) and §4.5 (experiments
+> are not free) before picking anything up.
 
-1. **The multi-tier field re-run (▶ the real experiment — needs you + a walk).**
-   BLE `proto:ble` beliefs now exist (`master/proximity-ble.md`), an independent
-   near-range radio. Spread the fleet outdoors again (like the garden run),
-   accumulate link-percept windows, rebuild `proximity`→`positions`, and `anchor`
-   against the DGPS ties already in `master/gps-fixes.md`. **The question:** does
-   the near-range BLE tier (and, once built, entity co-occurrence) recover the
-   geometry where far ESP-NOW RSSI decorrelated? That result confirms or falsifies
-   the SPH — the whole point. Tell me the `scale`/`tie_rmse` the anchor prints.
-2. **Be the flash-cycle partner for the software I queue.** The next solo-built
-   steps each end in a per-node flash: **publishing `@BELIEF:POSITION` back to the
-   nodes** (last SP2 item), and the remaining SP0 tiers (WiFi-scan
-   `@PERCEPT:ENTITY` co-occurrence, beacon RSSI piggyback). One cable at a time;
-   the T-Deck still wants the BOOT/RST dance.
-3. **Later, gated on the above:** attach the LoRa antennas **before** powering the
+**All the mechanisms are built and on hardware** — the floor, SP0 instrumentation
+(ESP-NOW + BLE + entity + motion + acoustic), SP1 calibration, the SP2 embedding +
+GPS anchor (flip resolved outdoors, DGPS ties recorded), and the SP6-T T-Deck render
+(the fleet drawn as a globe, plus an on-device RFC browser). What's left is proving
+the **hypothesis itself** (now `TTN-RFC-0011`, Experimental) — and the 2026-07-10
+garden run said RSSI-only ranging is shadowing-limited outdoors.
+
+🛑 **What changed on 2026-08-11, and it reorders this list.** The multi-tier field
+re-run — item 1 for a month — **is not ready to run as an ablation.** Measured from
+the night-3 archives: two nodes metres apart show a cross-node entity Jaccard
+distance of ~0.125, *smaller than the same node's own ten-minute drift* (p50 0.111,
+p90 0.222). At bench and probably garden separation the entity tier has no signal to
+contribute, so an ablation there would report "the semantic layer adds nothing" as a
+**test-geometry artifact** — and that sentence is the hypothesis's falsifier. Running
+it prematurely would lose the hypothesis for the wrong reason (spec §0.3, §4.3).
+**The separation must be established by measurement first.** That is now item 1.
+
+So the moves that matter now:
+
+### Solo-buildable now (no cable, no walk) — do these first
+
+These are laptop-side or portable-lib work, native-testable, and every one of them
+is a precondition for an experiment further down. **Committing 0.3 unblocks all four.**
+
+1. **`companion.py entity-separation` — the ablation's gatekeeper (SP0).** Measure
+   cross-node entity Jaccard *between* two nodes and compare it against each node's
+   own within-node drift. Reports **admissible / not admissible** for an ablation at
+   the current geometry, per spec §4.3's three preconditions. This is the instrument
+   that says when the field re-run may be run at all; it is ~an afternoon and it
+   protects the whole hypothesis. ⚠ Needs **two nodes on the measurement build**
+   (`-DENTITYPERCEPT_MAX_RUN=1`) for a clean number — the folded lane keeps the
+   run's union, a different quantity.
+2. **`pose_ceiling` + `dof_pinned` through the position pipeline (SP2).** Add to
+   `@BELIEF:POSITION`, compute from the GPS-tie count (1 → translation, 2 →
+   rotation, ≥3 non-collinear → reflection), and **stop treating V4-A as an anchor**
+   — it is the relative-frame origin only (spec §1.2). Every current
+   `master/positions.md` record should come out `pose_ceiling: 0`, which is the
+   honest reading of what the fleet knows today.
+3. **KEY-kind `sid` on `@BELIEF:POSITION` / `@BELIEF:PROXIMITY` (spec §2.4).**
+   A living belief must keep its name across revisions or Phase 4 breaks its own
+   edges. `@LAT91` already does this; recompute-from-key on the laptop side is the
+   pattern to copy.
+4. **The two render rules on the laptop leg (SP6).** Faded-not-absent, and never
+   draw `pose_ceiling: 0` as a confident map. Cheap now, and it stops the payoff
+   render being the place the dishonesty lands.
+
+### Needs a cable (batched, one node at a time)
+
+5. **Flash the Cardputer off the measurement build.** The night-3 interlock is
+   discharged, so it can take the default folding `MAX_RUN 6` and the fold gets
+   confirmed on the node that was the instrument. ⚠ But see item 1 — if the
+   separation measurement wants two measurement-build nodes, do that **first** and
+   put the *second* measurement build on the T-Deck or V4-B instead.
+6. **Publish `@BELIEF:POSITION` back to the nodes** (last SP2 item) — built and
+   offline-verified, needs one live bridge round-trip. The T-Deck may still want
+   the BOOT/RST dance, though three consecutive automatic flashes say try the
+   hands-free path first.
+
+### Needs the operator + a walk (the real experiments, now correctly ordered)
+
+7. **Establish the separation (spec §4.3 precondition), THEN the multi-tier field
+   re-run.** BLE `proto:ble` beliefs exist (`master/proximity-ble.md`); spread the
+   fleet outdoors, rebuild `proximity`→`positions`, `anchor` against the DGPS ties
+   in `master/gps-fixes.md`. **The question is unchanged** — does the near-range BLE
+   tier recover geometry where far ESP-NOW RSSI decorrelated? — but the entity leg
+   of the ablation is only admissible once item 1 says so. Tell me the
+   `scale`/`tie_rmse` the anchor prints.
+8. **One clap heard by TWO nodes — the first real TDoA (SP3).** Still the most
+   interesting experiment on the list, and cheaper than a walk. ⚠ **Blocked on
+   hardware: only the Cardputer has a microphone.** A second mic-equipped node is
+   now the single largest hardware gap on the hypothesis path. ⚠ And the
+   consolidator must read the **pulse**, never the time stream (spec §3 Phase 3) —
+   the stream clock is a ratchet and TDoA is a duration.
+9. **Later, gated on the above:** attach the LoRa antennas **before** powering the
    V4s (SX1262 PA safety, `hardware_specs.md`) when we un-gate `USE_LORA` for
    **SP5 transport auto-switch** (proof leg 2 — needs a node **walked out of
-   ESP-NOW range** so the switch has real distance to react to); build the
-   **V4-C edge** (a 4th static anchor that breaks flip ambiguity without GPS); a
-   **K10 core bump to 3.x** to un-block its BLE + promiscuous-RSSI capture.
+   ESP-NOW range**); a **K10 core bump to 3.x** to un-block its BLE +
+   promiscuous-RSSI capture. ⚠ The three V4s need **`huge_app`** before they can
+   carry much more of anything (94 % flash).
 
-**New since this list was written (2026-07-27): the Cardputer ADV joined as node `0x300`
-and brought the first NON-AMPLITUDE evidence tier.** The garden run's verdict was that
-2.4 GHz RSSI is shadowing-limited outdoors — so every tier we had was measuring the wrong
-physics. The Cardputer's microphone (`@LAT94`, `AcousticPercept`) logs the **fleet-clock
-timestamp of each impulsive transient**, which is a time-of-arrival measurement, not an
-amplitude one: sound at 343 m/s makes ~10 ms of time-sync worth ~3.4 m, bounded by clock
-quality rather than by foliage. That is **SP Phase 3 (env TDoA) instrumentation, live and
-on hardware** — the consolidator that turns two nodes' transient timestamps into a
-hyperbola is not written yet, and is now the most interesting thing on this list. Its
-BMI270 (`@LAT95`, `MotionPercept`) also makes "the observer held still during this window"
-a checkable claim instead of an assumption — the thing that made `proximity --last N`
-necessary. **The multi-tier field re-run above should now include this node**, and one
-clap heard by two nodes is a cheaper first TDoA experiment than a walk.
+⚠ **Budget note that constrains all of the above (spec §4.5): experiments are not
+free to repeat.** The Cardputer is at **30/32** `@LAT100` markers with no prune path
+for that lane — **two clean-lane experiments remain for the life of that firmware**.
+Prune the witness lanes *before* a run, state the stop rule *before* a run, and bank
+a failed run rather than re-timing it.
 
-Everything else I can build and offline-test solo (native `zig c++` tests +
-arduino-cli compiles); I'll queue firmware so your cable time is batched.
+Everything not marked "cable" or "walk" I can build and offline-test solo (native
+`zig c++` tests + arduino-cli compiles); I'll queue firmware so your cable time is
+batched.
 
 ---
 
@@ -446,9 +500,13 @@ distance, off-grid.
 
 # Act II — Semantic Positioning (the primary hypothesis)
 
-Spec: **`ttn-semantic-positioning.md`** (§0 states the hypothesis and its three
-proof legs; §3 details each phase below). Adopted 2026-07-07 as the claim the
-fleet exists to prove. Act I's remaining phases now *serve* Act II: Phase 3
+Spec: **`ttn-semantic-positioning.md` — Draft 0.3 (2026-08-11)** (§0 states the
+hypothesis, its **shape/pose decomposition** and its three proof legs; §3 details
+each phase below; §4.5 states what an experiment costs). Adopted 2026-07-07 as the
+claim the fleet exists to prove. ⚠ **0.3 corrected 0.2 in six places** — read §0.1,
+§0.3 and §1.2 before treating any pre-0.3 position result as settled; in particular
+**anchoring on V4-A was circular**, so existing `master/positions.md` records
+overstate what is known. Act I's remaining phases now *serve* Act II: Phase 3
 (V4-C) adds the 4th static node that breaks flip ambiguity, Phase 4 (LoRa)
 supplies the long rung SP5 switches to, Phase 7 (field) provides the distances
 that make positioning non-trivial. Same additive strategy: every SP phase ends
@@ -526,6 +584,29 @@ with something measured.
       self-heal, but note it if a scan lands mid-band. (Separate from the still-open
       per-frame RSSI item below — that one *is* blocked on the K10 2.x core.)
 - [ ] K10 RSSI capture via the 2.x promiscuous-RX workaround (or a core bump).
+- [x] **Change-triggered `@LAT96` with a stable-core trigger ✅ HARDWARE-VERIFIED
+      2026-08-10/11.** Lane life 8 h → 48 h; the `**COVERED**` block carries the
+      run's **union**, so the fold is lossless for `_entity_set` **by construction**
+      (a window whose entities would not fit ends the run rather than being
+      dropped). Proven load-bearing on flash 2026-08-11: on V4-A, 10 of 20 records
+      carry an AP their own window lacks, and **2 BSSIDs would have been permanently
+      lost** without it. Spec §2.2.
+- [x] **Still-node entity-drift baseline ✅ ALL FOUR GATES PASSED, TWICE**
+      (2026-08-06 night 1: 41 windows / 6.45 h / 37 pairs, p50 0.143 p90 **0.375**;
+      2026-08-11 night 3: 35 windows / 5.52 h / 31 pairs, p50 0.111 p90 0.222).
+      ⚠ **Night 1 remains the constant to design against** — the two nights are not
+      independent draws (same 9-BSSID room; per-window set size p50 5 → 8, so most
+      of night 3's narrowing is Jaccard *quantisation*, not a quieter bench).
+- [ ] 🆕 **`companion.py entity-separation` — the ablation gatekeeper (spec §4.3).**
+      Cross-node entity Jaccard between two nodes vs. each node's own within-node
+      drift → **admissible / not admissible** verdict for an ablation at the current
+      geometry, plus the alphabet size the result must be stated with. **This gates
+      SP1's entity leg and the whole field re-run.** First measurement already taken
+      by hand (2026-08-11: two nodes metres apart, cross-node distance ~0.125 vs
+      within-node p90 0.222 → **NOT admissible at bench scale**); this item turns
+      that into a repeatable command. ⚠ Wants **two nodes on the measurement build**
+      (`-DENTITYPERCEPT_MAX_RUN=1`) — a folded lane keeps the run's union, which is
+      a different quantity.
 
 **Done when:** `pull` returns a percept lane with link + entity observations
 from every powered node; verified with a serial dump. Pure plumbing, no inference.
@@ -650,20 +731,84 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       adoption — no firmware change required. The node *acting on* its own position
       (self-coordinate revision) is SP4, not this item.
 
+- [ ] 🆕 **`pose_ceiling` + `dof_pinned` on every `@BELIEF:POSITION` (spec §0.2,
+      §1.2, §2.1).** Computed from the GPS-tie count: **1 fix pins translation, 2
+      pins rotation, ≥3 non-collinear pins reflection.** 🛑 **And stop anchoring on
+      V4-A** — its coordinate is *configured, not measured*, so pinning the map to
+      it asserts the pose and reports the assertion back as a result. V4-A stays the
+      relative-frame **origin** (a labelling choice, no epistemic content); the
+      roaming T-Deck GPS is the fleet's **only** anchor. Expect every record in
+      `master/positions.md` to come out **`pose_ceiling: 0`** — that is the honest
+      reading of what the fleet knows today, not a regression.
+- [ ] 🆕 **KEY-kind `sid` on `@BELIEF:POSITION` and `@BELIEF:PROXIMITY`
+      (spec §2.4, `TTDB-RFC-0010` §4.2).** A living belief must survive revision
+      without being renamed, or SP4 breaks every edge pointing at it. Natural keys:
+      `node:0x%08lx` and the ordered pair. Collision policy is **refuse, do not
+      perturb**. `@LAT91` is the working example.
+
 **Done when:** the embedded map recovers the bench/yard geometry within stated
-`sigma`, scored against T-Deck GPS fixes (GPS is the verifier, never an input).
+`sigma` **and states its `pose_ceiling`**, scored against T-Deck GPS fixes (GPS is
+the verifier, never an input).
+
+## SP2b — Distributed embedding: the fleet shapes itself 🆕 (spec §3 Phase 2b)
+
+*The shape estimate exists with the laptop switched off.* Promoted from
+`default-network.md` §5 — SP1/SP2 as written are provable with the laptop doing the
+mathematics, which is weaker than the fleet's own premise. The machinery is built:
+`TraceField` (decay-on-read, HELLO-carried, max-merged), the `Social` capability
+table, and `pulse::Chart`'s idle scene, which is currently silence.
+
+- [ ] Per idle bar: **voice the social field** (one cell per peer on the 16-step
+      grid, amplitude = decayed co-presence — the fleet's shape becomes audible).
+- [ ] Per idle bar: **one damped relaxation step** on the node's own `(x, y, sigma)`
+      — pull toward high-overlap peers, push from zero-overlap peers. ⚠ **Damping
+      and a stated iteration budget are mandatory**: a distributed relaxation can
+      oscillate where a central one converges.
+- [ ] Per idle bar: **recompute `poseCeiling()`** from the capability table and
+      adjust the node's own re-advertisement rate.
+
+🔬 **Falsifier:** if the distributed estimate agrees with `companion.py positions`
+in every configuration tested, **the distributed version added nothing** — say so,
+record it, keep the central solver. ⚠ **SP2b is a strengthening, not a
+prerequisite: SP1+SP2 alone still prove or refute the hypothesis**, and SP2b may be
+abandoned without touching the primary proof.
 
 ## SP3 — Environmental TDoA (directional evidence; parallelizable)
 
 - [ ] Onset detection on temp/light/pressure channels → `@PERCEPT:ENV`;
       cross-correlate onsets across nodes (slow fronts first — the ±ms
       TTN-RFC-0008 sync is already sufficient).
+- [x] **Acoustic instrumentation live** (`@LAT94`, `AcousticPercept`): the
+      **fleet-clock timestamp of each impulsive transient** — a time-of-arrival
+      measurement, not an amplitude one, so it is not subject to the shadowing that
+      broke RSSI outdoors. Plus beat-scheduled recording (`CMD_RECORD`), where each
+      node **stamps what it BELIEVED the time was**, so clock wobble stays
+      correctable rather than baked in.
+- [ ] **The consolidator: two nodes' transient timestamps → a hyperbola.** Still
+      the most interesting unwritten thing on this plan.
+      🛑 **It must read the PULSE, never the time stream (spec §3 Phase 3).** The
+      team time stream looks exactly like TDoA infrastructure and is the wrong
+      instrument: its clock is a **ratchet** (elapsed-since-origin, fastest crystal
+      wins), correct for ordering and recency and **wrong for measuring a duration**
+      — and TDoA is a cross-node duration.
+      📊 Expect ~**1.9 m** resolution (band-skew residual after removing common mode
+      and excluding the conductor). State that before running, not after.
+      ⚠ **BLOCKED ON HARDWARE: only the Cardputer has a microphone.** A second
+      mic-equipped node is the single largest hardware gap on the hypothesis path.
 
 ## SP4 — Position as living belief (address loop)
 
 - [ ] High-`conf` position disagreeing with the configured `@LATxLONy` raises a
       revision event (flag-for-operator default); movement detection via
       `touched` decay → re-embedding.
+- [ ] 🆕 **Score the RSSI movement detector against `@LAT95` ground truth
+      (spec §3 Phase 4).** The Cardputer's accelerometer makes "the observer held
+      still" a *checkable claim*, already load-bearing as gate 3 of the entity-drift
+      baseline. Run both over the same interval; report agreement plus false-positive
+      and false-negative rates. **An inferred detector with an available ground truth
+      that nobody scored it against is an assertion** — this project has now made
+      that mistake once (the V4-A anchor). ⚠ IMU is Cardputer-only, so this
+      validates the *method* on one node, not the fleet's movement detection.
 
 ## SP5 — Transport auto-switch (proof leg 2: actuation)
 
@@ -676,6 +821,19 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
 delivery dies and returns when back in range — zero manual transport config.
 
 ## SP6 — TTCP rendering (proof leg 3: the payoff render, the end goal)
+
+- [ ] 🆕 **TWO NORMATIVE RENDER RULES (spec §3 Phase 6).** Both are the same
+      principle — *if a view can show less than the whole truth, it must say so on
+      screen* — which this fleet has already paid to learn twice.
+      1. **A faded trace renders as faded, never as absent** (`TTDB-RFC-0010` §6.4).
+         "Nobody has reinforced this for an hour" and "there is no such node" are
+         different claims, and this fleet has **already fabricated the second one
+         once**. A stale position belief dims; it does not vanish.
+      2. **The pose renders its own ambiguity.** With no GPS fix taken, the shape is
+         correct and the map is one of four — drawing it as a map is the same class
+         of lie as rule 1. Show the shape, and show which of the four degrees of
+         freedom are pinned and by whom. **A globe that draws `pose_ceiling: 0` as a
+         confident map fails SP6** regardless of how good the shape underneath is.
 
 - [ ] **Laptop:** master TTDB (+ proximity/position beliefs, node status:
       last-seen, skew, transport, `conf`/`sigma`) rendered in the browser per
