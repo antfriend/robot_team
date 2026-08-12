@@ -56,7 +56,12 @@ firmware/
                         lane its change-triggered durable shadow. SocialNode.h is the glue.
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
-  k10_percept/          arduino-cli sketch + data/ttdb.md  (percept leaf + band lead)
+  k10_percept/          arduino-cli sketch + data/ttdb.md — percept leaf, and since
+                        2026-08-12 the fleet's SECOND ear (@LAT94 off its I2S mic) and
+                        second stillness witness (@LAT95/@LAT93 off its SC7A20H). Its
+                        default screen is a screen-filling EYEBALL gazed by the tilt and
+                        dilated by the mic. ⚠ It has NO reachable button: CMD_SET_VIEW
+                        (op 14) is the only thing that can change its screen.
   v4a_bridge/  v4b_relay/  v4c_edge/   LoRa spine sketches (LoRa gated off)
   tdeck_console/        LilyGo T-Deck handheld console (fleet remote + harmony voice)
   cardputer_console/    M5Stack Cardputer ADV — 2nd handheld + the fleet's motion and
@@ -117,6 +122,25 @@ defaults there (MOSI 11 / CS 10 / DC 46) leave the panel **backlit but blank** �
 the firmware is fine, SPI is just wired to the wrong GPIOs. If a K10 renders
 backlight-only, check those pins before touching sketch code.
 
+**The K10 sketch DRIVES THE PANEL ITSELF and no longer uses `k10.canvas` (2026-08-12).**
+The DFRobot canvas is an LVGL canvas, and every `lv_canvas_draw_*` invalidates the WHOLE
+object — so one `updateCanvas()` flushes all 240×320 px, which at this panel's **20 MHz**
+is 153,600 B ≈ **61 ms of SPI** before LVGL blends anything. That is fine for a 1 Hz text
+screen and hopeless for the eyeball view, so the sketch owns a **second `TFT_eSPI`
+instance** and repaints only changed pixels. Two rules follow:
+- **`creatCanvas()` is not called** (it would allocate 1.2 MB of PSRAM for a buffer nothing
+  draws into) and **nothing may call `lv_task_handler()`** — it runs only inside canvas
+  ops, `setScreenBackground` and the camera task, so avoiding those keeps exactly one
+  writer on the panel. `k10.initScreen(2)` is still called: it drives `eLCD_BLK` high (the
+  backlight is on the mainboard power chip, not a nameable GPIO) and inits the panel.
+- ⚠ **NEVER add `#include <TFT_eSPI.h>` to the K10 sketch.** `unihiker_k10.h` already
+  includes it by RELATIVE path (`"../TFT_eSPI/TFT_eSPI.h"` = the core-bundled **2.5.34**
+  header) while arduino-cli compiles the **sketchbook** copy (**2.5.43**). That asymmetry
+  predates this work and demonstrably works because `<User_Setup.h>` resolves through the
+  include path to the sketchbook copy in both cases. An angle-bracket include would give
+  the sketch a *different header* from the one the board library's own `tft` was compiled
+  against — a class-layout mismatch waiting to happen. Inherit the board library's include.
+
 **Do NOT define `TFT_BL` in that User_Setup.h.** `GPIO45` on the K10 is the **I2S
 speaker** data line (`IIS_DOUT`), *not* the LCD backlight — the backlight is driven
 by the DFRobot board lib via its abstract `eLCD_BLK` pin (through the mainboard power
@@ -154,9 +178,56 @@ feature added to them probably needs `huge_app` first.
 to one is silent. Identify a board by READING ITS APP IMAGE, never by inferring from the
 mesh.** COM numbers move between plug-ins, and a `companion.py intero`/`ping` reply can
 arrive **over the air** from a battery-powered node, so an answer on a port proves
-nothing about which board that port is. These boards also print **nothing** on serial at
-any DTR/RTS setting and do not visibly reset when the port is opened, so there is no
-banner to read. What works (~17 s):
+nothing about which board that port is.
+
+✅ **FASTEST RELIABLE METHOD (~15 s), 2026-08-11: RESET THE BOARD AND RE-ATTACH INSIDE THE
+BOOT WINDOW — the node then prints its own banner.** This supersedes "these boards print
+nothing on serial", which was **wrong about the cause**: it is not the DTR/RTS setting, it
+is that opening a port does not reset these boards, so you hear only whatever the node
+happens to say next. And an explicit RTS pulse is worse than useless on native USB — the
+reset **re-enumerates the device**, so the handle you pulsed through goes dead and
+`setup()` is lost through it. What works is reset *out of band*, then reopen the moment the
+port returns (measured: **0.02 s**, well inside a >6 s `setup()`):
+
+```bash
+python -m esptool --chip esp32s3 --port COMx --after hard-reset chip-id   # reset
+# then poll serial.tools.list_ports and open the instant it reappears:
+python scratchpad/catchboot.py COMx 14
+#   -> "V4-A bridge 0x00000010 online" | "TTDB loaded: … 87/288 records indexed"
+#   -> "[entity] @LAT96 build: max_run:1 … <- MEASUREMENT BUILD (no folding)"
+```
+Verified on a V4 **and** both handhelds. It reports what is CURRENTLY RUNNING — the same
+claim the image grep reads, from the same string literals — so it is equally authoritative
+and much faster. ⚠ It is still the *app's own* claim: it tells you which sketch is on the
+board, which is exactly the question, but it cannot tell you a board was mislabelled by a
+previous flash.
+
+📎 **A MAC recorded during a verified identification is a 3-second cache of it.** MACs are
+burned in and unique, so once a board has been identified by image or banner, its
+`SER=` in `list_ports` re-identifies it forever. `8C:FD:49:B7:AC:F4` = **V4-A**
+(established by app image 2026-08-06); the rest were established by banner 2026-08-11.
+**THE WHOLE FLEET IS NOW RECORDED, so identification is a three-second `list_ports` read:**
+
+| MAC                 | board     | node id      | port that day |
+|---------------------|-----------|--------------|---------------|
+| `8C:FD:49:B7:AC:F4` | V4-A      | `0x00000010` | COM6          |
+| `8C:FD:49:B6:54:48` | V4-B      | `0x00000011` | COM9          |
+| `8C:FD:49:B6:59:74` | V4-C      | `0x00000012` | COM13         |
+| `10:51:DB:81:5F:48` | K10       | `0x00000100` | COM3          |
+| `50:78:7D:CE:88:10` | Cardputer | `0x00000300` | COM14         |
+| `20:6E:F1:A7:D7:80` | T-Deck    | `0x00000200` | COM10         |
+
+⚠ **The port column is history, not a lookup** — COM numbers moved twice in one afternoon.
+Match on `SER=`, never on the port. Note the three V4s share the `8C:FD:49` OUI, so the
+prefix identifies the *model*, not the board; only the full MAC decides.
+
+📎 **The boot line also DATES the build, the way `MEASUREMENT BUILD` dates the fold.**
+`TTDB loaded: 62827 bytes, 112 records` is the **pre-2026-08-11** firmware;
+`TTDB loaded: 42990 bytes, 87/288 records indexed (201 free)` is the index-fix build. So
+"is this board current?" is answered by the same 15-second read that identifies it.
+
+The flash-image read below still works and remains the fallback for a board that will not
+boot or whose serial is unavailable (~17 s):
 
 ```bash
 python -m esptool --chip esp32s3 --port COMx --baud 460800 \
@@ -322,9 +393,22 @@ not widen it to the hero's-arc song, where the gate stops a self-appointed node 
 phase. Confirm a duet by the partner's **`INTERO_VOICING`** bit (pane footer shows `SINGING`),
 never by an ACK — a blocking tone call eats the ACK window.
 
+**`CMD_SET_VIEW` (op 14, 2026-08-12) — one console as another node's missing buttons.**
+Args: `view u8`, or **`toot::VIEW_NEXT` (0xFF)** to step. ⚠ **The view id is NODE-LOCAL and
+the op is ADDRESSED-ONLY, never broadcast** — an absolute id means something different on
+every board, so a broadcast would put the fleet into unrelated states while reading like one
+command (`companion.py` refuses `--node broadcast` here, and so does the node). `VIEW_NEXT`
+is the form that needs no shared table: one key steps whatever the addressed node has, and a
+node with one view ACKs and does nothing. Omitting the arg byte means VIEW_NEXT, **not view
+0** — "step it" is the request that is meaningful without knowing the receiver's table.
+T-Deck: **`v`**. Laptop: `companion.py cmd --op set-view [--view N]`. K10 views: 0 eye,
+1 status, 2 senses.
+
 **Record pane paging (both handhelds, 2026-08-02).** `renderRecord` used to read a record
 body into a **520 B buffer** — a *read* limit, not a scroll limit: bytes past it never left
-flash. RFC-globe records average 1036 B and reach **2666 B**, so the T-Deck showed the first
+flash. RFC-globe records average 1036 B and reach **2857 B** (`@LAT98LON5`, the K10 roster
+belief, revised 2026-08-12 — the largest in the corpus and still inside the 3 KB read), so
+the T-Deck showed the first
 ~40% of one and the Cardputer (four lines × 39 cols) ~15%, **with nothing on screen saying
 the record continued**. Both now read 3 KB, wrap the whole body, and show `pg n/m` (a `+`
 means even 3 KB was not enough). **`1` pages forward, `2` back, both wrapping.** ⚠ On the
@@ -359,7 +443,13 @@ hence `validDuetSpeed` refuses and falls back to 1. To verify a rate change, mea
 **step-0 → step-0 interval** off the node's own `[part]` prints; do NOT divide note-count by
 notes-per-phrase (invalid unless the window aligns to phrase boundaries) and do not trust
 per-note serial gaps (CDC buffering shows 100 ms gaps on a 125 ms grid). The mesh map holds **V4-A, V4-B, T-Deck and the
-Cardputer as of 2026-07-29 — the K10 was removed** (v1 firmware, off the band roster). ⚠ The
+Cardputer as of 2026-07-29 — the K10 was removed** (v1 firmware, off the band roster).
+⚠ **The K10 is back on the BAND roster (2026-08-12) but deliberately NOT back on the mesh
+map**: that globe is generated by `companion.py fleetmap` from MEASURED proximity, so
+hand-writing a position would fabricate a measurement. It re-enters when it has been heard.
+Consequence: the T-Deck's **`d` (duet)** picks its partner from the mesh-map selection, so
+`d`-with-the-K10 does not work yet; `t`/`s`/`p`/`b`/**`v`** do, because those use
+`gCmdTarget`, which the K10 is back in. ⚠ The
 T-Deck's own `PIN_BAT_ADC 4` / `BAT_DIVIDER 2.0` come from LilyGo's `utilities.h`, NOT a meter:
 it reads **4.71 V**, above the 4.20 V Li-ion ceiling, so above that ceiling the node withholds
 the percentage instead of inventing one. A meter on the JST lead settles it; it is one constant.

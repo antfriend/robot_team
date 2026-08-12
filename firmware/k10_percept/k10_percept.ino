@@ -25,8 +25,25 @@
 #include <LinkPercept.h>  // SP0: link-percept histograms -> @LAT97 records
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan (K10's FIRST direct percept)
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
+#include <MotionPercept.h>    // SP0 motion tier: the K10's tilt -> @LAT95 still|moving, @LAT93
+#include <AcousticPercept.h>  // SP0 acoustic tier: the K10's mic -> @LAT94 (the fleet's 2nd ear)
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <LaneGenNode.h>     // @LAT100: a prune writes down the boundary it creates
 #include <RobotTeamConfig.h>
+
+// The three faces this node can show (CMD_SET_VIEW). Declared UP HERE, far from the
+// renderers that use it, for one Arduino-specific reason: arduino-cli auto-generates
+// prototypes for every function in the .ino and inserts them near the top of the file,
+// so a function taking a type defined mid-sketch fails to compile against its own
+// generated prototype. Any enum used as a PARAMETER type has to be declared before that
+// insertion point. (Learned on the Cardputer, where `enum FaceView` sits in the same
+// place for the same reason.)
+enum K10View : uint8_t {
+  K10_VIEW_EYE = 0,      // the resting face — screen-filling eyeball (the DEFAULT)
+  K10_VIEW_STATUS = 1,   // identity, TTDB, band, cursor: what the old canvas screen said
+  K10_VIEW_SENSES = 2,   // the two new organs, as instruments: tilt and mic
+  K10_VIEW_COUNT = 3,
+};
 
 // Real UNIHIKER K10 onboard hardware (DFRobot `unihiker_k10` library). Set to 0
 // to fall back to a serial-only mock if the library/board package isn't
@@ -42,6 +59,32 @@ static AHT20 aht20;
 // Speaker: driven directly via k10Tone() (I2S_NUM_0, installed by k10.begin()->initI2S).
 // We deliberately do NOT use DFRobot's Music::playTone — it is a fixed full-scale sine
 // with no volume control; the fleet's voice is a square wave at a chosen amplitude.
+//
+// --- THE PANEL IS DRIVEN DIRECTLY, NOT THROUGH THE DFRobot CANVAS (2026-08-12) -------
+//
+// `k10.canvas` is an LVGL canvas, and every `lv_canvas_draw_*` call invalidates the
+// WHOLE object — so each `updateCanvas()` flushes all 240x320 px. At this panel's 20 MHz
+// that is 153,600 B ≈ 61 ms of SPI before LVGL has blended anything, i.e. ~70 ms of
+// stall per frame. Fine for a 1 Hz text screen (which is all it ever did); hopeless for
+// an eye, and it would wreck the band's step clock and the mesh's rtt on the way past.
+//
+// So the K10 joins the two handhelds in writing the display itself and repainting ONLY
+// the pixels that changed — the same discipline, and the same reason, as the Cardputer's
+// representor. `gTft` is a SECOND TFT_eSPI instance alongside the one inside the DFRobot
+// library; that is safe because nothing here ever calls `lv_task_handler()` again after
+// `initScreen()` (it runs only inside canvas ops, `setScreenBackground` and the camera
+// task, none of which we use), so LVGL never touches the panel and there is exactly one
+// writer. `creatCanvas()` is deliberately NOT called — it would allocate 1.2 MB of PSRAM
+// for a buffer nothing draws into.
+//
+// ⚠ NO `#include <TFT_eSPI.h>` HERE, ON PURPOSE. `unihiker_k10.h` already includes it by
+// RELATIVE path (`"../TFT_eSPI/TFT_eSPI.h"`, the core-bundled 2.5.34 header) while
+// arduino-cli compiles the SKETCHBOOK copy (2.5.43) — an asymmetry that predates this
+// file and demonstrably works. Adding an angle-bracket include would give this
+// translation unit a different header from the one the DFRobot library's own `tft` was
+// compiled against, which is how a class-layout mismatch gets built. Inherit the include
+// the board library already made and the two instances stay identical.
+static TFT_eSPI gTft = TFT_eSPI(240, 320);
 #endif
 
 static const uint32_t kNodeId = NODE_K10_1;
@@ -162,31 +205,95 @@ static volatile bool gBeepPending = false;
 static int gBeepFreq = 0;
 static uint32_t gBeepMs = 0;   // tone duration in ms (k10Tone streams SAMPLE_RATE*ms/1000 samples)
 
-// --- fleet pulse + lead melody (TTN-RFC-0010) -------------------------------
+// --- fleet pulse + this node's PART (TTN-RFC-0010) ---------------------------
 // The band time-base + conductor election lives in the portable Pulse engine; the
-// shared grid is ~1 Hz. The K10 is the band's LEAD — its onboard speaker is the only
-// pitched instrument — so its PART is a MELODY: a Score::Phrase played on the
-// sixteenth-note step grid (the V4s play rhythmic LED parts on the same clock). The
-// ~50 ms tolerance is musical swing: each note lands a small humanize jitter after its
-// step so the line breathes. Swap kLeadNotes to change the tune (TTN-RFC-0010 §7).
+// shared grid is ~1 Hz. The ~50 ms tolerance is musical swing: each note lands a small
+// humanize jitter after its step so the line breathes.
 #define USE_PULSE 1
 static pulse::Engine gPulse;
-static const int      PULSE_TONE_MS = 180;       // staccato note (playTone blocks; keep short)
+static const int      PULSE_TONE_MS = 180;       // staccato note (k10Tone blocks; keep short)
 static const uint32_t PULSE_LED_MS = 160;        // note LED hold
 static const uint32_t PULSE_HUMANIZE_MS = 6;     // jitter so the line breathes
 
-// Default lead: "Ode to Joy" (Beethoven, public domain) — 4 bars of 4/4 = 64 steps at
-// PULSE_STEPS_PER_BEAT (4) per beat, so quarter notes land every 4 steps. dur_steps is
-// the LED/visual hold; the audible tone is fixed-short (PULSE_TONE_MS) so it never
-// smears the next note or stalls the loop.
-static const score::Note kLeadNotes[] = {
-  {0,  score::E4, 4}, {4,  score::E4, 4}, {8,  score::F4, 4}, {12, score::G4, 4},
-  {16, score::G4, 4}, {20, score::F4, 4}, {24, score::E4, 4}, {28, score::D4, 4},
-  {32, score::C4, 4}, {36, score::C4, 4}, {40, score::D4, 4}, {44, score::E4, 4},
-  {48, score::E4, 6}, {54, score::D4, 2}, {56, score::D4, 8},
-};
-static const score::Phrase kLead = {
-    kLeadNotes, sizeof(kLeadNotes) / sizeof(kLeadNotes[0]), 64};
+// THE K10 IS BACK ON THE BAND ROSTER (2026-08-12), and rejoining meant deleting a tune
+// rather than writing one. It used to carry a private `kLeadNotes` table — bare Ode to
+// Joy on a loop, played in every scene — which was the right thing when it was the only
+// pitched instrument in a fleet that had no story yet. It is the wrong thing now: the
+// hero's arc is authored ONCE in HeroArc.h and every other member reads its line out of
+// that table, so a node with its own copy of the melody is a node that cannot be silent
+// when the score says silence and cannot follow when the score is revised.
+//
+// `heroarc::kPercept` was written on 2026-07-29 against the day this happened ("defined
+// now so rejoining is a reflash, not a rewrite"). Taking it means the K10 is silent
+// through ALONE..RETURN and enters on the FINALE harmony under the T-Deck's lead — and
+// the silence is the part, not a broken speaker. The step clock runs through it either
+// way, so the entrance lands on the grid.
+static const score::Part& kPart = heroarc::kPercept;
+
+// --- the duet: two nodes, by name, on the shared clock (CMD_DUET) -------------------
+// Being invited into a duet overrides this node's PART for as long as it lasts. Not a
+// chart scene (a scene is band-wide and would pull in every powered member; see Toot.h)
+// and not persisted — the invitation belongs to the moment the console asked. Same shape
+// as the other four nodes' copy, deliberately: the fifth should stay comparable line for
+// line with the four it was ported from.
+static uint8_t  gDuetRole = toot::DUET_OFF;
+static uint32_t gDuetPeer = 0;
+static uint8_t  gDuetSpeed = 1;      // 1 = as written, 2 = double time (set by the inviter)
+static inline bool duetOn() { return gDuetRole != toot::DUET_OFF; }
+
+// Can this phrase be taken at `speed`? Double time traverses the SAME note table in half
+// as many steps, so every note must still land on a step the sequencer visits (noteAt is
+// an exact match). Refuse rather than silently drop a note — kOdeLead's tied note at step
+// 54 is exactly that case at ÷4. Computed once when a duet is set up, not per step.
+static uint8_t validDuetSpeed(const score::Phrase& ph, uint8_t speed) {
+  if (speed < 1) return 1;
+  if (speed > toot::DUET_SPEED_MAX) speed = toot::DUET_SPEED_MAX;
+  if (ph.steps % speed) return 1;
+  for (uint16_t i = 0; i < ph.count; ++i)
+    if (ph.notes[i].step % speed) return 1;
+  return speed;
+}
+
+// Enter/leave a duet, validating the inviter's speed against the phrase our role names.
+// Both voices must land on the same speed or they cover the phrase at different rates and
+// come apart — which is why the inviter sends it rather than each side deciding.
+static void setDuet(uint8_t role, uint32_t partner, uint8_t speed) {
+  if (role == toot::DUET_OFF) {
+    gDuetRole = toot::DUET_OFF;
+    gDuetPeer = 0;
+    gDuetSpeed = 1;
+    return;
+  }
+  gDuetRole = role;
+  gDuetPeer = partner;
+  const score::Phrase& ph =
+      (role == toot::DUET_LEAD) ? heroarc::kOdeLead : heroarc::kOdeHarm;
+  gDuetSpeed = validDuetSpeed(ph, speed);
+  if (gDuetSpeed != speed)
+    Serial.printf("[duet] speed x%u refused (a note would be dropped) -> x%u\n",
+                  speed, gDuetSpeed);
+}
+
+// Apply a CMD_DUET payload. Roles ride on the wire, so nothing here assumes who invited
+// whom. The inviter RE-ASSERTS a live duet every couple of seconds (a single ESP-NOW
+// invitation gets dropped), so log only on a real change: an otherwise-identical repeat
+// is the mechanism working, not noise worth printing.
+static bool applyDuetCmd(const toot::Toot& t) {
+  if (t.payload_len < 10) return false;
+  uint32_t partner = toot::get_u32(t.payload + 5);
+  uint8_t role = t.payload[9];
+  // The speed byte is additive: a sender that predates it means "as written", the same
+  // discipline the STATUS and PULSE tails use.
+  uint8_t speed = (t.payload_len >= 11) ? t.payload[10] : 1;
+  bool changed = (role != gDuetRole) || (gDuetSpeed != speed);
+  setDuet(role, partner, speed);
+  if (changed)
+    Serial.printf("[duet] %s by 0x%08X (speed x%u)\n",
+                  role == toot::DUET_OFF ? "dismissed"
+                  : role == toot::DUET_LEAD ? "invited to LEAD" : "invited to HARM",
+                  (unsigned)partner, gDuetSpeed);
+  return true;
+}
 
 // Draw the melody on the RGB LED: pitch -> color (low warm, high cool).
 static uint32_t pitchColor(uint16_t f) {
@@ -198,10 +305,14 @@ static uint32_t pitchColor(uint16_t f) {
   return 0xFF2000;                      // low — red
 }
 
-// A struck note is rendered after a humanize delay (deferred; playTone blocks).
+// A struck note is rendered after a humanize delay (deferred; k10Tone blocks).
 static bool     gHitPending = false;
 static uint32_t gHitDueMs = 0;
 static int      gHitFreq = 0;
+// Articulation scales with the duet speed so double time stays staccato instead of
+// slurring into the next slot — carried on the hit because `speed` is only in scope
+// where the note is chosen.
+static uint32_t gHitMs = 0;
 static uint32_t gHitColor = 0;
 static uint32_t gLedClearMs = 0;     // 0 = LED not currently flashing
 // The melody boots SILENT and only plays between CMD_PLAY and CMD_STOP (the T-Deck's
@@ -237,6 +348,212 @@ static inline uint32_t pulseHumanize() {  // small bounded jitter, cheap LCG
   s = s * 1664525u + 1013904223u;
   return (s >> 8) % (2 * PULSE_HUMANIZE_MS + 1);  // 0..2H -> centered below
 }
+
+// ============================================================================
+// THE K10's TWO NEW SENSES (2026-08-12): the tilt and the microphone
+// ============================================================================
+//
+// Both organs have been on this board since it arrived and neither was ever read. The
+// K10 was the fleet's first node and the ONLY tier it ever authored for itself was the
+// @LAT96 WiFi scan — LinkPercept was fed by a BLE radio the 2.x core cannot run
+// (USE_BLE 0), so @LAT97 has always been empty here. It was, in the fleet's own words,
+// a node that could only be OBSERVED.
+//
+// Reading these two changes something specific rather than adding decoration:
+//
+//   TILT (@LAT95/@LAT93) — until now the Cardputer was the fleet's ONLY stillness
+//   witness, which is why `FACE_BELIEF` is Cardputer-only "structurally" (CLAUDE.md):
+//   PerceptLearn Rule 1 arms solely off a still @LAT95 window. A second accelerometer
+//   makes "the observer held still" checkable on a second node, and makes it checkable
+//   on the one node that never moves.
+//
+//   MICROPHONE (@LAT94) — the Cardputer was the fleet's ONLY ear, and that single fact
+//   is why Phase 3 TDoA is unexercised: one microphone cannot measure a time DIFFERENCE
+//   of arrival. Two can. This does not perform TDoA — nothing on a node interprets a
+//   percept — but it is the first time two nodes in this fleet can independently
+//   timestamp the same clap on a shared clock, which is the whole precondition.
+//
+// ⚠ Neither tier is a display feature, and neither is gated on the screen. The eye reads
+// them, but they run whether the eye is showing or not — a percept whose cadence depends
+// on which view is up would be a percept the display gets a vote in.
+//
+// --- THE INDEX BUDGET, BECAUSE THIS NODE JUST WENT FROM ONE GROWING LANE TO FOUR -----
+//
+// `TTDB_MAX_RECORDS` (288) is a WHOLE-FILE budget every lane shares, and the per-lane caps
+// deliberately over-subscribe it. Overflowing it is not a graceful degradation: records
+// past the cap are invisible to every reader, and a lane prune walks the INDEX. So the
+// arithmetic belongs here, next to the lanes that changed it, rather than in a commit
+// message:
+//
+//   identity            2   (@LAT0LON0, @LAT10LON0 — fixed)
+//   @LAT90  timeline   16   TIMESTREAM_MAX_LANE     (a stream change, not a period)
+//   @LAT93  transition 32   MOTIONPERCEPT_MAX_TRANSITION_LANE  (only on a verdict flip)
+//   @LAT94  acoustic   48   ACOUSTICPERCEPT_MAX_LANE  <- FILLS FIRST, in ~48 MINUTES:
+//                           unlike @LAT95/@LAT96 it is NOT change-triggered, so every
+//                           60 s window writes a record whether or not anything happened
+//   @LAT95  motion     48   MOTIONPERCEPT_MAX_LANE  (change-triggered: ~24 h on a shelf)
+//   @LAT96  entity     48   ENTITYPERCEPT_MAX_LANE  (change-triggered, 10-min scans)
+//   @LAT97  link       48   LINKPERCEPT_MAX_LANE — UNREACHABLE on this board: its only
+//                           feeder is BLE and USE_BLE is 0 (the 2.x core cannot run
+//                           BLE + WiFi). Counted as 0, and that is a fact about THIS
+//                           build, not about the cap.
+//   @LAT100 lanegen    32   LANEGEN_MAX_LANE (one marker per prune, an operator action)
+//   @LAT98/@LAT99      uncapped, but they only grow when the laptop pushes or syncs
+//                        --------
+//   reachable total    226 of 288, ~62 slots of margin for the sync/belief lanes.
+//
+// It fits, and the boot banner prints the live headroom + a saturation warning either
+// way, because arithmetic done once at design time is not a substitute for the node
+// saying what it actually holds. If a lane cap is ever raised here, redo this sum first:
+// the whole point of the 2026-08-09 defect is that the per-lane check passes while the
+// file-wide one is what silently deletes records.
+
+// --- TILT: SC7A20H accelerometer, read by the board library's own 10 Hz task ---------
+#define USE_TILT 1
+#if USE_TILT
+static motionpercept::Log gMotionLog;    // @LAT95 was-this-node-still
+
+// The DFRobot library's `gesture_task` polls the chip every 100 ms and publishes
+// k10.accX/Y/Z. We do NOT poll faster: those members ARE the sample rate available, so
+// 10 Hz is the tier's rate and the eye's rate both. (The Cardputer runs its IMU at 50 Hz
+// for the face and 20 Hz for the tier; here the board decides, and saying so beats
+// pretending to a rate we cannot reach.)
+static const uint32_t TILT_POLL_MS = 100;
+
+// Raw counts -> milli-g. The chip is an LIS2DH-compatible part left at its reset
+// full-scale (the library writes 0x21/0x22/0x24/0x30/0x32/0x33 and never touches 0x23,
+// so FS = +/-2 g) and the library right-shifts the 16-bit registers by 4, giving 12-bit
+// samples. At +/-2 g / 12 bit that is 1 mg per count.
+//
+// ⚠ THAT IS A DERIVATION, NOT A MEASUREMENT, so the node CHECKS IT OUT LOUD at boot: a
+// board at rest must read |a| ~= 1000 mg. If the banner says 500 or 2000, this constant
+// is wrong by that factor and every `dev_mg` in the @LAT95 lane is wrong with it — which
+// would be invisible from the record, because a scaled threshold and a scaled signal
+// still label windows plausibly (the "a lane's own label is not evidence" trap).
+static const float TILT_MG_PER_LSB = 1.0f;
+
+// --- THE REST-MAGNITUDE NULL, AND WHY @LAT95 NEEDED ONE (measured 2026-08-12) --------
+//
+// The check above PASSED and the tier was still wrong, which is the interesting part.
+// First hardware run: `|a| 1069 mg` at the rest pose — 6.9% high, comfortably "about
+// 1000", so TILT_MG_PER_LSB is right to within the part's spec. But `MotionPercept`
+// scores `dev = | |a| - 1000 |` against **MOTIONPERCEPT_MOVING_MG 60**, and that 60 was
+// MEASURED ON THE CARDPUTER'S BMI270 (see MotionPercept.h: "prune, then collect", p90
+// 33 mg). A 69-87 mg STATIC error therefore sails straight over the line, and the very
+// first window this node ever wrote said:
+//
+//     **MOTION** state:moving moving_permille:1000 dev_mean_mg:87 dev_max_mg:99
+//
+// ...about a picture frame sitting untouched on a desk. Not a noisy verdict — a
+// CONFIDENT FALSE ONE, in the one lane whose entire job is to make "the observer held
+// still" checkable rather than assumed. A tier that always says `moving` is worse than a
+// tier that is switched off, because the records look like evidence.
+//
+// ⚠ THE FIX IS NOT TO RAISE THE THRESHOLD. `MOTIONPERCEPT_MOVING_MG` is a shared library
+// default carrying a real measurement from a different chip; moving it here would move it
+// for the Cardputer too and silently redefine that node's four-week-old lane.
+//
+// Instead the SKETCH normalises what it feeds the tier: each sample is scaled so that the
+// magnitude this board reads AT REST maps to exactly 1000 mg. The library's `|mag - 1000|`
+// then measures departure from *this board's own rest*, in normalised mg, and the 60 mg
+// threshold recovers the meaning it was measured to have — a fraction of g, not a count.
+//
+// ⚠ WHAT THIS DOES AND DOES NOT CLAIM. A single-pose scalar CANNOT separate the part's
+// gain error from its per-axis zero-g offset; a six-pose calibration would, and nothing
+// here is one. It does not need to be: the null is re-derived at every adopted rest pose,
+// so whatever mixture of gain and offset the pose produces is measured in that pose, and
+// a frame set down at a new angle re-nulls there. That is a NULL, not a calibration, and
+// it is only trustworthy near the pose it was taken in — which is where this board lives.
+//
+// ⚠ AND IT WEAKENS THE TIER'S INDEPENDENCE, WHICH THE NOTE BELOW USED TO DENY. Re-nulling
+// the MAGNITUDE is not the same mistake as re-referencing the DIRECTION (that one would
+// be fatal), because a node moving at constant velocity reads exactly 1 g and is already
+// indistinguishable from rest by any magnitude test, corrected or not. What it does cost:
+// a node that spends the whole 20 s adoption window under a steady non-gravity
+// acceleration would null against it. Nothing in this fleet can do that for 20 s.
+//
+// 📎 The honest long answer is still MotionPercept.h's protocol — prune, collect an hour
+// of genuinely untouched windows, look at the distribution, and set the number from it.
+// This makes the tier tell the truth today; it does not make that measurement unnecessary.
+static const float REST_MAG_MG = 1000.0f;     // what a rest magnitude is normalised TO
+// Refuse the null outside this band: a "rest" magnitude this far from 1 g means the board
+// was NOT at rest when it was taken (or the scale really is wrong), and a null derived
+// from motion is worse than none. Outside it the sketch keeps scale 1.0 and says so.
+static const float REST_MAG_MIN_MG = 700.0f;
+static const float REST_MAG_MAX_MG = 1400.0f;
+static float gRestScale = 1.0f;               // 1.0 until a rest pose has been measured
+static bool  gRestScaleKnown = false;
+
+// --- THE RESTING POSE IS A LEAN, NOT A LEVEL ----------------------------------------
+//
+// The K10 stands like a picture frame: tipped back on its foot, not lying flat and not
+// upright. So gravity at rest is a DIAGONAL vector, and "no tilt" is that vector — not
+// (0,0,1) and not (0,0,-1). Every naive eye written against this board would gaze
+// permanently at the floor, and be right to, because the board really is leaning.
+//
+// The fix is that the reference is MEASURED rather than assumed: the eye looks straight
+// ahead when the board is in whatever pose it has been left in, and the gaze is the
+// DEPARTURE from that pose. Two arms:
+//
+//   1. At boot, after a settle, the first stable still stretch becomes the reference.
+//   2. Thereafter, a NEW pose held still for RECENTER_HOLD_MS becomes the new reference.
+//      This is not drift-correction dressed up — it is the same claim the picture-frame
+//      note makes: straight-ahead is defined by how the frame is standing, so a frame
+//      set down at a new angle has a new straight-ahead. A transient tip moves the gaze
+//      and springs back; a deliberate reposition is adopted.
+//
+// The motion tier's DIRECTION is never re-referenced — that would make a node carried at
+// a steady angle report `still`, the exact assumption the tier exists to falsify. Its
+// MAGNITUDE null is re-derived here, and the difference between those two statements is
+// argued in full at REST_MAG_MG above; it is not a loophole in this one.
+static const uint32_t TILT_SETTLE_MS = 1500;      // ignore the first samples after boot
+static const uint32_t RECENTER_HOLD_MS = 20000;   // a new pose held this long becomes rest
+static const int      RECENTER_STILL_MG = 120;    // how close two samples must be to count
+static const float    TILT_LP = 0.20f;            // low-pass: answer a lean, not a tremor
+
+static int   gAccX = 0, gAccY = 0, gAccZ = 0;         // last raw counts
+static float gTiltX = 0, gTiltY = 0, gTiltZ = 0;      // low-passed, milli-g
+static float gRestX = 0, gRestY = 0, gRestZ = 1000;   // the picture-frame pose
+static bool  gRestKnown = false;
+static bool  gTiltOk = false;                         // has the chip ever answered?
+#endif
+
+// --- what the FACE reads, kept outside both sensor guards ----------------------------
+// The gaze and the arousal are DISPLAY quantities that happen to be fed by the tilt and
+// the mic. Declaring them inside `#if USE_TILT` / `#if USE_MIC` would make the eye fail to
+// compile the moment either organ is switched off for a bring-up — and an eye that stares
+// straight ahead with a flat pupil is the correct rendering of a node with no senses, not
+// a build error. Left at their neutral values when nothing writes them.
+static float gGazeX = 0, gGazeY = 0;   // -1..1, where the eye is looking (0,0 = ahead)
+static float gArousal = 0.0f;          // 0..1, how wide the pupil is (0 = at rest)
+
+// --- MICROPHONE: I2S_NUM_0 RX, the same port the speaker transmits on ----------------
+#define USE_MIC 1
+#if USE_MIC
+static acousticpercept::Log gAcousticLog;   // @LAT94 what it heard
+
+// The board library installs I2S_NUM_0 as MASTER|RX|TX at 16 kHz, 16-bit, stereo
+// (initI2S). We do not reconfigure it: k10Tone already borrows the same port to speak,
+// and a second configuration would fight it.
+//
+// ⚠ RX AND TX SHARE ONE CLOCK ON THIS PORT. `k10Tone` sets the sample rate to 8 kHz for
+// the duration of a note and restores it — so a mic block read across a tone is sampled
+// at the wrong rate AND is mostly our own speaker. Both are handled by muting the tier
+// around a tone rather than by trying to filter it out: the acoustic lane's transient
+// timestamp is a TDoA datum, and the node's own voice arriving at its own mic is exactly
+// the false event that would poison it (the Cardputer learned this as REC_FLAG_SELF).
+static const int    MIC_RATE = 16000;
+static const size_t MIC_TIER_FRAMES = 128;      // what @LAT94 sees — matches the Cardputer's
+static const size_t MIC_READ_FRAMES = 256;      // stereo frames per i2s_read
+static const uint32_t MIC_POLL_MS = 16;         // ~4 blocks of DMA behind, never blocking
+static const uint32_t MIC_SELF_MUTE_MS = 120;   // after our own voice stops, before we listen
+
+static int16_t gMicCarry[MIC_READ_FRAMES + MIC_TIER_FRAMES];  // mono, awaiting a full block
+static size_t  gMicCarryN = 0;
+static uint32_t gToneUntilMs = 0;    // our own speaker is sounding until here
+static int32_t  gMicLevel = 0;       // last block RMS — what the eye reads as loudness
+static bool     gMicOk = false;      // has a read ever returned samples?
+#endif
 
 // --- pushed belief (TTN-RFC-0009) -------------------------------------------
 // The companion re-authors fleet knowledge and pushes it back as offset-addressed
@@ -354,6 +671,68 @@ static inline void indicatorClear() {
 #endif
 }
 
+// How many records this TTDB holds in `lat`. Used by every lane cap and by the senses
+// view; walks the in-RAM index, never the file.
+static int laneCount(int16_t lat) {
+  int n = 0;
+  for (int i = 0; i < gDb.recordCount(); ++i)
+    if (gDb.record(i).lat == lat) ++n;
+  return n;
+}
+
+// Is this node's own voice sounding a part right now? Reported as the STATE that would
+// sound a note rather than the instant of one, so a 2 s intero poll cannot fall between
+// two beats and read false. Unlike the consoles there is no `!conductor()` term: this
+// node's voice has never been gated on holding the baton (see loop()).
+static bool voicingNow() {
+#if USE_PULSE
+  return duetOn() ||
+         (gPlayEnabled && score::phraseForScene(kPart, gPulse.scene()) != nullptr);
+#else
+  return false;
+#endif
+}
+
+// ============================================================================
+// THE SCREEN — three views, and the eye is the one it wakes up in
+// ============================================================================
+//
+// The K10 HAS NO REACHABLE BUTTON. The board library exposes buttonA/B, but on this unit
+// they are not available to a hand, so the node cannot change its own view and nothing
+// local can. That is the whole reason CMD_SET_VIEW exists: the console IS this node's
+// buttons, over the air. It also means the DEFAULT view has to be the one that is worth
+// looking at with nobody driving it — which is exactly the argument the Cardputer's
+// representor makes for an eye (cardputer-sensorium.md §3.2): a scope with no sound is a
+// flat line, a status page with nothing wrong is a wall of unchanged text, but an eye at
+// rest is still a face.
+//
+// Views are NODE-LOCAL ids (Toot.h CMD_SET_VIEW). A console steps them with VIEW_NEXT
+// without knowing what they are. `K10View` itself is declared at the TOP of this sketch
+// — see the note there about arduino-cli's generated prototypes — and setView() lives
+// OUTSIDE the USE_K10_HW guard on purpose: the command must be accepted and ACKed
+// identically whether or not this build has a panel, or a serial-mock build would answer
+// differently from the real one and the wire behaviour would depend on a display #define.
+static K10View gView = K10_VIEW_EYE;
+static bool    gViewEntered = false;     // has the current view painted its base yet?
+static const char* viewName(K10View v) {
+  return v == K10_VIEW_STATUS ? "STATUS"
+       : v == K10_VIEW_SENSES ? "SENSES"
+                              : "EYE";
+}
+
+// Switch the face this node is showing. `v` is a K10View, or toot::VIEW_NEXT to step.
+// Called from the CMD path (the console pressing `v`) — never locally, because this
+// board has no reachable button, which is the whole point of the op.
+static void setView(uint8_t v) {
+  K10View next = (v == toot::VIEW_NEXT)
+                     ? (K10View)((gView + 1) % K10_VIEW_COUNT)
+                     : (K10View)(v % K10_VIEW_COUNT);
+  if (next == gView && v != toot::VIEW_NEXT) return;   // idempotent: no repaint
+  gView = next;
+  gViewEntered = false;      // the new view paints its own base on the next frame
+  Serial.printf("[view] -> %u %s\n", (unsigned)gView, viewName(gView));
+}
+
 #if USE_K10_HW
 // The fleet voice. Every other node (T-Deck + the V4s) synthesizes tones as a 50%
 // SQUARE wave at 8 kHz over ESP_I2S — a shared chiptune timbre, and the volume knob
@@ -365,6 +744,14 @@ static inline void indicatorClear() {
 static const int   K10_I2S_RATE = 8000;    // matches the fleet's 8 kHz square timbre
 static const int16_t K10_TONE_AMP = 22000; // == tdeck_console toneI2S default (same loudness)
 static void k10Tone(int freq, uint32_t ms, int16_t amp = K10_TONE_AMP) {
+#if USE_MIC
+  // Deafen the acoustic tier for the duration plus a tail. TX and RX share this port's
+  // clock, so everything read across a tone is BOTH our own voice and sampled at 8 kHz
+  // instead of 16 — and a transient timestamp is only worth anything if it belongs to
+  // an event that happened in the room. Set BEFORE the blocking write, not after, or the
+  // samples captured during the note are already in the DMA ring unmuted.
+  gToneUntilMs = millis() + ms + MIC_SELF_MUTE_MS;
+#endif
   uint32_t clk = i2s_get_clk(I2S_NUM_0);
   i2s_set_sample_rates(I2S_NUM_0, K10_I2S_RATE);
   uint32_t total = (uint32_t)((uint64_t)K10_I2S_RATE * ms / 1000);
@@ -392,83 +779,724 @@ static void playStartupToot() {
   k10Tone(262, 500, K10_STARTUP_AMP);    // toot  (C4, 0.5 s)
 }
 
-// Show TTDB identity + indexed records + live reasoning state on the LCD.
-//
-// The canvas is a persistent LVGL buffer. The full canvasClear() flushes an
-// all-black frame to the panel mid-render (it calls lv_task_handler internally),
-// so redrawing it every cycle made the screen blink black-then-text. Instead we
-// paint the static header/records ONCE, then per cycle overwrite only the
-// dynamic rows whose content changed: canvasText(row) already clears just that
-// row's 24px band before drawing (a cursor-position overwrite), and the single
-// updateCanvas() at the end flushes only the dirty bands — no full-screen flash.
-static void renderScreen(float tempC) {
-  char line[40];
+// Panel geometry. initScreen(2)/setRotation(2) is portrait: 240 wide, 320 tall — the
+// picture-frame orientation this board actually stands in.
+static const int SCR_W = 240, SCR_H = 320;
 
-  static bool init = false;
-  const bool firstRender = !init;
-  if (firstRender) {
-    init = true;
-    k10.canvas->canvasClear();   // one full clear, at first render only
-    k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
-    snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
-    k10.canvas->canvasText(String(line), 2, 0x2E7D32);
-    snprintf(line, sizeof(line), "TTDB %uB  %d rec", (unsigned)gDb.fileSize(),
-             gDb.recordCount());
-    k10.canvas->canvasText(String(line), 4, 0x00FF66);
-
-    int row = 6;
-    for (int i = 0; i < gDb.recordCount() && row <= 10; ++i) {
-      const TtdbRecord& r = gDb.record(i);
-      snprintf(line, sizeof(line), "  @LAT%dLON%d", r.lat, r.lon);
-      k10.canvas->canvasText(String(line), row++, 0x00FF66);
-    }
-  }
-
-  bool warm = gAgent.matchedThisCycle();
-  bool dirty = firstRender;
-
-  // Row 11: temperature (changes most cycles).
-  static char lastTemp[16] = "";
-  snprintf(line, sizeof(line), "temp %.1f C", tempC);
-  if (strncmp(line, lastTemp, sizeof(lastTemp)) != 0) {
-    strncpy(lastTemp, line, sizeof(lastTemp));
-    k10.canvas->canvasText(String(line), 11, 0x00FF66);
-    dirty = true;
-  }
-
-  // Row 12: reasoning cursor; its color also tracks the warm state.
-  static int lastLat = 0, lastLon = 0;
-  static bool lastWarm = false;
-  if (firstRender || gAgent.cursorLat() != lastLat ||
-      gAgent.cursorLon() != lastLon || warm != lastWarm) {
-    lastLat = gAgent.cursorLat();
-    lastLon = gAgent.cursorLon();
-    snprintf(line, sizeof(line), "cursor @LAT%dLON%d", lastLat, lastLon);
-    k10.canvas->canvasText(String(line), 12, warm ? 0xCCFF90 : 0x2E7D32);
-    dirty = true;
-  }
-
-  // Row 13: laptop LED override vs. local warm/cool indicator.
-  static uint32_t lastStatus = 0xFFFFFFFFu;
-  uint32_t status = gLedOverride.enabled
-                        ? (0x80000000u | (gLedOverride.color & 0x00FFFFFFu))
-                        : (warm ? 1u : 0u);
-  if (firstRender || status != lastStatus) {
-    lastStatus = status;
-    if (gLedOverride.enabled) {
-      snprintf(line, sizeof(line), "LED: laptop #%06X", (unsigned)gLedOverride.color);
-      k10.canvas->canvasText(String(line), 13, 0x40C4FF);
-    } else {
-      k10.canvas->canvasText(warm ? "WARM - indicator ON" : "cool", 13,
-                             warm ? 0xFF6F00 : 0x2E7D32);
-    }
-    dirty = true;
-  }
-  lastWarm = warm;
-
-  if (dirty) k10.canvas->updateCanvas();
+static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
+
+// --- the eyeball --------------------------------------------------------------------
+//
+// GIANT: the ball is 304 px across on a 240x320 panel, so it bleeds off both sides and
+// leaves 8 px of black at top and bottom. That reads as a close-up of an eye rather than
+// a ball drawn on a screen — you can see the curve of the sclera at top and bottom while
+// the sides run past the edge. Adafruit-style clipping is NOT free in TFT_eSPI, so every
+// span below is clamped by hand.
+static const int EYE_CX = SCR_W / 2;          // 120
+static const int EYE_CY = SCR_H / 2;          // 160
+static const int EYE_R  = 152;                // rows 8..312, columns clipped
+// Iris/pupil keep the Cardputer's proportions (iris ~0.49 of the ball) so the two
+// representors read as the same creature at two sizes.
+static const int IRIS_R = 74;
+static const int IRIS_OUTLINE = 8;            // thick black limbal ring
+static const int IRIS_OUTER = IRIS_R + IRIS_OUTLINE;
+static const int PUPIL_R_MIN = 20, PUPIL_R_MAX = 38;   // arousal (loudness) dilates it
+// Travel is bounded by the OUTLINE's radius, not the iris's, or a full-tilt gaze pushes
+// the black ring past the edge of the sclera.
+static const int EYE_REACH = EYE_R - IRIS_OUTER - 2;
+// The catchlight is a reflection of the ROOM's light source, so it belongs to the room:
+// it stays put while the iris slides under it, which is why it is a screen coordinate
+// and not an offset from the iris.
+static const int GLINT_X = EYE_CX - (EYE_R * 45) / 100;
+static const int GLINT_Y = EYE_CY - (EYE_R * 45) / 100;
+static const int GLINT_R = 30;
+
+// The face runs on the BEAT, not on a frame clock: rendering happens in a short pulse at
+// the head of each beat and between beats the eye is entirely still — no gaze update, no
+// SPI traffic. It is a creature with a pulse, not a needle on a meter. It also keeps the
+// panel off the bus for most of every beat, which is what stops a 240x320 display from
+// eating the step clock this node has to keep.
+static const uint32_t EYE_PULSE_MS = 240;       // render window at each beat
+static const uint32_t EYE_PULSE_FRAME_MS = 80;  // frames within that window
+static const uint32_t BLINK_MS = EYE_PULSE_FRAME_MS - 10;   // exactly one frame shut
+static const uint32_t BLINK_GAP_MS = 8000;
+
+static const uint16_t COL_SCLERA = rgb565(238, 236, 228);
+// RED, and the same red as the Cardputer's representor — so the fleet's two eyes read as
+// two views of one creature rather than two devices that each happen to have a face.
+static const uint16_t COL_IRIS   = rgb565(210, 40, 40);
+// ...and gold while this node's own voice is sounding a part. It has to be far from the
+// resting red to be legible across a room at a glance, which is the only distance this
+// screen is ever read from.
+static const uint16_t COL_IRIS_SING = rgb565(255, 190, 60);
+
+static bool  gEyePainted = false;             // is the sclera currently on the panel?
+static int   gIrisX = -1000, gIrisY = 0, gPupilR = -1;   // last painted iris
+static bool  gBlinking = false;
+static uint32_t gBlinkT0 = 0, gNextBlink = 0;
+
+// Lay the sclera down across one row, in the two pieces either side of the disc at
+// (ex, ey) that the iris is about to cover. Draws nothing if the row is entirely inside
+// that disc.
+static inline void scleraRow(int y, int x0, int x1, int ex, int ey, int e2) {
+  int edy = y - ey;
+  int ehw = (edy * edy < e2) ? (int)sqrtf((float)(e2 - edy * edy)) : -1;
+  if (ehw < 0) { gTft.drawFastHLine(x0, y, x1 - x0 + 1, COL_SCLERA); return; }
+  int ex0 = ex - ehw, ex1 = ex + ehw;
+  if (x0 < ex0) {
+    int e = (x1 < ex0 - 1) ? x1 : ex0 - 1;
+    gTft.drawFastHLine(x0, y, e - x0 + 1, COL_SCLERA);
+  }
+  if (x1 > ex1) {
+    int s = (x0 > ex1 + 1) ? x0 : ex1 + 1;
+    gTft.drawFastHLine(s, y, x1 - s + 1, COL_SCLERA);
+  }
+}
+
+// Entering the face (or opening from a blink): clear whatever was there AND lay the
+// sclera down, writing every pixel at most once. `fillScreen` + a circle would paint
+// over half the panel twice for no benefit.
+//
+// Wrapped in ONE startWrite/endWrite: `drawFastHLine` opens and closes its own SPI
+// transaction, and for a shape made of ~300 spans that overhead — not the pixels — is
+// the cost. Batching is what keeps a full repaint inside the frame budget (the same
+// measurement the Cardputer's eyeSpans records: 17k px was 8 ms of data drawn in 22 ms
+// span by span).
+static void paintEyeBase(int ix, int iy) {
+  const int r2 = EYE_R * EYE_R, e2 = IRIS_OUTER * IRIS_OUTER;
+  gTft.startWrite();
+  for (int y = 0; y < SCR_H; ++y) {
+    int dy = y - EYE_CY;
+    int hw = (dy * dy < r2) ? (int)sqrtf((float)(r2 - dy * dy)) : -1;
+    int x0 = EYE_CX - hw, x1 = EYE_CX + hw;
+    if (hw <= 0) { gTft.drawFastHLine(0, y, SCR_W, TFT_BLACK); continue; }
+    if (x0 < 0) x0 = 0;
+    if (x1 > SCR_W - 1) x1 = SCR_W - 1;
+    if (x0 > 0) gTft.drawFastHLine(0, y, x0, TFT_BLACK);
+    scleraRow(y, x0, x1, ix, iy, e2);
+    if (x1 < SCR_W - 1) gTft.drawFastHLine(x1 + 1, y, SCR_W - 1 - x1, TFT_BLACK);
+  }
+  gTft.endWrite();
+}
+
+// Fill the whole ball with one colour — the eyelid coming down. A blink is simply the
+// eye leaving the panel; there is no lid colour because the lid is the black surround.
+static void paintEyeSolid(uint16_t color) {
+  const int r2 = EYE_R * EYE_R;
+  gTft.startWrite();
+  for (int y = EYE_CY - EYE_R; y <= EYE_CY + EYE_R; ++y) {
+    if (y < 0 || y >= SCR_H) continue;
+    int dy = y - EYE_CY;
+    int hw = (int)sqrtf((float)(r2 - dy * dy));
+    int x0 = EYE_CX - hw, x1 = EYE_CX + hw;
+    if (x0 < 0) x0 = 0;
+    if (x1 > SCR_W - 1) x1 = SCR_W - 1;
+    if (x1 >= x0) gTft.drawFastHLine(x0, y, x1 - x0 + 1, color);
+  }
+  gTft.endWrite();
+}
+
+// The catchlight, repainted after anything that may have covered it.
+static void paintGlint() {
+  gTft.fillCircle(GLINT_X, GLINT_Y, GLINT_R, rgb565(255, 255, 255));
+}
+
+// Move the iris from wherever it was painted to (nx, ny) with pupil radius `pr`,
+// touching only the union of the two discs. This is the ONLY per-frame cost when the eye
+// is awake, and when the gaze has not moved and the pupil has not changed it is zero.
+static void paintIris(int nx, int ny, int pr, uint16_t iris_col) {
+  const bool moved = (nx != gIrisX || ny != gIrisY);
+  const int e2 = IRIS_OUTER * IRIS_OUTER, r2 = EYE_R * EYE_R;
+  if (moved && gIrisX > -1000) {
+    // Restore sclera over the OLD disc, minus wherever the new disc will land.
+    gTft.startWrite();
+    for (int y = gIrisY - IRIS_OUTER; y <= gIrisY + IRIS_OUTER; ++y) {
+      if (y < 0 || y >= SCR_H) continue;
+      int ody = y - gIrisY;
+      int ohw = (int)sqrtf((float)(e2 - ody * ody));
+      int x0 = gIrisX - ohw, x1 = gIrisX + ohw;
+      // Stay inside the ball: outside it the correct colour is black, not sclera.
+      int dy = y - EYE_CY;
+      int bhw = (dy * dy < r2) ? (int)sqrtf((float)(r2 - dy * dy)) : -1;
+      if (bhw < 0) continue;
+      if (x0 < EYE_CX - bhw) x0 = EYE_CX - bhw;
+      if (x1 > EYE_CX + bhw) x1 = EYE_CX + bhw;
+      if (x0 < 0) x0 = 0;
+      if (x1 > SCR_W - 1) x1 = SCR_W - 1;
+      if (x1 >= x0) scleraRow(y, x0, x1, nx, ny, e2);
+    }
+    gTft.endWrite();
+    paintGlint();          // the old disc may have been sitting under the catchlight
+  }
+  if (moved || pr != gPupilR) {
+    gTft.fillCircle(nx, ny, IRIS_OUTER, TFT_BLACK);   // limbal ring
+    gTft.fillCircle(nx, ny, IRIS_R, iris_col);
+    gTft.fillCircle(nx, ny, pr, TFT_BLACK);           // pupil
+    // The catchlight sits ON the eye, so it wins over the iris wherever they overlap.
+    int gdx = nx - GLINT_X, gdy = ny - GLINT_Y;
+    if (gdx * gdx + gdy * gdy < (IRIS_OUTER + GLINT_R) * (IRIS_OUTER + GLINT_R))
+      paintGlint();
+  }
+  gIrisX = nx; gIrisY = ny; gPupilR = pr;
+}
+
+// --- FACE: the eye ------------------------------------------------------------------
+static void renderEye(uint32_t now) {
+  if (!gViewEntered) {
+    gViewEntered = true;
+    gEyePainted = false;
+    gIrisX = -1000; gPupilR = -1;
+    gBlinking = false;
+    gNextBlink = now + BLINK_GAP_MS;
+  }
+
+  // Blink: one frame shut, then the ball comes back whole.
+  if (gBlinking) {
+    if (now - gBlinkT0 < BLINK_MS) return;
+    gBlinking = false;
+    gEyePainted = false;                     // force a full repaint on the way open
+    gNextBlink = now + BLINK_GAP_MS + (esp_random() % BLINK_GAP_MS);
+  } else if (gEyePainted && (int32_t)(now - gNextBlink) >= 0) {
+    gBlinking = true;
+    gBlinkT0 = now;
+    paintEyeSolid(TFT_BLACK);
+    gIrisX = -1000; gPupilR = -1;            // nothing on the panel to erase from
+    return;
+  }
+
+  // WHERE IT LOOKS: the departure of the board's pose from its resting lean, mapped
+  // through a BOWL rather than a slope. Straight tilt is linear in sin(angle), which made
+  // the Cardputer's first eye read as a spirit level; a bowl is steep in the middle and
+  // flat toward the rim, so a subtle lean barely disturbs the ball and a deliberate one
+  // runs it a long way. gGazeX/gGazeY are already eased and bowl-shaped by serviceTilt().
+  float gx = gGazeX, gy = gGazeY;
+  int ix = EYE_CX + (int)(gx * (float)EYE_REACH);
+  int iy = EYE_CY + (int)(gy * (float)EYE_REACH);
+
+  // HOW WIDE THE PUPIL IS: loudness. This is the microphone made VISIBLE without a
+  // number anywhere on screen — the room gets loud and the eye opens up. It is the same
+  // signal the @LAT94 tier is folding into its window, read at the display's own pace;
+  // the tier's cadence is not affected by it (see serviceMic).
+  int pr = PUPIL_R_MIN + (int)(gArousal * (float)(PUPIL_R_MAX - PUPIL_R_MIN));
+
+  const uint16_t iris_col = voicingNow() ? COL_IRIS_SING : COL_IRIS;
+  static uint16_t last_col = 0;
+
+  if (!gEyePainted) {
+    paintEyeBase(ix, iy);
+    paintGlint();
+    gEyePainted = true;
+    gIrisX = -1000; gPupilR = -1;            // the base left no iris to erase
+  }
+  if (iris_col != last_col) { last_col = iris_col; gPupilR = -1; }  // force a redraw
+  paintIris(ix, iy, pr, iris_col);
+}
+
+// --- STATUS: what the old canvas screen said, at a size you can read across a room ---
+static void renderStatus(uint32_t now) {
+  (void)now;
+  char line[48];
+  // Every line below is redrawn only when its text CHANGES: `drawString` with a background
+  // colour overwrites exactly its own glyph box, so an unchanged row costs nothing on the
+  // bus. Same reasoning as the canvas version this replaces, without the full-screen flush
+  // that made it blink.
+  struct Row { int y; uint16_t col; char last[48]; };
+  static Row rows[7] = {
+    {  70, rgb565(0, 255, 102), "" },   // TTDB
+    {  94, rgb565(0, 255, 102), "" },   // temp
+    { 118, rgb565(46, 125, 50), "" },   // cursor
+    { 142, rgb565(255, 111, 0), "" },   // warm / LED
+    { 176, rgb565(64, 196, 255), "" },  // band: scene + conductor
+    { 200, rgb565(64, 196, 255), "" },  // stream
+    { 224, rgb565(160, 160, 160), "" }, // lanes
+  };
+  if (!gViewEntered) {
+    gViewEntered = true;
+    gTft.fillScreen(TFT_BLACK);
+    gTft.setTextColor(rgb565(0, 230, 118), TFT_BLACK);
+    gTft.drawString("K10 PERCEPT", 8, 8, 4);
+    gTft.setTextColor(rgb565(46, 125, 50), TFT_BLACK);
+    snprintf(line, sizeof(line), "id 0x%08X", (unsigned)kNodeId);
+    gTft.drawString(line, 8, 40, 2);
+    // ⚠ INVALIDATE THE ROW CACHE. These statics outlive the view: leave them holding last
+    // time's text and the fillScreen above wipes rows that then compare EQUAL and are never
+    // redrawn — so coming back to this view shows a nearly blank screen with only the
+    // handful of values that happened to change. The cache is a claim about what is ON THE
+    // PANEL, so anything that clears the panel has to clear the cache with it.
+    for (int i = 0; i < 7; ++i) rows[i].last[0] = '\0';
+  }
+  const char* txt[7];
+  char buf[7][48];
+
+  snprintf(buf[0], 48, "TTDB %uB %dr", (unsigned)gDb.fileSize(), gDb.recordCount());
+  float t = gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f;
+  snprintf(buf[1], 48, "temp %.1f C", t);
+  snprintf(buf[2], 48, "cursor @LAT%dLON%d", gAgent.cursorLat(), gAgent.cursorLon());
+  if (gLedOverride.enabled)
+    snprintf(buf[3], 48, "LED laptop #%06X", (unsigned)gLedOverride.color);
+  else
+    snprintf(buf[3], 48, "%s", gAgent.matchedThisCycle() ? "WARM" : "cool");
+#if USE_PULSE
+  snprintf(buf[4], 48, "%s cond %04X%s", heroarc::sceneName(gPulse.scene()),
+           (unsigned)(gPulse.chart().conductor_id & 0xFFFF),
+           gPulse.conductor() ? "*" : "");
+#else
+  snprintf(buf[4], 48, "band off");
 #endif
+  snprintf(buf[5], 48, "stream %08lX %s", (unsigned long)gStamp.stream_id,
+           gSynced ? "wall" : "local");
+  snprintf(buf[6], 48, "94:%d 95:%d 96:%d", laneCount(94), laneCount(95), laneCount(96));
+  for (int i = 0; i < 7; ++i) txt[i] = buf[i];
+
+  for (int i = 0; i < 7; ++i) {
+    if (!strcmp(txt[i], rows[i].last)) continue;
+    strncpy(rows[i].last, txt[i], sizeof(rows[i].last) - 1);
+    rows[i].last[sizeof(rows[i].last) - 1] = '\0';
+    gTft.setTextColor(rows[i].col, TFT_BLACK);
+    gTft.fillRect(0, rows[i].y, SCR_W, 22, TFT_BLACK);
+    gTft.drawString(txt[i], 8, rows[i].y, 2);
+  }
+}
+
+// --- SENSES: the two new organs as INSTRUMENTS ---------------------------------------
+//
+// Not a prettier eye: this is the view that answers "is the tilt reading anything, is
+// the mic reading anything, and are the lanes filling?" — the questions a percept tier
+// needs a face for. The eye shows the senses being FELT; this shows them being MEASURED,
+// which is a different claim and deserves a different screen.
+static void renderSenses(uint32_t now) {
+  (void)now;
+  const int BUBBLE_CX = SCR_W / 2, BUBBLE_CY = 118, BUBBLE_R = 78;
+  struct Row { int y; uint16_t col; char last[48]; };
+  static Row rows[4] = {
+    {  40, rgb565(160, 200, 160), "" },   // tilt raw + rest
+    { 196, rgb565(120, 160, 220), "" },   // mic header
+    { 244, rgb565(160, 160, 160), "" },   // acoustic tier state
+    { 272, rgb565(160, 160, 160), "" },   // motion tier state
+  };
+  static int lastBX = -1000, lastBY = 0;   // the tilt bubble's last painted position
+  static int lastFill = -1;                // the mic bar's last painted width
+  if (!gViewEntered) {
+    gViewEntered = true;
+    gTft.fillScreen(TFT_BLACK);
+    gTft.setTextColor(rgb565(0, 230, 118), TFT_BLACK);
+    gTft.drawString("SENSES", 8, 6, 4);
+    // The tilt bubble's chrome: rim + crosshair. Centre is the RESTING pose, so the dot
+    // sits in the middle when the board is in the picture-frame lean it lives in.
+    gTft.drawCircle(BUBBLE_CX, BUBBLE_CY, BUBBLE_R, rgb565(40, 80, 40));
+    gTft.drawCircle(BUBBLE_CX, BUBBLE_CY, BUBBLE_R / 2, rgb565(28, 56, 28));
+    gTft.drawFastHLine(BUBBLE_CX - BUBBLE_R, BUBBLE_CY, BUBBLE_R * 2, rgb565(28, 56, 28));
+    gTft.drawFastVLine(BUBBLE_CX, BUBBLE_CY - BUBBLE_R, BUBBLE_R * 2, rgb565(28, 56, 28));
+    // ⚠ Invalidate every "what is on the panel" cache, for the reason spelled out in
+    // renderStatus: the fillScreen above is what makes the stale ones lie.
+    for (int i = 0; i < 4; ++i) rows[i].last[0] = '\0';
+    lastBX = -1000;
+    lastFill = -1;
+  }
+
+#if USE_TILT
+  // The bubble: where the gaze is pointing, i.e. the DEPARTURE from the rest pose.
+  int bx = BUBBLE_CX + (int)(gGazeX * (float)(BUBBLE_R - 8));
+  int by = BUBBLE_CY + (int)(gGazeY * (float)(BUBBLE_R - 8));
+  if (bx != lastBX || by != lastBY) {
+    if (lastBX > -1000) {
+      gTft.fillCircle(lastBX, lastBY, 7, TFT_BLACK);
+      // Repair the chrome the erase just cut through.
+      gTft.drawCircle(BUBBLE_CX, BUBBLE_CY, BUBBLE_R, rgb565(40, 80, 40));
+      gTft.drawCircle(BUBBLE_CX, BUBBLE_CY, BUBBLE_R / 2, rgb565(28, 56, 28));
+      gTft.drawFastHLine(BUBBLE_CX - BUBBLE_R, BUBBLE_CY, BUBBLE_R * 2, rgb565(28, 56, 28));
+      gTft.drawFastVLine(BUBBLE_CX, BUBBLE_CY - BUBBLE_R, BUBBLE_R * 2, rgb565(28, 56, 28));
+    }
+    gTft.fillCircle(bx, by, 7, gMotionLog.moving(millis()) ? rgb565(255, 140, 0)
+                                                          : rgb565(0, 220, 120));
+    lastBX = bx; lastBY = by;
+  }
+#endif
+
+  // The mic level, as a bar. Log-ish scaling: RMS spans four decades and a linear bar
+  // would sit at zero all day and then peg.
+  const int BAR_Y = 216, BAR_H = 20, BAR_X = 12, BAR_W = SCR_W - 24;
+  int fill = 0;
+#if USE_MIC
+  {
+    float lv = (float)gMicLevel;
+    if (lv < 1.0f) lv = 1.0f;
+    float f = (logf(lv) / logf(32768.0f));          // 0..1 over the 16-bit range
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    fill = (int)(f * (float)BAR_W);
+  }
+#endif
+  if (fill != lastFill) {
+    gTft.fillRect(BAR_X, BAR_Y, fill, BAR_H, rgb565(60, 130, 210));
+    gTft.fillRect(BAR_X + fill, BAR_Y, BAR_W - fill, BAR_H, rgb565(18, 24, 34));
+    lastFill = fill;
+  }
+
+  char buf[4][48];
+#if USE_TILT
+  snprintf(buf[0], 48, gTiltOk ? "tilt %4d %4d %4d mg" : "tilt NO CHIP",
+           (int)gTiltX, (int)gTiltY, (int)gTiltZ);
+#else
+  snprintf(buf[0], 48, "tilt off");
+#endif
+#if USE_MIC
+  snprintf(buf[1], 48, gMicOk ? "mic rms %ld" : "mic SILENT (no i2s)",
+           (long)gMicLevel);
+  snprintf(buf[2], 48, "@LAT94 %d/%d  trans %ld", laneCount(94),
+           ACOUSTICPERCEPT_MAX_LANE, (long)gAcousticLog.transients());
+#else
+  snprintf(buf[1], 48, "mic off");
+  snprintf(buf[2], 48, "@LAT94 off");
+#endif
+#if USE_TILT
+  // The null is on screen because it is the number that decides whether `still` means
+  // anything on this board; `x1.000` with a `moving` verdict is the false-positive state.
+  snprintf(buf[3], 48, "@LAT95 %d/%d %s x%.3f", laneCount(95), MOTIONPERCEPT_MAX_LANE,
+           gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
+#else
+  snprintf(buf[3], 48, "@LAT95 off");
+#endif
+  for (int i = 0; i < 4; ++i) {
+    if (!strcmp(buf[i], rows[i].last)) continue;
+    strncpy(rows[i].last, buf[i], sizeof(rows[i].last) - 1);
+    rows[i].last[sizeof(rows[i].last) - 1] = '\0';
+    gTft.setTextColor(rows[i].col, TFT_BLACK);
+    gTft.fillRect(0, rows[i].y, SCR_W, 20, TFT_BLACK);
+    gTft.drawString(buf[i], 8, rows[i].y, 2);
+  }
+}
+
+// Paint whichever view is up, at the pace that view wants. The EYE runs on the BEAT (a
+// short burst of frames at the head of each one, nothing in between); the two instrument
+// views run on a plain 2 Hz clock, because a gauge that updates rhythmically is just a
+// gauge that is sometimes stale.
+static void serviceScreen(uint32_t now) {
+  if (gView == K10_VIEW_EYE) {
+    static uint32_t lastFrame = 0;
+    bool due;
+#if USE_PULSE
+    uint8_t bib = 0; uint16_t ph = 0; uint32_t bc = 0;
+    if (gPulse.phaseNow(now, bib, ph, bc))
+      due = (ph < EYE_PULSE_MS) && (now - lastFrame >= EYE_PULSE_FRAME_MS);
+    else
+      due = (now - lastFrame >= EYE_PULSE_FRAME_MS);   // no chart: free-run, still alive
+#else
+    due = (now - lastFrame >= EYE_PULSE_FRAME_MS);
+#endif
+    if (!due) return;
+    lastFrame = now;
+    renderEye(now);
+    return;
+  }
+  static uint32_t lastSlow = 0;
+  if (now - lastSlow < 500) return;
+  lastSlow = now;
+  if (gView == K10_VIEW_STATUS) renderStatus(now);
+  else                          renderSenses(now);
+}
+#endif  // USE_K10_HW
+
+// ============================================================================
+// READING THE TWO ORGANS
+// ============================================================================
+
+#if USE_TILT && USE_K10_HW
+// Which way the eye looks when the frame is tipped. The SC7A20H's axes are not
+// documented for this board in a form worth trusting, so the mapping is three constants
+// rather than arithmetic buried in the renderer: if the gaze runs UPHILL, flip a sign;
+// if it runs SIDEWAYS, set the swap. (Exactly the shape the Cardputer's eye needed, and
+// both of ITS signs turned out to be wrong on first contact with hardware — so expect to
+// change these once and then never again.)
+#define EYE_SWAP_AXES 0
+static const float EYE_GAZE_X = -1.0f;
+static const float EYE_GAZE_Y =  1.0f;
+
+// The gaze sits in a BOWL, not on a slope. Straight tilt is linear in sin(angle), so a
+// linear map makes the iris slide off centre at the slightest lean and the face reads as
+// a spirit level. A bowl is steep in the middle and flat toward the rim: a subtle tilt
+// barely disturbs the ball, a deliberate one runs it a long way, and at the rim it stops.
+//   r = (tilt / BOWL_FULL_MG) ^ BOWL_GAMMA, clamped to 1 = the rim.
+static const float BOWL_GAMMA  = 2.0f;
+static const float BOWL_FULL_MG = 800.0f;   // ~53 degrees off the resting lean
+
+static void serviceTilt(uint32_t now) {
+  static uint32_t last = 0, boot = 0, restSince = 0;
+  static float candX = 0, candY = 0, candZ = 0;
+  static bool primed = false;
+  // ⚠ The null is the mean of PER-SAMPLE magnitudes, NOT |low-passed vector|. Those are
+  // different numbers whenever there is noise (averaging a vector shrinks its length;
+  // averaging lengths does not), and the tier sees per-sample magnitudes — so nulling
+  // against the low-passed one leaves a systematic residual. Measured on this board: the
+  // LP vector read 1069 mg while the tier's own dev_mean implied ~1087.
+  static double magSum = 0.0;
+  static uint32_t magN = 0;
+  // `boot` is the first call to THIS function, not an absolute millis() reading. That is
+  // deliberate and it is the shape `pulse::Engine` uses: an absolute settle window
+  // silently assumes setup() is short, and on the Cardputer that assumption cost two
+  // spurious @LAT90 records per boot because setup() there takes over six seconds. Here
+  // the first call is the first loop pass, so the settle window starts when the node
+  // actually begins reading the chip.
+  if (boot == 0) boot = now;
+  if (now - last < TILT_POLL_MS) return;
+  last = now;
+
+  const int ax = k10.getAccelerometerX();
+  const int ay = k10.getAccelerometerY();
+  const int az = k10.getAccelerometerZ();
+  // The library's gesture_task publishes these; before its first successful read they
+  // are all zero, which is not a pose any board can be in (gravity is always 1 g
+  // somewhere). Treat it as "the chip has not answered yet" rather than as a reading.
+  if (ax == 0 && ay == 0 && az == 0) return;
+  gTiltOk = true;
+  gAccX = ax; gAccY = ay; gAccZ = az;
+
+  const float mx = (float)ax * TILT_MG_PER_LSB;
+  const float my = (float)ay * TILT_MG_PER_LSB;
+  const float mz = (float)az * TILT_MG_PER_LSB;
+
+  // The @LAT95 tier gets the RAW sample, never the low-passed one: it measures the
+  // deviation of the acceleration MAGNITUDE, and a filter tuned to ignore a hand tremor
+  // is a filter that would erase exactly the evidence of motion the tier exists to
+  // collect. It gets no rest-DIRECTION subtraction either — that would make a node
+  // carried at a steady angle report `still`.
+  //
+  // It IS scaled by the rest-magnitude null (see REST_MAG_MG): unscaled, this board's
+  // 6.9% high reading is a permanent 87 mg offset against a 60 mg threshold measured on
+  // another chip, and every window says `moving` about a motionless picture frame.
+  // ⚠ Before the first null is measured `gRestScale` is 1.0, so the settle window's own
+  // samples are unscaled — they land in the first window and are the reason it may still
+  // read `moving`. That is correct rather than convenient: those samples really were
+  // taken before this board knew what its own rest looked like.
+  //
+  // Accumulate the per-sample magnitude either way; that mean is what the null is made of.
+  const float smag = sqrtf(mx * mx + my * my + mz * mz);
+  magSum += (double)smag;
+  ++magN;
+  if (now - boot >= TILT_SETTLE_MS)
+    gMotionLog.add((int)(mx * gRestScale), (int)(my * gRestScale),
+                   (int)(mz * gRestScale), now);
+
+  if (!primed) {
+    primed = true;
+    gTiltX = mx; gTiltY = my; gTiltZ = mz;
+    candX = mx; candY = my; candZ = mz;
+    restSince = now;
+    return;
+  }
+  gTiltX += (mx - gTiltX) * TILT_LP;
+  gTiltY += (my - gTiltY) * TILT_LP;
+  gTiltZ += (mz - gTiltZ) * TILT_LP;
+
+  // --- adopt a new resting pose -------------------------------------------------
+  // The candidate is the low-passed vector. While it stays within RECENTER_STILL_MG of
+  // where it was, the clock runs; the moment it wanders, the clock restarts. So a
+  // deliberate reposition is adopted after RECENTER_HOLD_MS and a tip-and-release is not
+  // adopted at all. The FIRST adoption happens as soon as the settle window closes, so
+  // the eye is centred within a couple of seconds of boot rather than staring at the
+  // floor until someone moves the board.
+  const float dcx = gTiltX - candX, dcy = gTiltY - candY, dcz = gTiltZ - candZ;
+  if (fabsf(dcx) > RECENTER_STILL_MG || fabsf(dcy) > RECENTER_STILL_MG ||
+      fabsf(dcz) > RECENTER_STILL_MG) {
+    candX = gTiltX; candY = gTiltY; candZ = gTiltZ;
+    restSince = now;
+    magSum = 0.0; magN = 0;                 // the pose moved: the null must be re-measured
+  } else if (!gRestKnown ? (now - boot >= TILT_SETTLE_MS)
+                         : (now - restSince >= RECENTER_HOLD_MS)) {
+    restSince = now;                        // whatever happens, the window starts over
+    // ⚠ A BOARD THAT NEVER MOVES REACHES THIS BRANCH EVERY 20 s FOREVER. Only ADOPT — and
+    // only announce — when the candidate is actually somewhere else; otherwise this line
+    // prints "NEW resting pose" at a board sitting perfectly still on a shelf, which is
+    // both a serial flood and a false statement about the world.
+    const bool first = !gRestKnown;
+    const bool same = !first && fabsf(candX - gRestX) <= RECENTER_STILL_MG &&
+                      fabsf(candY - gRestY) <= RECENTER_STILL_MG &&
+                      fabsf(candZ - gRestZ) <= RECENTER_STILL_MG;
+    if (same) { magSum = 0.0; magN = 0; return; }   // nothing happened; restart the mean
+    gRestX = candX; gRestY = candY; gRestZ = candZ;
+    gRestKnown = true;
+
+    // The magnitude null for THIS pose. Refused outside the sane band rather than
+    // applied: a null taken while the board was moving is worse than no null at all,
+    // and a silent refusal would look exactly like a working one.
+    const uint32_t nUsed = magN;            // read BEFORE the reset, or the log says 0
+    const float restMag = nUsed ? (float)(magSum / (double)nUsed) : 0.0f;
+    magSum = 0.0; magN = 0;
+    const bool ok = restMag >= REST_MAG_MIN_MG && restMag <= REST_MAG_MAX_MG;
+    if (ok) { gRestScale = REST_MAG_MG / restMag; gRestScaleKnown = true; }
+    Serial.printf("[tilt] %s pose %d %d %d mg | rest |a| %d mg over %lu samples -> "
+                  "@LAT95 null x%.4f%s\n",
+                  first ? "resting" : "NEW resting",
+                  (int)gRestX, (int)gRestY, (int)gRestZ, (int)restMag,
+                  (unsigned long)nUsed, gRestScale,
+                  ok ? "" : "  <- REFUSED: |a| outside 700..1400 mg, keeping x1.0. The "
+                            "board was not at rest, or TILT_MG_PER_LSB is wrong.");
+  }
+
+  // --- where the eye looks: the DEPARTURE from that pose ------------------------
+  float dx = gTiltX - gRestX, dy = gTiltY - gRestY;
+#if EYE_SWAP_AXES
+  { float t = dx; dx = dy; dy = t; }
+#endif
+  const float sx = EYE_GAZE_X * dx, sy = EYE_GAZE_Y * dy;
+  const float mag = sqrtf(sx * sx + sy * sy);
+  if (mag < 1.0f) { gGazeX = 0.0f; gGazeY = 0.0f; return; }
+  float r = mag / BOWL_FULL_MG;
+  if (r > 1.0f) r = 1.0f;
+  r = powf(r, BOWL_GAMMA);
+  gGazeX = sx / mag * r;
+  gGazeY = sy / mag * r;
+}
+#endif  // USE_TILT && USE_K10_HW
+
+#if USE_MIC && USE_K10_HW
+// Pull whatever the I2S RX ring has, feed the @LAT94 tier in fixed blocks, and keep a
+// loudness figure for the eye. Non-blocking (ticks_to_wait 0) — a `portMAX_DELAY` read
+// here would park the whole node on the microphone, and this loop has a band clock to
+// keep.
+static void serviceMic(uint32_t now) {
+  static uint32_t last = 0;
+  if (now - last < MIC_POLL_MS) return;
+  last = now;
+
+  static int16_t block[MIC_READ_FRAMES * 2];     // stereo frames as read off the bus
+
+  // ⚠ DRAIN, DON'T SAMPLE. One read of MIC_READ_FRAMES every MIC_POLL_MS is EXACTLY the
+  // capture rate, which means zero margin: any pass that runs late (a percept flush, a
+  // blocking tone, a full sclera repaint) loses audio to DMA overwrite with nothing
+  // saying so. The ring holds ~56 ms, so a bounded catch-up loop covers every stall this
+  // node actually has. It is bounded rather than `while (got)` because an unbounded drain
+  // would let a starved loop spend the whole pass on the microphone.
+  for (int pass = 0; pass < 4; ++pass) {
+    size_t got = 0;
+    if (i2s_read(I2S_NUM_0, block, sizeof(block), &got, 0) != ESP_OK || got == 0) return;
+    const size_t frames = got / (2 * sizeof(int16_t));
+    if (!frames) return;
+    gMicOk = true;
+
+    // OUR OWN VOICE. Drop the whole block and empty the carry: a partial block that
+    // straddled the mute boundary would put half a note into a window, and the sample
+    // rate was 8 kHz for that half anyway. Dropping is honest — the window simply has
+    // fewer blocks in it, which `blocks:` already reports.
+    if ((int32_t)(now - gToneUntilMs) < 0) { gMicCarryN = 0; return; }
+
+    // De-interleave to mono by taking the left slot. Both slots carry the same capsule on
+    // this board, as they do on the Cardputer.
+    if (gMicCarryN + frames > sizeof(gMicCarry) / sizeof(gMicCarry[0]))
+      gMicCarryN = 0;                  // can't happen; if it does, drop rather than smear
+    for (size_t i = 0; i < frames; ++i) gMicCarry[gMicCarryN + i] = block[i * 2];
+    gMicCarryN += frames;
+
+    // Loudness for the eye, computed on the block we just read rather than tapped out of
+    // the tier: the tier's blocks are 128 frames for TDoA reasons that have nothing to do
+    // with a screen, and the display must not get a vote in how the percept is timed.
+    {
+      uint64_t acc = 0;
+      for (size_t i = 0; i < frames; ++i) {
+        const int32_t s = block[i * 2];
+        acc += (uint64_t)((int64_t)s * s);
+      }
+      gMicLevel = (int32_t)sqrt((double)(acc / frames));
+    }
+
+    // AROUSAL IS RELATIVE, NOT ABSOLUTE. A fixed loudness->pupil curve would sit pinned
+    // open in a noisy room and pinned shut in a quiet one; what an eye actually answers
+    // to is a room getting LOUDER than it was. So a slow EMA of the log level is the
+    // baseline and arousal is the excess over it — the same argument AcousticPercept
+    // makes for scaling its transient test off a running ambient rather than a per-site
+    // threshold, and it means the pupil self-calibrates to whatever room it is left in.
+    {
+      float f = logf((float)(gMicLevel > 1 ? gMicLevel : 1)) / logf(32768.0f);
+      static float amb = -1.0f;
+      if (amb < 0.0f) amb = f;
+      amb += (f - amb) * 0.01f;
+      float exc = (f - amb) * 4.0f;
+      if (exc < 0.0f) exc = 0.0f;
+      if (exc > 1.0f) exc = 1.0f;
+      gArousal += (exc - gArousal) * 0.25f;
+    }
+
+    // These samples end NOW; every block still behind them is that many frames older. The
+    // transient timestamp is the Phase-3 TDoA datum, so it rides the TEAM TIME STREAM
+    // rather than the wall clock: two nodes agreeing with EACH OTHER is what makes a
+    // cross-correlation possible, and knowing the date is not.
+    const uint64_t t_ms = gStamp.t_ms ? gStamp.t_ms : (uint64_t)now;
+    while (gMicCarryN >= MIC_TIER_FRAMES) {
+      const size_t rest = gMicCarryN - MIC_TIER_FRAMES;
+      const uint64_t blk_t = t_ms - (uint64_t)((rest * 1000) / MIC_RATE);
+      gAcousticLog.addBlock(gMicCarry, MIC_TIER_FRAMES, blk_t, now);
+      memmove(gMicCarry, gMicCarry + MIC_TIER_FRAMES, rest * sizeof(int16_t));
+      gMicCarryN = rest;
+    }
+    if (frames < MIC_READ_FRAMES) return;   // ring drained; nothing was waiting
+  }
+}
+#endif  // USE_MIC && USE_K10_HW
+
+// ============================================================================
+// INTEROCEPTION — this node's sense of its own body (CMD_GET_INTERO)
+// ============================================================================
+//
+// The K10 answers this now because it is back on the roster and the T-Deck's record pane
+// polls it: a band member a console cannot ask "how are you" is a name on a list.
+//
+// This board has NO battery sense at all — it runs off USB — so bat_mv is 0 and bat_pct
+// is 255 (unknown). That is the same honesty CMD_GET_GPS uses when it answers quality:0
+// from a node with no GPS: a zeroed field that MEANS "no organ" beats silence, because
+// silence is indistinguishable from a node that is down.
+static const uint32_t INTERO_PERIOD_MS = 2000;
+static int16_t  gDieC10 = 0;        // ESP32-S3 die temperature, tenths of a degree
+static uint32_t gMaxAllocK = 0;     // largest CONTIGUOUS block, NOT free heap
+static uint32_t gWorstLoopMs = 0;   // worst loop pass in the last published window
+static uint32_t gLoopWorstRun = 0;  // accumulator for the window in progress
+
+static void serviceIntero(uint32_t now) {
+  static uint32_t last = 0;
+  static bool first = true;
+  if (!first && now - last < INTERO_PERIOD_MS) return;
+  last = now;
+  // Die temperature, not ambient — the AHT20 already reports ambient through the agent's
+  // sensor path, and these are different measurements of different things. The die reads
+  // high with WiFi up millimetres away, so it measures how hard the node is working as
+  // much as it measures the room.
+  gDieC10 = (int16_t)lroundf(temperatureRead() * 10.0f);
+  gMaxAllocK = ESP.getMaxAllocHeap() / 1024;
+  if (first) {
+    first = false;
+    Serial.printf("[intero] die %.1fC | maxalloc %luK | no battery sense on this board\n",
+                  gDieC10 / 10.0f, (unsigned long)gMaxAllocK);
+  }
+}
+
+// INTERO PERCEPT — the answer to CMD_GET_INTERO (Toot.h INTERO_PERCEPT_PAYLOAD_LEN).
+// Reads NOTHING: every field is the last sample serviceIntero() took on its own 2 s
+// cadence, so this is safe from the recv callback and cheap enough for a remote console
+// to poll while it watches us — which is exactly the use case.
+static uint8_t buildIntero(uint8_t* p) {
+  toot::put_u16(p + 0, 0);            // no pack: 0 mV means "this node has no battery sense"
+  p[2] = 255;                         // ...and therefore no percentage to invent
+  p[3] = 0;
+  toot::put_u16(p + 4, (uint16_t)gDieC10);
+  toot::put_u16(p + 6, (uint16_t)gMaxAllocK);
+  toot::put_u32(p + 8, millis() / 1000);
+  toot::put_u16(p + 12, (uint16_t)(gWorstLoopMs > 65535 ? 65535 : gWorstLoopMs));
+#if USE_PULSE
+  const pulse::Chart& ch = gPulse.chart();
+  toot::put_u16(p + 14, ch.beat_period_ms);
+  toot::put_u32(p + 16, ch.conductor_id);
+  p[20] = (gSynced ? toot::INTERO_SYNCED : 0) |
+          (gPulse.conductor() ? toot::INTERO_CONDUCTOR : 0) |
+          (gPulse.playing() ? toot::INTERO_PLAYING : 0) |
+          (voicingNow() ? toot::INTERO_VOICING : 0);
+#else
+  toot::put_u16(p + 14, 0);
+  toot::put_u32(p + 16, 0);
+  p[20] = gSynced ? toot::INTERO_SYNCED : 0;
+#endif
+  return (uint8_t)toot::INTERO_PERCEPT_PAYLOAD_LEN;
+}
 
 // --- transports -------------------------------------------------------------
 // ESP-NOW TX is asynchronous with a shallow queue. TtdbShare streams many
@@ -623,6 +1651,12 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
         break;
       }
       if (toot::cmdTarget(t) == kNodeId) {
+        // An addressed CMD is ACKed unless a handler says otherwise. Most ops cannot
+        // fail; the two that can — a duet with a malformed payload and a prune with no
+        // room for its boundary marker — must NOT be ACKed, or the operator is told a
+        // thing happened that did not. Hence a flag rather than the flat `accepted =
+        // true` this used to end with.
+        bool cmd_ok = true;
         switch (toot::cmdOp(t)) {
           case toot::CMD_SET_LED:
             if (t.payload_len >= 8) {  // op + target(4) + R,G,B
@@ -638,6 +1672,49 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             uint8_t body[toot::STATUS_PULSE_PAYLOAD_LEN];
             uint8_t slen = buildStatus(body);
             emit(toot::PERCEPT, body, slen, reply, ctx);  // the reply is the answer
+            break;
+          }
+          case toot::CMD_GET_INTERO: {
+            // "Show me your body", from the T-Deck's record pane over the air, or from
+            // `companion.py intero` over the cable. buildIntero reads nothing (all cached
+            // by serviceIntero) and the reply is ONE frame, so unlike a TTDB burst it is
+            // safe to answer straight from the recv callback.
+            uint8_t body[toot::INTERO_PERCEPT_PAYLOAD_LEN];
+            uint8_t ilen = buildIntero(body);
+            emit(toot::PERCEPT, body, ilen, reply, ctx);
+            break;
+          }
+          case toot::CMD_DUET:
+            // "You and I, now." Overrides this node's PART, never the chart's scene.
+            cmd_ok = applyDuetCmd(t);
+            break;
+          case toot::CMD_SET_VIEW:
+            // The console pressing `v`. This board has no reachable button, so this is
+            // the ONLY way its screen ever changes. Cheap (no flash, no sensor), so it
+            // runs here rather than being deferred.
+            setView(toot::cmdView(t));
+            break;
+          case toot::CMD_CLEAR_PERCEPTS: {
+            // SP1 prune, and the reason it finally exists on this board: until 2026-08-12
+            // the K10 authored ONE percept lane and had no way to clear it ("reflash to
+            // reset"). It now authors three, so a node with no prune path would fill
+            // @LAT94/@LAT95/@LAT96 and go quietly blind — the exact failure the fleet has
+            // already hit twice.
+            //
+            // Flash rewrite, so this reaches here only from loop(): the radio path defers
+            // it (see onEspNowRecv) and the serial path already runs in loop(). ACK only
+            // on success, so a failed prune is loud rather than silent.
+            uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
+            cmd_ok = (lane == TIMESTREAM_LANE)
+                         ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
+                         : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
+            if (cmd_ok)
+              Serial.printf("[prune] percept lane %s cleared (TTDB now %uB, %dr)\n",
+                            lane ? String(lane).c_str() : "ALL",
+                            (unsigned)gDb.fileSize(), gDb.recordCount());
+            else
+              Serial.println("[prune] REFUSED (bad lane, or no room for the @LAT100 "
+                             "boundary marker — no prune without a marker)");
             break;
           }
           case toot::CMD_BEEP: {
@@ -675,7 +1752,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           default:  // CMD_PING / unknown: nothing to do but ACK
             break;
         }
-        accepted = true;  // a CMD addressed to us is acknowledged (when want_ack)
+        accepted = cmd_ok;  // a CMD addressed to us is acknowledged when it succeeded
       }
       break;
     case toot::TIME_SYNC: {
@@ -798,6 +1875,12 @@ static toot::Toot gPendingReq;
 static volatile bool gPutPending = false;
 static toot::Toot gPendingPut;
 
+// CMD_CLEAR_PERCEPTS rewrites the whole TTDB file and re-indexes it, so it gets the same
+// treatment: stashed here by the recv callback and run from loop(). The serial path
+// already runs in loop() and does not need this.
+static volatile bool gClearPending = false;
+static toot::Toot gPendingClear;
+
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
@@ -817,6 +1900,9 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
   } else if (t.type == toot::TTDB_PUT) {
     if (!gPutPending) { gPendingPut = t; gPutPending = true; }  // flash write -> loop()
+  } else if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId &&
+             toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
+    if (!gClearPending) { gPendingClear = t; gClearPending = true; }  // flash -> loop()
   } else {
     handleToot(t, sendEspNow, nullptr);                         // cheap, no burst
   }
@@ -835,17 +1921,23 @@ void setup() {
   // TFT_BL 45 seizing the speaker pin.
   playStartupToot();        // "toot toot"
 #endif
-  k10.initScreen(2);        // 2 = default orientation
-  k10.creatCanvas();
+  // initScreen() is kept for what it does BESIDES LVGL: it drives eLCD_BLK high (the
+  // backlight is on the mainboard power chip, not a GPIO this sketch can name) and runs
+  // the panel's own init sequence. `creatCanvas()` is deliberately NOT called — it would
+  // allocate 1.2 MB of PSRAM for a buffer nothing draws into, and nothing calls
+  // lv_task_handler() after this line, so LVGL never touches the panel again.
+  k10.initScreen(2);        // 2 = portrait, the picture-frame orientation
   k10.rgb->brightness(5);   // 0-9
-  // Boot banner so the screen isn't blank until the first agent cycle renders.
-  // NOTE: the K10's TFT is driven by the sketchbook TFT_eSPI whose User_Setup.h
-  // must hold the K10 SPI pins (MOSI 21 / SCLK 12 / CS 14 / DC 13); generic
-  // ESP32-S3 defaults there leave the panel lit but blank.
-  k10.canvas->canvasClear();
-  k10.canvas->canvasText("K10 Percept Node", 1, 0x00E676);
-  k10.canvas->canvasText("booting...", 3, 0x00FF66);
-  k10.canvas->updateCanvas();
+  // ...and from here the panel is ours. NOTE: the K10's TFT is driven by the sketchbook
+  // TFT_eSPI whose User_Setup.h must hold the K10 SPI pins (MOSI 21 / SCLK 12 / CS 14 /
+  // DC 13); generic ESP32-S3 defaults there leave the panel lit but blank.
+  gTft.init();
+  gTft.setRotation(2);
+  gTft.fillScreen(TFT_BLACK);
+  gTft.setTextColor(rgb565(0, 230, 118), TFT_BLACK);
+  gTft.drawString("K10", 8, 8, 4);
+  gTft.setTextColor(rgb565(0, 255, 102), TFT_BLACK);
+  gTft.drawString("booting...", 8, 44, 2);
 #endif
 
   if (!LittleFS.begin(true, "/littlefs", 10, kFsLabel)) {
@@ -853,9 +1945,35 @@ void setup() {
   } else if (!gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");
   } else {
-    Serial.printf("TTDB loaded: %u bytes, %d records\n",
-                  (unsigned)gDb.fileSize(), gDb.recordCount());
+    Serial.printf("TTDB loaded: %u bytes, %d/%d records indexed (%d free)\n",
+                  (unsigned)gDb.fileSize(), gDb.recordCount(),
+                  TTDB_MAX_RECORDS, gDb.indexHeadroom());
+    // The index is a whole-FILE budget shared by every lane, so a lane with room in
+    // its own cap can still be refused - and until 2026-08-11 nothing said so.
+    // Saturation is worse than a refusal: records past the cap are invisible to every
+    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // rewrite deleted them outright. That is how five @LAT101 records died once.
+    if (gDb.indexSaturated())
+      Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
+                    "   every reader. Prune a lane to surface them.\n",
+                    (unsigned)gDb.headersSeen(), (unsigned)gDb.droppedRecords());
+    else if (gDb.indexHeadroom() <= TTDB_INDEX_WARN_SLOTS)
+      Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
+                    "   stops accepting records whatever its own cap says.\n",
+                    gDb.indexHeadroom());
   }
+#if USE_WIFI_SCAN
+  // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
+  // EntityPercept.cpp, a separate translation unit, so it can only be set by a BUILD
+  // PROPERTY, and a build property is invisible from outside. max_run:1 is the
+  // MEASUREMENT build (every window writes its own record); the default 6 folds them
+  // into runs. An entity SURVEY needs both of its nodes unfolded, so which build a
+  // board carries stopped being a question only the Cardputer had to answer.
+  Serial.printf("[entity] @LAT96 build: max_run:%d core:%d-of-%d scan:%lus%s\n",
+                ENTITYPERCEPT_MAX_RUN, ENTITYPERCEPT_CORE_N, ENTITYPERCEPT_CORE_M,
+                (unsigned long)(WIFI_SCAN_PERIOD_MS / 1000),
+                ENTITYPERCEPT_MAX_RUN == 1 ? "  <- MEASUREMENT BUILD (no folding)" : "");
+#endif
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId,
                          gLocus);
 
@@ -897,10 +2015,30 @@ void setup() {
   // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
   // shared timeline is not.
   gTs.begin(kNodeId, &gDb, millis());
+
+  // Declare the two new organs at boot, next to the @LAT96 build line, for the same
+  // reason that line exists: what a board can actually sense is otherwise invisible from
+  // outside, and a tier that is compiled out looks exactly like a tier that is quiet.
+  // The scale check on the tilt is the load-bearing part — see TILT_MG_PER_LSB.
+#if USE_TILT
+  Serial.printf("[tilt] @LAT95/@LAT93 up: SC7A20H @0x19 via the board task, %lu Hz, "
+                "%.1f mg/LSB, moving>%d mg\n",
+                (unsigned long)(1000UL / TILT_POLL_MS), TILT_MG_PER_LSB,
+                MOTIONPERCEPT_MOVING_MG);
+#endif
+#if USE_MIC
+  Serial.printf("[mic] @LAT94 up: I2S_NUM_0 RX %d Hz, %u-frame blocks (the fleet's "
+                "SECOND ear -- TDoA needs two)\n",
+                MIC_RATE, (unsigned)MIC_TIER_FRAMES);
+#endif
+  Serial.printf("[view] boot view %u %s (no local button: CMD_SET_VIEW is the only way "
+                "this screen changes)\n", (unsigned)gView, viewName(gView));
   Serial.printf("K10 percept node 0x%08X online\n", kNodeId);
 }
 
 void loop() {
+  const uint32_t loop_t0 = millis();
+  serviceIntero(loop_t0);
 
   // FIRST, before anything reads a clock: settle which timeline this node is on and
   // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed
@@ -939,36 +2077,74 @@ void loop() {
     // hold at the grief (ORDEAL) until the returning T-Deck drives the RETURN/FINALE.
     gPulse.serviceSong(pnow, heroarc::SCENE_HOLD_MS, heroarc::SCENE_ORDEAL);
     // The chart's scene moved (or we just joined a band mid-song): this is the seam
-    // where a node re-selects the phrase it plays, via score::phraseForScene. Parts
-    // are still single-scene, so for now it only reports the move.
+    // where this node re-selects the phrase it plays, via score::phraseForScene below.
     uint16_t new_scene;
     if (gPulse.sceneChanged(new_scene))
-      Serial.printf("[scene] scene %u (era %lu cond 0x%08X)\n", new_scene,
+      Serial.printf("[scene] scene %u %s (era %lu cond 0x%08X)\n", new_scene,
+                    heroarc::sceneName(new_scene),
                     (unsigned long)gPulse.chart().era,
                     (unsigned)gPulse.chart().conductor_id);
-    // The lead's melody: on each new sequencer step, strike the note (if any) at this
-    // phrase position. Empty steps and RESTs are silent. Scheduled a humanize-jitter
-    // after the step so the line breathes within the swing budget.
+    // OUR PART: the scene selects the phrase (HeroArc.h — no row means SILENT in that
+    // scene, and for the percept leaf that is every scene but the finale). The step clock
+    // runs through the silent scenes, so the entrance lands on the grid rather than
+    // wherever the node happened to notice.
+    //
+    // A DUET overrides the phrase AND the scene's silence for as long as it lasts: the
+    // pair was asked for by name, and the step clock underneath is the same one the band
+    // is counting.
+    const score::Phrase* ph;
+    bool voice;
+    uint8_t speed = 1;
+    if (duetOn()) {
+      ph = (gDuetRole == toot::DUET_LEAD) ? &heroarc::kOdeLead : &heroarc::kOdeHarm;
+      voice = true;
+      speed = gDuetSpeed;             // already validated against this phrase by setDuet
+    } else {
+      ph = score::phraseForScene(kPart, gPulse.scene());
+      voice = gPlayEnabled;           // boots silent; only between CMD_PLAY and CMD_STOP
+    }
+    // DOUBLE TIME is these two lines: wrap the phrase in `steps/speed` slots and look the
+    // note up at `sip*speed`. The pulse clock and beat period are untouched, so the pair
+    // covers the written phrase in half the steps while staying locked to the beat the
+    // rest of the fleet counts. ONE stepTick per pass — the call consumes the tick.
+    const uint16_t steps = ph ? (uint16_t)(ph->steps / speed) : 16;
     uint16_t sip;
     uint32_t sc;
-    if (gPulse.stepTick(pnow, kLead.steps, sip, sc)) {
-      const score::Note* nt = score::noteAt(kLead, sip);
-      if (gPlayEnabled && nt && nt->freq != score::REST) {  // muted until CMD_PLAY
+    static uint32_t prev_step = 0;
+    static bool have_prev = false;
+    if (gPulse.stepTick(pnow, steps, sip, sc)) {
+      // Catch up over any steps this pass jumped, so a stalled pass cannot swallow the
+      // note that fell in the gap. Defensive, and this node needs it more than most: a
+      // percept flush, a blocking tone AND a full eye repaint can each exceed one step.
+      const score::Note* nt = nullptr;
+      if (ph)
+        nt = (have_prev && sc > prev_step + 1)
+                 ? score::noteForCrossedSteps(*ph, prev_step, sc, speed, steps)
+                 : score::noteAt(*ph, (uint16_t)(sip * speed));
+      prev_step = sc;
+      have_prev = true;
+      if (voice && nt && nt->freq != score::REST) {
         gHitFreq = nt->freq;
+        gHitMs = PULSE_TONE_MS / speed;
+        if (gHitMs < 80) gHitMs = 80;
         gHitColor = pitchColor(nt->freq);
         gHitDueMs = pnow + pulseHumanize();
         gHitPending = true;
-        Serial.printf("[melody] step %2u/%u bar %u beat %u  %4uHz  cond=0x%08X era=%lu\n",
-                      sip, kLead.steps, sip / 16 + 1, (sip / 4) % 4 + 1, nt->freq,
-                      (unsigned)gPulse.chart().conductor_id,
-                      (unsigned long)gPulse.chart().era);
+        if (duetOn())
+          Serial.printf("[part] step %2u/%u  %4uHz (%s x%u)\n", sip, steps, nt->freq,
+                        gDuetRole == toot::DUET_LEAD ? "duet-lead" : "duet-harm", speed);
+        else
+          Serial.printf("[part] step %2u/%u  %4uHz  scene %s cond=0x%08X era=%lu\n",
+                        sip, steps, nt->freq, heroarc::sceneName(gPulse.scene()),
+                        (unsigned)gPulse.chart().conductor_id,
+                        (unsigned long)gPulse.chart().era);
       }
     }
     // Fire a scheduled hit: toot (via the deferred-beep path) + LED flash.
     if (gHitPending && (int32_t)(pnow - gHitDueMs) >= 0) {
       gHitPending = false;
       gBeepFreq = gHitFreq;
-      gBeepMs = PULSE_TONE_MS;        // k10Tone takes ms directly
+      gBeepMs = gHitMs;               // k10Tone takes ms directly
       gBeepPending = true;            // played from the deferred-beep block below
 #if USE_K10_HW
       if (!gLedOverride.enabled) {    // a laptop set-led still wins (RFC §7.2)
@@ -1003,14 +2179,110 @@ void loop() {
     handleToot(gPendingPut, sendEspNow, nullptr);
   }
 
+  // Serve an ESP-NOW CMD_CLEAR_PERCEPTS deferred from the recv callback: a prune is a
+  // whole-file rewrite plus a re-index plus the @LAT100 boundary append, none of which
+  // may run on the WiFi task.
+  if (gClearPending) {
+    gClearPending = false;
+    handleToot(gPendingClear, sendEspNow, nullptr);
+  }
+
+#if USE_TILT && USE_K10_HW
+  // --- SP0 MOTION TIER: was this node standing still? (@LAT95, and @LAT93 for the edge)
+  serviceTilt(millis());
+  if (gMotionLog.due(millis())) {
+    const uint32_t mnow = millis();
+    int lane = laneCount(95);
+    if (lane >= MOTIONPERCEPT_MAX_LANE) {
+      // SAY THIS OUT LOUD. A full motion lane looks exactly like a healthy node: the
+      // other tiers keep flushing and the windows are dropped in silence. On this board
+      // it should take ~24 h of uptime to reach the cap (the lane is change-triggered
+      // with run-length); if it fills fast, the frame is being knocked or is flapping at
+      // the threshold, which is itself the finding.
+      static uint32_t last_mot_full_log = 0;
+      if (mnow - last_mot_full_log > 300000 || last_mot_full_log == 0) {
+        last_mot_full_log = mnow;
+        Serial.printf("[motion] @LAT95 lane FULL (%d/%d) - windows are being DISCARDED. "
+                      "Prune with `companion.py cmd --op clear-percepts --lane 95`. "
+                      "(threshold %d mg)\n",
+                      lane, MOTIONPERCEPT_MAX_LANE, MOTIONPERCEPT_MOVING_MG);
+      }
+      gMotionLog.reset(mnow);
+    } else {
+      char rec[MOTIONPERCEPT_RECORD_BUF];
+      size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                        gStamp, mnow);
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[motion] percept window -> @LAT95LON%d covers:%d (TTDB %uB)\n",
+                      lane, gMotionLog.runOffset() + 1, (unsigned)gDb.fileSize());
+      else if (gMotionLog.lastClose() == motionpercept::CLOSE_COVERED)
+        // ⚠ Under run-length "wrote nothing" is the NORMAL case for a picture frame on a
+        // shelf — which is what this node is, nearly always. Branch on lastClose(), never
+        // on the byte count, and say the run length out loud so a working fold can be
+        // told from a dead tier.
+        Serial.printf("[motion] window covered (run %d)\n", gMotionLog.runOffset() + 1);
+
+      // The TRANSITION form (TTDB-RFC-0006 §5): the window above is a STATE, this is the
+      // DIFFERENCE between it and the one before — and per §5.2 the difference is the
+      // datum. Written only on a verdict change, so a frame that has not been touched
+      // writes none at all. Must run before the next buildRecord(), which would overwrite
+      // the `after` half.
+      if (gMotionLog.transitionPending()) {
+        int tlane = laneCount(MOTIONPERCEPT_TRANSITION_LANE);
+        if (tlane >= MOTIONPERCEPT_MAX_TRANSITION_LANE) {
+          Serial.printf("[motion] transition DROPPED — @LAT%d lane full (%d)\n",
+                        MOTIONPERCEPT_TRANSITION_LANE, tlane);
+        } else {
+          char trec[MOTIONPERCEPT_TRANSITION_BUF];
+          size_t tm = gMotionLog.buildTransition(trec, sizeof(trec), tlane, kNodeId);
+          if (tm && gDb.appendRecord(trec, tm))
+            Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d (%uB, TTDB %uB)\n",
+                          gMotionLog.pendingBefore().moving ? "moving" : "still",
+                          gMotionLog.lastWindow().moving ? "moving" : "still",
+                          MOTIONPERCEPT_TRANSITION_LANE, tlane, (unsigned)tm,
+                          (unsigned)gDb.fileSize());
+        }
+      }
+    }
+  }
+#endif
+
+#if USE_MIC && USE_K10_HW
+  // --- SP0 ACOUSTIC TIER: what this node heard (@LAT94) -------------------------------
+  // The fleet's SECOND ear. Everything about this block is a copy of the Cardputer's,
+  // deliberately, because the value is in the two lanes being comparable: a transient
+  // logged here and a transient logged there are the same measurement of the same event
+  // only if they were computed the same way.
+  serviceMic(millis());
+  if (gAcousticLog.due(millis())) {
+    const uint32_t anow = millis();
+    int lane = laneCount(94);
+    if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
+      static uint32_t last_ac_full_log = 0;
+      if (anow - last_ac_full_log > 300000 || last_ac_full_log == 0) {
+        last_ac_full_log = anow;
+        Serial.printf("[acoustic] @LAT94 lane FULL (%d/%d) - windows are being "
+                      "DISCARDED. Prune with `companion.py cmd --op clear-percepts "
+                      "--lane 94`.\n", lane, ACOUSTICPERCEPT_MAX_LANE);
+      }
+      gAcousticLog.reset(anow);
+    } else {
+      char rec[400];
+      size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                          gStamp, anow, MIC_RATE);
+      if (m && gDb.appendRecord(rec, m))
+        Serial.printf("[acoustic] percept window -> @LAT94LON%d (TTDB %uB)\n", lane,
+                      (unsigned)gDb.fileSize());
+    }
+  }
+#endif
+
 #if USE_BLE
   // SP0: flush the BLE link-percept window into the @LAT97 lane. Flash write, so it runs
-  // from loop() (never the BLE scan task). Lane-capped; no remote clear on the K10 yet
-  // (reflash to reset the lane). The K10's first self-authored proximity evidence.
+  // from loop() (never the BLE scan task). Lane-capped; pruned by CMD_CLEAR_PERCEPTS
+  // --lane 97 like every other tier. The K10's first self-authored proximity evidence.
   if (gLinkLog.due(millis())) {
-    int lane = 0;
-    for (int i = 0; i < gDb.recordCount(); ++i)
-      if (gDb.record(i).lat == 97) ++lane;
+    int lane = laneCount(97);
     if (lane >= LINKPERCEPT_MAX_LANE) {
       gLinkLog.reset(millis());  // lane full: drop the window, keep observing
     } else {
@@ -1027,12 +2299,10 @@ void loop() {
 #if USE_WIFI_SCAN
   // SP0 entity tier: run the duty-cycled scan, then flush its window into the @LAT96
   // lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane). The K10's
-  // first self-authored proximity evidence — no remote clear yet (reflash to reset).
+  // first self-authored proximity evidence, and until 2026-08-12 its only one.
   serviceWifiScan();
   if (gEntityLog.due(millis())) {
-    int lane = 0;
-    for (int i = 0; i < gDb.recordCount(); ++i)
-      if (gDb.record(i).lat == 96) ++lane;
+    int lane = laneCount(96);
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
       // SAY THIS OUT LOUD -- the same argument @LAT95 got after 2026-08-02, and it
       // cost a live debugging session on 2026-08-10 to notice @LAT96 never got it.
@@ -1160,11 +2430,35 @@ void loop() {
     Serial.printf("[cycle] cursor @LAT%dLON%d match=%d led=%s\n", gAgent.cursorLat(),
                   gAgent.cursorLon(), gAgent.matchedThisCycle(),
                   gLedOverride.enabled ? "laptop" : "agent");
-#if USE_K10_HW
-    renderScreen(gAgent.readingCount() > 0 ? gAgent.reading(0).value : 0.0f);
-#endif
     uint8_t hb[timestream::ANCHOR_LEN];
     size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
     emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
+  }
+
+#if USE_K10_HW
+  // The screen runs on its OWN clock, no longer on the agent's sense/act cadence. Those
+  // two were fused only because the old canvas screen showed the agent and nothing else;
+  // the eye answers to the beat and to two sensors that have nothing to do with a
+  // reasoning cycle, and `set-interval` must not be able to change how alive the face is.
+  serviceScreen(millis());
+#endif
+
+  // Close the profiler window. Published every 10 s so `lp` reports a RECENT worst case
+  // rather than a boot spike that never clears — the same per-window discipline the other
+  // four nodes use, which is what makes their `lp` numbers comparable to this one's.
+  //
+  // ⚠ EXPECT THIS NODE'S `lp` TO RISE WITH THE EYE. A full sclera repaint is ~70k pixels
+  // at 20 MHz ≈ 56 ms of SPI, and it happens on entering the view and on every blink.
+  // That is a real cost, it is bounded, and it is worth knowing rather than hiding: a
+  // blink you can see in the loop profiler is a blink you can rule out as a cause.
+  {
+    uint32_t dt = millis() - loop_t0;
+    if (dt > gLoopWorstRun) gLoopWorstRun = dt;
+    static uint32_t windowStart = 0;
+    if (millis() - windowStart >= 10000) {
+      windowStart = millis();
+      gWorstLoopMs = gLoopWorstRun;
+      gLoopWorstRun = 0;
+    }
   }
 }

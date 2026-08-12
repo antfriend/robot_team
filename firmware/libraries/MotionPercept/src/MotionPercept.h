@@ -189,6 +189,24 @@
 // moving_permille was 0 in all 48 windows, not merely under the 100 verdict gate. So
 // hysteresis is not needed to stop rest-state flapping. It may still be needed at the
 // EDGE of real motion, which this run does not measure and a walk-and-stop run would.
+// ⚠⚠ THIS NUMBER WAS MEASURED ON ONE CHIP AND DOES NOT TRANSFER TO ANOTHER (2026-08-12).
+// It came off the Cardputer's BMI270. The K10's SC7A20H reads |a| = **1085 mg** at rest —
+// 8.5% high, which is ordinary for the part and passes any "is the scale about right?"
+// check — so `dev = | |a| - 1000 |` sits at a STATIC 87 mg, over this 60 mg line, forever.
+// The first two windows that board ever wrote said, about a picture frame untouched on a
+// desk:
+//
+//     **MOTION** state:moving moving_permille:1000 dev_mean_mg:87 dev_max_mg:99
+//
+// Reproduced identically across two boots, so it was systematic, not noise. That is the
+// worst failure this tier has: not a missing verdict but a CONFIDENT FALSE one, in the
+// lane whose whole job is to make "the observer held still" checkable instead of assumed.
+//
+// The fix belongs in the SKETCH, not here: k10_percept.ino measures what magnitude ITS
+// board reads at rest and scales samples so that maps to 1000 mg, which restores the
+// meaning this threshold was measured to have — a fraction of g, not a raw count. After
+// it: `state:still moving_permille:1 dev_mean_mg:4`. Do NOT "fix" a third board by moving
+// this constant; it would silently redefine both existing lanes. Give the new board a null.
 #define MOTIONPERCEPT_MOVING_MG 60
 #endif
 #ifndef MOTIONPERCEPT_TRANSITION_LANE

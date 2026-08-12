@@ -117,11 +117,6 @@ NODE_BROADCAST = 0xFFFFFFFF
 # alt_cm i32 | quality u8 | sats u8 | hdop_x10 u16 | epoch_ms u64. 24 B distinguishes
 # it from a STATUS PERCEPT (15/43). Returned in answer to CMD_GET_GPS.
 GPS_PERCEPT_PAYLOAD_LEN = 24
-# User-facing `cmd` ops only (GET_STATUS/GET_GPS are internal to monitor/gps).
-CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
-           "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
-           "play": CMD_PLAY, "stop": CMD_STOP,
-           "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE}
 CMD_RECORD = 11      # args: start_band_epoch_ms u64 LE | dur_beats u16 LE
 CMD_GET_INTERO = 12  # node replies an INTERO PERCEPT — its sense of its OWN body
 # INTERO PERCEPT payload (Toot.h INTERO_PERCEPT_PAYLOAD_LEN): bat_mv u16 | bat_pct u8 |
@@ -131,6 +126,18 @@ CMD_GET_INTERO = 12  # node replies an INTERO PERCEPT — its sense of its OWN b
 INTERO_PERCEPT_PAYLOAD_LEN = 21
 INTERO_SYNCED, INTERO_CONDUCTOR, INTERO_PLAYING, INTERO_VOICING = 1, 2, 4, 8
 CMD_DUET = 13        # args: partner_node_id u32 LE | role u8 (0 lead, 1 harm, 0xFF off)
+CMD_SET_VIEW = 14    # args: view u8 — which face of itself the node shows. The id is
+                     # NODE-LOCAL (a K10 view means nothing on a T-Deck), so this is
+                     # addressed-only, never broadcast; VIEW_NEXT steps whatever table the
+                     # addressed node happens to have without the sender knowing it.
+VIEW_NEXT = 0xFF
+
+# User-facing `cmd` ops only (GET_STATUS/GET_GPS are internal to monitor/gps).
+CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
+           "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
+           "play": CMD_PLAY, "stop": CMD_STOP,
+           "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE,
+           "set-view": CMD_SET_VIEW}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
 # flags u8 | epoch_ms u64. Returned as a PERCEPT in answer to CMD_GET_STATUS.
@@ -626,10 +633,11 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
 
 
 def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
-             settle, rto0, attempts, scene=None, lane=0):
+             settle, rto0, attempts, scene=None, lane=0, view=None):
     """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
     it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval,
-    set-scene. `node` may be "broadcast" for the band-wide ops (play/stop/set-scene)."""
+    set-scene, set-view. `node` may be "broadcast" for the band-wide ops
+    (play/stop/set-scene)."""
     try:
         import serial  # pyserial
     except ImportError:
@@ -669,6 +677,16 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
             sys.exit("set-scene needs --scene N (e.g. --scene 1)")
         args = struct.pack("<H", scene & 0xFFFF)
         detail = f" scene {scene}"
+    elif opcode == CMD_SET_VIEW:
+        # The view id is node-LOCAL, so a broadcast would put unrelated boards into
+        # unrelated states while reading like one command. Refused here as well as on
+        # the node: a doomed CMD otherwise costs 4 attempts to learn nothing.
+        if target == NODE_BROADCAST:
+            sys.exit("set-view is addressed-only: a view id means something different "
+                     "on every board. Name the node (e.g. --node k10_1).")
+        v = VIEW_NEXT if view is None else (view & 0xFF)
+        args = struct.pack("<B", v)
+        detail = " next view" if v == VIEW_NEXT else f" view {v}"
     elif opcode == CMD_CLEAR_PERCEPTS:
         # Optional lane byte: 0 = every percept lane (the default, and what an older
         # sender that omits the byte gets). A node refuses anything outside 94..97,
@@ -4914,6 +4932,10 @@ def main():
                          "carries forward what a bare rewrite would orphan — 90's "
                          "stream ids, 92's tally. ⚠ 92 also returns every @LAT91 "
                          "belief to baseline. 98/99 are refused")
+    cm.add_argument("--view", type=int, default=None,
+                    help="set-view: which face the node shows. The id is NODE-LOCAL "
+                         "(K10: 0 eye, 1 status, 2 senses); omit it for VIEW_NEXT, "
+                         "which steps whatever table that board has")
     cm.add_argument("--settle", type=float, default=2.5)
     cm.add_argument("--rto0", type=float, default=0.5)
     cm.add_argument("--attempts", type=int, default=4)
@@ -5181,7 +5203,7 @@ def main():
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts,
-                 scene=args.scene, lane=args.lane)
+                 scene=args.scene, lane=args.lane, view=args.view)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "prunes":

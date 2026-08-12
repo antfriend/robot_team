@@ -125,6 +125,28 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
 
 ### Needs a cable (batched, one node at a time)
 
+0. 🗃 ✅ **DONE 2026-08-11 — FLEET REFLASHED WITH THE TTDB INDEX FIX** (library + all six
+   sketches). All six boards flashed firmware-only and **five confirmed by their own boot
+   line**; the T-Deck is verified by flash hash only and should be read with
+   `scratchpad/catchboot.py` next time it is cabled. Every board's MAC is now recorded in
+   CLAUDE.md, so identification is a 3-second `SER=` match instead of a 17-second image
+   read — the rule that made it slow ("no banner to read") turned out to be wrong about
+   the cause.
+   🛑 **Why it is not cosmetic:** a lane prune could **silently delete every record past
+   `TTDB_MAX_RECORDS`** — `begin()` stopped indexing at the cap *and returned true*,
+   `removeLaneRange` walks the INDEX, and `recordSpan` ended the last indexed record at
+   EOF, so its span swallowed the unindexed tail. Layer TWO of the defect that killed
+   five `@LAT101` records on 2026-08-09 (that fix guarded the WRITE path; this one the
+   READ path). Now: `headersSeen()` vs `recordCount()`, the tail carried verbatim, and a
+   boot line that shouts at `TTDB_INDEX_WARN_SLOTS`.
+   ⚠ **OPEN, and not closed by this fix: the per-lane caps SUM PAST the shared index.**
+   The Cardputer is at **265/288** with **+29** of headroom left in its own not-yet-full
+   lanes (→ 294). Each cap was sized alone. Decide whether to rebalance the caps or raise
+   the index — noting `TTDB.h`'s own rule that index pressure from a lane which grows with
+   uptime means the *lane's design* is wrong.
+   🧪 `tests/shim/` + `test_ttdb_index.cpp` (33 checks) — the first native test to drive
+   the REAL `Ttdb`; negative control against a pre-fix copy fails 5 checks, tail `got 0`.
+
 5. **Flash the Cardputer off the measurement build.** The night-3 interlock is
    discharged, so it can take the default folding `MAX_RUN 6` and the fold gets
    confirmed on the node that was the instrument. ⚠ But see item 1 — if the

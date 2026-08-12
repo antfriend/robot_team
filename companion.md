@@ -59,7 +59,7 @@ firmware + TTDB. (Specs: `hardware_specs.md`; mesh roles:
 | **V4-A** | Heltec V4 | Bridge / head — laptop ↔ mesh gateway | head | USB-CDC + LoRa + ESP-NOW | mains, never sleeps | `firmware/v4a_bridge` | ✅ on-device verified (boots, ESP-NOW up, byte-exact pull + HMAC auth; OLED status; **`want_ack` ACK + time-sync: adopts `TIME_SYNC`, answers `TIME_REQ`, appends its own sync log**; LoRa gated off). **2026-07-30: answers `CMD_GET_INTERO` (21 B body, die temp now in STATUS too) and `CMD_DUET` — it led a verified double-time duet with V4-B.** **reads its own pack: 4.096 V / 89% / rising** (GPIO1 behind an ACTIVE-HIGH GPIO37, measured); ⚠ pull it over its own cable, the bridged path is broken |
 | **V4-B** | Heltec V4 | Relay / mid — store-and-forward long hops | mid | LoRa + ESP-NOW | solar + battery | `firmware/v4b_relay` | ✅ on-device verified as the **3rd mesh node + Dream-Cycle participant** (2026-06-25): standalone byte-exact pull + self-heal + `negchecks` (COM9); then through the V4-A bridge over ESP-NOW — adopts `TIME_SYNC` (`@LAT99` self-write), folds into 3-node `reconcile` (id:3/4 `agree:yes`), and adopts a pushed belief byte-exact (`@LAT98`, 1373 B/crc match). Stores+attests beliefs (no DIRECTIVE action — no agent cadence). relay-forward + LoRa gated off. **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` — harmonised a double-time duet after being invited entirely over the air.** **reads its own pack: 3.831 V / 52% / rising** — the solar+battery node can finally report its state of charge; ⚠ its 54 KB TTDB no longer pulls through the bridge — use COM9 direct |
 | **V4-C** | Heltec V4 | Edge / tail — remote cluster gateway, GNSS stamp | tail | LoRa + ESP-NOW | solar, off-grid | `firmware/v4c_edge` | 🟨 firmware at **full Dream-Cycle parity** (built from the verified V4-B: deferred+paced TTDB serve, `want_ack`/re-ACK, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, SP0 link/entity/BLE percepts, remote lane-clear, OLED, MAX98357A amp + band **offbeat hi-hat**), **2026-07-30: answers `CMD_GET_INTERO` and `CMD_DUET` too — the whole LoRa spine is now at parity, and its pack read 3.841 V / 54% on the FIRST flash because it was built with the measured GPIO37 polarity instead of the published one**; compile-verified 94% flash — ✅ **built + flashed + on-device verified (2026-07-16, COM13)**: `ping` ACK on attempt 1, `pull` byte-exact + self-appended `@LAT96` WiFi entity windows on first boot, adopted conductor 0x10 over ESP-NOW, band-tight ±6.5 ms, **hi-hat AUDIBLE by ear** (hand-wired amp confirmed); LoRa/GNSS gated off |
-| **K10-1** | UNIHIKER K10 | Percept node — camera/mic/accel, `@PERCEPT` capture, UI | leaf | ESP-NOW / WiFi | battery | `firmware/k10_percept` | ⏸ **PARKED 2026-07-31 — temporarily excluded from the fleet; depend on nothing here.** Code kept and unmodified (`firmware/k10_percept`, `NODE_K10_1`, the `.vscode` K10 tasks); it is only out of the *defaults* — `--node k10_1` still works the moment it is plugged back in. Was already off the band roster and off the T-Deck's mesh map (2026-07-29) on v1 firmware; this finishes that. Previously ✅ on-device verified (boots from TTDB, Agent32 loop, LCD records + cursor/WARM, "toot toot"; TTDB-share over ESP-NOW & USB; **`want_ack` ACK + re-ACK, chunk reassembly, time-sync with runtime TTDB self-write of `@LAT99` sync records**; **band lead** — Ode-to-Joy melody, boots silent, `CMD_PLAY`/`CMD_STOP`) |
+| **K10-1** | UNIHIKER K10 | Percept node — the fleet's SECOND ear + second stillness witness; the eye that is always on | leaf | ESP-NOW / WiFi | USB (no battery sense) | `firmware/k10_percept` | 🟨 **UNPARKED 2026-08-12 — back on the roster, compile-verified, NOT YET FLASHED.** Parked 2026-07-31, off the band roster since 2026-07-29. Returns with: **`heroarc::kPercept`** (its private Ode-to-Joy loop deleted — silent until the FINALE harmony, as scored); **`CMD_GET_INTERO`** (no battery sense, so bat 0 mV / pct 255 — honest, not silent) and **`CMD_DUET`**; **`CMD_CLEAR_PERCEPTS` + `@LAT100` lane generations** (it had NO prune path at all, which was survivable with one growing lane and is not with four); **`@LAT95`/`@LAT93` motion** off its SC7A20H accelerometer and **`@LAT94` acoustic** off its I2S mic — the two organs that had been on the board unread since it arrived; and a **screen-filling eyeball** as its default face, gazed by the tilt and dilated by the mic. It has **no reachable button**, so **`CMD_SET_VIEW` (op 14) is the only thing that can change its screen** — the T-Deck's `v` key is its hands. Still ✅ on-device verified for everything it had before (TTDB-share over ESP-NOW & USB, `want_ack`/re-ACK, chunk reassembly, `TIME_SYNC` + `@LAT99` self-write, `@LAT96` WiFi entity tier) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor). **2026-08-02: the Learning-from-Action stack (@LAT93 transitions · @LAT92 outcomes · @LAT91 TBEW beliefs) passed its verification gate on this node** — Dream Cycle flash cost measured (150 ms→1757 ms, O(file)), the shape claim confirmed against operator labels with a **23× roamer-vs-stationary separation**, `unobserved` fired for real, beliefs moved to `rev:9`, and a laptop re-fold matched the device on 8 pairs × 7 fields. Also answers `CMD_PING` with a `[mark] FIELD MARK` line so a walk can be labelled from across the house |
 | **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
@@ -90,6 +90,13 @@ Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified
 > pin map implies. Since 2026-07-29 it is also the **first node another console can look
 > INSIDE** — it answers `CMD_GET_INTERO` with a 21-byte INTERO PERCEPT that the T-Deck's record
 > pane draws as a live body view — and it took the K10's place on the T-Deck's mesh map.
+> ⚠ **It stopped being the ONLY node with an accelerometer and a microphone on 2026-08-12**,
+> when the K10 came back reading the two it had always had. That is worth stating as a fact
+> about the FLEET rather than about the K10: "one ear" was the reason Phase 3 TDoA was
+> unexercis*able*, and "one accelerometer" was the reason authoring a belief was structurally
+> Cardputer-only. Both sentences now need rewriting, not just re-dating. The Cardputer keeps
+> the better instruments (a 6-axis BMI270 with a gyro, a codec-fed mic); the K10 brings a
+> SECOND vantage point, which for a time difference of arrival is the whole thing.
 > **Flashing is one-cable-at-a-time** (the bench has one USB lead); all nodes run
 > powered simultaneously for ESP-NOW — the deploy model is already per-node, so this
 > fits: V4-A holds the USB as the bridge during operation, move the lead to flash another.
@@ -5686,8 +5693,14 @@ If a fact lives in one of these, link to it from here — don't copy it.
                                            for a mains event AND the surviving clock
   V4-A     wall outlet A,  +20 min      -> adopts; witness, @LAT90 1/16
   Cardputer wall outlet B (different
-           circuit if possible), +40 min -> adopts; participant only
+           circuit if possible), +40 min -> adopts; WITNESS, @LAT90 1/16
   ```
+  🆕 **UPGRADED 2026-08-11: the Cardputer is now a THIRD WITNESS, not a bystander.** The
+  FS reflash (done for the index squeeze) reset its `@LAT90` from **16/16 FULL to 1/16**,
+  so for the first time it can record its own timeline changes tonight. The earlier note
+  saying "participant only — do NOT prune" is obsolete: nothing was pruned, and the marker
+  it would have cost was refunded (`@LAT100` 30/32 → **0/32**). Three independent
+  `@LAT90`s on three power domains is a materially stronger discriminator than two.
   ⚠ **20 minutes, not 3.** Rejoin takes 5–27 s and is itself unsolved, and an internal
   ~5.5 h timer has unknown jitter; 3 min sits inside the range of ordinary scheduling
   artifacts, 20 does not. It costs nothing — the gate floor is 5.2 h against an 8 h cap.
@@ -5786,6 +5799,311 @@ If a fact lives in one of these, link to it from here — don't copy it.
   AP population over the whole route is a test-geometry result; the tier's resolution is
   ~50–100 m and it wants **different buildings**. The command says this itself so the
   sentence can never be recorded as a falsification by accident.
+
+- 🗃 **2026-08-11 — THE TTDB INDEX CAP: A SILENT DATA-LOSS PATH, FOUND BY A QUESTION WITH
+  A FALSE PREMISE.** The question was "should the Cardputer's full lanes move to the SD
+  card, which has more space?" **Space was never the constraint** — its LittleFS is ~917 KB
+  holding a 111 KB TTDB, **12 % used**. What is full is a *record-count* cap, and the
+  ceiling behind every such cap is **RAM**: `TtdbRecord records_[288]`, ×3 instances on a
+  handheld. An SD card supplies bytes; it cannot supply index slots. But asking made us
+  count, and the count found a real bug.
+  🛑 **THE BUG: a lane prune could silently delete every record past the index cap.**
+  Three facts that are each harmless alone:
+  1. `begin()`'s pass-1 scan stopped recording offsets at `TTDB_MAX_RECORDS` **and
+     returned true** — an over-cap file was indistinguishable from one that fitted.
+  2. `removeLaneRange` rewrites the file by walking **the index**, not the file.
+  3. `recordSpan` ended the LAST indexed record at **EOF**, so that one span swallowed
+     every unindexed record behind it.
+  Prune a lane that happens to own record #288 and the whole tail goes with it. **This is
+  layer TWO of the same defect** — `appendRecord` was fixed 2026-08-09 after five
+  `@LAT101` records were written "successfully" past the index and erased by the next
+  belief-lane rewrite. The append path was guarded; the *read* path was not.
+  ⚠ **AND THE FLEET IS WALKING INTO IT.** The Cardputer is at **265/288 records**, and the
+  headroom left in its own not-yet-full lanes sums to **+29** (`@LAT95` +15, `@LAT91` +5,
+  `@LAT92` +4, `@LAT101` +3, `@LAT100` +2) → **294 > 288**, before counting `@LAT93`. **The
+  lane caps are not jointly bounded by the index.** They were each sized on their own, and
+  their sum overruns the budget they share. That is an open design question, not something
+  this fix closes.
+  ✅ **FIX (library, all six sketches).** `headers_seen_` counts every header in the file
+  while only what fits is indexed, so `recordCount()` is what is VISIBLE and
+  `headersSeen()` is what EXISTS; `tail_offset_` names the unindexed tail as a span, so
+  `recordSpan` no longer runs to EOF and `removeLaneRange` **carries the tail verbatim**.
+  We cannot know whether those records belong to the pruned lane — we never parsed their
+  headers — and the safe direction is obvious: keeping a stale record costs one stale
+  record, dropping a live one destroys evidence. Because the prune frees slots, the next
+  `begin()` surfaces them, so **repeated prunes converge instead of eating the tail**.
+  📢 Every sketch now prints `TTDB loaded: … N/288 records indexed (M free)` and shouts at
+  `TTDB_INDEX_WARN_SLOTS` (16) — *a node that announces only saturation announces it too
+  late to act on*.
+  🧪 **`tests/shim/` — the first native test to drive the REAL `Ttdb`.** 33 checks in
+  `test_ttdb_index.cpp` (suite 15 → 16 native binaries). This mattered: the defect lives in
+  the **interaction** of `begin()`, `recordSpan()` and `removeLaneRange()`, and
+  `test_rfc_ttdb.cpp` can only *replicate* the scan — a replica is a second implementation
+  that drifts, and it already had (it carries `TTDB_MAX_RECORDS 256` against the real 288).
+  ✅ **NEGATIVE CONTROL RUN, not just claimed:** a pre-fix copy of `TTDB.cpp` fails five of
+  the checks, with the tail count reading **`got 0`** — all four unindexed records
+  destroyed by one prune. Both directions pinned.
+  🔧 `check_makefile.py` now expands **per-target flag variables** from the recipe line, so
+  a target with its own `-I`/`-D` is compiled the way `make` compiles it rather than
+  reported as a false alarm.
+  ✅ **VERIFIED ON HARDWARE 2026-08-11** (Cardputer, COM14, after the reflash):
+  `TTDB loaded: 112175 bytes, 268/288 records indexed (20 free)` and
+  `[entity] @LAT96 build: max_run:1 … <- MEASUREMENT BUILD (no folding)`.
+  🛠 **How to read a boot line off an S3 native-USB board** (this cost two failed attempts):
+  the handhelds do **not** reliably reset on port open, and an explicit RTS pulse
+  **re-enumerates the device so the handle you reset through goes dead** — setup()'s output
+  is lost through it. What works: `esptool --after hard-reset chip-id`, then poll
+  `list_ports` and reopen the moment it returns (**0.02 s**), which lands well inside the
+  Cardputer's >6 s setup(). `scratchpad/catchboot.py`.
+  🛑 **AND IT IMMEDIATELY EARNED ITS KEEP: the Cardputer is at 268/288 with 20 slots free,
+  and it was 265 an hour earlier.** `TTDB_INDEX_WARN_SLOTS` is 16, so the alarm fires in
+  **four more records**. At 0 free, `appendRecord` refuses for **every lane** — that, not
+  saturation, is the cliff this fleet will actually hit, because the append guard means the
+  file cannot grow past the cap in normal operation. The remedy is a prune, and the
+  Cardputer's only cheap one is `@LAT96` (full at 48/48, already **discarding** windows),
+  which costs one of its **last two** `@LAT100` markers. **That bind is now the node's
+  binding constraint, not its lanes.**
+  📎 Two numbers corrected while looking: LittleFS reads **200 704 / 917 504 B used** (three
+  globes, ~22 %) — still nowhere near a space limit — and **`maxalloc` is 13 K** once
+  WiFi/BLE are up (boot shows 147 K before the radios). The 45 KB in older notes is stale;
+  `TtdbParse.h`'s "7–8 KB" is closer.
+  ✅ **RESOLVED THE SAME DAY BY AN FS REFLASH (operator chose it over a prune).** Pulled
+  first to `master/entity-baseline/cardputer_pre_fswipe_2026-08-11.md` (112 434 B, **269
+  records**, every lane, `@LAT96` still **unfolded** so the measurement data survives),
+  then `Upload-Cardputer-FS.ps1 -Port COM14`. Result on the next boot:
+  ```
+  before: 268/288 records indexed (20 free)   @LAT100 30/32   @LAT90 16/16 FULL
+  after:    6/288 records indexed (282 free)  @LAT100  0/32   @LAT90  1/16
+  ```
+  🎯 **It bought three things at once**, which is why it beat pruning `@LAT96`: the index
+  squeeze is gone, the prune-marker budget is **reset to a full 32** (a prune would have
+  spent one of the last two), and — the part that mattered for the same evening — the
+  Cardputer got a **fresh `@LAT90`** and so became a real **third witness** for the night-4
+  reboot diagnosis instead of a node that could not record its own timeline changes.
+  Its first post-wipe `@LAT90` record is the fleet stream it adopted, and the second
+  adoption was correctly **deduped** (`adopted adds nothing … no record written`).
+  ⚠ **The price is real and was accepted knowingly:** `@LAT92`/`@LAT91` went with it, so
+  every belief returns to baseline on the next Dream Cycle — documented as the design, not
+  a fault. Everything else was already archived.
+  ⚠ **Its seed globe was left as-is (5 records, pre-SP6-T).** The Cardputer does not render
+  the shape banner, and changing the globe in the same operation as the wipe would have
+  meant two variables at once. 📌 **Follow-up: `cardputer_console.ino:2089` still has the
+  `char buf[400]` that the T-Deck outgrew.** No live defect — it reads only `name:`,
+  `sigma_m:`, `node:`, all early fields — but regenerating its globe from today's
+  `fleetmap` would push records past 400 B, so **fix the buffer first if that globe is ever
+  refreshed.**
+  🚀 **FLEET REFLASH, 2026-08-11 — firmware only on every board** (no `Upload-*-FS.ps1`
+  except the Cardputer's deliberate wipe, so learned lanes survived everywhere else):
+  ```
+  board      port   @LAT96 build  index      | role
+  T-Deck     COM10  measurement   fresh FS   | walk WALKER
+  Cardputer  COM14  measurement     6/288    | FS wiped on purpose; night-4 WITNESS
+  V4-A       COM6   measurement    87/288    | walk ANCHOR; night-4 witness
+  V4-B       COM9   default       116/288    |
+  V4-C       COM13  default       111/288    |
+  K10        COM3   default        65/288    |
+  ```
+  ✅ **Five of six confirmed BY THEIR OWN BOOT LINE** after flashing (`catchboot.py`), not
+  merely by a flash hash — each printed its banner, its `N/288 records indexed (M free)`
+  and its `@LAT96 max_run`. Three facts from one 15-second read per board.
+  ⚠ **The T-Deck is the exception: its new boot line has NOT been seen on serial.** It was
+  flashed before `catchboot.py` existed, and the two attempts then made both failed (port
+  open does not reset it; an RTS pulse re-enumerates and kills the handle). It is verified
+  by compile + flash hash only. **Read it with `catchboot.py` next time it is on a cable** —
+  it is the walk's walker, so its `max_run:1` deserves confirming rather than assuming.
+  🆕 **EVERY BOARD'S MAC IS NOW RECORDED** (CLAUDE.md carries the table), so identification
+  dropped from a ~17 s flash read to a **3 s `list_ports`** match on `SER=`. The three V4s
+  share the `8C:FD:49` OUI — the prefix names the *model*, only the full MAC names the
+  board. COM numbers moved **twice in one afternoon**; never match on the port.
+  ⚠ **A self-inflicted inconsistency worth remembering:** the `[entity] @LAT96 build:`
+  declaration was first added only to the two walk nodes, which **defeats its own purpose**
+  — a build property is invisible from outside, so having the line on *some* boards makes a
+  silent board indistinguishable from one that never had it. It is now in all six sketches;
+  V4-B was reflashed a second time to correct it. *A discriminator that is not fleet-wide
+  is not a discriminator.*
+  ⚠ **Do not run two `arduino-cli` invocations at once.** A background size-check compile
+  overlapping an upload made the Cardputer flash die with a bare `Error during build: exit
+  status 1` and no compiler diagnostic — they share the core build cache. Serialised, the
+  identical command succeeded first try.
+  📎 **Where an SD card WOULD earn its place:** unindexed **archival** of pruned records.
+  An archive is exactly the thing that needs no index slots, so the asymmetry works — it
+  would make a prune stop being destructive (emptying `@LAT92` returns every belief to
+  baseline). Neither handheld sketch touches SD today and the ADV's slot is unconfirmed.
+
+- 👁 **THE K10 IS BACK, AND IT BROUGHT TWO SENSES IT ALWAYS HAD (2026-08-12) — compile-verified
+  on all six sketches + 16/16 native tests; NOT YET FLASHED.** The node that was parked on
+  2026-07-31 returns as a first-class band member. Five things changed, and the interesting
+  part of each is *why it was possible*, not what it does:
+  - 👁 **A GIANT EYEBALL IS ITS DEFAULT SCREEN**, 304 px across on a 240×320 portrait panel,
+    bleeding off both sides and leaving 8 px of black top and bottom — a close-up of an eye,
+    not a ball drawn on a screen. It gazes from the **tilt** and its pupil dilates with the
+    **microphone**, so the two new organs are legible with no numbers on the glass. It runs
+    on the BEAT (a burst of frames at the head of each one, nothing in between), like the
+    Cardputer's representor, and for the same reason the Cardputer's argument gives: an eye
+    is the only view that reads correctly when nothing is happening.
+  - ⚠ **THE DFRobot CANVAS HAD TO GO, AND THE MEASUREMENT IS WHY.** `k10.canvas` is an LVGL
+    canvas, and every `lv_canvas_draw_*` invalidates the WHOLE object — so each
+    `updateCanvas()` flushes all 240×320 px. At this panel's **20 MHz** that is 153,600 B
+    ≈ **61 ms of SPI** before LVGL blends anything. Fine for the 1 Hz text screen it always
+    was; hopeless for a face, and it would have eaten the step clock and the mesh rtt on the
+    way past. The sketch now owns a **second `TFT_eSPI` instance** and repaints only changed
+    pixels. Safe because nothing calls `lv_task_handler()` after `initScreen()` (it runs only
+    inside canvas ops, `setScreenBackground` and the camera task — none of which we use), so
+    there is exactly one writer. `creatCanvas()` is no longer called at all: it allocated
+    **1.2 MB of PSRAM** for a buffer nothing now draws into.
+    ⚠ **And NO `#include <TFT_eSPI.h>` in the sketch.** `unihiker_k10.h` already includes it
+    by RELATIVE path (the core-bundled **2.5.34** header) while arduino-cli compiles the
+    SKETCHBOOK copy (**2.5.43**) — an asymmetry that predates this work and demonstrably
+    works. An angle-bracket include would give the sketch a *different header* from the one
+    the board library's own `tft` was compiled against, which is how a class-layout mismatch
+    gets built. Inherit the board library's include and the two instances stay identical.
+  - 🎺 **BACK IN THE BAND BY DELETING A TUNE.** The sketch carried a private `kLeadNotes`
+    Ode-to-Joy table it looped in *every* scene; it now takes **`heroarc::kPercept`** and is
+    silent until the FINALE harmony. `kPercept` was written on **2026-07-29 — the day the K10
+    left** — with the note "defined now so rejoining is a reflash, not a rewrite", and that is
+    exactly how it went: **HeroArc.h did not change by one row.** Worth remembering next time
+    a member leaves — scoring the empty chair costs three lines and buys the whole return.
+    It also now answers **`CMD_GET_INTERO`** and **`CMD_DUET`**, so the T-Deck's record pane
+    and its `d` key work against it; it is back in `kTargets` (the `t` key).
+  - 🎤 **THE FLEET HAS TWO EARS FOR THE FIRST TIME.** `@LAT94` off I2S_NUM_0 RX, 16 kHz,
+    128-frame blocks — a deliberate copy of the Cardputer's block, because the value is in the
+    two lanes being *comparable*: a transient logged here and one logged there are the same
+    measurement of the same event only if computed the same way. This does not perform TDoA;
+    it removes the reason TDoA was **unexercisable** rather than merely unexercised.
+    ⚠ **TX and RX share the port's clock**, and `k10Tone` retunes it to 8 kHz for the length
+    of a note — so the tier is **muted across our own voice plus a 120 ms tail**, set *before*
+    the blocking write (setting it after leaves the note already in the DMA ring). The node's
+    own speaker arriving at its own mic is precisely the false event a TDoA datum cannot
+    afford. ⚠ Reads **DRAIN** (bounded to 4) rather than sampling once per tick: one read per
+    poll is exactly the capture rate, i.e. zero margin, and any late pass would lose audio to
+    DMA overwrite silently.
+  - 📐 **THE RESTING POSE IS A LEAN, AND IT IS MEASURED.** The K10 stands like a picture
+    frame — tipped back on its foot — so gravity at rest is a DIAGONAL, and any eye written
+    against `(0,0,±1)` gazes permanently at the floor and is *right to*, because the board
+    really is leaning. So "straight ahead" is captured from the first still stretch after
+    boot, and **a NEW pose held still for 20 s becomes the new straight-ahead**: a frame set
+    down at a new angle has a new straight-ahead, while a tip-and-release springs back.
+    ⚠ **The @LAT95 tier is deliberately NOT re-referenced** — it measures deviation of the
+    acceleration MAGNITUDE, which is pose-independent, and re-zeroing it against a moving
+    reference would make a node being carried at a steady angle report `still`, which is the
+    exact assumption the tier exists to falsify.
+    ⚠ **`TILT_MG_PER_LSB 1.0` is a DERIVATION, not a measurement** (LIS2DH-compatible part
+    left at its reset ±2 g, library shifts to 12 bits), so the node **checks it out loud**:
+    the first `[tilt] resting pose` line prints `|a|` and says to expect ~1000 mg. If it says
+    500 or 2000 the constant is wrong by that factor and every `dev_mg` in the lane is wrong
+    with it — invisible from the record, because a scaled threshold and a scaled signal still
+    label windows plausibly.
+  - 🎛 **`CMD_SET_VIEW` (op 14) — a console as another node's missing buttons.** The K10 has
+    no reachable button, so this is the ONLY way its screen ever changes. The view id is
+    **NODE-LOCAL** and the op is **addressed-only, never broadcast**: an absolute id means
+    something different on every board, so a broadcast would put the fleet into unrelated
+    states while reading like one command. `VIEW_NEXT` (0xFF) is the form that needs no shared
+    table — one key steps whatever the addressed node happens to have, and a node with one
+    view ACKs and does nothing, which is the honest answer. T-Deck: **`v`**. Laptop:
+    `companion.py cmd --op set-view [--view N]`.
+  - 🧹 **It finally has a prune path.** `CMD_CLEAR_PERCEPTS` + `lanegen` (`@LAT100`) — it had
+    **none** ("reflash to reset the lane"), which was survivable with one growing lane and is
+    not with four. Index budget re-derived in the sketch: **226 of 288 reachable**, @LAT97's
+    48 excluded because its only feeder is BLE and the 2.x core cannot run BLE + WiFi.
+    ⚠ **@LAT94 fills first — in ~48 MINUTES** — because unlike @LAT95/@LAT96 it is *not*
+    change-triggered: every 60 s window writes a record whether or not anything happened.
+  - 📜 **The corpus's own K10 roster belief was FALSE and is revised in place.**
+    `rfc.ttdb.md` `@LAT98LON5` said "Every K10 reference in this corpus is history, not
+    roster"; it now says the opposite about the roster while keeping intact the half that was
+    never about the K10 (RFC passages naming it as the node an acceptance test ran on are
+    correct **as records of runs that happened**, and a node returning does not retroactively
+    lend a July test today's authority). Revised **in place**, not contradicted by a second
+    record: it is a roster, and a store holding two rosters has none. All three copies
+    (`replicate/RFCs/` canonical + both handhelds' `data/`) are in sync; the record is now the
+    corpus's largest at **2857 B**, still inside the record pane's 3 KB read.
+  - 🎭 **Feelings globe:** K10 added at `@LAT8LON4` ("The One That Came Back" — close in,
+    gladness turned outward, deliberately NOT where the T-Deck sits: the roamer's return
+    turns the whole story, this is a member rejoining a band that kept playing). While there,
+    the **Cardputer was added to the T-Deck's copy at `@LAT4LON14`** — it joined the band on
+    2026-07-27 and had been missing from that copy for two weeks while the note above it
+    claimed the overlay was complete.
+  - ⚠ **WHAT THE K10 IS *NOT* BACK ON: the mesh map (`ttdb.md`).** That globe is generated by
+    `companion.py fleetmap` from MEASURED proximity, so hand-writing an `x_m`/`y_m` for it
+    would be fabricating a measurement — spec 3 §1.2's "assert the pose and report the
+    assertion back as a result". It re-enters that map when it has been *heard*. Consequence
+    to know before testing: the T-Deck's **`d` (duet)** key picks its partner from the mesh-map
+    selection, so `d`-with-the-K10 does not work until then; **`t`/`s`/`p`/`b`/`v` do**, because
+    those use `gCmdTarget`, which the K10 is back in.
+  - 📊 **Cost:** K10 **+18 KB flash (20% → 20%)**, +3.1 KB RAM (20% → 21%) — this board has
+    5 MB of app partition and is the least constrained in the fleet. T-Deck 41%, Cardputer 42%,
+    the three V4s unchanged at 94–95%.
+  - ✅ **FLASHED AND VERIFIED ON HARDWARE, same day (COM3, MAC `10:51:DB:81:5F:48`).**
+    Firmware only — **the FS was deliberately NOT re-imaged**, because `Upload-K10-FS.ps1`
+    would have wiped 66 live records to deliver a descriptive `senses:` block. Backup pulled
+    first anyway: `master/k10_1_preflash_2026-08-12.md` (24221 B, 66 records, sha `cfd47140`).
+    Auto-reset worked — no BOOT/RST dance, unlike the T-Deck. Confirmed by its own boot
+    banner, then over the wire: `set-view` ACK attempt 1 in both forms (VIEW_NEXT and
+    `--view 0`), `intero` returning **0 mV / pct unknown** + a real die temp (43.8 °C), and
+    **both new tiers writing real records to flash** — `@LAT95LON0`, `@LAT94LON0..2`, with
+    `[motion] window covered (run 2/3)` proving run-length folding works on a still board.
+    📎 **The K10 DOES reset on port open** (like the handhelds, unlike a V4), so its
+    `intero` uptime reads ~2 s and its `lp` reads 0 ms — the documented "sampling `lp` early
+    reads clean" trap, not a fast node.
+  - 🛑 **AND THE FLASH FOUND A REAL DEFECT, WHICH IS THE POINT OF FLASHING.** The boot scale
+    check PASSED (`|a| 1069 mg`, "about 1000") and `@LAT95` was still wrong: **`state:moving
+    moving_permille:1000 dev_mean_mg:87`** about a picture frame untouched on a desk,
+    **reproduced identically on two separate boots** (`@LAT95LON0`, `@LAT95LON1`), so
+    systematic rather than noise.
+    **Cause:** `MOTIONPERCEPT_MOVING_MG 60` was MEASURED ON THE CARDPUTER'S BMI270. This
+    board's SC7A20H reads **1085 mg** at rest — 8.5% high, ordinary for the part — so
+    `dev = | |a| − 1000 |` sits at a STATIC 87 mg, permanently over a 60 mg line. Not a
+    missing verdict: a CONFIDENT FALSE one, in the lane whose only job is to make "the
+    observer held still" checkable instead of assumed.
+    **Fix (in the sketch, never the shared constant):** the node measures the magnitude ITS
+    board reads at rest and scales samples so that maps to 1000 mg — restoring the meaning
+    the threshold was measured to have, a fraction of g rather than a raw count. Moving
+    `MOTIONPERCEPT_MOVING_MG` would have silently redefined the Cardputer's four-week-old
+    lane. **Measured null: `rest |a| 1085 mg over 16 samples -> @LAT95 null x0.9209`.**
+    **Result, one window later: `state:still moving_permille:1 dev_mean_mg:4 dev_max_mg:88`**
+    — 87 → 4 mg, and the residual is explained: `dev_max 88` / `permille 1` is ONE sample of
+    563, from the settle window before the board knew its own rest.
+    ⚠ **The null is re-derived at every adopted rest pose, and only the BOOT one is thin** —
+    16 samples (1.5 s at 10 Hz), whose ~4 mg sampling error IS the 4 mg residual; a re-pose
+    null gets ~200. Refused outside 700–1400 mg and says so, because a null taken while the
+    board was moving is worse than none.
+    📎 **Why the null uses per-sample magnitudes and not |low-passed vector|:** measured
+    1085 vs 1069 on the same board at the same instant. Averaging lengths is not the length
+    of the average, and the tier sees lengths.
+    📎 Recorded in `MotionPercept.h` beside the threshold's own provenance note, because the
+    next board to grow this tier will hit it too: **give a new board a null, do not move the
+    constant.**
+  - 🛑 **TWO WRONG RECORDS ARE ON FLASH AND SHOULD BE PRUNED BEFORE ANY CONSOLIDATION.**
+    `@LAT95LON0` and `@LAT95LON1` claim `state:moving` about a stationary node; a
+    consolidator has no way to know they predate the null. `@LAT96` is also **FULL (48/48)
+    and discarding windows** — the node prints the fix itself every 5 min. Both are one
+    command each and both are DESTRUCTIVE, so they are left for an operator to run:
+    `companion.py cmd --port COM3 --node k10_1 --op clear-percepts --lane 95` and
+    `--lane 96`. ⚠ **Name the lane** — `--lane 0` takes 94–97 including the entity baseline.
+    Three pre/post pulls are banked in `master/k10_1_{preflash,postflash,null}_2026-08-12.md`.
+  - 👁 **STILL UNVERIFIED: what the panel actually shows.** Nothing on the wire can confirm
+    an eyeball. The node is alive, painting on its own clock and not crashing, but whether
+    the eye is centred in the picture-frame pose, whether the gaze runs the RIGHT WAY, and
+    whether the pupil answers a clap all need a human looking at it. ⚠ **`EYE_GAZE_X` /
+    `EYE_GAZE_Y` are the constants to suspect** if the gaze runs uphill or sideways — both
+    of the Cardputer's were wrong on first contact with hardware, and these were written
+    blind. One sign flip each, `EYE_SWAP_AXES` for the sideways case.
+  - 🔜 **NEXT ACTION — everything below needs the board on a cable and nothing else:**
+    1. Flash firmware **and** the FS (`data/ttdb.md` gained a `senses:` block):
+       `.vscode` tasks "Compile K10" → "Upload K10" → "Upload K10 Filesystem".
+    2. **Read the boot banner with `catchboot.py COM3 14`** — it now declares the tilt scale
+       check, the mic, and the boot view. `[tilt] resting pose … |a| N mg` is the one line to
+       read carefully: **N must be ~1000.**
+    3. Confirm the eye: it should centre within ~2 s of boot *in the picture-frame pose*, gaze
+       when leaned, blink, and dilate when you clap. Watch `lp` — **a full sclera repaint is
+       ~70k px ≈ 56 ms of SPI and happens on view entry and every blink.** That is real,
+       bounded, and stated here so it can be ruled out as a cause rather than rediscovered.
+    4. `companion.py cmd --port COM3 --node k10_1 --op set-view` (steps the view), then the
+       same from the T-Deck's **`v`** key — the first is the wire, the second is the point.
+    5. `companion.py intero --node k10_1 --port COM3` → expect **bat 0 mV / pct unknown** and
+       a real die temp. Then the T-Deck record pane against it.
+    6. After ~an hour, pull it and check `@LAT94` and `@LAT95` actually have records — a tier
+       that compiles is not a tier that fires, and both of these have only ever run on a
+       different board.
 
 Keep this section current. It is the first thing the next session reads.
 

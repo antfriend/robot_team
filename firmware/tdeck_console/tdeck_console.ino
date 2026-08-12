@@ -281,12 +281,18 @@ static uint8_t gLocus[toot::LOCUS_LEN] = {0};
 // this (`g`/`x` broadcast, so one press starts every member), so the target is now purely
 // "who do the addressed keys talk to". Every entry answers a get-status over the air
 // EXCEPT the V4-A bridge, which answers CMDs only from the laptop over USB.
-// The K10 left this list when it left the mesh map (it still runs v1 firmware and is off
-// the band roster); the Cardputer took its place and leads, being the node most worth
-// driving from here — it is the fleet's sense organ and the only one that answers
-// CMD_GET_INTERO, so it is what the record pane's interoception view watches.
-static const uint32_t kTargets[] = {NODE_CARDPUTER_1, NODE_V4B_RELAY, NODE_V4C_EDGE,
-                                    NODE_V4A_BRIDGE};
+//
+// THE K10 IS BACK ON THIS LIST (2026-08-12). It left on 2026-07-29 when it left the mesh
+// map — v1 firmware, off the band roster — and it returns carrying its scored part, an
+// accelerometer, a microphone, CMD_GET_INTERO and CMD_DUET. It also returns as the ONE
+// node on this list with no button of its own, which makes it the only target where the
+// `v` key is not a convenience: for the K10 this console is its hands.
+//
+// The Cardputer still leads the list — it is the fleet's other sense organ and the node
+// most worth driving from here — but "the only one that answers CMD_GET_INTERO" stopped
+// being true some time ago and is now false four times over.
+static const uint32_t kTargets[] = {NODE_CARDPUTER_1, NODE_K10_1, NODE_V4B_RELAY,
+                                    NODE_V4C_EDGE, NODE_V4A_BRIDGE};
 static const int kNumTargets = sizeof(kTargets) / sizeof(kTargets[0]);
 static int gTargetIdx = 0;
 static uint32_t gCmdTarget = NODE_CARDPUTER_1;
@@ -2234,8 +2240,22 @@ void setup() {
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");
   } else {
-    Serial.printf("TTDB loaded: %u bytes, %d records\n",
-                  (unsigned)gDb.fileSize(), gDb.recordCount());
+    Serial.printf("TTDB loaded: %u bytes, %d/%d records indexed (%d free)\n",
+                  (unsigned)gDb.fileSize(), gDb.recordCount(),
+                  TTDB_MAX_RECORDS, gDb.indexHeadroom());
+    // The index is a whole-FILE budget shared by every lane, so a lane with room in
+    // its own cap can still be refused - and until 2026-08-11 nothing said so.
+    // Saturation is worse than a refusal: records past the cap are invisible to every
+    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // rewrite deleted them outright. That is how five @LAT101 records died once.
+    if (gDb.indexSaturated())
+      Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
+                    "   every reader. Prune a lane to surface them.\n",
+                    (unsigned)gDb.headersSeen(), (unsigned)gDb.droppedRecords());
+    else if (gDb.indexHeadroom() <= TTDB_INDEX_WARN_SLOTS)
+      Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
+                    "   stops accepting records whatever its own cap says.\n",
+                    gDb.indexHeadroom());
   }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — same line the Cardputer
@@ -2546,6 +2566,7 @@ void loop() {
   // (no "enter"; every press sends immediately):
   //   t = next node (both globes; also cycles the comm target in Semantic Position view)
   //   s = get-status   p = ping   b = beep
+  //   v = step the TARGET NODE's screen (its buttons, from here — the K10 has none)
   //   g = play (start the band)  x = stop (band AND duet)   SPACE = toggle console pane
   //   d = duet with the node currently selected on SemPos (we lead, they harmonise);
   //       press again to end. Contextual, so there is no separate partner to choose.
@@ -2605,6 +2626,21 @@ void loop() {
       case 'p': emitCmd(toot::CMD_PING, nullptr, 0); break;
       case 'b': { uint8_t a[4]; toot::put_u16(a, 880); toot::put_u16(a + 2, 200);
                   emitCmd(toot::CMD_BEEP, a, 4); break; }
+      // 'v' — step the TARGET NODE's screen (CMD_SET_VIEW, VIEW_NEXT). This is the
+      // console acting as another node's missing buttons: the K10 has no reachable
+      // button at all, so without this key its screen can never change. Sent as
+      // VIEW_NEXT rather than an absolute id because a view id is NODE-LOCAL — this
+      // console does not know, and should not have to know, what view 2 means over
+      // there. A node with one view ACKs and does nothing, which is the right answer.
+      case 'v': {
+        uint8_t a[1] = { toot::VIEW_NEXT };
+        emitCmd(toot::CMD_SET_VIEW, a, 1);
+        char lg[40];
+        snprintf(lg, sizeof(lg), "%s: next view", nodeName(gCmdTarget));
+        logLine(lg);
+        gScreenDirty = true;
+        break;
+      }
       // Play/stop are band-wide: broadcast so ONE press starts/stops the whole fleet (+ our
       // part). `g` also arms the story to WALK ITSELF — the conductor auto-advances the
       // early scenes and holds at the grief; we (the roamer) bring the RETURN + FINALE, so

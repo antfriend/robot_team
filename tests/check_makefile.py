@@ -36,9 +36,27 @@ def load():
 
 
 def targets(mk):
-    """-> [(variable, output)] straight from the build recipe, so a target added to the
-    Makefile is checked automatically rather than when somebody remembers to list it."""
-    return re.findall(r"\$\(CXX\)[^\n]*?\$\((\w+)\)\s+-o\s+(\S+)", mk)
+    """-> [(recipe_line, variable, output)] straight from the build recipe, so a target
+    added to the Makefile is checked automatically rather than when somebody remembers to
+    list it.
+
+    ⚠ The whole LINE is captured, not just the sources variable, because a target may
+    carry its own flags (`$(IDX_FLAGS)` = the tests/shim include path + a small
+    TTDB_MAX_RECORDS). Rebuilding it with only $(INCLUDES) would fail to compile a target
+    that `make` builds perfectly well — a false alarm, which erodes a checker just as
+    surely as a false pass."""
+    return re.findall(r"^\t(\$\(CXX\)[^\n]*?\$\((\w+_SRCS)\)\s+-o\s+(\S+))$", mk, re.M)
+
+
+def expand_flags(mk, line):
+    """Flag variables referenced by one recipe line, expanded to tokens."""
+    out = []
+    for var in re.findall(r"\$\((\w+_FLAGS)\)", line):
+        m = re.search(r"^%s\s*:=[ \t]*(.*)$" % re.escape(var), mk, re.M)
+        if not m:
+            return None, var                       # referenced but never defined
+        out += m.group(1).replace("$(LIB)", LIB).split()
+    return out, None
 
 
 def expand(mk, var, depth=0):
@@ -71,7 +89,12 @@ def main():
     listed = set(re.findall(r"^\t\./(\S+)", mk, re.M))
     bad = []
     print(f"{len(tg)} target(s) in the build recipe\n")
-    for var, out in tg:
+    for line_txt, var, out in tg:
+        flags, undef_flag = expand_flags(mk, line_txt)
+        if undef_flag:
+            print(f"  {var:14s} -> {out:22s} UNDEFINED FLAGS VARIABLE ${{{undef_flag}}}")
+            bad.append(undef_flag)
+            continue
         srcs = expand(mk, var)
         if srcs is None:
             print(f"  {var:14s} -> {out:22s} UNDEFINED VARIABLE")
@@ -87,7 +110,7 @@ def main():
             bad.append(var)
             continue
         cmd = ([CXX] + CXX_ARGS + ["-std=c++11", "-Wall", "-Wextra", "-O2"]
-               + includes + srcs + ["-o", out + ".exe"])
+               + flags + includes + srcs + ["-o", out + ".exe"])
         r = subprocess.run(cmd, cwd=HERE, capture_output=True, text=True)
         ok = r.returncode == 0
         run = " (in `make test`)" if out in listed else "  ⚠ NOT RUN by `make test`"

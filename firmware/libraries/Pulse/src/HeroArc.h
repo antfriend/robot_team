@@ -130,8 +130,14 @@ static const score::Part kHihat = {
     kHihatScenes, sizeof(kHihatScenes) / sizeof(kHihatScenes[0])};
 
 // T-Deck the returning roamer: arrives with harmony (the song's first pitched voice),
-// then carries the lead in the finale (the K10, when it rejoins the roster, takes
-// harmony back — a two-row table edit here).
+// then carries the lead in the finale.
+//
+// The K10 rejoined the roster on 2026-08-12 and this table did NOT change. The old note
+// here anticipated "the K10 takes harmony back — a two-row table edit"; on the day it
+// happened the edit turned out to be zero rows, because kPercept below already scores the
+// K10 on the finale harmony and nothing about the roamer's return depends on who else is
+// in the room. The lead stays with the T-Deck: the story hands it to whoever comes back
+// through the ordeal, and that is not a function of which speaker is loudest.
 static const score::ScenePhrase kConsoleScenes[] = {
   {SCENE_RETURN, kOdeHarm}, {SCENE_FINALE, kOdeLead},
 };
@@ -149,9 +155,18 @@ static const score::ScenePhrase kNewcomerScenes[] = {
 static const score::Part kNewcomer = {
     kNewcomerScenes, sizeof(kNewcomerScenes) / sizeof(kNewcomerScenes[0])};
 
-// K10 the percept leaf (future — still on v1 firmware, off the band roster): joins the
-// finale with the harmony under the T-Deck's lead. Defined now so rejoining is a
-// reflash, not a rewrite.
+// K10 the percept leaf: joins the finale with the harmony under the T-Deck's lead.
+//
+// ON THE ROSTER SINCE 2026-08-12. This part was written on 2026-07-29 — the day the K10
+// came OFF the roster — with the note "defined now so rejoining is a reflash, not a
+// rewrite", and that is exactly how it went: the sketch deleted a private Ode-to-Joy
+// table it had been looping in every scene and took this instead, and nothing in this
+// file moved. Worth remembering the next time a member leaves: scoring the empty chair
+// costs three lines and buys the whole return.
+//
+// The K10 has the fleet's only pitched loudspeaker, which makes the silence real work
+// rather than an absence — it is the loudest instrument the band has, holding off until
+// the finale.
 static const score::ScenePhrase kPerceptScenes[] = {
   {SCENE_FINALE, kOdeHarm},
 };

@@ -3671,8 +3671,22 @@ void setup() {
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");
   } else {
-    Serial.printf("TTDB loaded: %u bytes, %d records\n",
-                  (unsigned)gDb.fileSize(), gDb.recordCount());
+    Serial.printf("TTDB loaded: %u bytes, %d/%d records indexed (%d free)\n",
+                  (unsigned)gDb.fileSize(), gDb.recordCount(),
+                  TTDB_MAX_RECORDS, gDb.indexHeadroom());
+    // The index is a whole-FILE budget shared by every lane, so a lane with room in
+    // its own cap can still be refused - and until 2026-08-11 nothing said so.
+    // Saturation is worse than a refusal: records past the cap are invisible to every
+    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // rewrite deleted them outright. That is how five @LAT101 records died once.
+    if (gDb.indexSaturated())
+      Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
+                    "   every reader. Prune a lane to surface them.\n",
+                    (unsigned)gDb.headersSeen(), (unsigned)gDb.droppedRecords());
+    else if (gDb.indexHeadroom() <= TTDB_INDEX_WARN_SLOTS)
+      Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
+                    "   stops accepting records whatever its own cap says.\n",
+                    gDb.indexHeadroom());
   }
   // Filesystem headroom. This node's TTDB GROWS at runtime — four percept tiers append
   // to it every window — so "how much room is left" is a live question here, not a

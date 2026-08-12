@@ -174,7 +174,36 @@ enum CmdOp : uint8_t {
                            // Both voices ride the shared pulse step clock, which is what
                            // makes them in phase; the duet changes WHAT each plays, never
                            // WHEN. role=DUET_OFF ends it, and so does CMD_STOP.
+  CMD_SET_VIEW = 14,       // args: view u8 (0..VIEW_COUNT-1 in the RECEIVER's own view
+                           // table, or VIEW_NEXT to advance one). "Show me a different
+                           // face of yourself."
+                           //
+                           // The view id is DELIBERATELY node-local and not a fleet-wide
+                           // enum. Every node's screen is a different shape with different
+                           // senses behind it — the K10 has an eye, a mic and a tilt; the
+                           // T-Deck has three globes; a V4 has a 128x64 OLED — so a shared
+                           // table would either be a lowest-common-denominator lie or would
+                           // have to name views most nodes do not have. What IS shared is
+                           // the verb, and VIEW_NEXT is the form that needs no table at
+                           // all: one key on a console steps whatever the addressed node
+                           // happens to have. A node that has only one view ACKs and does
+                           // nothing, which is the honest answer.
+                           //
+                           // Addressed only, never broadcast: an absolute view id means
+                           // something different on each board, so a broadcast would put
+                           // the fleet into unrelated states while looking like one
+                           // command. (VIEW_NEXT would be defensible band-wide; it is not
+                           // allowed either, because then the meaning of a broadcast would
+                           // depend on the argument.)
+                           //
+                           // This is what gives a screen-only node an input device it does
+                           // not physically have: the UNIHIKER K10 has no reachable button,
+                           // so the console IS its buttons (companion.md §6, 2026-08-12).
 };
+
+// CMD_SET_VIEW's "advance one" argument. 0xFF rather than a count so it cannot collide
+// with a real view id on any node, present or future.
+const uint8_t VIEW_NEXT = 0xFF;
 
 // Which line a node takes in a CMD_DUET. Roles are assigned by the initiator rather than
 // derived from node id, so who leads is data on the wire and not a rule in the firmware.
@@ -361,6 +390,12 @@ inline uint32_t cmdTarget(const Toot& t) {
 // sender built before the argument existed still gets the all-lanes prune.
 inline uint8_t cmdClearLane(const Toot& t) {
   return t.payload_len >= 6 ? t.payload[5] : 0;
+}
+// CMD_SET_VIEW selector. A sender that omits the byte means VIEW_NEXT, not view 0:
+// "step it" is the request that is meaningful without knowing the receiver's table,
+// and view 0 would silently re-assert a particular face instead.
+inline uint8_t cmdView(const Toot& t) {
+  return t.payload_len >= 6 ? t.payload[5] : VIEW_NEXT;
 }
 
 // TTDB_PUT addressed node (payload bytes 0..3); 0 on a too-short body.

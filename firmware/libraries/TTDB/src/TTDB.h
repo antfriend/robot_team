@@ -22,6 +22,12 @@
 #define TTDB_MAX_RECORDS 288
 #endif
 
+// Slots remaining at which a node should start SAYING it is running out. Not a limit —
+// the limit is TTDB_MAX_RECORDS — but a node that announces only saturation announces it
+// too late to do anything about. 16 is one field-lane's worth (@LAT101 caps at 8, doubled
+// for margin), so the warning fires while a whole lane could still be written.
+#define TTDB_INDEX_WARN_SLOTS 16
+
 // The percept lanes — semantic-positioning evidence a node writes about its own
 // umwelt, and the only records CMD_CLEAR_PERCEPTS may drop: @LAT94 acoustic,
 // @LAT95 motion, @LAT96 entity (WiFi BSSIDs), @LAT97 link (per-peer RSSI).
@@ -37,6 +43,22 @@ class Ttdb {
   int recordCount() const { return record_count_; }
   const char* path() const { return path_; }
   const TtdbRecord& record(int i) const { return records_[i]; }
+
+  // ⚠ HOW MANY RECORDS THE FILE HAS, vs how many the INDEX HOLDS. These differ, and
+  // until 2026-08-11 nothing could tell you so: begin()'s pass-1 scan simply stopped
+  // recording offsets at the cap and returned true. A node whose file had outgrown its
+  // index looked perfectly healthy — same as `appendRecord`'s pre-2026-08-09 defect,
+  // one layer down, and with the same consequence (removeLaneRange copies indexed spans
+  // only). `recordCount()` is what is VISIBLE; `headersSeen()` is what EXISTS.
+  uint32_t headersSeen() const { return headers_seen_; }
+  bool indexSaturated() const { return headers_seen_ > (uint32_t)record_count_; }
+  uint32_t droppedRecords() const {
+    return headers_seen_ - (uint32_t)record_count_;
+  }
+  // Records that may still be appended before EVERY lane stops accepting them. This is
+  // a whole-FILE budget shared by all lanes, so a lane with room in its own cap can
+  // still be refused — which is why it is worth printing next to the lane counts.
+  int indexHeadroom() const { return TTDB_MAX_RECORDS - record_count_; }
 
   // Raw byte window — the primitive behind whole-file network sharing.
   size_t readBytes(size_t offset, uint8_t* buf, size_t len);
@@ -94,5 +116,11 @@ class Ttdb {
   char path_[64] = {0};
   size_t file_size_ = 0;
   int record_count_ = 0;
+  uint32_t headers_seen_ = 0;
+  // Offset of the FIRST header the index could not hold, or file_size_ when the whole
+  // file fits. It exists so the unindexed tail is a SPAN WE CAN NAME: without it the
+  // last indexed record's span ran to EOF and swallowed every record past the cap, so
+  // pruning a lane that happened to own record #288 deleted all of them.
+  size_t tail_offset_ = 0;
   TtdbRecord records_[TTDB_MAX_RECORDS];
 };

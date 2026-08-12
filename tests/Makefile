@@ -96,6 +96,17 @@ SID_SRCS := test_sid.cpp \
 # impossible to miss; run it before committing a Makefile change.
 CIT_SRCS := test_citation.cpp \
         $(LIB)/TTDB/src/TtdbParse.cpp
+# The TTDB INDEX CAP (2026-08-11). The first native test to drive the REAL `Ttdb` —
+# begin(), recordSpan() and removeLaneRange() TOGETHER — through tests/shim/, which
+# stands in for <Arduino.h> and <FS.h>. That is the point: the defect lives in the
+# interaction of those three (a prune walks the INDEX, and the last indexed record's span
+# used to run to EOF, so pruning its lane deleted every record past the cap). A replica of
+# any one of them — which is all test_rfc_ttdb.cpp can do — cannot reproduce it.
+# ⚠ Needs its OWN flags: -I shim for the stand-ins, and a small cap so saturation is
+# reachable in a fixture instead of needing 289 records.
+IDX_SRCS := test_ttdb_index.cpp \
+        $(LIB)/TTDB/src/TTDB.cpp $(LIB)/TTDB/src/TtdbParse.cpp
+IDX_FLAGS := -I shim -DTTDB_MAX_RECORDS=16
 
 test: build
 	./test_toot
@@ -113,8 +124,9 @@ test: build
 	./test_social
 	./test_sid
 	./test_citation
+	./test_ttdb_index
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -130,6 +142,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SOC_SRCS) -o test_social
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SID_SRCS) -o test_sid
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(CIT_SRCS) -o test_citation
+	$(CXX) $(CXXFLAGS) $(IDX_FLAGS) $(INCLUDES) $(IDX_SRCS) -o test_ttdb_index
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \

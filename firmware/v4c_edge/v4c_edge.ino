@@ -937,9 +937,35 @@ void setup() {
   if (!LittleFS.begin(true) || !gDb.begin(LittleFS, kTtdbPath)) {
     Serial.println("FATAL: TTDB load failed");
   } else {
-    Serial.printf("TTDB loaded: %u bytes, %d records\n",
-                  (unsigned)gDb.fileSize(), gDb.recordCount());
+    Serial.printf("TTDB loaded: %u bytes, %d/%d records indexed (%d free)\n",
+                  (unsigned)gDb.fileSize(), gDb.recordCount(),
+                  TTDB_MAX_RECORDS, gDb.indexHeadroom());
+    // The index is a whole-FILE budget shared by every lane, so a lane with room in
+    // its own cap can still be refused - and until 2026-08-11 nothing said so.
+    // Saturation is worse than a refusal: records past the cap are invisible to every
+    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // rewrite deleted them outright. That is how five @LAT101 records died once.
+    if (gDb.indexSaturated())
+      Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
+                    "   every reader. Prune a lane to surface them.\n",
+                    (unsigned)gDb.headersSeen(), (unsigned)gDb.droppedRecords());
+    else if (gDb.indexHeadroom() <= TTDB_INDEX_WARN_SLOTS)
+      Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
+                    "   stops accepting records whatever its own cap says.\n",
+                    gDb.indexHeadroom());
   }
+#if USE_WIFI_SCAN
+  // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
+  // EntityPercept.cpp, a separate translation unit, so it can only be set by a BUILD
+  // PROPERTY, and a build property is invisible from outside. max_run:1 is the
+  // MEASUREMENT build (every window writes its own record); the default 6 folds them
+  // into runs. An entity SURVEY needs both of its nodes unfolded, so which build a
+  // board carries stopped being a question only the Cardputer had to answer.
+  Serial.printf("[entity] @LAT96 build: max_run:%d core:%d-of-%d scan:%lus%s\n",
+                ENTITYPERCEPT_MAX_RUN, ENTITYPERCEPT_CORE_N, ENTITYPERCEPT_CORE_M,
+                (unsigned long)(WIFI_SCAN_PERIOD_MS / 1000),
+                ENTITYPERCEPT_MAX_RUN == 1 ? "  <- MEASUREMENT BUILD (no folding)" : "");
+#endif
   gShare = new TtdbShare(gDb, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, kNodeId, gLocus);
 
   WiFi.mode(WIFI_STA);

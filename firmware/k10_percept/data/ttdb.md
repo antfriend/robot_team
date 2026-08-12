@@ -16,6 +16,16 @@ umwelt:
   constraints:
     - no-lora
     - espnow-default
+    - no-ble          # the 2.x DFRobot core cannot run BLE + WiFi concurrently, so
+                      # @LAT97 stays empty on this node: it is HEARD, it does not hear
+    - no-button       # nothing on this board is reachable by a hand; the screen is
+                      # changed only by CMD_SET_VIEW from a console
+    - no-battery-sense # runs off USB; intero reports bat 0 mV / pct 255 (unknown)
+  senses:
+    - ambient_temp    # AHT20 -> the agent's sense/reason/act cursor (@LAT10LON0)
+    - wifi_entity     # duty-cycled BSSID scan -> @LAT96
+    - tilt            # SC7A20H accelerometer -> @LAT95 still|moving, @LAT93 transitions
+    - acoustic        # I2S microphone -> @LAT94 ambient level + transient timestamps
   globe:
     frame: sensor-grid
     origin: "@LAT0LON0"

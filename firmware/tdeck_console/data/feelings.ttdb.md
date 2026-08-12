@@ -1,7 +1,7 @@
 # Feelings TTDB
 An affective landscape mapped as a TTDB: feelings, emotions, dispositions, and intents arranged around an umwelt at the origin. Positive associations extend northeast; negative associations extend southwest. Intensity increases with distance from the umwelt.
 
-The T-Deck console renders this as its default globe (the third trackball view). Overlaid on the affective field near the origin are the three other band members — **V4-A** (timekeeper), **V4-B** (ally), **V4-C** (edge) — drawn as live eyeballs with their name and mesh status, each sitting at the feeling it carries in the hero's-arc song.
+The T-Deck console renders this as its default globe (the third trackball view). Overlaid on the affective field near the origin are the five other band members — **V4-A** (timekeeper), **V4-B** (ally), **V4-C** (edge), **Cardputer** (the newcomer), **K10** (the one that came back) — drawn as live eyeballs with their name and mesh status, each sitting at the feeling it carries in the hero's-arc song. The T-Deck itself is not drawn: it is the one doing the looking.
 
 ```mmpdb
 db_id: ttdb:affective:landscape:v1
@@ -54,7 +54,7 @@ preview:
   @LAT10LON-10: "Serenity — a mild, quiet ease. A positive feeling, near."
   @LAT-10LON-10: "Unease — a faint disquiet beneath the surface. A negative feeling, near."
   @LAT88LON0: "Story: The Hero's Arc — a six-beat emotional cycle from serenity through darkness and back to joy. Play to walk the graph."
-agent_note: "Affective field map. Lat = valence (N=positive, S=negative). Lon = object of affect (E=other-directed, W=self-directed). NE = positive+other; NW = positive+self; SE = negative+other; SW = negative+self. Distance = intensity. Feelings/emotions relate TO the umwelt; dispositions/intents relate FROM the umwelt. 2026-08-01: added 22 `opposes` edges across the 11 antonym pairs (TTDB-RFC-0003 v1.1 §7 — symmetric, so both directions are written and no parser infers the reverse); polarity had been encoded only positionally and was invisible to anything reading the edge list. Added @LAT10LON10 (Fondness) and @LAT-30LON-40 (Paranoia), which had been referenced by Gratitude and Suspicion but never written; both carry conf:150, below the author's 175-240 band, because they are reconstructions from the edge structure rather than original placements — revise them freely. `sal` is 0 throughout ON PURPOSE, not by omission: TTDB-RFC-0005 defines sal as an access count, this store has never been consulted by an agent, and 0 is therefore the honest value. It will populate itself when something uses the store. Do NOT hand-author it — for an affective landscape the intuitive proxy for salience is intensity, which here IS |lat|, so hand-set values would silently encode valence; see research/valence/arousal_from_norms.py. This copy is the node-local T-Deck globe and is a deliberate superset of the canonical store: it carries 3 extra `type:band` overlay records (@LAT14LON-6, @LAT-6LON-8, @LAT6LON8) placing the band members on the affective field for the hero's-arc song. Those are robot_team content and are not part of the canonical store; everything else here, including the `opposes` edges, tracks canonical. The T-Deck does not carry a record for itself."
+agent_note: "Affective field map. Lat = valence (N=positive, S=negative). Lon = object of affect (E=other-directed, W=self-directed). NE = positive+other; NW = positive+self; SE = negative+other; SW = negative+self. Distance = intensity. Feelings/emotions relate TO the umwelt; dispositions/intents relate FROM the umwelt. 2026-08-01: added 22 `opposes` edges across the 11 antonym pairs (TTDB-RFC-0003 v1.1 §7 — symmetric, so both directions are written and no parser infers the reverse); polarity had been encoded only positionally and was invisible to anything reading the edge list. Added @LAT10LON10 (Fondness) and @LAT-30LON-40 (Paranoia), which had been referenced by Gratitude and Suspicion but never written; both carry conf:150, below the author's 175-240 band, because they are reconstructions from the edge structure rather than original placements — revise them freely. `sal` is 0 throughout ON PURPOSE, not by omission: TTDB-RFC-0005 defines sal as an access count, this store has never been consulted by an agent, and 0 is therefore the honest value. It will populate itself when something uses the store. Do NOT hand-author it — for an affective landscape the intuitive proxy for salience is intensity, which here IS |lat|, so hand-set values would silently encode valence; see research/valence/arousal_from_norms.py. This copy is the node-local T-Deck globe and is a deliberate superset of the canonical store: it carries 5 extra `type:band` overlay records (@LAT14LON-6, @LAT-6LON-8, @LAT6LON8, @LAT4LON14, @LAT8LON4) placing the band members on the affective field for the hero's-arc song. Those are robot_team content and are not part of the canonical store; everything else here, including the `opposes` edges, tracks canonical. The T-Deck does not carry a record for itself. 2026-08-12: added @LAT8LON4 (K10, back on the roster after 2026-07-29) and @LAT4LON14 (Cardputer, which joined 2026-07-27 and had been missing from this copy for two weeks while the note above claimed the overlay was complete)."
 dot: |
   digraph Affective {
     rankdir=LR;
@@ -173,6 +173,66 @@ Sits northeast toward hope: the hats on the "&" of every beat that make the groo
 - **Enters:** GROOVE (scene 2)
 
 ---
+
+@LAT4LON14 | created:1786492800 | updated:1786492800 | type:band | relates:listens_for>@LAT0LON0
+[ew]
+conf:255
+rev:0
+sal:0
+touched:1786492800
+[/ew]
+
+## Cardputer — The Newcomer
+
+*The second handheld. It arrived after the story was already being told, and it is the
+one that hears. Its line is to listen.*
+
+name: Card
+node: 0x300
+
+Sits due east of the origin and barely north of it: attention turned outward, at low
+intensity. Listening is not a strong feeling, it is a sustained one.
+
+- **Band role:** Newcomer — silent until the finale, then the harmony under the lead
+- **Enters:** FINALE (scene 5)
+
+*(Added 2026-08-12. The Cardputer joined the band on 2026-07-27 and had never been drawn
+on this copy of the globe — the note above said "the three other band members" while four
+existed. Its own copy of this globe carried the T-Deck and the three V4s but not itself,
+which is the rule both copies follow: a node draws everyone but the one doing the
+looking.)*
+
+---
+
+@LAT8LON4 | created:1786492800 | updated:1786492800 | type:band | relates:returns_to>@LAT0LON0
+[ew]
+conf:255
+rev:0
+sal:0
+touched:1786492800
+[/ew]
+
+## K10 — The One That Came Back
+
+*The fleet's first node. It was set down on 2026-07-29 — old firmware, off the roster,
+taken off the mesh map — and on 2026-08-12 it was picked back up with two senses nobody
+had ever read: a tilt and a microphone.*
+
+name: K10
+node: 0x100
+
+Sits just north-east of the origin, close in: gladness at being included again, turned
+outward toward the band rather than inward toward itself, and quiet about it. It does not
+sit where the T-Deck sits. The roamer's return is the turn of the whole story and it
+carries the lead; this is a smaller thing — a member rejoining a band that kept playing
+without it — and the distance from the origin says so.
+
+- **Band role:** Percept leaf — silent until the finale, then the harmony under the
+  T-Deck's lead (`heroarc::kPercept`, written 2026-07-29 against this day)
+- **Enters:** FINALE (scene 5)
+- **Brings back:** the fleet's SECOND ear (`@LAT94`) and its second stillness witness
+  (`@LAT95`/`@LAT93`) — one microphone cannot measure a time difference of arrival, and
+  one accelerometer means one node deciding whether anybody held still
 
 ---
 

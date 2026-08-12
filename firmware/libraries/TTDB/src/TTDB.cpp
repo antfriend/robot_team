@@ -10,6 +10,9 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
 
   file_size_ = f.size();
   record_count_ = 0;
+  headers_seen_ = 0;
+  tail_offset_ = file_size_;   // "no tail" — overwritten by the first header that
+                               // does not fit, below.
 
   // Pass 1: index byte offsets of record headers. A record header is a line
   // whose first character is '@' (TTDB-RFC-0001 section 3).
@@ -21,8 +24,16 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
     if (n <= 0) break;
     for (int i = 0; i < n; ++i) {
       uint8_t c = buf[i];
-      if (line_start && c == '@' && record_count_ < TTDB_MAX_RECORDS)
-        records_[record_count_++].file_offset = off;
+      // ⚠ COUNT EVERY HEADER, INDEX ONLY WHAT FITS. The cap used to sit inside this
+      // condition, so an over-cap file was indistinguishable from one that fitted:
+      // the scan just stopped and begin() returned true.
+      if (line_start && c == '@') {
+        if (record_count_ < TTDB_MAX_RECORDS)
+          records_[record_count_++].file_offset = off;
+        else if (headers_seen_ == (uint32_t)record_count_)
+          tail_offset_ = off;              // first header past the cap
+        ++headers_seen_;
+      }
       line_start = (c == '\n');
       ++off;
     }
@@ -180,6 +191,16 @@ bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
     ok = copyRange(in, out, off, len);
     if ((i & 0x07) == 0) yield();
   }
+  // ⚠ CARRY THE UNINDEXED TAIL VERBATIM. Records past TTDB_MAX_RECORDS are invisible to
+  // the loop above — it walks the INDEX, not the file — so before this they were simply
+  // not copied, and a prune silently deleted them. We cannot tell whether they belong to
+  // the pruned lane (we never parsed their headers), and the safe direction is obvious:
+  // keeping a record that should have gone costs one stale record, dropping one that
+  // should have stayed destroys evidence. Once the prune frees index slots the next
+  // begin() sees these records properly, so repeated prunes converge instead of eating
+  // the tail. No-op on a file that fits (tail_offset_ == file_size_).
+  if (ok && tail_offset_ < file_size_)
+    ok = copyRange(in, out, tail_offset_, file_size_ - tail_offset_);
   in.close();
   out.close();
   if (!ok) {
@@ -212,8 +233,12 @@ size_t Ttdb::readBytes(size_t offset, uint8_t* buf, size_t len) {
 bool Ttdb::recordSpan(int index, size_t& offset, size_t& length) const {
   if (index < 0 || index >= record_count_) return false;
   offset = records_[index].file_offset;
+  // ⚠ The LAST indexed record ends at `tail_offset_`, not at EOF. They are the same
+  // thing whenever the file fits the index (tail_offset_ == file_size_), but when it
+  // does NOT, ending at EOF made the last record's span swallow every unindexed record
+  // behind it — so `removeLaneRange` deleted them all if that record's lane was pruned.
   size_t end =
-      (index + 1 < record_count_) ? records_[index + 1].file_offset : file_size_;
+      (index + 1 < record_count_) ? records_[index + 1].file_offset : tail_offset_;
   length = end - offset;
   return true;
 }
