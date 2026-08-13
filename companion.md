@@ -6591,6 +6591,54 @@ If a fact lives in one of these, link to it from here — don't copy it.
   claim is not made. **The K10 test remains the only clean demonstration.**
   🧩 **Fix status: K10, V4-A, Cardputer, T-Deck, V4-B carry it. Only V4-C does not.**
 
+- 🎯 **2026-08-13 — V4-C: THE NEGATIVE CONTROL RAN, AND IT IS THE CLEANEST EVIDENCE OF THE
+  DAY. FLEET COMPLETE.** COM13 (`8C:FD:49:B6:59:74`). V4-C was the last board still carrying
+  the buggy `TTDB.cpp`, which made it the **only remaining chance to demonstrate the defect
+  deliberately instead of describing it** — and because its full lanes were going to be
+  pruned anyway, the control cost **no extra data and no extra markers** (a refused rewrite
+  is refused *before* the destructive step).
+  🔬 **A/B ON ONE BOARD, ONE FILE, ONE COMMAND SEQUENCE, `maxalloc 99 K` THROUGHOUT** — so
+  heap, filesystem, node and data are all held constant and only the firmware changes:
+  ```
+  OLD firmware, one session:
+    prune @LAT90 -> [lanegen] @LAT90 gen 1 closed: 16 record(s), 16 stream id(s) carried
+    prune @LAT96 -> [lanegen] removePerceptLanes FAILED — nothing pruned, no marker   <-- BUG
+  NEW firmware, one session:
+    prune @LAT96 -> [lanegen] @LAT96 gen 1 closed: 48 record(s) -> @LAT100LON2
+    prune @LAT97 -> [lanegen] @LAT97 gen 2 closed: 48 record(s) -> @LAT100LON3
+  ```
+  🎯 **The second prune after an append is the exact failing case, and it flipped with the
+  one-line fix.** This is what the K10 evidence implied and could not isolate, and what the
+  Cardputer and V4-B runs were explicitly recorded as *not* proving. 📎 The failure printed
+  in the **bare pre-instrument form** (no step, no `maxalloc`), which independently confirms
+  V4-C predated this morning's `TtdbRewriteErr` work — the message itself dated the build.
+  ✅ **AND THE PREMISE THE V4-B CLAIM RESTED ON IS NOW MEASURED: A V4 DOES NOT RESET ON PORT
+  OPEN (n=2).** Booted at 17:16:57 by an explicit esptool reset; `companion.py intero`
+  opened the port at 17:17:32 and the node reported **`up 0m35s`** — exactly the elapsed
+  time, continuous across the open. That confirms the single 2026-08-03 observation (V4-C,
+  n=1) and **retroactively makes V4-B's three chained prunes real evidence** rather than the
+  open question they were recorded as. ⚠ Strictly it is measured on V4-C and *inferred* for
+  V4-B (same model, same firmware, same USB stack) — stated so the inference is visible.
+  📌 **Consequence for reading `intero` on a V4: its uptime and `lp` are REAL**, and the
+  "~8 s settle" caveat that applies to the handhelds does not apply here. The handhelds do
+  reset on open; the V4s do not. That asymmetry is now established rather than suspected.
+  ✅ **Pruned and verified by re-pull:** `@LAT90` 16 → 1, `@LAT96` 48 → 1, `@LAT97` 48 → 0,
+  **exactly 3 new markers** (1 → 4, 28 left), **114 → 7 records, 67885 → 2740 B**.
+  🛑 **`@LAT90` WAS 16/16 — THE FOURTH BLIND TIMELINE WITNESS FOUND TODAY** (K10, V4-B, V4-C
+  full; V4-A at 9/16 and climbing). **Four of five witness-bearing boards saturated within
+  ~2 days of their last prune.** That is no longer an incident rate, it is the lane's
+  steady state, and it is the evidence `TIMESTREAM_MAX_LANE 16`'s still-unresolved
+  refusal-on-full policy has been waiting for since 2026-08-03. **Decide it before the next
+  long run** — a fleet whose witnesses are all full cannot explain its own stream ids, which
+  is precisely the failure the `@LAT90` lane was created to prevent.
+  🏁 **ALL SIX BOARDS NOW CARRY THE `tail_offset_` FIX** — K10, V4-A, V4-B, V4-C, T-Deck,
+  Cardputer — each verified by its own boot declaration, and each with the build it should
+  have (measurement on V4-A + T-Deck, default on the other four).
+  ⚠ **Still true and still worth the flag: the native test pinning this
+  (`test_ttdb_index.cpp` case 8) has NEVER BEEN EXECUTED** — there is no C++ toolchain on
+  this machine. The hardware A/B above is stronger evidence for *this* defect, but it does
+  not protect against the regression coming back.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
