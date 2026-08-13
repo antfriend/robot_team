@@ -6471,6 +6471,41 @@ If a fact lives in one of these, link to it from here — don't copy it.
   fail. All six sketches compile with the fix (K10 20 %, V4-B **95 %**, Cardputer 42 %);
   only the K10 is flashed with it.
 
+- 👁 **2026-08-13 — THE EYEBALL IS CONFIRMED BY A HUMAN, AND V4-A CARRIES THE TTDB FIX.**
+  ✅ **STANDING ITEM DISCHARGED: "what the panel actually shows" is answered — operator
+  reports the K10's eyeball LOOKS GOOD.** That closes the one claim from 08-12 that no
+  instrument in this project could ever settle: nothing on the wire can see a screen, so
+  the gaze direction, the picture-frame centring and the blink had to be taken on trust
+  until someone looked. 📎 **`EYE_GAZE_X`/`EYE_GAZE_Y` were written blind and are RIGHT
+  first time** — worth noting because both of the Cardputer's were wrong on first contact,
+  which is why they were flagged as the constants to suspect. They are no longer suspects.
+  ✅ **V4-A (COM6, MAC `8C:FD:49:B7:AC:F4`) flashed with the `tail_offset_` fix**, firmware
+  only. **Measurement build PRESERVED and read back** — `@LAT96 build: max_run:1 … <-
+  MEASUREMENT BUILD (no folding)` — using the full invocation CLAUDE.md now carries. It was
+  already on `max_run:1`, so this flash had to *not lose* it; that is the failure mode from
+  this afternoon, and the board's own declaration is what makes it checkable.
+  📊 State: `106/288` records, **maxalloc 99 K** (vs the Cardputer's 7 K — this board never
+  had the heap problem), pack 4086 mV / 88 %, die 47.8 °C.
+  📎 **The K10 and V4-A are on the same timeline and each says so about the other** — the
+  K10 adopted `0xd94c8c52` `from:0x10` and V4-A adopted the same stream `from:0x100`, with
+  V4-A's log correctly reporting `adopted adds nothing … no record written`. The dedup that
+  was designed 2026-08-03 is visibly doing its job on both ends of one adoption.
+  ⚠ **THE ANCHOR'S LANES, AND THE ONE THAT IS PERISHABLE:**
+  ```
+    @LAT96  34/48   <- 14 free ~ 2.3 h. THE WALK'S BINDING NUMBER.
+    @LAT97  48/48   <- FULL, discarding link percepts
+    @LAT90   9/16   <- witness climbing again (pruned to 1 on 08-11, 8 this morning)
+    @LAT100 12/32   <- 20 markers left
+  ```
+  🛑 **NOT PRUNED, DELIBERATELY.** The rule this file recorded twice today is *prune the
+  anchor immediately before the walk, never ready in advance* — and the walk has not been
+  scheduled. Pruning now would spend the 8 h window on standby. Left for the operator with
+  the timing in hand. 📎 Banked first regardless:
+  `master/entity-baseline/v4a_preflash_2026-08-13_pm.md` (61847 B, 105 records).
+  🧩 **Still unflashed with the `tail_offset_` fix: V4-B, V4-C, the T-Deck and the
+  Cardputer.** The Cardputer wants it most after V4-A — it is the board whose rewrites were
+  already failing on heap, so it was hitting *both* causes at once.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
