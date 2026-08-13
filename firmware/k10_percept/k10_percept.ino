@@ -1713,8 +1713,14 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
                             lane ? String(lane).c_str() : "ALL",
                             (unsigned)gDb.fileSize(), gDb.recordCount());
             else
-              Serial.println("[prune] REFUSED (bad lane, or no room for the @LAT100 "
-                             "boundary marker — no prune without a marker)");
+              // ⚠ DO NOT GUESS THE CAUSE HERE. This line used to name two ("bad lane, or
+              // no room for the @LAT100 boundary marker") and on 2026-08-13 a @LAT90
+              // prune refused with NEITHER of them true — markers were 2/32 — while
+              // lanegen printed the real step one line above. A plausible-sounding wrong
+              // cause is worse than none: it sends the reader to check the thing that is
+              // already fine. lanegen owns the explanation; this only says who asked.
+              Serial.println("[prune] REFUSED — see the [lanegen] line above for which "
+                             "step failed and why");
             break;
           }
           case toot::CMD_BEEP: {

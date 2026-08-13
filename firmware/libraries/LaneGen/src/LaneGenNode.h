@@ -174,6 +174,32 @@ inline int countMarkers(Ttdb& db, uint8_t lane, int& total) {
   return naming;
 }
 
+// ⚠ NAME THE STEP AND THE TWO NUMBERS THAT DISCRIMINATE. "FAILED" on its own cost a
+// whole session on 2026-08-13: the Cardputer refused every lane rewrite while V4-A ran
+// the identical code and succeeded, and nothing on the node or the wire could say which
+// of the seven failure points it was. Heap is `maxalloc`, NOT free heap
+// ([[maxalloc-not-free-heap]]) — a fragmented node has plenty of the second and none of
+// the first, and a filesystem open needs the first.
+//
+// ⚠ IT LIVES HERE, NOT IN ONE CALLER, BECAUSE THE SAME GAP REAPPEARED THE NEXT DAY. The
+// instrument landed on removePerceptLanes only, so `pruneTimeline` and `pruneOutcomes`
+// still failed with a bare line — and on 2026-08-13 a K10 @LAT90 prune refused with
+// `removeLane(timeline) FAILED` and nothing else, on a board with >200 KB of maxalloc
+// where the documented heap explanation could not apply. One helper, three callers: a
+// diagnostic that covers some of the paths is the same shape of defect as a build
+// declaration that covers some of the boards.
+inline void reportRewriteFailure(Ttdb& db, const char* what) {
+  Serial.printf("[lanegen] %s FAILED at step '%s' after %u of %u B copied — nothing "
+                "pruned, no marker. maxalloc %u B, %d records, FS %u B free.\n",
+                what, db.lastRewriteErrName(), (unsigned)db.lastRewriteBytes(),
+                (unsigned)db.fileSize(), (unsigned)ESP.getMaxAllocHeap(),
+                db.recordCount(),
+                (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
+  if (db.lastRewriteErr() == TTDB_RW_RENAME)
+    Serial.printf("[lanegen] 🛑 THE TTDB IS IN %s.tmp — THIS NODE WILL BOOT EMPTY. "
+                  "Rename it back before rebooting.\n", db.path());
+}
+
 // Prune percept lanes exactly as CMD_CLEAR_PERCEPTS always did — `lane` is the wire
 // byte, 0 meaning every percept lane — and write the generation boundary for each lane
 // that actually held records. Returns true only if the prune AND every marker
@@ -226,22 +252,7 @@ inline bool prune(Ttdb& db, uint8_t lane, const timestream::Stamp& stamp,
   }
 
   if (!db.removePerceptLanes(lane)) {
-    // ⚠ NAME THE STEP AND THE TWO NUMBERS THAT DISCRIMINATE. "FAILED" on its own cost a
-    // whole session on 2026-08-13: the Cardputer refused every lane rewrite while V4-A ran
-    // the identical code and succeeded, and nothing on the node or the wire could say
-    // which of the seven failure points it was. Heap is `maxalloc`, NOT free heap
-    // ([[maxalloc-not-free-heap]]) — a fragmented node has plenty of the second and none
-    // of the first, and a filesystem open needs the first.
-    Serial.printf("[lanegen] removePerceptLanes FAILED at step '%s' after %u of %u B "
-                  "copied — nothing pruned, no marker. maxalloc %u B, %d records, FS %u B "
-                  "free.\n",
-                  db.lastRewriteErrName(), (unsigned)db.lastRewriteBytes(),
-                  (unsigned)db.fileSize(), (unsigned)ESP.getMaxAllocHeap(),
-                  db.recordCount(),
-                  (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
-    if (db.lastRewriteErr() == TTDB_RW_RENAME)
-      Serial.printf("[lanegen] 🛑 THE TTDB IS IN %s.tmp — THIS NODE WILL BOOT EMPTY. "
-                    "Rename it back before rebooting.\n", db.path());
+    reportRewriteFailure(db, "removePerceptLanes");
     return false;
   }
 
@@ -351,7 +362,7 @@ inline bool pruneTimeline(Ttdb& db, const timestream::Stamp& stamp, uint32_t nod
     return false;
   }
   if (!db.removeLane(lane)) {
-    Serial.println("[lanegen] removeLane(timeline) FAILED — nothing pruned");
+    reportRewriteFailure(db, "removeLane(timeline)");
     return false;
   }
   if (!db.appendRecord(rec, m)) {
@@ -438,7 +449,7 @@ inline bool pruneOutcomes(Ttdb& db, const timestream::Stamp& stamp, uint32_t nod
   // the prune is about to destroy, and a rewrite that succeeded followed by a render
   // that did not would leave the lane gone and unexplained.
   if (!db.removeLane(lane)) {
-    Serial.println("[lanegen] removeLane(outcome) FAILED — nothing pruned");
+    reportRewriteFailure(db, "removeLane(outcome)");
     return false;
   }
   if (!db.appendRecord(rec, m)) {

@@ -346,6 +346,62 @@ int main() {
     std::remove(tmp_path.c_str());
   }
 
+  // -----------------------------------------------------------------------
+  // 8) A REWRITE STILL WORKS AFTER AN APPEND — `tail_offset_` TRACKS `file_size_`.
+  //
+  //    Found on hardware 2026-08-13 (K10, COM3). `appendRecord`'s incremental fast path
+  //    advanced `file_size_` and left `tail_offset_` at its last begin() value, which on
+  //    a file that FITS the index is supposed to be the same number. Two things then go
+  //    wrong, and the first is the one that bites:
+  //
+  //      - recordSpan() ends the LAST record at tail_offset_, now BEHIND that record's
+  //        own offset, so `length = end - offset` underflows to ~SIZE_MAX;
+  //      - removeLaneRange() also believes there is an unindexed tail to carry.
+  //
+  //    copyRange then copies every real byte, runs off the end of the file, and reports
+  //    TTDB_RW_READ — a rewrite that fails only after it has already succeeded, on a node
+  //    with 225 KB of maxalloc and 4.6 MB free. It looked exactly like the documented
+  //    low-heap failure and shared none of its cause.
+  //
+  //    ⚠ THE ORDER HERE IS THE WHOLE TEST. A prune writes its own @LAT100 boundary with
+  //    appendRecord, so the FIRST prune poisoned the SECOND. Pruning twice with an append
+  //    between is the shape that reproduces it; a single prune passes either way.
+  // -----------------------------------------------------------------------
+  {
+    std::vector<std::pair<int, int> > lanes;
+    for (int i = 0; i < 3; ++i) lanes.push_back(std::make_pair(94, i));
+    for (int i = 0; i < 3; ++i) lanes.push_back(std::make_pair(95, i));
+    for (int i = 0; i < 2; ++i) lanes.push_back(std::make_pair(50, i));
+    writeFixture(lanes);
+
+    Ttdb db;
+    db.begin(gFs, kPath);
+
+    // The span of the last record must stay sane across an append. Before the fix this
+    // underflowed, so check it directly rather than only through the rewrite.
+    std::string marker = block(100, 0, 900);
+    CHECK(db.appendRecord(marker.c_str(), marker.size()), "the boundary marker appends");
+    size_t off = 0, len = 0;
+    CHECK(db.recordSpan(db.recordCount() - 1, off, len),
+          "the appended record has a span");
+    CHECK(len < (size_t)1 << 30,
+          "and its length is not an underflow (got %llu)", (unsigned long long)len);
+    CHECK(off + len <= db.fileSize(),
+          "and the span ends inside the file (%llu of %llu B)",
+          (unsigned long long)(off + len), (unsigned long long)db.fileSize());
+
+    // The rewrite that used to fail: a prune following an append.
+    CHECK(db.removeLaneRange(95, 95), "a lane rewrite AFTER an append succeeds");
+    CHECK(db.lastRewriteErr() == TTDB_RW_OK, "with no error (got '%s')",
+          db.lastRewriteErrName());
+
+    std::string after = slurp();
+    CHECK(!has(after, "@LAT95"), "the pruned lane is gone");
+    CHECK(has(after, "@LAT100LON0"), "and the appended marker SURVIVED the rewrite");
+    CHECK(countHeaders(after) == 6, "3+2 kept plus the marker = 6 (got %d)",
+          countHeaders(after));
+  }
+
   std::remove(kPath);
   printf("\n%s\n", fails ? "FAILED" : "all TTDB index checks passed");
   return fails ? 1 : 0;

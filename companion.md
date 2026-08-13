@@ -6373,6 +6373,104 @@ If a fact lives in one of these, link to it from here — don't copy it.
   warning on the spine is closer than it was; gating the deferral behind a per-sketch
   `#define` would return ~1.4 KB to those three if it is ever needed.
 
+- 🧨 **2026-08-13 (evening) — A PRUNE WRITES A MARKER, AND THE MARKER BROKE THE NEXT
+  PRUNE. `appendRecord` LEFT `tail_offset_` BEHIND, SO EVERY LANE REWRITE AFTER AN APPEND
+  FAILED.** The K10 (COM3) went on a cable for a routine flash and came off it having
+  found a fleet-wide data-integrity defect in `TTDB.cpp` that is **two days older than
+  today's heap saga and was hiding underneath it.**
+  ✅ **The routine part first.** Flashed firmware only (lanes survived), auto-reset again,
+  **20 % flash / 21 % RAM**, confirmed by its own boot line: `132/288 records indexed`,
+  `@LAT96 build: max_run:6` (default build — correct, it is not a walk node), tilt + mic
+  up, `boot view 0 EYE`. It carries today's radio-ACK dedup fix. 📎 **The 08-12 prunes had
+  already been run by the operator** (`lane:95 removed:7`, `lane:96 removed:48`) and **no
+  `state:moving` record remains on flash** — the per-board tilt null is holding, re-derived
+  independently this boot at `1073 mg -> x0.9315` (08-12: 1085 → x0.9209).
+  🛑 **THEN `--lane 90` REFUSED, ON A BOARD WITH 225 KB OF MAXALLOC.** The morning's story
+  makes low heap the obvious suspect and it was **the wrong one** — this node has 32× the
+  Cardputer's headroom and 4.6 MB of free filesystem.
+  🔬 **THE INSTRUMENT DID NOT EXIST ON THIS PATH, WHICH IS THE SAME DEFECT AS THE MORNING'S
+  IN A DIFFERENT PLACE.** Today's `TtdbRewriteErr` reporting landed on `removePerceptLanes`
+  **only**, so `pruneTimeline` and `pruneOutcomes` still failed with a bare line. The K10
+  said `removeLane(timeline) FAILED — nothing pruned` and nothing else. 🎯 **A diagnostic
+  that covers some of the paths is the same shape of mistake as a build declaration that
+  covers some of the boards** — the lesson of 2026-08-11, re-learned two days later. It is
+  now ONE helper, `lanegen::reportRewriteFailure`, called from all three prune paths.
+  ⚠ Also fixed: the K10's own catch-all `[prune] REFUSED (bad lane, or no room for the
+  @LAT100 marker)` named two causes and **neither was true** (markers were 2/32). *A
+  plausible-sounding wrong cause is worse than none — it sends the reader to check the
+  thing that is already fine.* It now defers to the `[lanegen]` line above it.
+  ```
+  [lanegen] removePerceptLanes FAILED at step 'read' after 38947 of 49503 B copied
+            — nothing pruned, no marker. maxalloc 225268 B, 121 records, FS 4603904 B free.
+  ```
+  📐 **THE ARITHMETIC IN THAT LINE IS THE WHOLE DIAGNOSIS, AND IT CLOSES EXACTLY.** The
+  copy skips the lane being pruned, so it owed `49503 − 10556` (the measured @LAT94 bytes)
+  = **38947 B — precisely what it reported copying.** So the copy had **completed**, and
+  the failure was in what runs after it. *Same shape as this morning's Cardputer finding,
+  which is why it was recognised in one step rather than five.*
+  🎯 **ROOT CAUSE — `appendRecord` grew `file_size_` and left `tail_offset_` at its last
+  `begin()` value.** Those two are EQUAL by definition on a file that fits the index
+  ("no tail"); only an index overflow is supposed to separate them. So an ordinary append
+  made a healthy file impersonate an overflowed one, and `recordSpan()` — which ends the
+  **last** record at `tail_offset_` — computed `length = end − offset` with `end` now
+  **behind** `offset`: a **size_t underflow to ~SIZE_MAX**. `copyRange` then copied every
+  real byte, ran off the end of the file, and reported `TTDB_RW_READ`.
+  💣 **THE CONSEQUENCE IS THE PART TO SIT WITH: A PRUNE WRITES ITS OWN @LAT100 BOUNDARY
+  WITH `appendRecord`, SO EVERY PRUNE POISONED THE NEXT ONE.** The first rewrite after any
+  append failed. That is not a K10 quirk — it is every node, every lane, and it has been
+  true since `tail_offset_` was introduced (2026-08-11, for the index-cap fix).
+  🧪 **The natural experiment was already in the session log before the cause was known**,
+  which is why the mechanism was believable rather than merely plausible:
+  ```
+  old code, node up a while (appends had happened)  -> FAILED at 'read'
+  old code, command landed during setup() (no appends yet) -> SUCCEEDED
+  new code, node up 2.5 min, 4 appends since begin() -> SUCCEEDED (gen 2, 4 records)
+  ```
+  ⚠ **That middle row is why this hid behind the heap story.** "Fails with the radios up,
+  succeeds during `setup()`" is *also* the signature of the Cardputer's real heap failure —
+  because `setup()` is both the high-heap moment **and** the only moment with no appends
+  yet. Two unrelated causes, one indistinguishable symptom. **Only naming the step told
+  them apart**, and the step had no name on this path until today.
+  ✅ **FIX: `tail_offset_ = file_size_` on `appendRecord`'s success path.** An append that
+  gets there provably fits the index (the header count is refused above it when it does
+  not), so a file with a real over-cap tail can never reach the line. **+1 native check
+  group in `test_ttdb_index.cpp` (case 8)** pinning both halves — that the appended
+  record's span is not an underflow, and that a prune **after** an append succeeds and the
+  marker survives it. ⚠ **The order is the test:** a single prune passes either way; it
+  takes an append *between* two rewrites to reproduce.
+  ⚠ **THE NATIVE SUITE WAS NOT RUN — THERE IS NO C++ TOOLCHAIN ON THIS MACHINE** (no g++,
+  clang, cl, zig or make; see [[no-host-cpp-toolchain]]). The new test is written against
+  the real `Ttdb` through `tests/shim/` and every API it calls was checked against
+  `TTDB.h`, but **it is unexecuted and should be run before it is trusted.** The fix
+  itself is verified on hardware, which for this defect is the stronger evidence — it was
+  found there and the failing condition is reproducible there.
+  📊 **K10 state, verified BY RE-PULL** (`master/k10_1_postprune_2026-08-13.md`, 41311 B),
+  never by the ACKs. Backup banked first: `master/k10_1_preflash_2026-08-13.md` (50816 B).
+  ```
+  lane        before  after   note
+  @LAT90          16      1   was 16/16 FULL; the 1 is a fresh STREAM-ADOPTED from:0x10
+  @LAT94          48      0   was 48/48 FULL — the fleet's SECOND EAR was discarding
+  @LAT95          25     30   ⚠ NOW AT ITS 30 CAP, untouched — see below
+  @LAT96          23     28   untouched (entity baseline)
+  @LAT100          2      5   3 markers spent (90, 94 ×2); 27 left
+  TOTAL          130     80   50816 -> 41311 B
+  ```
+  🎁 **The timeline boundary did its job**: `**STREAMS-EXPLAINED** n:14` carries all
+  fourteen stream ids the pruned lane accounted for, so records elsewhere stamped with them
+  stay interpretable. And the witness's **first record after the prune is a real adoption
+  from V4-A** — the lane was back to work within seconds of being emptied.
+  🔜 **@LAT95 IS AT 30/30 AND WAS NOT IN SCOPE TO PRUNE.** It grew 25 → 30 during the
+  session, mostly because each reflash/reset closes a window. One `--lane 95` clears it and
+  costs 1 of 27 markers. 📎 Everything else the K10 needs is unchanged from 08-12: the
+  **eyeball is still visually unverified** (nothing on the wire can see a screen), and its
+  FS still has not been re-imaged (the `senses:` block is still undelivered, deliberately —
+  it would cost the live lanes).
+  🧩 **Fleet consequence, worth acting on before the walk:** every other board carries the
+  same `TTDB.cpp`. **V4-A, the walk anchor, is pruned immediately before a run and then
+  appends its boundary marker** — so under the old code its *next* rewrite was primed to
+  fail. All six sketches compile with the fix (K10 20 %, V4-B **95 %**, Cardputer 42 %);
+  only the K10 is flashed with it.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---

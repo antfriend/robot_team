@@ -129,6 +129,28 @@ bool Ttdb::appendRecord(const char* text, size_t len) {
     return begin(*fs_, path_);
   }
   file_size_ = base + len;
+  // ⚠ ADVANCE THE TAIL WITH THE FILE. `tail_offset_` means "where the unindexed tail
+  // starts", and begin() sets it EQUAL to file_size_ on a file that fits the index —
+  // "no tail". This fast path used to grow file_size_ and leave it behind, which made
+  // an ordinary append look exactly like an index overflow, with two consequences:
+  //
+  //   1. recordSpan() ends the LAST record at tail_offset_, which is now BEHIND that
+  //      record's own offset, so `length = end - offset` UNDERFLOWS to ~SIZE_MAX.
+  //   2. removeLaneRange() then thinks there is a tail to carry and copies it too.
+  //
+  // (1) is what bites: copyRange copies every real byte, runs off the end of the file
+  // and reports TTDB_RW_READ — a rewrite that fails only AFTER succeeding. Measured on
+  // the K10 2026-08-13: `FAILED at step 'read' after 38947 of 49503 B copied`, where
+  // 38947 is EXACTLY the bytes the copy owed (49503 file − 10556 of the pruned @LAT94).
+  //
+  // Consequence while it was wrong: the FIRST lane rewrite after any append failed, so a
+  // prune that wrote its own boundary marker broke the NEXT prune. It looked like the
+  // documented low-heap failure and is not — this node had 225 KB of maxalloc and 4.6 MB
+  // of free filesystem. Only naming the step told the two apart.
+  //
+  // An append that got here fits the index (the header count is refused above when it
+  // does not), so a file with a real over-cap tail can never reach this line.
+  tail_offset_ = file_size_;
   return true;
 }
 
