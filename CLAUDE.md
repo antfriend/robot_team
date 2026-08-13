@@ -170,9 +170,43 @@ powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
 The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **94% of the
-default app partition** (~71–74 KB left) — near the ceiling the T-Deck hit, so the next
-feature added to them probably needs `huge_app` first.
+so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **95% of the
+default app partition** (~63–65 KB left as of 2026-08-13) — past the ceiling the T-Deck
+hit, so the next feature added to them almost certainly needs `huge_app` first.
+
+### ⚠ THE MEASUREMENT BUILD — the flag, and the exact command line
+
+`ENTITYPERCEPT_MAX_RUN` lives in `EntityPercept.cpp`, a **separate translation unit**, so
+it can only ever be a build property — a sketch `#define` cannot reach it. Default is
+**6** (folding, ~48 h of `@LAT96` lane life); the **measurement build is 1**, which writes
+every 600 s window and therefore fills the 48-slot lane in exactly **8 hours**.
+
+**A `companion.py entity-survey` needs BOTH participating nodes on the measurement build.**
+A folded lane writes ~1 record per hour while a node stands still — and standing still is
+what a node does at a station — so folding deletes the walker's entire per-station
+contribution (measured: over the same 5.52 h, unfolded wrote 48 windows, folded 20).
+
+```bash
+# MEASUREMENT build (survey/walk nodes). The plain command below is the DEFAULT build.
+"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" \
+        --build-property "compiler.cpp.extra_flags=-DENTITYPERCEPT_MAX_RUN=1" \
+        --libraries firmware/libraries firmware/v4a_bridge
+```
+
+⚠ **OMITTING THE FLAG SILENTLY DOWNGRADES THE BOARD, AND IT IS EASY TO DO** — it happened
+on 2026-08-13 while reflashing the walk ANCHOR, because only the flag *name* was written
+down anywhere and not the invocation. A folding anchor still runs, still logs, and still
+looks healthy; the survey it feeds just comes back nearly empty and reads as a bad site.
+✅ **The board declares its own build at boot, which is how that was caught in 15 seconds:**
+
+```
+[entity] @LAT96 build: max_run:1 core:3-of-5 scan:600s  <- MEASUREMENT BUILD (no folding)
+[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s                    # default build
+```
+
+**Always read that line back with `scratchpad/catchboot.py <PORT> 14` after flashing a
+survey node.** It is in all six sketches precisely because a build property is otherwise
+invisible from outside.
 
 ⚠ **The three V4s are indistinguishable from the outside, and flashing the wrong sketch
 to one is silent. Identify a board by READING ITS APP IMAGE, never by inferring from the

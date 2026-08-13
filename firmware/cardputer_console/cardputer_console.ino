@@ -917,11 +917,19 @@ static size_t buildOutcomeCarried(char* out, size_t cap) {
   return R.buildBoundary(out, cap, records);
 }
 
-static bool clearPerceptLanes(uint8_t lane) {
+// `may_defer` is false when this IS the scheduled boot attempt. ⚠ Without it the boot
+// path re-arms the very flag it just consumed, so a prune that cannot succeed retries on
+// every boot forever — and the "Not rescheduled" message printed by the caller would be a
+// straight lie. One attempt per schedule, as takePendingPrune's clear-before-attempt
+// already intends.
+static lanegen::PruneResult clearPerceptLanes(uint8_t lane, bool may_defer = true) {
   // LaneGen names @LAT92 itself so it need not include PerceptLearn. If the two ever
   // disagree the prune would empty a lane nobody asked for, so fail the BUILD.
   static_assert(LANEGEN_OUTCOME_LANE == PERCEPTLEARN_LANE,
                 "LANEGEN_OUTCOME_LANE must be PERCEPTLEARN_LANE");
+  // Clear first so TTDB_RW_OK below means "no rewrite was ever attempted" — a prune
+  // refused by a full @LAT100 never reaches one, and must not be rescheduled.
+  gDb.clearRewriteErr();
   bool ok;
   if (lane == TIMESTREAM_LANE) {
     ok = lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec);
@@ -933,7 +941,7 @@ static bool clearPerceptLanes(uint8_t lane) {
                     "PERCEPTLEARN_BOUNDARY_BUF (%d). Pruning without it would drop every "
                     "belief back to baseline with nothing saying why.\n",
                     PERCEPTLEARN_LANE, PERCEPTLEARN_BOUNDARY_BUF);
-      return false;
+      return lanegen::PRUNE_FAILED;
     }
     ok = lanegen::pruneOutcomes(gDb, gStamp, kNodeId, gStreamWallSec, carried);
     if (ok) {
@@ -950,11 +958,27 @@ static bool clearPerceptLanes(uint8_t lane) {
   } else {
     ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
   }
-  if (ok)
+  if (ok) {
     Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
                   lane ? String(lane).c_str() : "ALL (94-97)",
                   (unsigned)gDb.fileSize(), gDb.recordCount());
-  return ok;
+    return lanegen::PRUNE_OK;
+  }
+  // ⚠ RESOURCE FAILURE, NOT A REFUSAL — SCHEDULE IT FOR BOOT. The rewrite needs the
+  // filesystem to allocate, and this node's radios have taken the heap; the identical
+  // call succeeds during setup() at ~147 KB. Only the I/O steps qualify: a lane the guard
+  // forbids, or a rewrite that already moved the file, are not retryable at any heap.
+  if (may_defer && ttdbRewriteRetryable(gDb.lastRewriteErr())) {
+    lanegen::setPendingPrune(lane);
+    Serial.printf("[percept] lane %s prune SCHEDULED for the next boot (rewrite failed at "
+                  "step '%s', maxalloc %u B). It will run in setup() before the radios "
+                  "take the heap. Any command that resets this board — a `pull` will — "
+                  "is enough to trigger it.\n",
+                  lane ? String(lane).c_str() : "ALL (94-97)",
+                  gDb.lastRewriteErrName(), (unsigned)ESP.getMaxAllocHeap());
+    return lanegen::PRUNE_DEFERRED;
+  }
+  return lanegen::PRUNE_FAILED;
 }
 
 // Dispatch a decoded, authenticated toot on any transport. `reply` is the transport to
@@ -962,6 +986,9 @@ static bool clearPerceptLanes(uint8_t lane) {
 // USB link stays un-deduped and the laptop can retry.
 static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) {
   bool accepted = false;
+  // Which ACK an accepted toot earns. ACCEPTED for everything except a prune the node
+  // has durably SCHEDULED rather than performed (see clearPerceptLanes).
+  uint8_t ack_status = toot::ACK_ACCEPTED;
   switch (t.type) {
     case toot::TTDB_REQ:
       serveTtdbReq(t, reply, ctx);   // the streamed reply is itself the confirmation
@@ -1077,11 +1104,15 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               ok = false;
             }
             break;
-          case toot::CMD_CLEAR_PERCEPTS:
+          case toot::CMD_CLEAR_PERCEPTS: {
             // Flash rewrite: reaches here only from loop() (the radio path defers).
-            // ACK only on success, so a failed prune is loud and the laptop retries.
-            ok = clearPerceptLanes(toot::cmdClearLane(t));
+            // ACK only on success, so a failed prune is loud and the laptop retries —
+            // and a prune SCHEDULED for boot ACKs `DEFERRED`, which is neither.
+            const lanegen::PruneResult r = clearPerceptLanes(toot::cmdClearLane(t));
+            ok = (r != lanegen::PRUNE_FAILED);
+            if (r == lanegen::PRUNE_DEFERRED) ack_status = toot::ACK_DEFERRED;
             break;
+          }
           case toot::CMD_PING:
             // A ping otherwise does nothing but ACK, which is exactly what makes it the
             // right thing to overload as a FIELD MARKER. During a walk experiment the
@@ -1188,8 +1219,17 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
                           (size_t)t.payload_len - off);
   }
 
-  if (accepted && (t.flags & toot::FLAG_WANT_ACK))
-    emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+  // ⚠ RECORD WHAT THIS EXECUTION DECIDED, then answer. The dedup ring replays this for a
+  // retry of the same (src,seq); without it a duplicate is answered ACCEPTED regardless,
+  // which reports success for work that failed (2026-08-13, CMD_CLEAR_PERCEPTS).
+  // setOutcome is update-only, so the un-deduped USB path has no entry and stays that way.
+  if (t.flags & toot::FLAG_WANT_ACK) {
+    gDedup.setOutcome(t.src_node_id, t.toot_seq,
+                      !accepted ? toot::DEDUP_REFUSED
+                      : ack_status == toot::ACK_DEFERRED ? toot::DEDUP_DEFERRED
+                                                         : toot::DEDUP_ACKED);
+    if (accepted) emitAck(t, ack_status, reply, ctx);
+  }
 }
 
 // A TTDB_REQ / TTDB_PUT arriving over ESP-NOW is stashed and served from loop(): a
@@ -1210,8 +1250,16 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
   if (t.chunk_total > 1) return;            // no chunked consumer on the console
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {
-    if (t.flags & toot::FLAG_WANT_ACK)      // TTN-RFC-0007 §5: re-ACK a lost-ACK dup
-      emitAck(t, toot::ACK_ACCEPTED, sendEspNow, nullptr);
+    // TTN-RFC-0007 §5: re-ACK a lost-ACK dup — but REPLAY THE FIRST EXECUTION'S ANSWER,
+    // which may have been silence. Answering ACCEPTED unconditionally reported a prune
+    // that never ran as APPLIED (2026-08-13). A dup whose first run refused, or has not
+    // finished, gets nothing: a false negative is loud and recoverable, a false positive
+    // reads as done and stops anyone looking.
+    const toot::DedupOutcome o = gDedup.outcome(t.src_node_id, t.toot_seq);
+    if ((t.flags & toot::FLAG_WANT_ACK) &&
+        (o == toot::DEDUP_ACKED || o == toot::DEDUP_DEFERRED))
+      emitAck(t, o == toot::DEDUP_DEFERRED ? toot::ACK_DEFERRED : toot::ACK_ACCEPTED,
+              sendEspNow, nullptr);
     return;
   }
   gEspRx++;
@@ -1353,7 +1401,9 @@ static void reconcileBeliefs() {
   const uint32_t bytes_before = (unsigned)gDb.fileSize();
   const uint32_t t_rm0 = millis();
   if (!gDb.removeLane(PERCEPTLEARN_BELIEF_LANE)) {
-    Serial.println("[dream] belief lane rewrite FAILED (removeLane)");
+    Serial.printf("[dream] belief lane rewrite FAILED (removeLane) at step '%s' — "
+                  "maxalloc %u B. Beliefs stay at the previous revision.\n",
+                  gDb.lastRewriteErrName(), (unsigned)ESP.getMaxAllocHeap());
     return;
   }
   const uint32_t t_rm = millis();
@@ -3694,6 +3744,32 @@ void setup() {
   Serial.printf("LittleFS: %u / %u bytes used (%u free)\n",
                 (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes(),
                 (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
+
+  // --- A PRUNE SCHEDULED BY AN EARLIER BOOT, RUN HERE BECAUSE HERE IS WHERE THE MEMORY
+  // IS. ⚠ POSITION IS THE WHOLE FEATURE: this MUST stay above WiFi/ESP-NOW/BLE. The same
+  // call fails once the radios are up (maxalloc ~7 KB) and succeeds here (~147 KB); there
+  // is nothing else different about it. If a future edit moves radio init earlier, or
+  // moves this later, the feature silently stops working and the node quietly goes back
+  // to discarding every window. The maxalloc printed below is the evidence for that, so
+  // it is printed whether the prune succeeds or fails.
+  {
+    uint8_t pending;
+    if (lanegen::takePendingPrune(pending)) {
+      Serial.printf("[percept] scheduled prune of lane %s — running now, before the "
+                    "radios (maxalloc %u B)\n",
+                    pending ? String(pending).c_str() : "ALL (94-97)",
+                    (unsigned)ESP.getMaxAllocHeap());
+      // ⚠ takePendingPrune already CLEARED the flag. If this fails too, the node reports
+      // it and carries on rather than rebooting into the same failure forever.
+      // ⚠ The boundary is stamped before gTs.begin(), so it carries stream:0x00000000 —
+      // local millis(), comparable only with this node's own records. That is a real but
+      // small loss, it is what the record itself says, and the alternative is a node that
+      // can never prune at all.
+      if (clearPerceptLanes(pending, /*may_defer=*/false) != lanegen::PRUNE_OK)
+        Serial.println("[percept] the scheduled prune FAILED TOO — see the step above. "
+                       "Not rescheduled; this needs a look, not another reboot.");
+    }
+  }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
   // inside EntityPercept.cpp — a separate translation unit — so it can only be changed

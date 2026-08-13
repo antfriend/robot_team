@@ -1828,8 +1828,15 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
   // optional, a shared timeline is not.
   gTs.onHello(t, millis());
 
-  if (accepted && (t.flags & toot::FLAG_WANT_ACK))
-    emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+  // ⚠ RECORD WHAT THIS EXECUTION DECIDED, then answer. The dedup ring replays this for a
+  // retry of the same (src,seq); without it a duplicate is answered ACCEPTED regardless,
+  // which reports success for work that failed (2026-08-13, CMD_CLEAR_PERCEPTS).
+  // setOutcome is update-only, so the un-deduped USB path has no entry and stays that way.
+  if (t.flags & toot::FLAG_WANT_ACK) {
+    gDedup.setOutcome(t.src_node_id, t.toot_seq,
+                      accepted ? toot::DEDUP_ACKED : toot::DEDUP_REFUSED);
+    if (accepted) emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+  }
 }
 
 // A chunk of a logical toot (chunk_total > 1) goes to the Reassembler, which owns
@@ -1890,9 +1897,15 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (t.chunk_total > 1) { handleChunk(t); return; }
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {  // radio-path replay/loop guard
     // TTN-RFC-0007 §5: the original ACK was evidently lost (the sender retried),
-    // so re-ACK the duplicate without re-processing its body. The dup frame
-    // self-identifies, so a fresh ACCEPTED ACK is correct for an unchunked toot.
-    if (t.flags & toot::FLAG_WANT_ACK)
+    // so re-ACK the duplicate without re-processing its body.
+    // ⚠ "a fresh ACCEPTED ACK is correct for an unchunked toot" — WHICH WAS WRONG, and
+    // exactly the reasoning that produced the bug. It is correct only when the first
+    // execution ACCEPTED. Replay that answer, including when it was silence: on
+    // 2026-08-13 this path reported a failed CMD_CLEAR_PERCEPTS as APPLIED. A dup whose
+    // first run refused, or has not finished, gets nothing — a false negative is loud and
+    // recoverable, a false positive reads as done and stops anyone looking.
+    if ((t.flags & toot::FLAG_WANT_ACK) &&
+        gDedup.outcome(t.src_node_id, t.toot_seq) == toot::DEDUP_ACKED)
       emitAck(t, toot::ACK_ACCEPTED, sendEspNow, nullptr);
     return;
   }

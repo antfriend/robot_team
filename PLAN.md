@@ -147,7 +147,22 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    🧪 `tests/shim/` + `test_ttdb_index.cpp` (33 checks) — the first native test to drive
    the REAL `Ttdb`; negative control against a pre-fix copy fails 5 checks, tail `got 0`.
 
-5. **Flash the Cardputer off the measurement build.** The night-3 interlock is
+5. ✅ **DONE 2026-08-13 — the Cardputer is off the measurement build.** Flashed
+   firmware-only (hands-free, 42 % flash / 42 % RAM) and confirmed **by the board's own
+   boot declaration**, which is the only way a build property is visible from outside:
+   `[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s` — the
+   `<- MEASUREMENT BUILD (no folding)` tag is gone. The walk is unaffected: it needs
+   V4-A (anchor) and the T-Deck (walker) unfolded, and the Cardputer was already
+   benched.
+   ✅ **AND ITS LANES ARE NOW CLEAR (same day).** `@LAT96`, `@LAT97` and `@LAT94` all
+   pruned: TTDB **120307 → 43143 B**, 220 → 79 records, **209 index slots free**, 3
+   `@LAT100` markers spent (29 left). Folding now has room to matter — 8 h → 48 h of lane
+   life instead of a full lane where it changes nothing.
+   🧩 It took two firmware fixes to get there, both verified on hardware: the dedup re-ACK
+   no longer reports a failed command as APPLIED, and a prune that cannot run with the
+   radios up (~7 KB largest block) is **durably scheduled and run at the next boot**
+   (~102 KB), answering `ACK_DEFERRED` in the meantime. See companion.md §6 (2026-08-13).
+   *Original scope, kept for the record:* The night-3 interlock is
    discharged, so it can take the default folding `MAX_RUN 6` and the fold gets
    confirmed on the node that was the instrument. ⚠ But see item 1 — if the
    separation measurement wants two measurement-build nodes, do that **first** and
@@ -180,8 +195,16 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    carry much more of anything (94 % flash).
 
 ⚠ **Budget note that constrains all of the above (spec §4.5): experiments are not
-free to repeat.** The Cardputer is at **30/32** `@LAT100` markers with no prune path
-for that lane — **two clean-lane experiments remain for the life of that firmware**.
+free to repeat.** ~~The Cardputer is at **30/32** `@LAT100` markers with no prune path
+for that lane — two clean-lane experiments remain for the life of that firmware.~~
+🎯 **CORRECTED 2026-08-13 BY MEASUREMENT: the Cardputer is at `@LAT100` 0/32.** The
+2026-08-11 FS wipe refunded the entire budget, because **markers are per FILESYSTEM,
+not per firmware** — so "for the life of that firmware" was the wrong unit, and the
+Cardputer is now the *least* experiment-constrained board in the fleet rather than the
+most. V4-A sits at 12/32 (20 free) after today's two prunes. **Neither node is
+marker-bound.** ⚠ The hatch still costs every learned lane (`@LAT91`/`@LAT92` return to
+baseline), so it is expensive — just not a dead end.
+🛑 **The real constraint is now the shared index and the lane caps, not the markers.**
 Prune the witness lanes *before* a run, state the stop rule *before* a run, and bank
 a failed run rather than re-timing it.
 

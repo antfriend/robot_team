@@ -133,16 +133,28 @@ bool Ttdb::appendRecord(const char* text, size_t len) {
 }
 
 // Copy [off, off+len) from `in` to `out` in small chunks.
-static bool copyRange(File& in, File& out, size_t off, size_t len) {
+//
+// ⚠ Reports WHICH side failed. A read failure means the source moved or the offset index
+// is wrong; a write failure means the destination could not take the bytes — out of space,
+// or an allocation failure inside the filesystem. Those call for opposite responses, and
+// the old shared `return false` made them indistinguishable from each other and from the
+// five other ways the rewrite around it could fail.
+static bool copyRange(File& in, File& out, size_t off, size_t len, TtdbRewriteErr& err,
+                      size_t& copied) {
   if (len == 0) return true;
-  if (!in.seek(off)) return false;
+  if (!in.seek(off)) { err = TTDB_RW_READ; return false; }
   uint8_t buf[128];
   while (len) {
     size_t want = len < sizeof(buf) ? len : sizeof(buf);
     int n = in.read(buf, want);
-    if (n <= 0) return false;
-    if (out.write(buf, (size_t)n) != (size_t)n) return false;
+    if (n <= 0) { err = TTDB_RW_READ; return false; }
+    if (out.write(buf, (size_t)n) != (size_t)n) { err = TTDB_RW_WRITE; return false; }
     len -= (size_t)n;
+    copied += (size_t)n;
+    // ⚠ Feed the watchdog INSIDE the copy, not just between records. A 120 KB rewrite is
+    // ~940 iterations of this loop and the caller only yields per record, so a lane whose
+    // records are large leaves long unyielded stretches.
+    if ((copied & 0x0FFF) == 0) yield();
   }
   return true;
 }
@@ -155,12 +167,16 @@ bool Ttdb::removePerceptLanes(uint8_t lane) {
   // Refuse anything outside the percept range rather than clamping: a caller
   // asking for @LAT99 has a bug or bad intent, and silently pruning a different
   // lane than the one requested would be worse than saying no.
-  if (lane < TTDB_PERCEPT_LANE_LO || lane > TTDB_PERCEPT_LANE_HI) return false;
+  if (lane < TTDB_PERCEPT_LANE_LO || lane > TTDB_PERCEPT_LANE_HI) {
+    rewrite_err_ = TTDB_RW_BAD_ARGS;
+    return false;
+  }
   return removeLane((int16_t)lane);
 }
 
 bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
-  if (!fs_ || lo > hi) return false;
+  rewrite_err_ = TTDB_RW_OK;
+  if (!fs_ || lo > hi) { rewrite_err_ = TTDB_RW_BAD_ARGS; return false; }
   bool any = false;
   for (int i = 0; i < record_count_; ++i)
     if (records_[i].lat >= lo && records_[i].lat <= hi) { any = true; break; }
@@ -168,11 +184,18 @@ bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
 
   char tmp[72];
   snprintf(tmp, sizeof(tmp), "%s.tmp", path_);
+  // ⚠ A STALE .tmp IS REMOVED BEFORE WE OPEN OUR OWN. An earlier rewrite that died between
+  // creating the temp and renaming it leaves a full-size copy of the TTDB on a filesystem
+  // that then has to hold TWO — which on a node whose store is a third of the partition is
+  // exactly how the NEXT rewrite runs out of space and leaves a third. Removing a file
+  // that is not there is a no-op, so this costs nothing in the normal case.
+  fs_->remove(tmp);
   File in = fs_->open(path_, "r");
-  if (!in) return false;
+  if (!in) { rewrite_err_ = TTDB_RW_OPEN_SRC; return false; }
   File out = fs_->open(tmp, "w");
   if (!out) {
     in.close();
+    rewrite_err_ = TTDB_RW_OPEN_TMP;
     return false;
   }
 
@@ -183,12 +206,13 @@ bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
   // (Dropping the final record leaves a trailing separator — harmless to the
   // '@'-line indexer and to the next appendRecord.)
   size_t pre = record_count_ ? records_[0].file_offset : file_size_;
-  bool ok = copyRange(in, out, 0, pre);
+  size_t copied = 0;
+  bool ok = copyRange(in, out, 0, pre, rewrite_err_, copied);
   for (int i = 0; ok && i < record_count_; ++i) {
     if (records_[i].lat >= lo && records_[i].lat <= hi) continue;
     size_t off, len;
     recordSpan(i, off, len);
-    ok = copyRange(in, out, off, len);
+    ok = copyRange(in, out, off, len, rewrite_err_, copied);
     if ((i & 0x07) == 0) yield();
   }
   // ⚠ CARRY THE UNINDEXED TAIL VERBATIM. Records past TTDB_MAX_RECORDS are invisible to
@@ -200,21 +224,52 @@ bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
   // begin() sees these records properly, so repeated prunes converge instead of eating
   // the tail. No-op on a file that fits (tail_offset_ == file_size_).
   if (ok && tail_offset_ < file_size_)
-    ok = copyRange(in, out, tail_offset_, file_size_ - tail_offset_);
+    ok = copyRange(in, out, tail_offset_, file_size_ - tail_offset_, rewrite_err_,
+                   copied);
   in.close();
+  // ⚠ READ THE SIZE BEFORE CLOSING, THEN VERIFY IT AFTER. A filesystem may only surface a
+  // write failure at close (that is when the last cache block is flushed), so `ok` alone
+  // is not evidence the bytes landed — and the very next statement DELETES THE ORIGINAL.
+  // Everything between here and the rename is the one window in which this node can lose
+  // its whole mind, so it is the one place worth paying two extra syscalls.
+  rewrite_bytes_ = copied;   // how far the copy got, for the failure report
   out.close();
   if (!ok) {
     fs_->remove(tmp);
     return false;
   }
+  {
+    // ⚠ COMPARE AGAINST `copied`, THE BYTES WE ACTUALLY WROTE — not against `out.size()`
+    // read from the write handle before closing. Whether a write handle's size() counts
+    // bytes still sitting in the filesystem's cache is an implementation detail, and
+    // depending on it makes this check test the filesystem's bookkeeping instead of our
+    // own. `copied` is counted by us, from successful writes, and needs no interpretation.
+    File chk = fs_->open(tmp, "r");
+    const size_t got = chk ? chk.size() : 0;
+    if (chk) chk.close();
+    if (got != copied) {
+      // Truncated or unreadable. Refuse BEFORE the destructive remove: a bad rewrite that
+      // is refused costs one prune, and a bad rewrite that proceeds costs the TTDB.
+      fs_->remove(tmp);
+      rewrite_err_ = TTDB_RW_VERIFY;
+      rewrite_bytes_ = got;      // what it read back, against `copied` we meant to write
+      return false;
+    }
+  }
   // Swap. Not power-loss-atomic (prototype): a cut between remove and rename
   // loses the TTDB and needs an FS reflash.
   if (!fs_->remove(path_)) {
     fs_->remove(tmp);
+    rewrite_err_ = TTDB_RW_REMOVE;
     return false;
   }
-  if (!fs_->rename(tmp, path_)) return false;
-  return begin(*fs_, path_);  // re-index: file_size_ + record table
+  // 🛑 THE ORIGINAL IS NOW GONE. If the rename fails the node's entire TTDB is sitting in
+  // `<path>.tmp` and the next begin() will find nothing — so this failure is NOT
+  // interchangeable with the six above it, and the error name says so in shouting capitals
+  // for the operator who has to go and rename it by hand.
+  if (!fs_->rename(tmp, path_)) { rewrite_err_ = TTDB_RW_RENAME; return false; }
+  if (!begin(*fs_, path_)) { rewrite_err_ = TTDB_RW_REINDEX; return false; }
+  return true;
 }
 
 size_t Ttdb::readBytes(size_t offset, uint8_t* buf, size_t len) {

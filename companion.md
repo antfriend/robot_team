@@ -5768,6 +5768,23 @@ If a fact lives in one of these, link to it from here — don't copy it.
   ```
   **Total marker cost of the walk: ZERO.** Both participants have lane headroom; the one
   board that would have to spend a marker is the one left out.
+  🛑 **STALE WITHIN 48 HOURS — RE-READ THE LANES BEFORE WALKING, DO NOT TRUST THIS BLOCK.**
+  Measured 2026-08-13: **V4-A's `@LAT96` was 48/48, not 21/48** — the anchor had ZERO free
+  slots and could not have recorded a single window, and the anchor is the one node whose
+  floor cannot be substituted. A walk started on this block would have produced a survey
+  with no floor and *looked* like a disappointing site. **Pruned the same day** (`--lane 96`
+  + `--lane 97`, `gen:5`/`gen:4`, `@LAT100` 10 → 12, 20 free), so the anchor is good for a
+  fresh 48 windows ≈ 8 h unfolded — but the lesson is the block, not the number.
+  📊 **Why it went stale so fast, and it is arithmetic rather than bad luck:** a
+  measurement build writes **every** 600 s window, so `@LAT96` fills in **48 × 600 s = 8
+  hours** of powered uptime. Any roles block naming a slot count is therefore good for less
+  than one day of a powered fleet. **State the lane cap and the fill rate; re-measure the
+  counts at walk time.**
+  🎁 **And the Cardputer's exclusion no longer holds either:** the 2026-08-11 FS wipe put
+  its `@LAT100` at **0/32**, not 30/32, so "TWO markers left, ever" is void (markers are
+  per **filesystem**, not per firmware). Its `@LAT96` is still 48/48 so it still needs a
+  prune to participate — but that prune is now cheap. It is benched by *not being needed*,
+  not by poverty.
   ✅ Both measurement builds compile: **T-Deck 41 %**, **V4-A 94 % (66 KB left)**.
   🆕 **Both sketches now DECLARE their own `@LAT96` build at boot**, the line the Cardputer
   has carried since 2026-08-10 (`[entity] @LAT96 build: max_run:1 … <- MEASUREMENT BUILD
@@ -6104,6 +6121,257 @@ If a fact lives in one of these, link to it from here — don't copy it.
     6. After ~an hour, pull it and check `@LAT94` and `@LAT95` actually have records — a tier
        that compiles is not a tier that fires, and both of these have only ever run on a
        different board.
+
+- 🧹 **2026-08-13 — TWO CABLES, AND THE READ WAS WORTH MORE THAN THE WRITE: THE WALK'S
+  ANCHOR WAS FULL AND A STANDING SCARCITY CONSTRAINT TURNED OUT TO BE VOID.** V4-A (COM6)
+  and the Cardputer (COM14) on cables, both identified in 3 s by `SER=` and both confirmed
+  current by their own boot lines. The two actions taken were small; the two things
+  *found* by taking them are the entry.
+  🛑 **THE SEPARATION WALK WOULD HAVE FAILED SILENTLY, AND THE RUNBOOK IS WHY.** The roles
+  block written 2026-08-11 says `ANCHOR = V4-A … @LAT96 21/48 -> 27 free slots ~ 4.5 h`.
+  Measured two days later: **48/48, zero free.** The anchor could not have recorded one
+  window, and the anchor is the *only* node that can supply the still-node floor — a
+  walker's lane is refused for it by design. The survey would have run, produced no floor,
+  and read as a disappointing site rather than as a broken instrument.
+  📊 **The cause is arithmetic, not neglect:** a measurement build writes **every** 600 s
+  window, so `@LAT96` fills in **48 × 600 s = 8 h** of powered uptime. *Any* runbook naming
+  a slot count is good for less than one day of a powered fleet. 🎯 **The rule this buys:
+  state the lane cap and the fill rate in a runbook; re-measure the counts at run time.**
+  ✅ **Pruned and verified by re-pull, not by the ACK** ([[band-play-ack-false-negative]]):
+  `@LAT96` 48 → 0 (`gen:5 removed:48`), `@LAT97` 48 → 0 (`gen:4 removed:48`), `@LAT100`
+  10 → 12 — **exactly two markers, 20 free** — and `@LAT90`/`@LAT0` untouched. V4-A went
+  116 → 22 records, 61851 → 6105 B. The anchor is good for a fresh 8 h unfolded.
+  📎 Banked first: `master/entity-baseline/v4a_pre_prune_2026-08-13.md` (sha `CE10453A…`),
+  because the prune destroyed 8 h of *unfolded measurement-build* `@LAT96` — the exact
+  quantity `entity-separation` reads.
+  🎁 **THE SCARCITY CONSTRAINT IS VOID: THE CARDPUTER HAS 32 MARKERS, NOT 2.** Its
+  `@LAT100` reads **0/32**. Spec §4.5, PLAN.md's budget note and the walk-roles block all
+  said *"30/32 — two clean-lane experiments remain **for the life of that firmware**"*, and
+  that phrase is wrong in its **unit**: the 2026-08-11 FS wipe refunded the whole budget,
+  so **markers are per FILESYSTEM, not per firmware**. The wipe entry noted this in passing
+  and the three downstream documents were never corrected — so a constraint that had been
+  shaping experiment design for two days had already expired. All three are now fixed.
+  🎯 **The Cardputer is now the LEAST experiment-constrained board in the fleet**, having
+  been recorded as the most. ⚠ The hatch is still expensive — an FS wipe spends every
+  learned lane (`@LAT91`/`@LAT92` to baseline) — but expensive is not a dead end.
+  ✅ **Cardputer flashed off the measurement build** (PLAN item 5), firmware only so the
+  learned lanes survived; hands-free as always on this board, 42 % flash / 42 % RAM.
+  Confirmed **by the board's own declaration**, the only way a build property is visible
+  from outside: `[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s`, with the
+  `<- MEASUREMENT BUILD (no folding)` tag gone.
+  ⚠ **BUT THE FLASH DID NOT RESTORE ITS ENTITY TIER, AND THIS IS THE EASY THING TO
+  MISREAD.** Folding buys 8 h → 48 h of lane life *once the lane has room*; on a lane that
+  is already 48/48 it changes **nothing**, and the Cardputer is still discarding every
+  window. `[wifi] scan: 9 AP(s) folded into @LAT96 window` is the *window buffer* filling,
+  not a record being written — the write happens at window close and is refused. **One
+  `--lane 96` prune is still outstanding** (also `@LAT97` 48/48, `@LAT94` 48/48,
+  `@LAT95` 29/30); it is cheap now, and it was left for an operator because it is
+  destructive and was not in the agreed scope.
+  📎 **Fleet state observed in passing, all from boot lines rather than a survey:** the
+  T-Deck (`0x200`), V4-C (`0x12`) and the K10 (`0x100`) are all powered and reachable —
+  V4-A adopted its current stream from the T-Deck and the Cardputer was conducting
+  (`era 44`). Cardputer index **208/288 (80 free)**, climbing; V4-A now **22/288**.
+  ⚠ **TIMELINE FLAPPING IS FLEET-WIDE, NOT A T-DECK TRAIT.** V4-A's `@LAT90` was pruned to
+  1 on 2026-08-11 and is back to **8/16** in two days: six distinct streams, including
+  **two self-originations** (`STREAM-ORIGIN … from:0x10`) — the node heard no peer inside
+  its listen window twice on a fleet that was powered. At this rate the witness is full
+  again in ~2 days. 📎 The two same-stream `STREAM-RECONCILED` pairs in that lane are **not
+  a dedup defect** — `RECONCILED` is never suppressed by design; only `ADOPTED` is, and the
+  boot lines show that path working (`adopted adds nothing … no record written`).
+  🛑 **Night 4 (the reboot diagnosis, designed 2026-08-11) STILL HAS NOT RUN** — no pulls
+  on disk, and 08-12 went to the K10's return. It needs the T-Deck on battery first, then
+  V4-A and the Cardputer on **two different wall circuits** at +20 min each; both boards
+  are currently on laptop USB, which is the power domain the run exists to rule out.
+
+- 🛑 **2026-08-13 — THE CARDPUTER CANNOT PRUNE, AND CHASING IT FOUND A WORSE BUG: A FAILED
+  COMMAND REPORTS ITSELF AS APPLIED.** The prune asked for above could not be delivered.
+  Two defects, and the second one invalidates a verification habit rather than a lane.
+  🔬 **DEFECT 1 — the lane rewrite fails at step `write`, under low heap.** Instrumented
+  and pinned rather than inferred:
+  ```
+  [dream] belief lane rewrite FAILED (removeLane) at step 'write' — maxalloc 11764 B
+  [lanegen] removePerceptLanes FAILED at step 'write' — maxalloc 11764 B, TTDB 118385 B, 213 records
+  ```
+  ⚠ **MY FIRST DIAGNOSIS WAS WRONG AND THE INSTRUMENT IS THE ONLY REASON WE KNOW.** The
+  correlation (Cardputer **5 KB** largest block → fails; V4-A **91 KB** → succeeds; the same
+  Cardputer at 4.2 s of boot with **147 KB** → succeeds) pointed at `fs_->open` failing for
+  want of a second file handle. It is not the open — it is `out.write()` part-way through
+  the copy. A LittleFS handle costs ~512 B and would have fitted; the write path allocates
+  again, later, and that is where it dies. **Space is NOT the cause** (204 KB used of a
+  896 KB partition). *A correlation identified the resource and still named the wrong call.*
+  📊 The failing node is not special in its data — V4-A pruned the identical lanes an hour
+  earlier — it is special in its heap: BLE + WiFi + display + three globes leave it at
+  **11–12 KB** largest contiguous block against V4-A's 91 KB.
+  📎 It also means `@LAT101`'s field persist and the Dream Cycle's belief rewrite have both
+  been failing on this node **every cycle**, silently, for some time. The Cardputer has not
+  updated a belief on flash since whenever this began.
+  🛑 **DEFECT 2 — `CMD_CLEAR_PERCEPTS` ACKED A PRUNE THAT NEVER HAPPENED.** `companion.py`
+  printed `ACK from cardputer_1 on attempt 4 — APPLIED` for the command whose failure is
+  logged above, and the re-pull proved the lane untouched (`@LAT96` 48/48, `@LAT100` 0).
+  **Mechanism:** attempt 1 executes, fails, and correctly withholds its ACK — the sketch's
+  `// ACK only on success, so a failed prune is loud` is working. Attempts 2–4 carry the
+  **same `(src, seq)`**, so the radio dedup path recognises a duplicate and **re-ACKs**
+  (TTN-RFC-0007 §5's re-ACK-on-dedup, which exists so a lost ACK does not cause endless
+  retries). The re-ACK **assumes the first execution succeeded.** For an op that ACKs
+  unconditionally that is fine; for the one op deliberately built to ACK *conditionally* it
+  manufactures the success it was supposed to be reporting.
+  🎯 **This is the MIRROR of [[band-play-ack-false-negative]] and far more dangerous.** That
+  memory warns a no-ACK may be a false NEGATIVE, and the standing rule it produced — *verify
+  a prune by re-pull, not by the ACK* — is the only reason this was caught rather than
+  written up as a success. **A false POSITIVE has no such safety net: it reads as done.**
+  ⚠ Consequence for the record: **an "ACK on attempt ≥2" is not evidence for any
+  conditionally-ACKed op.** Only an attempt-1 ACK is first-execution evidence, and even that
+  should be confirmed by re-pull. V4-A's two prunes today ACKed on **attempt 1** and were
+  re-pull verified, so they stand.
+  ✅ **SHIPPED THIS SESSION (library, native-tested):** `removeLaneRange` returned a bare
+  `false` from seven places; it now records **which** via `TtdbRewriteErr` +
+  `lastRewriteErr()`/`lastRewriteErrName()`, printed with `maxalloc` by all three callers
+  (`LaneGenNode`, `SocialNode`, the Cardputer's Dream Cycle). Deliberately a library enum,
+  not a Serial print — TTDB.cpp has no Serial and is driven natively by `tests/shim/`.
+  Also hardened, both before the destructive step: a **stale `.tmp` is removed** before the
+  new one is opened (a died rewrite otherwise leaves a second full-size TTDB on the
+  partition, which is how the *next* rewrite runs out of room), and the temp's size is
+  **verified after close** — a filesystem can surface a write failure only at flush, and the
+  next statement deletes the original. `TTDB_RW_RENAME` shouts, because that is the one
+  failure that leaves the whole TTDB in a `.tmp` with the node about to boot empty.
+  🧪 **11 new checks in `test_ttdb_index.cpp` (33 → 44), all green**, incl. the orphan-`.tmp`
+  fixture and "a success RESETS the reason" — the trap every last-error accessor sets.
+  Cardputer **+820 B flash / +8 B RAM** (42 %), flashed and confirmed by its own log above.
+  📎 Banked: `master/entity-baseline/cardputer_pre_prune_2026-08-13.md` (117474 B, 209
+  records, every lane).
+
+  ✅ **DEFECT 2 IS FIXED AND VERIFIED ON HARDWARE, same session.** `DedupSet` now records
+  what the first execution of each `(src,seq)` decided — `DEDUP_PENDING` / `DEDUP_ACKED` /
+  `DEDUP_REFUSED` — and the re-ACK path **replays that answer, including when it was
+  silence**. Five sketches carry it (V4-A needs no change: its CMDs arrive only on the
+  un-deduped serial path and its mesh dedup already returned without ACKing).
+  🔬 **The proof is both halves at once** — the node's own log and the laptop's verdict,
+  captured in one window, with mesh delivery pre-confirmed by a `ping` ACK on attempt 1:
+  ```
+  node:    [lanegen] removePerceptLanes FAILED at step 'read' — nothing pruned, no marker
+  laptop:  attempt 1/7 … 7/7 -> no ACK from cardputer_1 after 7 attempts — NOT applied
+  ```
+  Attempts 2–7 are precisely the duplicates that produced `ACK on attempt 4 — APPLIED`
+  before. **Before: a lie. After: the truth, with the node's log agreeing.**
+  ⚠ **THE BUG IS RADIO-ONLY, WHICH IS WHY IT HID FOR SO LONG.** Dedup is radio-only by
+  design, so over USB every retry re-executes and genuinely fails — the same command over a
+  cable always told the truth. Only the bridged path could lie, and the bridged path is the
+  one used when a node is not on a cable. *A defect that only appears on the transport you
+  use when you cannot watch the node is the worst possible place for one.*
+  📐 **Direction of the remaining error is a deliberate choice, stated so it is not
+  "fixed" later by accident:** a duplicate whose first run REFUSED or is still PENDING now
+  gets silence, so the laptop may report NOT applied for something in flight. That is a
+  false NEGATIVE — loud, already documented, resolved by ping-then-re-pull. A false
+  POSITIVE has no safety net. Only one of the two is removable without a new wire status,
+  so remove the silent one. 📎 **Follow-up worth having: an `ACK_REFUSED` status** would
+  turn that silence into "I ran it and it failed", strictly better than both, and it is
+  additive to the wire (old nodes never emit it) so it needs no flag day.
+  🧪 **8 new checks in `test_toot.cpp`**, incl. that `setOutcome` is **update-only** — it
+  is called from the dispatch BOTH transports share, so an inserting version would quietly
+  start deduping USB and turn a supported retry into a dropped one. All six sketches
+  compile; cost is **+124 B** on the Cardputer, +12 B on a V4.
+  ✅ **DEFECT 1 IS ALSO FIXED, AND THE CARDPUTER IS PRUNED. `@LAT96`, `@LAT97` AND
+  `@LAT94` ARE ALL EMPTY: TTDB 120307 → 43143 B, 220 → 79 records, 209 index slots free,
+  exactly 3 `@LAT100` markers (29 left).** The node is recording again after a day of
+  discarding every window.
+  🧩 **A prune that cannot run now is DURABLY SCHEDULED and run at the next boot**, before
+  the radios take the heap (`lanegen::setPendingPrune`/`takePendingPrune`, NVS). Measured
+  on this node, same file, same code: **~7 KB largest block with the radios up → fails;
+  ~102 KB during `setup()` → succeeds.** ⚠ Stored in **NVS, not the filesystem** — the node
+  is in this state precisely because filesystem writes are failing, so a `/prune.pending`
+  marker would be a smaller instance of the broken operation.
+  📎 **No automatic reboot, deliberately.** `companion.py` resets the board on nearly every
+  call, so the operator's natural next step *is* the trigger — observed exactly that way:
+  lanes 97 and 94 were each refused in place, and each completed on the reset that the
+  *next* command performed.
+  🆕 **`ACK_DEFERRED` (status 3), because two answers were not enough.** A node that has
+  scheduled work has neither done it (ACCEPTED would be the false positive fixed above) nor
+  declined it (silence denies work that will certainly happen). `companion.py` prints
+  **`DEFERRED, not yet applied`** and says what triggers it. Additive to the wire — a node
+  that never defers never emits it.
+  🛑 **AND THE FIX'S OWN FIRST TEST FALSIFIED ITS PREMISE, WHICH IS WHY IT GOT BUILT
+  RIGHT.** The scheduled prune ran at **`maxalloc 102388 B`** — more than V4-A has ever
+  had — **and still failed.** So heap could not be the whole story. The byte counter added
+  in the same pass settled it by arithmetic: it read **`87630 of 120307 B copied`**, and
+  87630 is *exactly* the bytes that should survive (119745 − 32677 of `@LAT96`, plus the
+  562 B appended after the reference pull). **The copy had completed.** The failure was the
+  post-copy size check — **my own instrumentation** — which had been written to report
+  `TTDB_RW_WRITE` and so was indistinguishable from a real mid-copy failure.
+  🎯 **Two lessons, and the second is the uncomfortable one.** (1) *A check bolted onto a
+  step must not report itself as that step* — `TTDB_RW_VERIFY` now exists, and it is
+  **deliberately not retryable**: the copy ran to completion and the result still did not
+  measure right, so more memory changes nothing and rescheduling it loops. (2) The check
+  compared against `out.size()` read from the **write handle before closing**; whether that
+  counts cached bytes is a filesystem implementation detail. It now compares against
+  `copied`, which we counted ourselves from successful writes and which needs no
+  interpretation. ⚠ **Both faults were mine, introduced while diagnosing** — and bundling a
+  hardening change in with a diagnostic is what made the first result ambiguous. *Land the
+  instrument alone next time.*
+  📐 **Both things were true at once, which is why it looked contradictory:** the heap
+  genuinely blocks the in-place rewrite (`read`/`write` at ~7 KB) **and** the verify bug was
+  breaking the boot attempt at 102 KB. Fixing only one would have proven nothing.
+  ⚠ **One-slot schedule:** a second deferral before the first has run overwrites it. Left
+  deliberate — every `companion.py` call resets the board, so the first has already run.
+  If that changes, the fix is a lane **bitmask**, not a queue.
+  ⚠ **The boot attempt must NOT re-arm the flag** (`may_defer=false`). Without that the
+  node retries every boot forever while printing "Not rescheduled" — a message that lies.
+
+- 🧭 **2026-08-13 (afternoon) — THE WALK PAIR IS ARMED, AND THE ANCHOR WAS NEARLY
+  DOWNGRADED BY THE FLASH THAT WAS MEANT TO PREPARE IT.** V4-A (COM6) + T-Deck (COM10) on
+  cables, both identified by `SER=` in 3 s.
+  ✅ **STANDING ITEM DISCHARGED: THE T-DECK'S BOOT LINE HAS NOW BEEN SEEN.** It was the one
+  board verified by flash hash alone since 2026-08-11, with the note that its `max_run:1`
+  "deserves confirming rather than assuming" *because it is the walk's walker*. Confirmed
+  twice — before and after today's flash — plus `maxalloc 67 K` (healthy, unlike the
+  Cardputer's 7 K), all three globes loaded, and 12 `@LAT101` peer traces reloaded.
+  📊 **State found, and it repeats the morning's lesson with the roles swapped:**
+  ```
+                build       @LAT96   @LAT97   @LAT100
+    V4-A        max_run:1    16/48    48/48    12/32    <- anchor, 32 slots ~ 5.3 h
+    T-Deck      max_run:1    48/48    48/48     0/32    <- WALKER, ZERO slots
+  ```
+  🛑 **The walk was blocked on the WALKER this time.** This morning it was V4-A that was
+  full; by afternoon the T-Deck was. Nothing was neglected — the lane simply refills.
+  ⏱ **AND THE 8-HOUR FILL RATE IS NOW MEASURED, NOT DERIVED.** V4-A went **0 → 16 records
+  in ~2.7 h** after the morning prune: exactly one per 600 s window, so 48 slots really is
+  **8 h** of powered uptime on a measurement build. The arithmetic written into
+  [[runbook-counts-expire]] this morning is now an observation.
+  ✅ **Both flashed with the day's fixes, firmware only** (lanes and globes survived).
+  T-Deck hands-free again — **fifth consecutive automatic flash**, so the BOOT/RST dance
+  stays the fallback. Then the walker pruned: `@LAT96` 48 → 0, `@LAT97` 48 → 0, **exactly
+  two markers** (`@LAT100` 0 → 2), TTDB 58435 → 9314 B, 263 index slots free; `@LAT101`,
+  `@LAT90` and the three globes untouched. Verified by **re-pull**, not by the ACKs.
+  🛑 **THE MISTAKE, AND THE LINE THAT CAUGHT IT: THE FIRST V4-A FLASH CAME BACK
+  `max_run:6`.** The plain compile carries no `-DENTITYPERCEPT_MAX_RUN=1`, so the *anchor*
+  was silently put on the folding build. A folded anchor still runs, still logs and looks
+  perfectly healthy — it just writes ~1 record an hour while standing still, which is
+  exactly what a node does at a station, and it is why night 3 yielded only 11 matched
+  pairs. **The survey would have come back nearly empty and read as a bad site.**
+  ✅ Caught in 15 s by the board's own `[entity] @LAT96 build:` declaration and reflashed
+  with `--build-property "compiler.cpp.extra_flags=-DENTITYPERCEPT_MAX_RUN=1"`.
+  🎯 **Two things this is worth:** the 2026-08-11 decision to put that declaration in *all
+  six* sketches ("a discriminator that is not fleet-wide is not a discriminator") just paid
+  out on the person who wrote it; and **the exact invocation existed nowhere** — only the
+  flag's name — which is why it was got wrong. **CLAUDE.md now carries the full command
+  line, both boot-line forms, and the instruction to read it back after flashing a survey
+  node.** A flag that is only ever named is a flag that will be omitted.
+  📋 **Walk-ready state, and the binding number:**
+  ```
+    V4-A    anchor   max_run:1 confirmed   @LAT96 19/48 -> 29 free ~ 4.8 h  (FALLING)
+    T-Deck  walker   max_run:1 confirmed   @LAT96  0/48 -> 48 free ~ 8 h
+  ```
+  ⚠ **The anchor is the constraint and it is perishable.** Re-prune V4-A immediately
+  before the walk — 1 marker of its 20, buys back the full 8 h. Do not prune it "ready in
+  advance"; that is the mistake this entry documents twice over.
+  📎 Both boards now carry the corrected radio ACK semantics, which matters here more than
+  anywhere: the false-APPLIED defect is **radio-only**, and a walk is driven entirely over
+  the air. 📎 The T-Deck's GPS read `declared → verified → X` (no indoor fix) and its pack
+  still reads 4.702 V / 255 % — the known un-metered divider, not a new fault.
+  ⚠ **The three V4s are now at 95 %** (63–65 KB left), up from 94 % this morning: mostly
+  `Preferences` (NVS) arriving through `LaneGenNode.h`, which every sketch includes even
+  though only the Cardputer defers a prune today. Nothing overflowed, but the `huge_app`
+  warning on the spine is closer than it was; gating the deferral behind a per-sketch
+  `#define` would return ~1.4 KB to those three if it is ever needed.
 
 Keep this section current. It is the first thing the next session reads.
 

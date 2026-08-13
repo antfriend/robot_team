@@ -167,6 +167,11 @@ ACK_PAYLOAD_LEN = 10
 ACK_ACCEPTED = 0
 ACK_REASSEMBLY_PENDING = 1
 ACK_DROPPED_NO_RESRC = 2
+# Accepted but NOT YET DONE — the node durably scheduled the work for its next boot
+# (2026-08-13). A heap-starved node cannot rewrite its TTDB while its radios are up, so a
+# prune is queued in NVS and run in setup(). Rendering this as APPLIED would repeat the
+# exact bug this session fixed, one layer up.
+ACK_DEFERRED = 3
 
 
 def hmac8(data: bytes) -> bytes:
@@ -484,12 +489,21 @@ def reassemble(slices, eof_offset):
 
 
 def send_reliable(ser, reader, frame, target, seq, chunk=0,
-                  rto0=0.5, attempts=4):
+                  rto0=0.5, attempts=4, status_out=None):
     """Send a want_ack toot and retransmit until ACKed or `attempts` exhausted
     (TTN-RFC-0007 §4). Retransmits reuse the original (src,seq) so the receiver's
     radio dedup recognizes the duplicate and re-ACKs it (§5). RTO backs off ×2.
 
     Returns the 1-based attempt number that was ACKed, or 0 if undelivered.
+
+    `status_out`, if given, is a list the ACK's AckStatus byte is appended to. The status
+    is NOT always ACCEPTED: a node that scheduled the work rather than doing it answers
+    ACK_DEFERRED, and a caller that prints "APPLIED" for any ACK at all is repeating the
+    2026-08-13 bug one layer up.
+
+    ⚠ A duplicate is only re-ACKed with what the FIRST execution answered (firmware
+    DedupSet outcome). Before 2026-08-13 it was re-ACKed ACCEPTED unconditionally, so an
+    ACK on attempt >= 2 could report success for a command that had already failed.
     """
     rto = rto0
     for attempt in range(1, attempts + 1):
@@ -517,6 +531,8 @@ def send_reliable(ser, reader, frame, target, seq, chunk=0,
                         and pa[2] == chunk:
                     if target == NODE_BROADCAST:
                         print(f"  ACK from 0x{t['src']:08X} (answered the broadcast)")
+                    if status_out is not None:
+                        status_out.append(pa[3])
                     return attempt
         rto *= 2
     return 0
@@ -727,10 +743,20 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
         time.sleep(settle)            # opening the bridge port resets it (see pull())
         ser.reset_input_buffer()
         print(f"cmd {label} -> {node} (0x{target:08X}) on {port}")
+        ack_status = []
         acked = send_reliable(ser, reader, frame, target, seq,
-                              rto0=rto0, attempts=attempts)
+                              rto0=rto0, attempts=attempts, status_out=ack_status)
 
-    if acked:
+    if acked and ack_status and ack_status[0] == ACK_DEFERRED:
+        # The node accepted the command and could NOT do it now — it is queued in NVS and
+        # runs at the node's next boot, before its radios take the heap. Saying APPLIED
+        # here would be the same lie, one layer up.
+        print(f"ACK from {node} on attempt {acked} — DEFERRED, not yet applied.")
+        print("  The node could not rewrite its TTDB with its radios up and has SCHEDULED"
+              " this for its next boot.")
+        print("  Any command that resets the board triggers it — a `pull` will. Then"
+              " verify by re-pull, never by the ACK.")
+    elif acked:
         print(f"ACK from {node} on attempt {acked} — APPLIED")
     else:
         if opcode == CMD_SET_SCENE:

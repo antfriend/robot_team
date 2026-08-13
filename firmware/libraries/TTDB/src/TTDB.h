@@ -34,10 +34,93 @@
 #define TTDB_PERCEPT_LANE_LO 94
 #define TTDB_PERCEPT_LANE_HI 97
 
+// ⚠ WHY A LANE REWRITE NOW SAYS WHICH STEP FAILED (2026-08-13).
+// `removeLaneRange` returned a bare `false` from SEVEN places, and on 2026-08-13 the
+// Cardputer started failing it on every lane — @LAT96 from an operator prune and @LAT101
+// from the social field's own 60 s heartbeat — while V4-A ran the identical code on the
+// identical command and succeeded. Nothing on the node or the wire could say which of the
+// seven it was, so the cause could only be guessed at from a correlation (the failing node
+// was at a 5 KB largest contiguous block, the working one at 91 KB, and the SAME node
+// succeeded at 4.2 s of boot when it still had 147 KB).
+//
+// A boolean is the wrong return type for an operation with seven distinct ways to fail,
+// three of which mean "try again later" and one of which — a failed rename AFTER the
+// original was removed — means the TTDB is sitting in a .tmp and the node is about to look
+// empty. This enum is deliberately part of the LIBRARY rather than a Serial print in the
+// sketch: TTDB.cpp has no Serial (it is driven by `tests/shim/` natively), and the reason
+// has to survive into a native test.
+enum TtdbRewriteErr : uint8_t {
+  TTDB_RW_OK = 0,
+  TTDB_RW_BAD_ARGS,    // lo > hi, or no filesystem
+  TTDB_RW_OPEN_SRC,    // could not open the TTDB for reading
+  TTDB_RW_OPEN_TMP,    // could not create the .tmp — the classic out-of-heap/space point
+  TTDB_RW_READ,        // read error part-way through the copy
+  TTDB_RW_WRITE,       // write error part-way through the copy (space, or ENOMEM)
+  TTDB_RW_VERIFY,      // copy finished but the .tmp did not read back at the right size
+  TTDB_RW_REMOVE,      // could not remove the original; .tmp discarded, TTDB intact
+  TTDB_RW_RENAME,      // 🛑 original REMOVED and rename failed — data is in the .tmp
+  TTDB_RW_REINDEX,     // rewrite committed but the re-scan failed
+};
+// ⚠ VERIFY MUST NOT SHARE A CODE WITH WRITE, and conflating them cost a wrong diagnosis.
+// The post-close size check was first written to report TTDB_RW_WRITE, so a rewrite whose
+// COPY had completed perfectly reported the same "failed at step 'write'" as one that died
+// mid-copy — and the byte counter then showed `copied` equal to exactly the bytes that
+// should survive, which is what exposed it. A check bolted onto a step is not that step.
+
+// Is this failure worth retrying when there is more memory — i.e. at boot, before the
+// radios take the heap? True only for the I/O steps that fail for want of a resource.
+//
+// ⚠ The three excluded cases are excluded for different reasons, and none of them is
+// "unlikely to work": BAD_ARGS can NEVER succeed (the caller asked for a lane the guard
+// forbids), and RENAME/REINDEX both happen AFTER the original file was removed, so the
+// rewrite already half-happened and retrying it blind would be reasoning about a file
+// that is no longer where it was.
+inline bool ttdbRewriteRetryable(TtdbRewriteErr e) {
+  return e == TTDB_RW_OPEN_SRC || e == TTDB_RW_OPEN_TMP ||
+         e == TTDB_RW_READ     || e == TTDB_RW_WRITE;
+  // ⚠ VERIFY is deliberately absent. It means the copy ran to completion and the result
+  // still did not measure right — a disagreement about the file, not a shortage of
+  // anything, so more memory at boot changes nothing and rescheduling it just loops.
+}
+
+// Stable short names, safe to print. Kept beside the enum so the two cannot drift.
+inline const char* ttdbRewriteErrName(TtdbRewriteErr e) {
+  switch (e) {
+    case TTDB_RW_OK:       return "ok";
+    case TTDB_RW_BAD_ARGS: return "bad-args";
+    case TTDB_RW_OPEN_SRC: return "open-src";
+    case TTDB_RW_OPEN_TMP: return "open-tmp";
+    case TTDB_RW_READ:     return "read";
+    case TTDB_RW_WRITE:    return "write";
+    case TTDB_RW_VERIFY:   return "verify";
+    case TTDB_RW_REMOVE:   return "remove";
+    case TTDB_RW_RENAME:   return "RENAME-DATA-IN-TMP";
+    case TTDB_RW_REINDEX:  return "reindex";
+  }
+  return "?";
+}
+
 class Ttdb {
  public:
   // Mount must already be done by the caller (LittleFS.begin / SD.begin).
   bool begin(fs::FS& fs, const char* path);
+
+  // Which step of the last lane rewrite failed. Only meaningful after removeLane /
+  // removeLaneRange / removePerceptLanes returned false; a success sets it to
+  // TTDB_RW_OK. ⚠ `TTDB_RW_RENAME` is the one an operator must act on immediately —
+  // the live TTDB is in `<path>.tmp` and the node will boot empty.
+  TtdbRewriteErr lastRewriteErr() const { return rewrite_err_; }
+  const char* lastRewriteErrName() const { return ttdbRewriteErrName(rewrite_err_); }
+  // ⚠ Call before a prune whose failure you intend to INTERPRET. A prune can be refused
+  // by its caller (a full `@LAT100` marker lane) without ever reaching a rewrite, and the
+  // reason would then still hold whatever the previous rewrite left — so a
+  // never-attempted prune could read as a retryable I/O failure and be rescheduled
+  // forever. Clearing first makes TTDB_RW_OK mean "no rewrite was attempted".
+  void clearRewriteErr() { rewrite_err_ = TTDB_RW_OK; }
+  // How many bytes the last rewrite's copy managed before it stopped. ⚠ Worth printing
+  // with any failure: "0 of 120028" and "119000 of 120028" are completely different
+  // faults, and the step name alone cannot tell them apart.
+  size_t lastRewriteBytes() const { return rewrite_bytes_; }
 
   size_t fileSize() const { return file_size_; }
   int recordCount() const { return record_count_; }
@@ -122,5 +205,7 @@ class Ttdb {
   // last indexed record's span ran to EOF and swallowed every record past the cap, so
   // pruning a lane that happened to own record #288 deleted all of them.
   size_t tail_offset_ = 0;
+  TtdbRewriteErr rewrite_err_ = TTDB_RW_OK;
+  size_t rewrite_bytes_ = 0;
   TtdbRecord records_[TTDB_MAX_RECORDS];
 };

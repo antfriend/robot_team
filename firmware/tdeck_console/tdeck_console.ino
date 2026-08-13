@@ -1203,8 +1203,15 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
                           (size_t)t.payload_len - off);
   }
 
-  if (accepted && (t.flags & toot::FLAG_WANT_ACK))
-    emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+  // ⚠ RECORD WHAT THIS EXECUTION DECIDED, then answer. The dedup ring replays this for a
+  // retry of the same (src,seq); without it a duplicate is answered ACCEPTED regardless,
+  // which reports success for work that failed (2026-08-13, CMD_CLEAR_PERCEPTS).
+  // setOutcome is update-only, so the un-deduped USB path has no entry and stays that way.
+  if (t.flags & toot::FLAG_WANT_ACK) {
+    gDedup.setOutcome(t.src_node_id, t.toot_seq,
+                      accepted ? toot::DEDUP_ACKED : toot::DEDUP_REFUSED);
+    if (accepted) emitAck(t, toot::ACK_ACCEPTED, reply, ctx);
+  }
 }
 
 // A TTDB_REQ / TTDB_PUT arriving over ESP-NOW is stashed and served from loop(): a
@@ -1225,7 +1232,13 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
   if (t.chunk_total > 1) return;            // no chunked consumer on the console
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {
-    if (t.flags & toot::FLAG_WANT_ACK)      // TTN-RFC-0007 §5: re-ACK a lost-ACK dup
+    // TTN-RFC-0007 §5: re-ACK a lost-ACK dup — but REPLAY THE FIRST EXECUTION'S ANSWER,
+    // which may have been silence. Answering ACCEPTED unconditionally reported a prune
+    // that never ran as APPLIED (2026-08-13). A dup whose first run refused, or has not
+    // finished, gets nothing: a false negative is loud and recoverable, a false positive
+    // reads as done and stops anyone looking.
+    if ((t.flags & toot::FLAG_WANT_ACK) &&
+        gDedup.outcome(t.src_node_id, t.toot_seq) == toot::DEDUP_ACKED)
       emitAck(t, toot::ACK_ACCEPTED, sendEspNow, nullptr);
     return;
   }

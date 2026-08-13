@@ -345,6 +345,13 @@ enum AckStatus : uint8_t {
   ACK_ACCEPTED = 0,            // toot accepted and processed
   ACK_REASSEMBLY_PENDING = 1,  // chunk stored, awaiting siblings
   ACK_DROPPED_NO_RESRC = 2,    // no reassembly slot / evicted
+  // ⚠ ACCEPTED BUT NOT YET DONE — the node has DURABLY SCHEDULED the work and will do it
+  // at its next boot (2026-08-13, `CMD_CLEAR_PERCEPTS` on a heap-starved node). Without
+  // this the node had only two honest answers and neither was true: ACCEPTED claims work
+  // that has not happened, and silence reads as "nothing will happen" when something
+  // certainly will. Additive to the wire — a node that never defers never emits it, and
+  // an old laptop that does not know it simply sees a non-zero status.
+  ACK_DEFERRED = 3,
 };
 
 struct Toot {
@@ -514,8 +521,37 @@ size_t buildBleAdvert(uint8_t* out, size_t cap, uint32_t node_id,
 bool parseBleAdvert(const uint8_t* data, size_t len, const uint8_t* key, size_t key_len,
                     uint32_t& node_id);
 
-// Small ring of seen (src,seq) keys. seen() returns true if already present,
-// otherwise records the key and returns false.
+// What the FIRST execution of a (src,seq) actually did. The re-ACK path replays this
+// instead of assuming success.
+//
+// 🛑 THE BUG THIS EXISTS FOR (2026-08-13). The dedup re-ACK used to answer every duplicate
+// with `ACK_ACCEPTED` unconditionally. That is right for an op that ACKs unconditionally,
+// and it MANUFACTURES SUCCESS for one that does not: `CMD_CLEAR_PERCEPTS` deliberately
+// ACKs only when the prune worked ("so a failed prune is loud and the laptop retries").
+// On the Cardputer the first attempt ran, failed, and correctly stayed silent — and
+// attempts 2..4, carrying the same (src,seq), were re-ACKed by this path. The laptop
+// printed `ACK on attempt 4 — APPLIED` for a prune that never happened, and only a re-pull
+// exposed it.
+//
+// ⚠ THE DIRECTION OF THE REMAINING ERROR IS A DELIBERATE CHOICE. A duplicate whose first
+// execution refused, or has not finished yet, now gets SILENCE — so the laptop may report
+// "NOT applied" for something still in flight or later successful. That is a false
+// NEGATIVE, which this project already documents, detects with a ping, and resolves by
+// re-pull ([[band-play-ack-false-negative]]). A false POSITIVE has no such safety net: it
+// reads as done and stops anyone looking. Given only one of the two can be eliminated
+// without a new wire status, eliminate the silent one.
+// 📎 Follow-up worth having: an `ACK_REFUSED` status would turn that silence into "I ran
+// it and it failed", which is strictly better than both. It is additive to the wire
+// (old nodes never emit it), so it can land later without a flag day.
+enum DedupOutcome : uint8_t {
+  DEDUP_PENDING = 0,   // dispatched; outcome not known yet (deferred flash work)
+  DEDUP_ACKED,         // first execution accepted it and ACKed — a dup may be re-ACKed
+  DEDUP_REFUSED,       // first execution ran and withheld its ACK — a dup must NOT ACK
+  DEDUP_DEFERRED,      // first execution SCHEDULED it — a dup replays ACK_DEFERRED
+};
+
+// Small ring of seen (src,seq) keys plus what the first execution of each one did.
+// seen() returns true if already present, otherwise records the key and returns false.
 class DedupSet {
  public:
   explicit DedupSet(size_t cap = 64) : cap_(cap), head_(0), filled_(0) {
@@ -527,13 +563,35 @@ class DedupSet {
       if (ring_[i].src == src && ring_[i].seq == seq) return true;
     ring_[head_].src = src;
     ring_[head_].seq = seq;
+    ring_[head_].outcome = DEDUP_PENDING;
     head_ = (head_ + 1) % cap_;
     if (filled_ < cap_) ++filled_;
     return false;
   }
 
+  // What the first execution of this key did. An unknown key reads PENDING — the honest
+  // answer, and the one that withholds an ACK rather than inventing one.
+  DedupOutcome outcome(uint32_t src, uint32_t seq) const {
+    for (size_t i = 0; i < filled_; ++i)
+      if (ring_[i].src == src && ring_[i].seq == seq) return ring_[i].outcome;
+    return DEDUP_PENDING;
+  }
+
+  // Record what the dispatch decided. ⚠ UPDATE-ONLY, NEVER INSERT: the trusted USB link is
+  // deliberately NOT deduped so the laptop can retry, and this is called from the shared
+  // dispatch that both transports run through. Inserting here would quietly start
+  // deduping USB — turning a supported retry into a dropped one.
+  void setOutcome(uint32_t src, uint32_t seq, DedupOutcome o) {
+    for (size_t i = 0; i < filled_; ++i)
+      if (ring_[i].src == src && ring_[i].seq == seq) { ring_[i].outcome = o; return; }
+  }
+
  private:
-  struct Entry { uint32_t src = 0; uint32_t seq = 0; };
+  struct Entry {
+    uint32_t src = 0;
+    uint32_t seq = 0;
+    DedupOutcome outcome = DEDUP_PENDING;
+  };
   Entry* ring_;
   size_t cap_, head_, filled_;
 };

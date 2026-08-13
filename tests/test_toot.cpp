@@ -75,6 +75,47 @@ int main() {
   CHECK(dd.seen(1, 1), "second (1,1) is a dupe");
   CHECK(!dd.seen(1, 2), "(1,2) is new");
 
+  // 5a) THE DEDUP RE-ACK MUST REPLAY THE FIRST EXECUTION'S ANSWER (2026-08-13).
+  //
+  // The re-ACK path used to answer every duplicate ACK_ACCEPTED unconditionally. For
+  // CMD_CLEAR_PERCEPTS — which deliberately ACKs only on success — that manufactured the
+  // success: the Cardputer's prune failed, withheld its ACK, and attempts 2..4 were
+  // re-ACKed, so the laptop printed "APPLIED" for a prune that never happened.
+  CHECK(dd.outcome(1, 1) == toot::DEDUP_PENDING,
+        "a freshly-seen key starts PENDING — not ACKED, so a dup cannot be answered yet");
+  dd.setOutcome(1, 1, toot::DEDUP_REFUSED);
+  CHECK(dd.outcome(1, 1) == toot::DEDUP_REFUSED, "a refusal is recorded");
+  dd.setOutcome(1, 2, toot::DEDUP_ACKED);
+  CHECK(dd.outcome(1, 2) == toot::DEDUP_ACKED, "and an acceptance is recorded");
+  CHECK(dd.outcome(1, 1) == toot::DEDUP_REFUSED,
+        "the two keys do not bleed into each other");
+
+  // ⚠ UPDATE-ONLY. The trusted USB link is deliberately NOT deduped so the laptop can
+  // retry, and setOutcome is called from the dispatch BOTH transports share. If it
+  // inserted, a USB toot would silently enter the ring and its retry would be dropped.
+  dd.setOutcome(99, 99, toot::DEDUP_ACKED);
+  CHECK(dd.outcome(99, 99) == toot::DEDUP_PENDING,
+        "setOutcome on an unknown key records NOTHING (update-only)");
+  CHECK(!dd.seen(99, 99),
+        "and it did not insert — the un-deduped USB path stays un-deduped");
+
+  // An unknown key reads PENDING, which is the answer that withholds an ACK rather than
+  // inventing one. Evicted-by-wraparound keys land here too, and silence is right there.
+  CHECK(dd.outcome(4242, 7) == toot::DEDUP_PENDING,
+        "an unknown key reads PENDING, so a dup of it is answered with silence");
+
+  // 5b) DEFERRED is a THIRD outcome, not a flavour of the other two. A node that queued a
+  // prune for its next boot has neither done it (ACCEPTED would be a lie) nor declined it
+  // (silence would be a lie the other way), so the dup replays ACK_DEFERRED.
+  CHECK(!dd.seen(2, 5), "(2,5) is new");
+  dd.setOutcome(2, 5, toot::DEDUP_DEFERRED);
+  CHECK(dd.outcome(2, 5) == toot::DEDUP_DEFERRED, "a deferral is recorded");
+  CHECK(toot::DEDUP_DEFERRED != toot::DEDUP_ACKED &&
+        toot::DEDUP_DEFERRED != toot::DEDUP_REFUSED,
+        "and it is distinct from both — a dup must not read as done OR as declined");
+  CHECK(toot::ACK_DEFERRED == 3,
+        "ACK_DEFERRED is 3 on the wire (pinned: companion.py hard-codes it)");
+
   // 5b) ACK helpers (TTN-RFC-0007). Build an ACK for a want_ack toot, encode +
   // verify it on the wire, and check the sender's outstanding-table match.
   toot::Toot orig;                       // the toot being acknowledged

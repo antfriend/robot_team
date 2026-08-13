@@ -638,9 +638,22 @@ different screens from the same TTDB.*
    ITEM ABOVE.** 0.2's validation plan tacitly assumed a run could be re-taken at
    will. Measured, it cannot:
    - **Prune markers.** A run needing a clean lane costs `@LAT100` boundary
-     records, and there is **no prune path for `@LAT100` itself**. The Cardputer —
-     the only node with an IMU, hence the only stillness witness — stands at
-     **30/32**: two clean-lane experiments remain **for the life of that firmware**.
+     records, and there is **no prune path for `@LAT100` itself**.
+     🎯 **REVISED 2026-08-13 — "for the life of that firmware" WAS THE WRONG UNIT, AND
+     THE BUDGET IS NOT CURRENTLY BINDING.** This line read *"the Cardputer stands at
+     30/32: two clean-lane experiments remain for the life of that firmware"*. Measured
+     today, its `@LAT100` is **0/32** — the 2026-08-11 FS wipe refunded the whole budget,
+     because **the marker budget is per FILESYSTEM, not per firmware**. An
+     `Upload-*-FS.ps1` resets it; a reflash does not. So the escape hatch is real and the
+     scarcity was overstated by the unit rather than by the count.
+     ⚠ **The cost of that hatch is the thing to keep stating:** an FS wipe spends every
+     learned lane (`@LAT91` beliefs return to baseline, `@LAT92` outcomes go with them) to
+     buy markers back. It is expensive, not free — but it is **not a dead end**, which is
+     what "for the life of that firmware" implied.
+     📊 Measured 2026-08-13, both boards on a cable: **Cardputer `@LAT100` 0/32**, **V4-A
+     10/32 → 12/32 after today's two prunes (20 free)**. Neither node is marker-bound.
+     The binding constraint is now the **shared index** (`TTDB_MAX_RECORDS` 288) and the
+     `@LAT96`/`@LAT97`/`@LAT94` caps, not the markers.
    - **Wall-clock.** An 8 h lane cap plus a ≥5.2 h gate floor means one usable
      measurement per night, and three of the first three attempts were lost or
      fragmented by resets.

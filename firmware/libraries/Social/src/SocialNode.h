@@ -165,8 +165,14 @@ class SocialNode {
       return false;
     }
     if (!db.removeLane(SOCIAL_FIELD_LANE)) {
-      Serial.printf("[social] field persist FAILED (removeLane @LAT%d)\n",
-                    SOCIAL_FIELD_LANE);
+      // Name the step and the heap. This fires on a 60 s heartbeat, so it is the fleet's
+      // cheapest early warning that lane rewrites have stopped working on a node — on
+      // 2026-08-13 it had been firing on the Cardputer for some time before an operator
+      // prune noticed the same failure, and "FAILED" alone said nothing actionable.
+      Serial.printf("[social] field persist FAILED (removeLane @LAT%d) at step '%s' — "
+                    "maxalloc %u B\n",
+                    SOCIAL_FIELD_LANE, db.lastRewriteErrName(),
+                    (unsigned)ESP.getMaxAllocHeap());
       t_.deferPersist(now_ms);
       return false;
     }

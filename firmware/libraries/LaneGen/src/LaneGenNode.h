@@ -24,9 +24,92 @@
 //   5. Append the markers.
 #pragma once
 #include <Arduino.h>
+#include <LittleFS.h>      // free-space figure in the rewrite-failure report
+#include <Preferences.h>
 #include <TTDB.h>
 #include <TimeStream.h>
 #include "LaneGen.h"
+
+// ---------------------------------------------------------------------------------
+// A PRUNE THAT COULD NOT RUN NOW, SCHEDULED FOR THE NEXT BOOT (2026-08-13).
+//
+// 🔬 WHY THIS EXISTS, measured rather than argued. `Ttdb::removeLaneRange` rewrites the
+// whole file, and the filesystem allocates while it does. On the Cardputer — BLE + WiFi +
+// display + three globes — the largest contiguous block is ~7 KB and the rewrite fails at
+// its `read` or `write` step. It does not fail for want of a bigger buffer of ours (the
+// copy uses 128 B of stack): it dies inside the filesystem, at whichever call next needs
+// memory. What settles it is WHEN:
+//
+//   same node, same 120 KB file, same code
+//     during setup(), radios not yet up   maxalloc 102 KB   -> rewrite SUCCEEDS
+//     once BLE + WiFi + display are up    maxalloc   7 KB   -> rewrite FAILS
+//
+// Verified end to end on 2026-08-13: three lanes (@LAT96, @LAT97, @LAT94) each refused
+// in place and each completed at the next boot, TTDB 120307 -> 43143 B.
+//
+// ⚠ ONE REPORTED FAILURE IN THAT INVESTIGATION WAS THE INSTRUMENT'S OWN, and the note is
+// here so the next reader does not over-trust the step name. The post-copy size check was
+// first written to report `TTDB_RW_WRITE`, so a rewrite whose COPY HAD COMPLETED reported
+// "failed at step 'write'" — indistinguishable from a real mid-copy failure, and it broke
+// the boot attempt too. It was caught by arithmetic, not by inspection: the byte counter
+// read exactly the number of bytes that should survive. VERIFY now has its own code.
+//
+// ⚠ STORED IN NVS, NOT ON THE FILESYSTEM, and that is the whole point: the node is in this
+// state precisely because filesystem writes are failing. A `/prune.pending` marker file
+// would be a smaller instance of the operation that is already broken. NVS is a separate
+// subsystem with its own pool.
+//
+// 📎 NO AUTOMATIC REBOOT. `companion.py` resets the board on nearly every call, so the
+// operator's natural next step — a `pull` to verify — IS the reboot that runs it. Forcing
+// one would cost the pulse era, mesh membership and 5–27 s of rejoin, unasked, possibly
+// mid-experiment.
+namespace lanegen {
+
+// A prune has THREE outcomes, not two: done, refused, or durably scheduled for the next
+// boot. Collapsing the third into either of the others is a lie in one direction or the
+// other — ACCEPTED claims work that has not happened, silence denies work that will.
+//
+// ⚠ Lives HERE rather than in a sketch because a `.ino` cannot own a type used in a
+// function signature: arduino-cli inserts its auto-generated prototypes above anything
+// the sketch declares, so the enum is not in scope at the prototype. (Found the direct
+// way: `error: 'ClearResult' does not name a type`.) It belongs in the library regardless
+// — it is the prune's result, and every sketch that prunes needs the same three answers.
+enum PruneResult : uint8_t { PRUNE_FAILED = 0, PRUNE_OK, PRUNE_DEFERRED };
+
+// `lane` is the wire byte, where **0 legitimately means "every percept lane"** — so the
+// stored value is lane+1 and 0 is the "nothing scheduled" sentinel. Using 0 for "none"
+// would have made the broadest prune the one that could never be scheduled.
+//
+// ⚠ ONE SLOT. Scheduling a second lane before the first has run OVERWRITES it, so two
+// deferrals with no reboot between them lose the earlier one. Left as one slot on
+// purpose: in practice every `companion.py` call resets the board, so a second command
+// has already run the first schedule by the time it arrives (observed 2026-08-13 — lanes
+// 97 and 94 were deferred in turn and both completed). If that ever stops being true, the
+// fix is a lane BITMASK here, not a queue.
+inline void setPendingPrune(uint8_t lane) {
+  Preferences p;
+  if (!p.begin("lanegen", false)) return;
+  p.putUChar("prune", (uint8_t)(lane + 1));
+  p.end();
+}
+
+// Read AND CLEAR, in that order.
+// ⚠ THE CLEAR HAPPENS BEFORE THE CALLER ATTEMPTS THE PRUNE, DELIBERATELY. If a scheduled
+// prune also fails at boot, a flag that survived the attempt would make the node reboot
+// into the same failure forever. One attempt per schedule; a second failure is the
+// operator's to see, not the node's to loop on.
+inline bool takePendingPrune(uint8_t& lane) {
+  Preferences p;
+  if (!p.begin("lanegen", false)) return false;
+  const uint8_t v = p.getUChar("prune", 0);
+  if (v) p.remove("prune");
+  p.end();
+  if (!v) return false;
+  lane = (uint8_t)(v - 1);
+  return true;
+}
+
+}  // namespace lanegen
 
 #ifndef LANEGEN_MAX_LANE
 // A prune is an operator action, not a periodic write: the first one in this fleet's
@@ -143,7 +226,22 @@ inline bool prune(Ttdb& db, uint8_t lane, const timestream::Stamp& stamp,
   }
 
   if (!db.removePerceptLanes(lane)) {
-    Serial.println("[lanegen] removePerceptLanes FAILED — nothing pruned, no marker");
+    // ⚠ NAME THE STEP AND THE TWO NUMBERS THAT DISCRIMINATE. "FAILED" on its own cost a
+    // whole session on 2026-08-13: the Cardputer refused every lane rewrite while V4-A ran
+    // the identical code and succeeded, and nothing on the node or the wire could say
+    // which of the seven failure points it was. Heap is `maxalloc`, NOT free heap
+    // ([[maxalloc-not-free-heap]]) — a fragmented node has plenty of the second and none
+    // of the first, and a filesystem open needs the first.
+    Serial.printf("[lanegen] removePerceptLanes FAILED at step '%s' after %u of %u B "
+                  "copied — nothing pruned, no marker. maxalloc %u B, %d records, FS %u B "
+                  "free.\n",
+                  db.lastRewriteErrName(), (unsigned)db.lastRewriteBytes(),
+                  (unsigned)db.fileSize(), (unsigned)ESP.getMaxAllocHeap(),
+                  db.recordCount(),
+                  (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
+    if (db.lastRewriteErr() == TTDB_RW_RENAME)
+      Serial.printf("[lanegen] 🛑 THE TTDB IS IN %s.tmp — THIS NODE WILL BOOT EMPTY. "
+                    "Rename it back before rebooting.\n", db.path());
     return false;
   }
 
