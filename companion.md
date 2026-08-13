@@ -6542,6 +6542,55 @@ If a fact lives in one of these, link to it from here — don't copy it.
   `master/entity-baseline/cardputer_{preflash,postprune}_2026-08-13_pm.md`.
   🧩 **Fix status: K10, V4-A, Cardputer carry it. V4-B, V4-C and the T-Deck do not.**
 
+- 🛰 **2026-08-13 — T-DECK AND V4-B FLASHED; FIVE OF SIX BOARDS NOW CARRY THE FIX, AND THE
+  TWO BUILDS WENT TO THE RIGHT BOARDS.** COM10 (`20:6E:F1:A7:D7:80`) and COM9
+  (`8C:FD:49:B6:54:48`), both identified by `SER=` in 3 s, both firmware only.
+  ✅ **The build split is the part that had to be right, and it was read back from each
+  board rather than assumed:** the T-Deck got
+  `--build-property "compiler.cpp.extra_flags=-DENTITYPERCEPT_MAX_RUN=1"` and declares
+  `max_run:1 … <- MEASUREMENT BUILD (no folding)` **because it is the walk's WALKER**; V4-B
+  got the plain compile and declares `max_run:6` **because it is not**. Two boards, two
+  different flags, in one session — exactly the mistake this afternoon made in the other
+  direction, and the boot line is why it is checkable at all.
+  📎 T-Deck **hands-free for the sixth consecutive flash** (the BOOT/RST dance stays the
+  fallback, but it has not been needed since 08-03); all three globes reloaded.
+  🆕 **THE LOW-HEAP WALL IS NOT A CARDPUTER TRAIT — THE T-DECK IS AT `maxalloc 14 K` TOO**
+  (Cardputer 13 K, V4-A/V4-B **99 K**). The morning's write-up framed it as the Cardputer's
+  peculiarity ("BLE + WiFi + display + three globes"); the T-Deck has the same shape and
+  the same number. So *the handhelds* are the constrained class, not one board — which
+  matters because the deferred-prune path exists for exactly this and only the Cardputer
+  had ever exercised it.
+  ✅ **PRUNED AND VERIFIED BY RE-PULL, both boards, no collateral:**
+  ```
+  V4-B    118 -> 10 records,  64760 -> 2665 B   @LAT90 16->1  @LAT96 48->0  @LAT97 48->0
+          @LAT100 1 -> 4 (exactly 3 markers, 28 left)
+  T-Deck   86 -> 44 records,  51256 -> 21773 B  @LAT97 48->0
+          @LAT100 2 -> 3 (exactly 1 marker, 29 left); @LAT96/@LAT90/@LAT101 untouched
+  ```
+  🛑 **V4-B's `@LAT90` WAS 16/16 — A SECOND BLIND WITNESS, AND THE THIRD FOUND FULL TODAY**
+  (the K10's was 16/16 this morning, V4-A's is at 9). The fleet's timelines flap and its
+  witnesses saturate in about two days; **that cadence is now observed on three separate
+  boards, not inferred from one.** `TIMESTREAM_MAX_LANE 16`'s refusal-on-full policy is
+  still the open question it has been since 08-03, and this is the evidence to decide it
+  with — a cap reached this reliably is a design parameter, not an incident.
+  ⚠ **The T-Deck's `@LAT96` was deliberately NOT pruned.** It is the walker's measurement
+  lane at 18/48, and the standing rule is *prune the walk lanes immediately before the run,
+  never in advance*. Its `@LAT97` was full and is not a walk lane, so that one went.
+  📋 **Walk pair as it now stands — the anchor is still the binding constraint:**
+  ```
+    V4-A    anchor   max_run:1   @LAT96 34/48 -> 14 free ~ 2.3 h   <- BINDING
+    T-Deck  walker   max_run:1   @LAT96 18/48 -> 30 free ~ 5.0 h
+  ```
+  🔬 **Same caveat as the Cardputer entry, and it is worth repeating rather than quietly
+  dropping:** V4-B ran three prunes in a row and all three applied, which *looks* like the
+  `tail_offset_` fix chaining. It is not clean evidence — every `companion.py` call may
+  reset the board, and a fresh boot is the case the bug does not bite. ⚠ It is also
+  **unknown whether a V4 resets on port open**: 2026-08-03 recorded that V4-C did *not*
+  (n=1). If V4s indeed do not reset, then V4-B's lane-96 prune followed lane-90's marker
+  append **in one session** and is real evidence — but that premise is unverified, so the
+  claim is not made. **The K10 test remains the only clean demonstration.**
+  🧩 **Fix status: K10, V4-A, Cardputer, T-Deck, V4-B carry it. Only V4-C does not.**
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
