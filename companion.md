@@ -6506,6 +6506,42 @@ If a fact lives in one of these, link to it from here — don't copy it.
   Cardputer.** The Cardputer wants it most after V4-A — it is the board whose rewrites were
   already failing on heap, so it was hitting *both* causes at once.
 
+- 🃏 **2026-08-13 — CARDPUTER FLASHED AND THREE LANES PRUNED; THE FIX IS NOW ON THREE OF
+  SIX BOARDS.** COM14, `50:78:7D:CE:88:10`, firmware only (huge_app + `FlashSize=8M`),
+  hands-free as always on this board. **42 % flash.** Confirmed by its own declaration:
+  `@LAT96 build: max_run:6` with **no** `MEASUREMENT BUILD` tag — correct, it was taken off
+  the measurement build this morning and this flash had to preserve *that* choice.
+  📊 **It had refilled hard since the morning prune: 43143 B / 79 records → 137509 B / 225
+  records in a day**, with **five lanes at cap** (`@LAT91` 8/8, `@LAT92` 24/24, `@LAT94`
+  `@LAT95` `@LAT97` all 48/48) and the index down to 63 free.
+  ✅ **`@LAT94`/`@LAT95`/`@LAT97` pruned to 0, VERIFIED BY RE-PULL** (225 → 88 records,
+  137509 → 81347 B), **exactly three new `@LAT100` markers** (3 → 6, 26 left) and the
+  learned lanes deliberately untouched. Three senses recording again.
+  ⚠ **All three reported `ACK … on attempt 3 — APPLIED`, which is NOT evidence** — this
+  morning's rule stands ([[band-play-ack-false-negative]]). It is also worth being precise
+  about *why* it is not evidence here: **dedup is radio-only**, so over this USB cable every
+  attempt genuinely re-executes and no re-ACK can lie. The re-pull is still what settled it.
+  🔬 **WHAT THIS SESSION DOES *NOT* PROVE, STATED SO IT IS NOT READ AS MORE THAN IT IS.**
+  Three prunes in a row on the node that could not complete one this morning is suggestive,
+  **but it does not isolate the `tail_offset_` fix**: `companion.py` resets the board on
+  every call, so each prune ran in its own fresh boot with one rewrite in it — which is
+  exactly the case the bug does *not* bite. **The decisive evidence is the K10 test** (four
+  appends since `begin()`, then a prune that previously failed at step `read`). Two
+  plausible readings of today's success (the fix, or simply the CMD landing early in boot at
+  139 K maxalloc rather than 13 K) are not separated by this run.
+  📎 Likewise the belief lane is **byte-identical across the prune** (`@LAT91LON0 sid:76dbf602
+  conf:190 rev:1`), which says nothing either way about the Dream-Cycle rewrite path that
+  was failing this morning: `@LAT92` is the evidence beliefs fold from and it was left
+  untouched, so the reconciler had nothing new to conclude.
+  🛑 **THE BELIEF SATURATION IS UNADDRESSED, BY CHOICE.** `@LAT91` 8/8 and `@LAT92` 24/24
+  remain full, so the node still boots saying `⚠ 31 claim(s) DROPPED — belief slots full
+  (PERCEPTLEARN_MAX_BELIEFS 8): conf below is folded from a SUBSET of @LAT92`. **It is
+  still predicting and no longer testifying.** Clearing `@LAT92` is the one lever, and it
+  is destructive beyond its own lane (every `@LAT91` belief returns to baseline), so it was
+  offered and declined rather than assumed. 📎 Banked both sides:
+  `master/entity-baseline/cardputer_{preflash,postprune}_2026-08-13_pm.md`.
+  🧩 **Fix status: K10, V4-A, Cardputer carry it. V4-B, V4-C and the T-Deck do not.**
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
