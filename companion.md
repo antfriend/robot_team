@@ -6639,6 +6639,68 @@ If a fact lives in one of these, link to it from here — don't copy it.
   this machine. The hardware A/B above is stronger evidence for *this* defect, but it does
   not protect against the regression coming back.
 
+- 🎯 **NEXT SESSION'S FOCUS — `@LAT90` SATURATION: DECIDE `TIMESTREAM_MAX_LANE`'s
+  REFUSAL-ON-FULL POLICY. THE MEASUREMENT IS DONE; THE DECISION IS NOT.** Open since
+  2026-08-03 with the explicit instruction *"don't raise the cap; decide the policy against
+  the post-fix accumulation rate."* On 2026-08-13 that rate arrived unasked — **four of five
+  witness-bearing boards found at 16/16 within ~2 days of their last prune** — so the
+  blocking unknown is discharged and this is now a design call, not an observation task.
+  📊 **SURVEYED FIRST, so the next session starts from evidence rather than from the
+  question.** `scratchpad/timeline_survey.py` (new, reads pulled files, banked with today's
+  six pulls) reports **composition**, which a record count cannot:
+  ```
+  board        recs  ORIGIN   ADOPTED   RECONCILED  ANCHORED
+  k10            16  13       1         2           0
+  v4a             9  2        2         5           0
+  cardputer      10  5        5         0           0
+  tdeck          12  4        6         2           0
+  v4b            16  2        9         5           0
+  v4c            16  4        9         3           0
+
+  43 distinct stream ids cost 73 lane slots fleet-wide (1.70x amplification)
+  26 of 43 ids (60%) exist on ONE board only — never adopted by anyone
+  ```
+  🔑 **THREE FINDINGS THAT REFRAME THE QUESTION — read these before proposing a cap.**
+  1. 🧩 **`@LAT90` IS A FLEET-COUPLED RESOURCE, NOT A PER-NODE ONE.** One node's
+     self-origination becomes an `ADOPTED` on every peer that joins it: the widest id in
+     the fleet's history cost **6 slots for one fact**, and 43 ids consumed 73 slots.
+     **A per-node cap is therefore the wrong shape of control for a fleet-wide cost** —
+     which is the single most important thing to settle before touching the number.
+  2. 🛑 **60 % OF THE IDS WERE NEVER SHARED WITH ANYONE.** 26 of 43 appear on exactly one
+     board: a timeline that node held, wrote down, and no peer ever adopted. Those slots
+     bought the fleet no shared timeline at all. **If most of the lane is transient
+     identities, raising the cap buys more room to record noise** — the churn is the
+     target, not the ceiling. ⚠ Do NOT assume all 26 are pathological before checking:
+     a legitimately old stream from before its peers powered on looks identical here.
+     **That disambiguation is the first task**, and it is a question about the banked
+     files, not the hardware.
+  3. 👁 **THE K10 IS THE OUTLIER AND IT NAMES THE MECHANISM: 13 of its 16 are `ORIGIN`.**
+     It is the board most often powered alone (`scene 0 ALONE` was observed today), so it
+     loses the 6 s listen race and starts its own timeline. The 30 s `STREAM-ORIGIN`
+     settle hold added 2026-08-03 exists to suppress exactly this and **30 ORIGINs still
+     got written fleet-wide** — so either the hold is too short, or these did settle and
+     were superseded later. **Distinguishing those two is a second, separable task.**
+  4. 📎 **`ANCHORED` IS ZERO ON ALL SIX BOARDS, EVER.** That branch has never once fired
+     (it is written only when `wall_conflict_ms != 0`). Either dead code or an untested
+     path — worth knowing which before reasoning about the lane's budget.
+  🧭 **The four candidate policies, so the session argues about the right axis:**
+  **(a)** raise the cap — treats a symptom, and finding 1 says the cost is fleet-wide;
+  **(b)** evict oldest instead of refusing — but a citation into `@LAT90` is an ORDINAL
+  ([[lane-generations]]), so eviction re-points every existing one, which is the whole
+  reason prunes write a `@LAT100` boundary; **(c)** reduce the churn at the source —
+  lengthen/repair the listen window so fewer ORIGINs happen (attacks finding 3);
+  **(d)** stop recording ids the fleet never used — needs finding 2 resolved first.
+  ⚠ **Deciding (a) without resolving finding 2 is the trap this entry exists to prevent.**
+  ✅ **Everything needed is already on disk — no cable required to start.** Six banked
+  pre-prune pulls (`master/k10_1_preflash_2026-08-13.md`,
+  `master/entity-baseline/{v4a,cardputer}_preflash_2026-08-13_pm.md`,
+  `master/ui/{tdeck,v4b,v4c}_preflash_2026-08-13_pm.md`) each carry a FULL or near-full
+  `@LAT90` lane, and every one of those lanes was pruned afterwards — **so these files are
+  the only copy of that evidence.** ⚠ Re-pulling the boards will NOT reproduce them.
+  📌 Note the fleet's lanes are now nearly empty (K10 1, V4-A 9, V4-B 1, V4-C 1, T-Deck 14,
+  Cardputer 10), which makes the next two days a **clean natural experiment on refill rate**
+  if it is wanted — but only if nobody prunes `@LAT90` again first.
+
 Keep this section current. It is the first thing the next session reads.
 
 ---
