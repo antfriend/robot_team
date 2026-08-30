@@ -802,10 +802,20 @@ static const int EYE_R  = 152;                // rows 8..312, columns clipped
 static const int IRIS_R = 74;
 static const int IRIS_OUTLINE = 8;            // thick black limbal ring
 static const int IRIS_OUTER = IRIS_R + IRIS_OUTLINE;
+// ...and a THIN WHITE RIM outside that black ring. On a real eye the limbus is not a hard
+// edge against the sclera — there is a bright band where the cornea catches the room — and
+// drawing it makes the black ring read as the edge of the iris rather than as a hole cut
+// in the ball. It is white on a near-white sclera (COL_SCLERA is 238,236,228), so it reads
+// as a highlight rather than as an outline; widen IRIS_RIM if it needs to say more.
+static const int IRIS_RIM = 3;                // thin white ring outside the black one
+// The OUTERMOST radius of the moving assembly, and therefore the radius every span that
+// erases, skips, or bounds the iris has to use. IRIS_OUTER now describes only the black
+// ring — anything geometric wants IRIS_EDGE, or the rim gets left behind on the sclera.
+static const int IRIS_EDGE = IRIS_OUTER + IRIS_RIM;
 static const int PUPIL_R_MIN = 20, PUPIL_R_MAX = 38;   // arousal (loudness) dilates it
-// Travel is bounded by the OUTLINE's radius, not the iris's, or a full-tilt gaze pushes
-// the black ring past the edge of the sclera.
-static const int EYE_REACH = EYE_R - IRIS_OUTER - 2;
+// Travel is bounded by the outermost RIM's radius, not the iris's, or a full-tilt gaze
+// pushes the rings past the edge of the sclera.
+static const int EYE_REACH = EYE_R - IRIS_EDGE - 2;
 // The catchlight is a reflection of the ROOM's light source, so it belongs to the room:
 // it stays put while the iris slides under it, which is why it is a screen coordinate
 // and not an offset from the iris.
@@ -819,9 +829,22 @@ static const int GLINT_R = 30;
 // panel off the bus for most of every beat, which is what stops a 240x320 display from
 // eating the step clock this node has to keep.
 static const uint32_t EYE_PULSE_MS = 240;       // render window at each beat
-static const uint32_t EYE_PULSE_FRAME_MS = 80;  // frames within that window
+// 2 frames per pulse, not 3 (was 80 ms). This panel is 240x320 at 20 MHz and the iris
+// assembly is 88 px across — ~24k pixels, ~19 ms of SPI — so a repaint is a substantial
+// fraction of the frame interval rather than a dab. Drawing it three times a beat is what
+// made the iris read as flickering rather than as moving; twice a beat, with the deadbands
+// below suppressing the frames that had nothing to say, is a creature keeping time.
+static const uint32_t EYE_PULSE_FRAME_MS = 120;  // frames within that window
 static const uint32_t BLINK_MS = EYE_PULSE_FRAME_MS - 10;   // exactly one frame shut
 static const uint32_t BLINK_GAP_MS = 8000;
+
+// FLICKER CONTROL, and the more important half of it: how much has to CHANGE before the
+// eye is worth repainting. The accelerometer is noisy and arousal breathes, so the gaze
+// and the pupil both wander by a pixel at rest — and a one-pixel move used to repaint the
+// whole assembly. Below these thresholds the frame writes NOTHING to the panel, which is
+// what makes a still board show a still eye instead of a shimmering one.
+static const int EYE_MOVE_MIN_PX = 3;   // gaze deadband, ~5% of EYE_REACH
+static const int PUPIL_MIN_STEP  = 2;   // dilation deadband, in radius px
 
 static const uint16_t COL_SCLERA = rgb565(238, 236, 228);
 // RED, and the same red as the Cardputer's representor — so the fleet's two eyes read as
@@ -831,11 +854,50 @@ static const uint16_t COL_IRIS   = rgb565(210, 40, 40);
 // resting red to be legible across a room at a glance, which is the only distance this
 // screen is ever read from.
 static const uint16_t COL_IRIS_SING = rgb565(255, 190, 60);
+// The limbal highlight. Named separately from the catchlight even though both are white:
+// the rim belongs to the eye and travels with it, the catchlight belongs to the room and
+// stays put.
+static const uint16_t COL_RIM    = rgb565(255, 255, 255);
 
 static bool  gEyePainted = false;             // is the sclera currently on the panel?
 static int   gIrisX = -1000, gIrisY = 0, gPupilR = -1;   // last painted iris
+static uint16_t gIrisCol = 0;                 // ...and the colour it was painted in
 static bool  gBlinking = false;
 static uint32_t gBlinkT0 = 0, gNextBlink = 0;
+
+// One horizontal span, clamped to the panel by hand. The ball is WIDER THAN THE SCREEN,
+// so at full tilt the iris runs off both sides and every span in this view can start
+// negative or end past the last column.
+static inline void hspan(int x, int y, int w, uint16_t color) {
+  if (w <= 0 || y < 0 || y >= SCR_H) return;
+  if (x < 0) { w += x; x = 0; }
+  if (x + w > SCR_W) w = SCR_W - x;
+  if (w > 0) gTft.drawFastHLine(x, y, w, color);
+}
+
+// Paint ONLY the ring between two radii, never the disc inside it.
+//
+// This is what stopped the iris flickering. `fillCircle` fills a disc, so building the
+// iris out of stacked discs painted the black limbal disc and then covered all but 8 px
+// of it with red: those pixels cost twice, and at this panel's 20 MHz you can SEE the
+// black sweep through before the red lands. Every ring in this view is drawn as a ring.
+// (Same defect, same fix, as the Cardputer's drawRing.)
+static void drawRing(int cx, int cy, int rIn, int rOut, uint16_t color) {
+  if (rOut <= rIn) return;
+  const int o2 = rOut * rOut, i2 = rIn * rIn;
+  gTft.startWrite();
+  for (int y = cy - rOut; y <= cy + rOut; ++y) {
+    if (y < 0 || y >= SCR_H) continue;
+    const int dy = y - cy;
+    const int ho = (int)sqrtf((float)(o2 - dy * dy));
+    if (ho <= 0) continue;
+    const int hi = (dy * dy < i2) ? (int)sqrtf((float)(i2 - dy * dy)) : -1;
+    if (hi < 0) { hspan(cx - ho, y, ho * 2 + 1, color); continue; }
+    hspan(cx - ho, y, ho - hi, color);          // left arc
+    hspan(cx + hi + 1, y, ho - hi, color);      // right arc
+  }
+  gTft.endWrite();
+}
 
 // Lay the sclera down across one row, in the two pieces either side of the disc at
 // (ex, ey) that the iris is about to cover. Draws nothing if the row is entirely inside
@@ -865,7 +927,7 @@ static inline void scleraRow(int y, int x0, int x1, int ex, int ey, int e2) {
 // measurement the Cardputer's eyeSpans records: 17k px was 8 ms of data drawn in 22 ms
 // span by span).
 static void paintEyeBase(int ix, int iy) {
-  const int r2 = EYE_R * EYE_R, e2 = IRIS_OUTER * IRIS_OUTER;
+  const int r2 = EYE_R * EYE_R, e2 = IRIS_EDGE * IRIS_EDGE;
   gTft.startWrite();
   for (int y = 0; y < SCR_H; ++y) {
     int dy = y - EYE_CY;
@@ -903,43 +965,78 @@ static void paintGlint() {
   gTft.fillCircle(GLINT_X, GLINT_Y, GLINT_R, rgb565(255, 255, 255));
 }
 
-// Move the iris from wherever it was painted to (nx, ny) with pupil radius `pr`,
-// touching only the union of the two discs. This is the ONLY per-frame cost when the eye
-// is awake, and when the gaze has not moved and the pupil has not changed it is zero.
+// Clear the crescent the iris vacated: the rows of the OLD assembly the NEW one does not
+// cover. The new iris is painted FIRST and only the leftover cleared, so the eye never
+// shows a bare patch of sclera between the erase and the redraw — the K10 canvas-blink
+// lesson, applied to a view that draws straight to the panel.
+//
+// Works on IRIS_EDGE, the white rim's radius, because the rim is now the outermost thing
+// that moves; erasing only as far as the black ring would leave a crescent of rim behind.
+static void eraseIrisCrescent(int ox, int oy, int nx, int ny) {
+  const int e2 = IRIS_EDGE * IRIS_EDGE, r2 = EYE_R * EYE_R;
+  gTft.startWrite();
+  for (int y = oy - IRIS_EDGE; y <= oy + IRIS_EDGE; ++y) {
+    if (y < 0 || y >= SCR_H) continue;
+    const int ody = y - oy;
+    const int ohw = (int)sqrtf((float)(e2 - ody * ody));
+    int x0 = ox - ohw, x1 = ox + ohw;
+    // Stay inside the ball: outside it the correct colour is black, not sclera.
+    const int dy = y - EYE_CY;
+    const int bhw = (dy * dy < r2) ? (int)sqrtf((float)(r2 - dy * dy)) : -1;
+    if (bhw < 0) continue;
+    if (x0 < EYE_CX - bhw) x0 = EYE_CX - bhw;
+    if (x1 > EYE_CX + bhw) x1 = EYE_CX + bhw;
+    if (x0 < 0) x0 = 0;
+    if (x1 > SCR_W - 1) x1 = SCR_W - 1;
+    if (x1 >= x0) scleraRow(y, x0, x1, nx, ny, e2);
+  }
+  gTft.endWrite();
+}
+
+// The whole assembly, outward-in: iris disc, black limbal RING, thin white rim RING,
+// pupil. Only the pupil and the iris are discs — see drawRing for why the two rings are
+// not, and why that is the difference between a flickering eye and a still one.
+static void drawIris(int x, int y, int pr, uint16_t iris_col) {
+  gTft.fillCircle(x, y, IRIS_R, iris_col);          // the iris itself
+  drawRing(x, y, IRIS_R, IRIS_OUTER, TFT_BLACK);    // limbal ring
+  drawRing(x, y, IRIS_OUTER, IRIS_EDGE, COL_RIM);   // the thin white rim outside it
+  gTft.fillCircle(x, y, pr, TFT_BLACK);             // pupil
+}
+
+// Move the iris from wherever it was painted to (nx, ny) with pupil radius `pr`, touching
+// only what actually changed. Three cases, and the RESTING one is the cheap one:
+//   the gaze moved   -> paint the new assembly, then clear only the crescent it vacated
+//   only the pupil   -> touch nothing but the ring between the two pupil radii
+//   neither          -> nothing goes on the bus at all
 static void paintIris(int nx, int ny, int pr, uint16_t iris_col) {
   const bool moved = (nx != gIrisX || ny != gIrisY);
-  const int e2 = IRIS_OUTER * IRIS_OUTER, r2 = EYE_R * EYE_R;
-  if (moved && gIrisX > -1000) {
-    // Restore sclera over the OLD disc, minus wherever the new disc will land.
-    gTft.startWrite();
-    for (int y = gIrisY - IRIS_OUTER; y <= gIrisY + IRIS_OUTER; ++y) {
-      if (y < 0 || y >= SCR_H) continue;
-      int ody = y - gIrisY;
-      int ohw = (int)sqrtf((float)(e2 - ody * ody));
-      int x0 = gIrisX - ohw, x1 = gIrisX + ohw;
-      // Stay inside the ball: outside it the correct colour is black, not sclera.
-      int dy = y - EYE_CY;
-      int bhw = (dy * dy < r2) ? (int)sqrtf((float)(r2 - dy * dy)) : -1;
-      if (bhw < 0) continue;
-      if (x0 < EYE_CX - bhw) x0 = EYE_CX - bhw;
-      if (x1 > EYE_CX + bhw) x1 = EYE_CX + bhw;
-      if (x0 < 0) x0 = 0;
-      if (x1 > SCR_W - 1) x1 = SCR_W - 1;
-      if (x1 >= x0) scleraRow(y, x0, x1, nx, ny, e2);
-    }
-    gTft.endWrite();
-    paintGlint();          // the old disc may have been sitting under the catchlight
-  }
-  if (moved || pr != gPupilR) {
-    gTft.fillCircle(nx, ny, IRIS_OUTER, TFT_BLACK);   // limbal ring
-    gTft.fillCircle(nx, ny, IRIS_R, iris_col);
-    gTft.fillCircle(nx, ny, pr, TFT_BLACK);           // pupil
-    // The catchlight sits ON the eye, so it wins over the iris wherever they overlap.
-    int gdx = nx - GLINT_X, gdy = ny - GLINT_Y;
-    if (gdx * gdx + gdy * gdy < (IRIS_OUTER + GLINT_R) * (IRIS_OUTER + GLINT_R))
+  // No previous assembly on the panel (entry, blink-open), or one painted in the other
+  // colour: either way the whole thing has to be laid down rather than adjusted.
+  const bool fresh = (gIrisX <= -1000) || (gPupilR < 0) || (iris_col != gIrisCol);
+  if (moved || fresh) {
+    const int ox = gIrisX, oy = gIrisY;
+    drawIris(nx, ny, pr, iris_col);
+    if (moved && ox > -1000) eraseIrisCrescent(ox, oy, nx, ny);
+    // The catchlight sits ON the eye, so it wins wherever they overlap — and the crescent
+    // erase can pass under it on the way out, which is why the OLD position counts too.
+    const int reach = IRIS_EDGE + GLINT_R;
+    const int gdx = nx - GLINT_X, gdy = ny - GLINT_Y;
+    const int odx = ox - GLINT_X, ody = oy - GLINT_Y;
+    if (gdx * gdx + gdy * gdy < reach * reach ||
+        (ox > -1000 && odx * odx + ody * ody < reach * reach))
       paintGlint();
+  } else if (pr != gPupilR) {
+    // The pupil breathed but the eye is looking where it was. Touch NOTHING but the
+    // circumference between the two radii: black outward to dilate, iris-coloured inward
+    // to constrict. This is the resting case — the eye listening to a quiet room — so it
+    // has to be the quietest thing the face does, not a repaint of the whole iris.
+    const int rIn  = (pr < gPupilR) ? pr : gPupilR;
+    const int rOut = (pr > gPupilR) ? pr : gPupilR;
+    drawRing(nx, ny, rIn, rOut, (pr > gPupilR) ? TFT_BLACK : iris_col);
+    const int gdx = GLINT_X - nx, gdy = GLINT_Y - ny, reach = GLINT_R + rOut;
+    if (gdx * gdx + gdy * gdy <= reach * reach) paintGlint();
   }
-  gIrisX = nx; gIrisY = ny; gPupilR = pr;
+  gIrisX = nx; gIrisY = ny; gPupilR = pr; gIrisCol = iris_col;
 }
 
 // --- FACE: the eye ------------------------------------------------------------------
@@ -981,8 +1078,19 @@ static void renderEye(uint32_t now) {
   // the tier's cadence is not affected by it (see serviceMic).
   int pr = PUPIL_R_MIN + (int)(gArousal * (float)(PUPIL_R_MAX - PUPIL_R_MIN));
 
+  // HOLD unless something actually moved. Both signals wander by a pixel at rest — the
+  // accelerometer is noisy and the mic's ambient EMA never settles exactly — and every
+  // one of those pixels used to cost a full repaint of an 88 px assembly, which is what
+  // the flicker was made of. Compared against what is ON THE PANEL, not against the last
+  // target, so the eye lags by at most a deadband and never accumulates drift.
+  if (gIrisX > -1000 && gPupilR >= 0) {
+    const int dx = ix - gIrisX, dy = iy - gIrisY;
+    if (dx * dx + dy * dy < EYE_MOVE_MIN_PX * EYE_MOVE_MIN_PX) { ix = gIrisX; iy = gIrisY; }
+    const int dpr = pr - gPupilR;
+    if (dpr > -PUPIL_MIN_STEP && dpr < PUPIL_MIN_STEP) pr = gPupilR;
+  }
+
   const uint16_t iris_col = voicingNow() ? COL_IRIS_SING : COL_IRIS;
-  static uint16_t last_col = 0;
 
   if (!gEyePainted) {
     paintEyeBase(ix, iy);
@@ -990,7 +1098,9 @@ static void renderEye(uint32_t now) {
     gEyePainted = true;
     gIrisX = -1000; gPupilR = -1;            // the base left no iris to erase
   }
-  if (iris_col != last_col) { last_col = iris_col; gPupilR = -1; }  // force a redraw
+  // A colour change (this node's voice starting or stopping) is a full redraw, and
+  // paintIris decides that for itself by comparing against the colour it last painted —
+  // no need to fake a pupil change here to force one.
   paintIris(ix, iy, pr, iris_col);
 }
 
