@@ -248,31 +248,46 @@ If a fact lives in one of these, link to it from here — don't copy it.
   every measurement it has earned but is no longer the terminal claim — it is the
   *exercise* through which the new claim is tested. **Consequence: this laptop must become
   an observer that can be unplugged.**
-- **Phase A (RFC sync) is done** but for one board. Five `TTG-RFC-*` imported; the
+- ✅ **Phase A (RFC sync) is COMPLETE on every board.** Five `TTG-RFC-*` imported; the
   compressed corpus is 38 → 44 records; all three checkouts consistent; native
-  `test_rfc_ttdb` green. The T-Deck carries it (`RFC globe loaded: 52692 bytes, 44
-  records`). ⏳ **The Cardputer's filesystem has not been re-flashed yet.**
-- **Phase B (this reorganization) is in progress** — this file's rename and the log split
-  are part of it.
+  `test_rfc_ttdb` green. **Both handhelds report the identical `RFC globe loaded: 52692
+  bytes, 44 records`** — the Cardputer flashed 2026-09-30, `rfc.ttdb.md` byte-identical
+  in both `data/` dirs.
+- ✅ **Phase B (this reorganization) is COMPLETE** — this file's rename, the log split,
+  root down to 6 files, 0 broken links across 218 markdown files, `tests/run-all` at
+  33/33. `orchestrator/companion.py` → `fleet.py` is deliberately held for Phase C (B2).
+- 📐 **Phase C's premise is now MEASURED, not argued.** The Cardputer's pre-flash pull
+  found **six of six capped lanes at cap** and the whole-file index at **257/288**,
+  failing in two distinct ways: `@LAT94`–`97` **treadmilling** through whole-lane wipes
+  (six `**LANE-PRUNED**` markers, `removed:48` each — 288 windows destroyed) and
+  `@LAT90`/`@LAT92` **refusing writes** outright, which froze all eight `@LAT91` beliefs
+  at `met:11 violated:0`. The only lanes with room were the two with no cap. Full
+  measurement: [docs/log/2026-09.md](docs/log/2026-09.md).
 
 ### Next action
 
-1. ⏳ **Flash the Cardputer's FS** (`scripts/Upload-Cardputer-FS.ps1`). ⚠ Pull it first:
-   it is the only board with `@LAT91`/`@LAT92` belief lanes, and `mklittlefs` images the
-   whole partition, so a flash resets the runtime TTDB to its 3.5 KB seed. The T-Deck's
-   pre-flash state is banked at `master/tdeck_pre_actIII_2026-09-30.md` (54,672 B, 115
-   records) — do the same for the Cardputer.
-2. **Then Phase C**, the substance: one memory that never refuses a write
-   (ACT-III §5). Its gate is a deletion — every `clear` verb gone from `orchestrator/`.
+1. **Phase C** — the substance: one memory that never refuses a write (ACT-III §5). Its
+   gate is a deletion: every `clear` verb gone from `orchestrator/`. Two banked files are
+   its scaffolding — `master/cardputer_postflash_2026-09-30.md` (10 records, empty lanes,
+   known caps) is the before-state, and the 24-record `@LAT92` lane in
+   `master/cardputer_pre_actIII_2026-09-30.md` is C3's order-independence fixture:
+   shuffle the outcomes, recompute, expect the same eight beliefs.
+2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
+   records banked in `master/`, gone from the board. That is the flash's intended
+   consequence and the pull was its mitigation, but it is exactly the shape this
+   hypothesis distrusts, and Phase C is where it stops being true.
 
 ⚠ **The `@LAT90` saturation question is no longer the next focus, and acting on it
 would be wasted work.** ACT-III §C2 dissolves it rather than deciding it: under
 TTG-RFC-0004 §4 order comes from pulse-derived stamps plus `follows@` edges, so there is
 no stream-identity lane to saturate. ✅ What survives is the *evidence that the lane was
 mis-shaped* — fleet-coupled (43 stream ids cost 73 slots), 60 per cent of ids never shared
-with anyone, the K10 naming the mechanism (13 of 16 `ORIGIN`). That evidence exists **only**
-in six banked pre-prune pulls named in the last 2026-08 log entry; re-pulling the boards
-will not reproduce it.
+with anyone, the K10 naming the mechanism (13 of 16 `STREAM-ORIGIN`). That **detailed
+survey** exists only in six banked pre-prune pulls named in the last 2026-08 log entry;
+re-pulling the boards will not reproduce it. 📎 **Amended 2026-09-30:** the *saturation
+itself* was reproduced — the Cardputer came back at `@LAT90` 16/16 with **no prune
+marker**, i.e. refusing writes ([docs/log/2026-09.md](docs/log/2026-09.md)). What a
+re-pull cannot recover is the per-id breakdown, not the fact.
 
 ### The log — where this section's 6,524 lines went
 
@@ -286,6 +301,7 @@ carrying a heading so it can be cited by anchor instead of by line number:
 | [2026-06](docs/log/2026-06.md) | 21 | first light → the mesh, reliability, time-sync, the pulse |
 | [2026-07](docs/log/2026-07.md) | 88 | the band, the handhelds, semantic positioning's field runs |
 | [2026-08](docs/log/2026-08.md) | 88 | stigmergy, lane discipline, the `appendRecord` defect, the fleet-wide reflash |
+| [2026-09](docs/log/2026-09.md) | — | **not split out — authored directly**, which is the practice from now on. Act III: the RFC sync, this reorganization, the Cardputer census |
 
 Month attribution is from `git blame` — the commit that introduced each entry — not from
 dates in the prose, which name when the *work* happened and often predate the writing.

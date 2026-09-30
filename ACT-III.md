@@ -298,7 +298,8 @@ it.
 > | A3 INDEX union | ✅ TTG section + per-entry hardware status; all links resolve; every file listed |
 > | A4 `TTN-RFC-0002` | ✅ **resolved: v1.1 correct**; upstream 1.0 traced to a stale-baseline regression, pushed to both with the corpus record repaired |
 > | A5 corpus union | ✅ 38 → **44 records**; native `test_rfc_ttdb` **passes 10/10** |
-> | A5 handhelds | ◐ **T-Deck done** — flashed COM10, reads back `RFC globe loaded: 52692 bytes, 44 records` (byte- and record-exact). **Cardputer still owed** |
+> | A5 handhelds | ✅ **BOTH done** — T-Deck (COM10) and Cardputer (COM14) each read back `RFC globe loaded: 52692 bytes, 44 records`, byte- and record-exact, and `rfc.ttdb.md` is byte-identical in both `data/` dirs |
+> | A5 pre-flash bank | ✅ both boards pulled and verified first — `master/tdeck_pre_actIII_2026-09-30.md` (54,672 B / 115 records), `master/cardputer_pre_actIII_2026-09-30.md` (**137,958 B / 257 records**). The Cardputer's turned out to be Phase C's before-picture — see §5 C0b |
 > | A6 push out | ✅ **both done** — toot-toot and `~/Documents/GitHub/antfriend.github.io`, each verified; uncommitted for review |
 > | A7 reader | ✅ note only, no code (by design) |
 >
@@ -586,6 +587,50 @@ therefore not a benchmark, it is a **deletion**:
 
 That is a much better gate than "it feels cleaner", and it was already on the
 shelf.
+
+### C0b. The before-picture, measured on hardware 2026-09-30
+
+C0's gate is a deletion, which makes it easy to state and hard to feel. The Cardputer
+supplied the feeling on the way to its Phase A flash: pulled before `mklittlefs` could
+overwrite it, its runtime store came back at **137,958 B / 257 records** with **six of six
+capped lanes exactly at cap** and the whole-file index at **257 of `TTDB_MAX_RECORDS` 288**.
+
+| lane | records | cap | state |
+|---|---|---|---|
+| `@LAT90` timeline | 16 | 16 | **refusing** — no prune path, no marker |
+| `@LAT92` outcomes | 24 | 24 | **refusing** — froze all eight beliefs |
+| `@LAT94`–`@LAT97` percepts | 48 each | 48 | **treadmilling** — six wipes, 288 windows gone |
+| `@LAT100` lanegen | 6 | 32 | room |
+| `@LAT101` field | 5 | **none, by design** | room |
+
+Three things this establishes that the argument from shape could not:
+
+1. **The two failure modes are different, and only one of them is visible.** A treadmill
+   announces itself — `@LAT100` carries six `**LANE-PRUNED**` markers, `removed:48` each,
+   so the boundary is written down. A refusal announces nothing at all: `@LAT90` and
+   `@LAT92` have no marker and no log line. They simply stopped accepting records.
+2. **Refusal corrupts belief silently.** `Reconciler` is a *pure function* of `@LAT92`.
+   With that lane stuck at 24/24, the eight `@LAT91` beliefs were recomputed every Dream
+   Cycle from a tally that had stopped accepting evidence — frozen at
+   `met:11 violated:0`. A belief that new experience cannot move is a constant wearing a
+   belief's provenance.
+3. ✅ **C0's falsifier already passed once, unprompted.** The only two lanes with room were
+   the two with no cap, and `@LAT101` *is* the stage-3 lane whose header states the
+   falsifier. The one lane built to the discipline this phase generalises was the one lane
+   still accepting writes. That is not proof the discipline scales — it is the strongest
+   available evidence that it is the right thing to scale.
+
+⚠ **The refusal reading is inference from a single census** — both lanes exactly at cap,
+neither with a marker, both with a documented refuse-on-full policy — not an observed
+refused write. Confirm it *inside* Phase C (watch one lane across a boot with the node
+untouched), not before it: C2's mechanisms replace the policy either way, so the
+confirmation is worth its cost only as a regression baseline.
+
+The measurement is written up in [docs/log/2026-09.md](docs/log/2026-09.md). The store
+itself is `master/cardputer_pre_actIII_2026-09-30.md`, whose 24-record `@LAT92` lane is the
+natural fixture for **C3's order-independence test**: shuffle the outcomes, recompute,
+expect the same eight beliefs. `master/cardputer_postflash_2026-09-30.md` (10 records) is
+the matching after-picture — an empty store with known caps, which is Phase C's baseline.
 
 ### C1. Write down what works, because it constrains the design
 

@@ -555,9 +555,14 @@ Three facts worth knowing before touching it:
   callback and mutates only from `service()`, called first in `loop()`. Callback-built
   STATUS/GPS/TIME_RESP replies read `clockOffsetMs()`, a plain scalar.
 
-New **`@LAT90`** lane logs timeline CHANGES (`STREAM-ORIGIN`/`ADOPTED`/`RECONCILED`/
-`ANCHORED`) with a **REMAP** line carrying the offset, so records stamped with a stream
-that later lost stay interpretable. A routine drift correction writes nothing.
+New **`@LAT90`** lane logs timeline CHANGES. ⚠ **ALL FOUR EMITTED VERBS CARRY THE
+`STREAM-` PREFIX** — `**STREAM-ORIGIN**`, `**STREAM-ADOPTED**`, `**STREAM-RECONCILED**`,
+`**STREAM-ANCHORED**` (`buildStreamRecord`, TimeStream.cpp:348-351). Until 2026-09-30
+this list read `ORIGIN`/`ADOPTED`/`RECONCILED`/`ANCHORED`, so a needle written from
+these docs matched **three of the four never** — the same needle-vs-emitted-string
+family as `prev_stream:` below and `**COVERED-SPAN**` in `@LAT92`. Each record carries a
+**REMAP** line with the offset, so records stamped with a stream that later lost stay
+interpretable. A routine drift correction writes nothing.
 
 ⚠ **A `STREAM-ORIGIN` IS HELD FOR `TIMESTREAM_ORIGIN_SETTLE_MS` (30 s) BEFORE IT IS
 WRITTEN, AND DROPPED IF THE NODE MOVES ON** (2026-08-03). The 6 s listen window is a
@@ -577,8 +582,9 @@ period fails the build rather than quietly restoring the defect.
 A reboot that rejoins **the stream the node was already on** writes nothing: the lane is
 deduped by stream id, read back off flash. ⚠ **The needle is `" stream:0x%08lx"` WITH THE
 LEADING SPACE** — a RECONCILED record also carries `prev_stream:0x<old>`, so a bare
-`strstr("stream:0x")` matches a stream the node has **left**. `ORIGIN` and `RECONCILED`
-are never suppressed; an `ANCHORED` is only suppressed when `wall_conflict_ms == 0`.
+`strstr("stream:0x")` matches a stream the node has **left**. `STREAM-ORIGIN` and
+`STREAM-RECONCILED` are never suppressed; a `STREAM-ANCHORED` is only suppressed when
+`wall_conflict_ms == 0`.
 
 ⚠ **The listen window is measured from `begin()`, NOT from `millis()`.** A first cut used
 absolute `millis()`, which silently assumes `setup()` is short — and on the Cardputer
