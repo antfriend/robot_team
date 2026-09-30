@@ -19,7 +19,7 @@ umwelt:
   globe:
     frame: rfc-grid
     origin: "@LAT0LON0"
-    mapping: "lat = RFC family lane (10 TTDB, 20 TTN, 30 TTCP, 40 A32, 50 ARC, 98 beliefs), lon = RFC number within the family"
+    mapping: "lat = RFC family lane (10 TTDB, 20 TTN, 30 TTCP, 40 A32, 50 ARC, 60 TTG, 98 beliefs), lon = RFC number within the family"
 cursor_policy:
   max_preview_chars: 256
   max_nodes: 64
@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file)."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. This checkout remains the only one holding @LAT10LON9/@LAT10LON10 (TTDB-RFC-0009/-0010) and @LAT98LON5/@LAT98LON6; those are pushed outward, not merged in."
 ```
 
 ---
@@ -49,8 +49,8 @@ agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-fil
 Each record on this globe compresses one RFC to its normative gist. The `src:` line
 in every body is the deterministic expansion target — TTN-RFC-0004 §3 applied to the
 corpus itself: this file is the token, the full RFC is the gateway expansion.
-Lanes: lat 10 TTDB, lat 20 TTN, lat 30 TTCP, lat 40 A32, lat 50 ARC. Lane lat 98
-holds beliefs — consolidated invariants and places where implemented reality diverges
+Lanes: lat 10 TTDB, lat 20 TTN, lat 30 TTCP, lat 40 A32, lat 50 ARC, lat 60 TTG.
+Lane lat 98 holds beliefs — consolidated invariants and places where implemented reality diverges
 from spec text (the Dream Cycle run over the documents, echoing the fleet's lat-98
 BELIEF-ADOPTED lane). `[ew]` conf encodes status (implemented-on-device 240, stable
 210, informational 190, experimental 160, draft 140, proposed 120; *experimental* =
@@ -794,6 +794,119 @@ composite) gate every addition.
 
 ---
 
+@LAT60LON1 | created:1789257600 | updated:1790035200 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
+[ew]
+conf:210
+rev:0
+sal:120
+touched:1790726400
+[/ew]
+
+**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.0)
+src: TTG-RFC-0001-Grammar-in-the-Store.md
+
+A language's grammar is data in the same TTDB as the corpus it reads: `ttdb-grammar`
+blocks of eight kinds (lexicon, morphology, seed, vectors, questions, responses,
+numbers, rules) and a `ttdb-sphere` block of lanes and roles. The runtime contract:
+the interpreter holds no natural-language word, reply phrase or tuning number —
+delete the grammar records and it sees only word order and has no words of its own;
+a test greps the runtime for every word the grammar lists. A second language is more
+records tagged `lang:`; each sentence picks the grammar that recognises most of its
+words, and later languages borrow the numbers, rules and vector algebra. §10 is the
+embedding surface: the engine/page divide, the boot gate, and the calls a host makes.
+
+---
+
+@LAT60LON2 | created:1789257600 | updated:1790035200 | relates:depends_on@LAT60LON1,depends_on@LAT10LON1,depends_on@LAT10LON3,depends_on@LAT10LON4,depends_on@LAT10LON5,depends_on@LAT10LON6
+[ew]
+conf:210
+rev:0
+sal:180
+touched:1790726400
+[/ew]
+
+**TTG-RFC-0002 — Semantic Percepts, Episodes and Terms** (Stable, 1.0)
+src: TTG-RFC-0002-Semantic-Percepts.md
+
+A sentence becomes percepts: `percept: n | subject | vector | object or - | polarity |
+quantifier`, with polarity `+`, `-`, or held `?` / `?-`, and an optional seventh column
+naming one reading of two. Episodes on the episode lane hold the owner's words —
+`said:`, `shape:` and `percept:` lines — written once and never modified; a block of
+the same tag anywhere else is checked, never believed. THING and VECTOR terms are
+records placed on the grammar sphere beside the terms that introduced them.
+Malformed percept lines are skipped, counted and reported; write-back is byte-stable.
+Stated divergence from TTDB-RFC-0006: the pair is subject→object, not before→after.
+
+---
+
+@LAT60LON3 | created:1789257600 | updated:1790035200 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT10LON2,depends_on@LAT10LON5,depends_on@LAT10LON7
+[ew]
+conf:210
+rev:0
+sal:180
+touched:1790726400
+[/ew]
+
+**TTG-RFC-0003 — Beliefs, Vector Reasoning and Grounded Response** (Stable, 1.0)
+src: TTG-RFC-0003-Beliefs-Reasoning-Response.md
+
+Beliefs are derived from episodes, never written by hand: per triple, episodes (not
+sentences) vote, the rule of succession over the store's priors gives conf, and a
+belief is decided above `belief_conf_threshold`; held sayings and mentions count for
+neither side. Reasoning walks the vector algebra (transitive, symmetric, inverse,
+inheritance with decay), Datalog-style rules derived to a fixpoint in memory, and
+specificity — the nearest ancestor overrides. Intent comes from the input's shape. A
+reply is a verdict, then grounds of one kind each — said (quoted), inferred (the
+chain), contested (both sayings), superseded — never printed alike; what was held is
+a note, never a ground.
+
+---
+
+@LAT60LON4 | created:1789344000 | updated:1790035200 | relates:depends_on@LAT60LON3,depends_on@LAT20LON10,depends_on@LAT10LON7,depends_on@LAT20LON7,depends_on@LAT20LON8,depends_on@LAT20LON9,depends_on@LAT10LON4
+[ew]
+conf:170
+rev:0
+sal:220
+touched:1790726400
+[/ew]
+
+**TTG-RFC-0004 — Time: the Order of Sayings, Supersession, a Fleet's Shared Clock** (Stable §2–3, 1.0; §4 Proposed)
+src: TTG-RFC-0004-Time-and-the-Fleet.md
+
+Order is position, not a clock: a saying is later when its episode sits later on the
+lane, then by sentence number, and `at:` is never compared. Along an `exclusive`
+vector a subject holds one object at a time: a later saying, or a rule's conclusion,
+retires an earlier one unless both lie on one chain, and the retired fact is kept in
+memory as a `superseded` ground beside what retired it, never written. Consolidation
+stays atemporal — a polarity flip is still contested. §4, proposed and unimplemented:
+a fleet of hearing agents orders sayings on the TTN-RFC-0010 pulse, stamps carry drift
+bounds, overlapping bounds are contested, and the scene is the grammar hash.
+
+---
+
+@LAT60LON5 | created:1789948800 | updated:1790035200 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT60LON3,depends_on@LAT10LON1,depends_on@LAT10LON4
+[ew]
+conf:210
+rev:0
+sal:130
+touched:1790726400
+[/ew]
+
+**TTG-RFC-0005 — Shapes, Lists, Mentions and Amendments** (Stable, 1.0)
+src: TTG-RFC-0005-Shapes-and-Amendments.md
+
+A clause is any alternating run of nounish and verbish segments, each verb relating
+its neighbours: `N1 V1 N2 V2 N3` is two percepts. Relative and stance clauses open
+inside the chain and close at the next verb. What is said without being asserted is
+held — an *or*, a stance verb's clause, a reported clause, and both readings of a
+sentence the grammar reads two ways, named `a` / `b` so the owner can choose. A
+one-segment sentence is a mention. The shape (`[things] {vectors}`) is written beside
+each sentence and overrules the parser when typed; a correction to a said sentence is
+an amendment beside its episode, never in it. A re-reading reports what a grammar or
+corpus change reads differently and writes nothing until the owner takes it.
+
+---
+
 @LAT98LON0 | created:1783468800 | updated:1785542400 | relates:contradicts@LAT40LON4
 
 **BELIEF — Build system: the A32 RFCs say PlatformIO; robot_team uses arduino-cli.**
@@ -927,3 +1040,36 @@ lanes at all. The refusal arrives as a node that has stopped perceiving. So the 
 choice is not merely a spec divergence, it is a lifetime budget being spent per prune, and
 TTDB-RFC-0010 §4 exists to retire it by applying the mechanism TTDB-RFC-0004 §2 already
 allowed.
+
+---
+
+@LAT98LON7 | created:1790726400 | updated:1790726400 | relates:contradicts@LAT60LON3,supports@LAT60LON4,refines@LAT10LON10,refines@LAT20LON10
+
+**BELIEF — TTG is stable spec and unimplemented here; the fleet's divergence from TTG-RFC-0003 §2 is bounded-store, and declared.**
+
+The five TTG RFCs arrived in this corpus on 2026-09-30 as 1.0 Stable, implemented by
+the `personal_grimoire` reference runtime. **No A32 node implements any of them**, so
+their conf records spec status, not fleet status — which is what this lane is for.
+Act III consolidates toward them (`ACT-III.md` Phase C).
+
+One real divergence, stated rather than discovered later. TTG-RFC-0003 §2 requires
+that a conforming implementation **MUST be able to recompute every belief line from
+the episodes**. This fleet's memory is bounded and never refuses a write, so it
+**evicts episodes**, folding each one's for/against contribution into its beliefs'
+carried tallies first. Recomputability therefore holds over the retained window plus
+those tallies, which is weaker than the MUST. What is lost is **provenance, not
+belief**: the node can still say what it believes and how strongly, but not always
+which saying taught it. That is the price of a memory instead of a log, and it is
+declared in the manner TTG-RFC-0002 §4 sets the precedent for (*“Divergence from
+TTDB-RFC-0006, stated”*). It is to be offered upstream as a **bounded-store profile**;
+this fleet is the embedded end of the project and the only checkout with hardware to
+motivate it.
+
+Two notes on why this is not merely a shortfall. `PerceptLearn`'s existing asymmetric
+`+2`/`−16` fold cannot satisfy the MUST **at all** — it is order-dependent in place —
+so TTG-RFC-0003 §2's counting is a strict improvement even bounded. And TTG-RFC-0004
+§4 is unimplemented *everywhere*: its own status line calls it proposed, it adopts
+TTN-RFC-0010 (which is `Pulse` on these boards) unchanged, and its §4.8 item 4 — two
+nodes holding the same episodes give identical answers without coordinating — is the
+headline claim of the new hypothesis. Hence sal 220 on @LAT60LON4, the highest in this
+corpus: it is the next load-bearing thing to build.

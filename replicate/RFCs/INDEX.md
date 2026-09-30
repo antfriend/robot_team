@@ -2,6 +2,26 @@
 
 This index lists RFCs included in the TTE 1.0 bundle.
 
+**This is robot_team's checkout, and it carries one thing the others cannot: the
+implementation status of each RFC on real hardware.** The corpus is shared with
+[toot-toot-engineering](https://github.com/antfriend/toot-toot-engineering) and
+[antfriend.github.io](https://antfriend.github.io/RFCs/); the spec text is identical,
+and the `(Implemented ✅ … / Draft; nothing implemented / …)` note closing each entry
+below is this fleet's evidence, not the spec's claim about itself.
+
+*Last three-way sync 2026-09-30.* Of 37 files only six differed in content: the five
+`TTG-RFC-*` were imported from toot-toot-engineering; `TTDB-RFC-0010` is held only here
+and is being pushed outward; `TTDB-RFC-0009` is missing only from the website; and
+`TTN-RFC-0002` is an **unresolved divergence** — this checkout's v1.1 `opposes` section
+was deliberately *retracted* upstream on 2026-09-22, so nothing is pushed for it either
+way until that is decided (see its own sync note). Every apparent
+difference in the other 31 was CRLF; the whole directory is now pinned to LF
+(`.gitattributes`), because `rfc.ttdb.md` is flashed byte-exact to two handhelds.
+The compressed corpus went 38 → **44 records** (TTG at the previously-unused `lat 60`
+lane, plus one `lat 98` belief recording that none of the five is implemented on an A32
+node); `firmware/{tdeck,cardputer}_console/data/rfc.ttdb.md` are byte-identical copies
+and **both handhelds need an FS re-flash** to carry it.
+
 **Compressed form:** [rfc.ttdb.md](rfc.ttdb.md) is the semantic compression of this
 corpus — a conformant TTDB with one record per RFC (normative gist + `depends_on`
 edge graph + `[ew]` status weights) and a `lat 98` belief lane recording where
@@ -39,6 +59,25 @@ deterministic expansion target (TTN-RFC-0004 applied to the corpus itself).
 - [TTCP-RFC-0001-Record-Rendering.md](TTCP-RFC-0001-Record-Rendering.md): File Ingestion, Record Parsing, and HTML Rendering
 - [TTCP-RFC-0002-Globe-and-Navigation.md](TTCP-RFC-0002-Globe-and-Navigation.md): Knowledge Globe, Cursor Selection, Discovery, Tour, and Scene Playback
 - [TTCP-RFC-0003-Link-System-and-Addressability.md](TTCP-RFC-0003-Link-System-and-Addressability.md): Toot URI Scheme, URL Synchronization, and Search
+
+## TTG (Toot Toot Grammar)
+
+A person's own words as a question-answering store, where the file is the grammar: every
+grammar rule, word list and reply phrase lives in one TTDB, and the runtime that reads it
+holds no natural-language word. 1.0, stable; the reference runtime is
+[personal_grimoire](https://antfriend.github.io/personal_grimoire/index.html), whose tests
+check these RFCs against it.
+
+⚠ **Status on this fleet: none of the five is implemented on an A32 node.** TTG is read
+here as the **spec Act III consolidates toward** ([ACT-III.md](../../ACT-III.md)) — the
+per-entry notes below say which part of the plan each one governs, and one of them
+(TTG-RFC-0004 §4) is a proposal this fleet is the only hardware able to run.
+
+- [TTG-RFC-0001-Grammar-in-the-Store.md](TTG-RFC-0001-Grammar-in-the-Store.md): Grammar in the Store — the `ttdb-grammar` and `ttdb-sphere` blocks, the eight grammar kinds, the embedding surface, several languages in one store, and the **runtime contract**: no natural-language word or reply phrase in the interpreter. (Not implemented here; no node's TTDB carries a grammar block. Act III reads its §10 embedding-surface rule as the bar for describing a runtime *inside* the store.)
+- [TTG-RFC-0002-Semantic-Percepts.md](TTG-RFC-0002-Semantic-Percepts.md): Semantic Percepts, Episodes and Terms — the percept line (subject, vector, object, polarity, quantifier), episode and term records, placement on the grammar sphere, byte-stable write-back. (Not implemented; **Act III Phase C2 target** — its `ttdb-episode`/`ttdb-term` blocks are the record format the fleet's four percept tiers `@LAT93`–`@LAT97` collapse onto.)
+- [TTG-RFC-0003-Beliefs-Reasoning-Response.md](TTG-RFC-0003-Beliefs-Reasoning-Response.md): Beliefs, Vector Reasoning and Grounded Response — consolidation over episodes, vector algebra, Datalog-style rules, inference with specificity, and replies whose grounds are said, inferred, contested or superseded, never printed alike. (Not implemented; **Act III Phase C3 target.** ⚠ Its §2 requirement that every belief be *recomputable from the episodes* is the property `PerceptLearn`'s asymmetric `+2`/`−16` fold structurally cannot have, and Act III declares a **bounded-store divergence** from it: robot_team evicts episodes, so recomputability holds over the retained window plus carried tallies.)
+- [TTG-RFC-0004-Time-and-the-Fleet.md](TTG-RFC-0004-Time-and-the-Fleet.md): Time — the order of sayings without a clock, `exclusive` vectors whose later sayings retire earlier ones, the `superseded` ground (§2–3 stable); and, proposed, how a fleet orders sayings on a shared pulse (§4, builds on TTN-RFC-0010). (§2–3 not implemented here. **§4 is unimplemented anywhere, and this fleet is the hardware it was written for** — it adopts TTN-RFC-0010 unchanged, which is `Pulse` on these boards. **Act III Phase C4**; its §4.8 test plan is the acceptance criteria, and item 4 — *two nodes holding the same episodes give identical answers without coordinating* — is Act III's headline claim.)
+- [TTG-RFC-0005-Shapes-and-Amendments.md](TTG-RFC-0005-Shapes-and-Amendments.md): Shapes and Amendments — a clause as any alternating run of nounish and verbish segments; relative and stance clauses; held sayings, never believed, including both readings of a sentence the grammar reads two ways, named so the owner can choose; the shape notation the owner overrules a reading with; amendments kept beside the episode, and re-readings that report a grammar change without writing until the owner takes them. (Not implemented. Its §5 rule — *an amendment is kept beside the episode, never in it* — is the generalisation of this fleet's `@LAT100` lane generations, and is what replaces them in Act III Phase C2.)
 
 ## ARC (ARC-AGI-3 Competition Agent)
 

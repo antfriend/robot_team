@@ -57,10 +57,10 @@ three except six**:
 | `TTG-RFC-0004-Time-and-the-Fleet.md` | — | ✅ | ✅ | **import** |
 | `TTG-RFC-0005-Shapes-and-Amendments.md` | — | ✅ | ✅ | **import** |
 | `TTDB-RFC-0009-Counter-Story…` | ✅ | ✅ | — | **push to website** |
-| `TTDB-RFC-0010-Stigmergic-Fields…` | ✅ | — | — | **push to both** |
+| `TTDB-RFC-0010-Stigmergic-Fields…` | ✅ | — | — | **push to both** (never existed upstream; safe) |
 | `INDEX.md` | 10510 B | 10217 | 10217 | **3-way merge** |
-| `TTN-RFC-0002-Typed-Edges.md` | 1140 B | 845 | 900 | **3-way merge** |
-| `rfc.ttdb.md` | 38 rec | 39 rec | 39 rec | **union → 43 rec** |
+| `TTN-RFC-0002-Typed-Edges.md` | 1140 B | 845 | 900 | ⚠ **unresolved** — v1.1 here was *retracted* upstream 2026-09-22; see A4 and §8.6 |
+| `rfc.ttdb.md` | 38 rec | 39 rec | 39 rec | **union → 44 rec** (43 + 1 belief) |
 
 Two consequences worth stating before anyone starts:
 
@@ -287,6 +287,29 @@ describe a fleet organised around a laptop that is now explicitly optional.
 **Goal:** one corpus, three checkouts, no divergence, and the handhelds carrying
 it.
 
+> ### ✅ Phase A status — 2026-09-30
+>
+> | step | state |
+> |---|---|
+> | A1 normalise | ✅ all 37 files pure LF; `replicate/RFCs/*.md eol=lf` added |
+> | A2 import TTG | ✅ 5 files, byte-identical to the donor |
+> | A3 INDEX union | ✅ TTG section + per-entry hardware status; all links resolve; every file listed |
+> | A4 `TTN-RFC-0002` | ⚠ **resolved to a question** — see below; nothing pushed, nothing reverted |
+> | A5 corpus union | ✅ 38 → **44 records**; native `test_rfc_ttdb` **passes 10/10** |
+> | A5 handhelds | ⏳ **owed — needs hardware.** Both `data/rfc.ttdb.md` staged byte-identical; FS re-flash not yet run |
+> | A6 push out | ◐ toot-toot done (uncommitted); **website not cloned locally** |
+> | A7 reader | ✅ note only, no code (by design) |
+>
+> **Full native suite: 11/11 green, exit 0** — after fixing a pre-existing
+> `BUILD FAILED: perceptlearn` link error the run exposed (see B5).
+>
+> 📎 **One finding worth carrying forward: `core.autocrlf=true` means the CRLF was
+> working-tree-only — the three repositories never diverged on line endings at all.**
+> The trap was real (five files read as "newer" in every size comparison) but its
+> cause was local checkout, not content. That is why `eol=lf` matters here
+> specifically: `mklittlefs` images the **working tree**, so without a rule the
+> flashed bytes differ from the committed bytes.
+
 ### A1. Normalise before comparing
 
 Add to `.gitattributes` (the existing rules cover `firmware/**/data/*.md` and
@@ -314,11 +337,28 @@ entries. Then extend the index with what only this repo can say: each RFC's
 **implementation status on real hardware**, which is the one axis the other two
 checkouts have no evidence for.
 
-### A4. Reconcile `TTN-RFC-0002-Typed-Edges.md`
+### A4. Reconcile `TTN-RFC-0002-Typed-Edges.md` — ⚠ resolved to a question, not an answer
 
-Three lengths, three repos (1140 / 845 / 900). Read all three, decide which is
-current, and write the decision into the file's changelog so the next sync is a
-comparison rather than an archaeology.
+**Done 2026-09-30, and the answer was the opposite of the one this plan expected.**
+Three lengths (1140 / 845 / 900) resolved to two contents: the two smaller copies
+are 1.0 and identical (CRLF explains their gap), and robot_team's is 1.1, a strict
+superset adding §Semantic Polarity / `opposes`.
+
+The tempting inference — *superset ⇒ newer ⇒ push it outward* — is **wrong**. Git
+says both `opposes` sections were authored 2026-08-01 (here `dc42f40`, upstream
+`ecac881`), and upstream **deliberately removed it on 2026-09-22** (`796f633`),
+reverting to 1.0. This checkout is behind a decision, not ahead of one.
+
+It is a real question because `TTDB-RFC-0003` §7, which *defines* `opposes`, is
+v1.1 and **byte-identical in all three checkouts, and was not reverted** — so
+upstream now defines the type in the TTDB layer while omitting it from this
+network-layer taxonomy. Coherent as an editorial position; unexplained, because
+`796f633`'s message is a web-edit default.
+
+**Nothing is pushed for this file, and it is not reverted here either.** Both the
+file's changelog and `INDEX.md` record it as unresolved. §8.6 carries the decision.
+📎 The lesson generalises and is why A1 exists: *in this corpus a byte count is not
+a direction, and neither is a superset.*
 
 ### A5. Rebuild `rfc.ttdb.md` as the union
 
@@ -339,11 +379,20 @@ opens on it, and `companion.py pull` of that globe is byte-exact against
 
 ### A6. Push back what only this repo has
 
-`TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md` → both other repos.
-`TTDB-RFC-0009-Counter-Story…` → the website. Plus the INDEX entries for both.
+`TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md` → both other repos
+(verified safe: `git log --all --diff-filter=D` shows it never existed upstream and
+was never deleted, so this is a genuine absence and not a retraction like A4's).
+`TTDB-RFC-0009-Counter-Story…` → the website only; toot-toot already has it,
+byte-identical. Plus the INDEX entries. **`TTN-RFC-0002` is excluded** — see A4.
+
 This is the half of "sync" that is easy to forget, because the ask was phrased as
 an import; robot_team is the sole holder of 0010, which is the RFC the `@LAT101`
-field lane and the sid work implement.
+field lane and the sid work implement — and the one whose §8.1 falsifier Phase C
+inherits.
+
+⚠ **Check the target's history before pushing any file, not just its presence.** A4
+is the worked example of why: an absent-or-older file upstream may be a *decision*
+rather than a gap, and the only thing that distinguishes them is the commit log.
 
 ### A7. Fold the website's reader into the plan; don't re-solve it
 
@@ -419,13 +468,29 @@ Settled (§8.4). Two halves, and they are different, so be precise:
 
 ### B5. One test entry point
 
-*(was B4)* `tests/` holds 14 native test sources and 14 `*_py.py` suites with no
-runner. Add one `tests/run-all` that builds the native suite with the portable
-`zig c++` (there is no host g++ on this machine) and runs the Python suites, and
-make it the thing CI-or-a-human invokes.
-⚠ `tests/Makefile` once referenced three undefined variables, so `make` compiled
-**nothing** and `make test` re-ran stale binaries and passed. The runner must fail
-loudly when it builds zero targets.
+*(was B4)* There is no `make` and no host `g++`; the working runner is
+**`scratchpad/t.sh`**, driving the persistent `zig c++` at
+`c:/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe`. It should move into `tests/`
+and grow to cover everything.
+
+📎 **Measured 2026-09-30 while verifying Phase A: the suite is green (11/11, exit 0)
+but the runner covers 11 of 16 native tests.** Omitted from its `NAMES`:
+`test_citation`, `test_sid`, `test_social`, `test_tracefield`, `test_ttdb_index`.
+So five tests have not run in this session's toolchain and their status is unknown —
+not failing, *unobserved*. B5 is therefore mostly a list-completion job plus the
+Python suites, which still have no runner at all.
+
+⚠ **A missing source in that list is invisible unless the stale `.exe` is deleted
+first, and it bit again on 2026-09-30.** `test_perceptlearn` had been failing to
+**link** — `t.sh` (written Aug 3) never gained `Sid.cpp`/`TtdbParse.cpp` when the sid
+work landed Aug 9 — and it surfaced as `BUILD FAILED` only because that run began
+with `rm -f tests/test_*.exe`. Fixed in `t.sh`. This is the second instance of the
+same hole (the first was `TimeStream.cpp` missing from four tests, 2026-08-07), which
+is the argument for B5 being a real task and not tidying: **the runner must delete
+binaries before building, fail on zero targets, and treat a build error as a failed
+test.** `tests/Makefile` has the older form of the same defect — three undefined
+variables meant `make` compiled nothing and `make test` re-ran stale binaries and
+passed.
 
 *Done when:* a fresh session reading `README.md` → `FLEET.md` reaches "what is
 true now and what is next" in under 200 lines, and `tests/run-all` reports a

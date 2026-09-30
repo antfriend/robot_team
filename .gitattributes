@@ -7,3 +7,16 @@
 # platform — including the pulled-back snapshots we keep as faithful baselines.
 firmware/**/data/*.md eol=lf
 master/*.md           eol=lf
+
+# The canonical RFC corpus. `replicate/RFCs/rfc.ttdb.md` is flashed BYTE-EXACT to both
+# handhelds (it is the source the firmware/**/data/ copies above are made from), so a
+# CRLF slip here changes the bytes the HMAC and the TTN-RFC-0009 belief readback diff are
+# computed over. The rest of the dir is pinned with it so a three-way sync against
+# toot-toot-engineering / antfriend.github.io compares content, not line endings — five
+# files were CRLF here on 2026-09-30 and read as "newer" in every size comparison.
+# Root cause, worth knowing because it recurs for ANY path without a rule here:
+# core.autocrlf=true, so the committed blobs were already LF and only the WORKING TREE
+# was CRLF. The repos never diverged. But mklittlefs images the working tree, so without
+# a rule the flashed bytes differ from the committed bytes -- which is the whole reason
+# the two rules above exist, and why the canonical source needs one too.
+replicate/RFCs/*.md   eol=lf

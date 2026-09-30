@@ -83,7 +83,12 @@ int main(int argc, char** argv) {
   // "all N headers parse" and "all N edges resolve" are what say your record is well
   // formed. A body line starting with `@LAT` splits a record in two and shows up here
   // as a count that is too HIGH.
-  const size_t kExpectedRecords = 38;
+  // 38 -> 44 on 2026-09-30 (ACT-III.md Phase A): +5 TTG records at @LAT60LON1-5
+  // imported from toot-toot-engineering, +1 belief at @LAT98LON7 recording that no
+  // A32 node implements them and naming the bounded-store divergence from
+  // TTG-RFC-0003 §2. This constant failing is the intended behaviour of a corpus
+  // edit; update it deliberately, never to make the suite quiet.
+  const size_t kExpectedRecords = 44;
   CHECK(recs.size() == kExpectedRecords, "pass-1 scan indexes %zu records (got %zu)",
         kExpectedRecords, recs.size());
   CHECK(recs.size() <= TTDB_MAX_RECORDS, "fits TTDB_MAX_RECORDS (%d)", TTDB_MAX_RECORDS);

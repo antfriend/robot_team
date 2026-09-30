@@ -33,7 +33,13 @@ declare -A SRCS=(
   [linkpercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/LinkPercept/src/LinkPercept.cpp"
   [entitypercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/EntityPercept/src/EntityPercept.cpp"
   [motionpercept]="$LIB/TimeStream/src/TimeStream.cpp $LIB/MotionPercept/src/MotionPercept.cpp"
-  [perceptlearn]="$LIB/TimeStream/src/TimeStream.cpp $LIB/PerceptLearn/src/PerceptLearn.cpp"
+  # Sid.cpp + TtdbParse.cpp added 2026-09-30: test_perceptlearn and PerceptLearn.cpp both
+  # call sid::forKey/format/stampKey and ttdbHeaderSid, which landed with the sid work
+  # (2026-08-09) AFTER this runner was written, so it had been failing to LINK. It only
+  # showed up as a failure because the run began with `rm -f tests/test_*.exe` — the exact
+  # precaution [[no-host-cpp-toolchain]] records, and the second time this same hole has
+  # bitten: a missing source in this list is invisible unless the stale .exe is gone.
+  [perceptlearn]="$LIB/TimeStream/src/TimeStream.cpp $LIB/PerceptLearn/src/PerceptLearn.cpp $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [rfc_ttdb]="$LIB/TTDB/src/TtdbParse.cpp"
   [symmetric_edges]="$LIB/TTDB/src/TtdbParse.cpp"
   [nmea]="$LIB/Gps/src/Nmea.cpp"
