@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/LaneGen/src -I$(LIB)/Social/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/LaneGen/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -107,6 +107,11 @@ CIT_SRCS := test_citation.cpp \
 IDX_SRCS := test_ttdb_index.cpp \
         $(LIB)/TTDB/src/TTDB.cpp $(LIB)/TTDB/src/TtdbParse.cpp
 IDX_FLAGS := -I shim -DTTDB_MAX_RECORDS=16
+# ACT-III Phase C: TTG-RFC-0003 §2 counting, streamed, with fold-before-forget. Holds C3's
+# two pre-registered gates - belief lines byte-exact AND identical under reordered
+# episodes, and identical after evicting the oldest with the fold. Self-contained (no
+# TTDB, no stamp): the consolidator is a pure function of the percepts it is handed.
+SEM_SRCS := test_semantic.cpp $(LIB)/Semantic/src/Semantic.cpp
 
 test: build
 	./test_toot
@@ -125,8 +130,9 @@ test: build
 	./test_sid
 	./test_citation
 	./test_ttdb_index
+	./test_semantic
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -143,6 +149,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SID_SRCS) -o test_sid
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(CIT_SRCS) -o test_citation
 	$(CXX) $(CXXFLAGS) $(IDX_FLAGS) $(INCLUDES) $(IDX_SRCS) -o test_ttdb_index
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SEM_SRCS) -o test_semantic
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -156,6 +163,6 @@ clean:
 	      test_tracefield test_tracefield.exe \
 	      test_social test_social.exe \
 	      test_sid test_sid.exe \
-	      test_citation test_citation.exe
+	      test_citation test_citation.exe \n	      test_ttdb_index test_ttdb_index.exe \n	      test_semantic test_semantic.exe
 
 .PHONY: test build clean

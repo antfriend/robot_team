@@ -565,6 +565,40 @@ It is:
 > **No lane has a cap. No operator ever clears anything. A write is never
 > refused. Forgetting is continuous, principled, and visible.**
 
+> ### ◐ Phase C status — 2026-09-30
+>
+> | step | state |
+> |---|---|
+> | C0 the gate | ✅ stated, and inherited verbatim from RFC-0010 §8.1 rather than invented |
+> | C0b before-picture | ✅ **measured on hardware**: six of six capped lanes at cap, index 257/288, and **three** distinct refusal modes, not two |
+> | C1 what works | ✅ written down; the five findings constrain the design below |
+> | C2 three tiers | ◐ the TERM/BELIEF tier is **built** (`firmware/libraries/Semantic/`). The EPISODE lane writer and the FIELD tier (unchanged) are not yet |
+> | C2c fold-before-forget | ✅ **built and gated** — and it fell out of the streaming shape as a *move*, so losslessness is arithmetic rather than argued |
+> | C3 consolidator | ◐ **built, both gates green**; Rule 3 kept beside it and **measured** on the fleet's own 24 outcome records. Not yet wired into a sketch |
+> | C4 time (TTG-0004 §4) | ⏳ not started — the headline, and still unimplemented in any checkout |
+> | C0 the deletion | ⏳ the `clear` verbs are still in `orchestrator/` |
+>
+> `tests/test_semantic.cpp`: **88 checks, 0 failures**. Suite **34/34**.
+>
+> 📐 **The measurement C3 asked for, on real data** (`scratchpad/consolidator_compare.py`
+> over the banked `@LAT92` lane, run-length expanded back to windows and cross-checked
+> against the node's own `**TALLY**` on 8/8 claims): counting is higher than Rule 3 on
+> **8 of 8**, mean 177.5 → 238.9, largest gap **+89**. ⚠ But the *ordering* agrees — I
+> predicted an inversion and there is none. What differs is magnitude, which still matters
+> because EPS is a magnitude: `0x200/espnow` attracts 4× the attention under Rule 3
+> (255−136) as under counting (255−225).
+>
+> ⚠ **A THIRD refusal mode, found by that comparison and worse than either in C0b.** The
+> evidence lane holds **nine** claims; the node held **eight** beliefs
+> (`PERCEPTLEARN_MAX_CLAIMS 8`). The missing one is the **K10**, with 31 confirmations and
+> zero violations. A treadmill writes a `**LANE-PRUNED**` boundary; a refusing lane writes
+> nothing; a **dropped belief** announces itself on a serial cable that is not attached and
+> leaves the store looking complete. The sketch's own comment says why that is the worst of
+> the three: *"a dropped claim biases conf from a subset of the lane while looking like a
+> complete fold."* ✅ This is exactly the case `Semantic`'s **reclaim-lowest-EPS** answers —
+> principled where "whoever arrived ninth" is arbitrary, and `reclaimed()` makes it
+> countable from outside the process instead of printable to nobody.
+
 ### C0. The ask already has a pre-registered falsifier, written by an RFC
 
 The fleet has exactly one lane built this way — `@LAT101`, the social field — and

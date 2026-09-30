@@ -31,7 +31,7 @@ PY="${PY:-python}"
 LIB=firmware/libraries
 INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src
      -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
-     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/LaneGen/src -I$LIB/Social/src"
+     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/LaneGen/src -I$LIB/Social/src -I$LIB/Semantic/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
 TS="$LIB/TimeStream/src/TimeStream.cpp"
 
@@ -39,7 +39,7 @@ TS="$LIB/TimeStream/src/TimeStream.cpp"
 # `python tests/check_makefile.py` guards the Makefile's copy of the same information.
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
                   symmetric_edges nmea pulse timestream lanegen
-                  tracefield social sid citation ttdb_index)
+                  tracefield social sid citation ttdb_index semantic)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [linkpercept]="$TS $LIB/LinkPercept/src/LinkPercept.cpp"
@@ -57,6 +57,7 @@ declare -A SRCS=(
   [sid]="$LIB/TTDB/src/Sid.cpp"
   [citation]="$LIB/TTDB/src/TtdbParse.cpp"
   [ttdb_index]="$LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [semantic]="$LIB/Semantic/src/Semantic.cpp"
 )
 # ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)
 # with a small cap so index saturation is reachable in a fixture, not at 289 records.

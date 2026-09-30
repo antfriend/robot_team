@@ -254,24 +254,43 @@ If a fact lives in one of these, link to it from here — don't copy it.
   bytes, 44 records`** — the Cardputer flashed 2026-09-30, `rfc.ttdb.md` byte-identical
   in both `data/` dirs.
 - ✅ **Phase B (this reorganization) is COMPLETE** — this file's rename, the log split,
-  root down to 6 files, 0 broken links across 218 markdown files, `tests/run-all` at
-  33/33. `orchestrator/companion.py` → `fleet.py` is deliberately held for Phase C (B2).
-- 📐 **Phase C's premise is now MEASURED, not argued.** The Cardputer's pre-flash pull
+  root down to 6 files, and one test entry point. `orchestrator/companion.py` →
+  `fleet.py` is deliberately held for Phase C (B2).
+- ✅ **Repo health, current:** **0 broken links across 221 markdown files**;
+  `bash tests/run-all` is **34/34** (17 native + 16 laptop + the Makefile guard).
+- ◐ **Phase C is underway. The TERM/BELIEF tier is built and gated**:
+  `firmware/libraries/Semantic/` implements TTG-RFC-0003 §2 counting as a *stream*, which
+  makes fold-before-forget a **move** (live → carried) and so lossless arithmetically
+  rather than by argument. Both of C3's pre-registered gates are green — belief lines
+  byte-identical under **reordered** episodes, and byte-identical after **evicting** the
+  oldest with the fold. `tests/test_semantic.cpp` 88 checks / 0 failures; suite **34/34**.
+  Still to do in C: the EPISODE lane writer, C4 time, and the deletion that is C0's gate.
+- 📐 **Phase C's premise is MEASURED, not argued.** The Cardputer's pre-flash pull
   found **six of six capped lanes at cap** and the whole-file index at **257/288**,
   failing in two distinct ways: `@LAT94`–`97` **treadmilling** through whole-lane wipes
   (six `**LANE-PRUNED**` markers, `removed:48` each — 288 windows destroyed) and
   `@LAT90`/`@LAT92` **refusing writes** outright, which froze all eight `@LAT91` beliefs
   at `met:11 violated:0`. The only lanes with room were the two with no cap. Full
   measurement: [docs/log/2026-09.md](docs/log/2026-09.md).
+- ⚠ **… and then a THIRD refusal mode, which cost the fleet a real belief.** Found after
+  the census, by the consolidator comparison rather than by the lane census. The evidence holds
+  **nine** claims; the node held **eight** beliefs (`PERCEPTLEARN_MAX_CLAIMS 8`). The
+  missing one is the **K10**, with 31 confirmations and 0 violations — the fleet had the
+  evidence and could not hold the conclusion. Unlike a treadmill (which writes a
+  `**LANE-PRUNED**` boundary) or a refusing lane (which writes nothing), a dropped belief
+  announces itself only on a serial cable that was not attached. `Semantic` answers it with
+  **reclaim-lowest-EPS** plus a countable `reclaimed()`.
 
 ### Next action
 
-1. **Phase C** — the substance: one memory that never refuses a write (ACT-III §5). Its
-   gate is a deletion: every `clear` verb gone from `orchestrator/`. Two banked files are
-   its scaffolding — `master/cardputer_postflash_2026-09-30.md` (10 records, empty lanes,
-   known caps) is the before-state, and the 24-record `@LAT92` lane in
-   `master/cardputer_pre_actIII_2026-09-30.md` is C3's order-independence fixture:
-   shuffle the outcomes, recompute, expect the same eight beliefs.
+1. **Phase C, continued** (ACT-III §5 and its ◐ status block). The consolidator is done;
+   next is the **EPISODE lane writer** — one lane of `ttdb-episode` blocks replacing the
+   `@LAT93`–`@LAT97` grammars, with the four samplers keeping their thresholds and losing
+   their record formats, prune paths and readers. Then **C4** (TTG-RFC-0004 §4 time, the
+   headline, unimplemented in any checkout), then **C0's deletion**: every `clear` verb
+   gone from `orchestrator/` and nothing replacing it.
+   📌 Reproduce the consolidator comparison any time with
+   `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
    records banked in `master/`, gone from the board. That is the flash's intended
    consequence and the pull was its mitigation, but it is exactly the shape this
