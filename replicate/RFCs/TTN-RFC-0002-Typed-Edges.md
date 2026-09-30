@@ -69,30 +69,51 @@ see TTDB-RFC-0003 §7.
   `TTDB-RFC-0003` §7 defines. Additive; every 1.0-conformant store remains valid.
 - **1.0** — Initial.
 
-*Sync note (2026-09-30) — ⚠ UNRESOLVED DIVERGENCE, DO NOT "FIX" BY COPYING EITHER WAY.*
-Three checkouts held three byte counts for this file — 1140 here, 845 in
-`toot-toot-engineering`, 900 in `antfriend.github.io` — and the sizes are misleading
-twice over. The two smaller copies are **1.0 and identical in content** (the 55-byte
-gap between them is CRLF). This copy is **1.1, a strict superset**, adding
-§Semantic Polarity.
+*Sync note (2026-09-30) — resolved: **v1.1 is correct, and the upstream v1.0 is a
+regression, not a decision.** Investigated because a first reading reached the opposite
+conclusion twice.*
 
-**But 1.1 is not the newer state, and a first reading of this got that backwards.**
-Both `opposes` sections were authored on 2026-08-01 (here in `dc42f40`, upstream in
-`ecac881`) — and upstream then **deliberately removed it on 2026-09-22** (`796f633`),
-reverting its header to 1.0. So the ordering is: added in both, then retracted
-upstream only. This checkout is behind a decision, not ahead of one.
+Three checkouts held three byte counts — 1140 here, 845 in `toot-toot-engineering`, 900
+in `antfriend.github.io` — and **neither obvious heuristic gave the right direction.**
 
-What makes it a real question rather than a stale file: `TTDB-RFC-0003` §7, which
-**defines** `opposes` and is itself v1.1, is byte-identical in all three checkouts and
-was *not* reverted. So upstream now defines the type in the TTDB layer while omitting
-it from this network-layer taxonomy — which is a coherent editorial position (a typed
-edge need not be a network edge type), but the commit message is a web-edit default and
-states no rationale.
+- *Size* is not a direction: the two smaller copies are 1.0 and **identical in
+  content**; their 55-byte gap is CRLF (`core.autocrlf`).
+- *Superset* is not a direction either, which is what made this worth digging into:
+  `git log -S` shows the §Semantic Polarity block was added in **both** repos on
+  2026-08-01 (here `dc42f40`, upstream `ecac881`) and then vanished upstream on
+  2026-09-22 — so this copy looked like it was behind a retraction.
 
-Pending a decision, this checkout keeps 1.1 and **nothing is pushed outward for this
-file.** Resolving it means either following the upstream retraction here, or restoring
-it upstream with the rationale written down. Recorded so the next sync is a comparison
-rather than an archaeology — and as a reminder that in this corpus a byte count is not
-a direction.
+**It is not a retraction. It is a stale-baseline regression, and it happened twice in
+45 seconds.** Upstream, `24cea1d "TTG Grammar"` (11:01:35) added the five TTG RFCs and
+**also rewrote `RFCs/rfc.ttdb.md`, silently reverting that file's TTN-RFC-0002 record
+from "seven groups" back to "six groups"** — the corpus was regenerated from a base
+predating `ecac881`. Then `796f633` (11:02:20) edited this RFC down to 1.0, making the
+regression self-consistent and therefore invisible. Both commits carry default
+web-edit messages and state no rationale.
+
+**Everything the feature actually rests on survived both commits untouched**, which is
+what rules out an editorial de-listing:
+
+| artifact | upstream state |
+|---|---|
+| `TTDB-RFC-0003` §7, which *defines* `opposes` | **v1.1, present** |
+| `feelings_ttdb.md` — the canonical store | **22 `opposes` edges**, across 11 antonym pairs |
+| `research/valence/` — the active research line that motivated it | **17 references** |
+
+And the edges are **in production**: `feelings.ttdb.md` is flashed to both handhelds, so
+`opposes` is live on hardware. A taxonomy that omits a type its own canonical store uses
+22 times is precisely the inconsistency §7's rationale names — *polarity encoded
+positionally is "invisible to a consumer traversing the edge list, which is what
+implementations actually read."*
+
+**Action:** 1.1 stands here and is pushed to both other checkouts, with the upstream
+corpus record repaired to "seven groups". The website's 1.0 is simply **stale** — its
+last commit touching the file is 2026-05-09, months before the section existed — so it
+is a plain fast-forward, not a conflict.
+
+⚠ The one thing that would overturn this is an explicit statement from the author that
+`opposes` should not be a TTN-layer edge type. Nothing in either repo says so; if that
+was the intent, it belongs in §7 and in `feelings_ttdb.md`, not in a silent revert.
+
 
 End TTN-RFC-0002

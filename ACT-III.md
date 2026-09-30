@@ -59,17 +59,19 @@ three except six**:
 | `TTDB-RFC-0009-Counter-Story…` | ✅ | ✅ | — | **push to website** |
 | `TTDB-RFC-0010-Stigmergic-Fields…` | ✅ | — | — | **push to both** (never existed upstream; safe) |
 | `INDEX.md` | 10510 B | 10217 | 10217 | **3-way merge** |
-| `TTN-RFC-0002-Typed-Edges.md` | 1140 B | 845 | 900 | ⚠ **unresolved** — v1.1 here was *retracted* upstream 2026-09-22; see A4 and §8.6 |
+| `TTN-RFC-0002-Typed-Edges.md` | 1140 B | 845 | 900 | ✅ **v1.1 is correct** — the upstream 1.0 is a regression, not a retraction; pushed to both (A4) |
 | `rfc.ttdb.md` | 38 rec | 39 rec | 39 rec | **union → 44 rec** (43 + 1 belief) |
 
 Two consequences worth stating before anyone starts:
 
-- ⚠ **The website's copies are not newer.** They are uniformly 200–400 B larger,
-  which reads like new content and is not: `diff --strip-trailing-cr` is clean on
-  every one of them. The website checks out CRLF; robot_team's own RFC dir is
-  **mixed** (`TTN-RFC-0010-Fleet-Pulse.md` is CRLF here and LF in
-  toot-toot-engineering, which is the whole of that "difference"). Sizes are not
-  evidence in this corpus. Diff normalised, or you will "sync" 30 files that were
+- ⚠ **The website's copies were not newer.** They read uniformly 200–400 B larger,
+  which looks like new content and was not: `diff --strip-trailing-cr` was clean on
+  every one. *(As surveyed: robot_team's own RFC dir was mixed too — five files CRLF
+  in the working tree. A1 has since pinned the whole directory to LF.)*
+  **Root cause, and it is not what it looks like:** `core.autocrlf=true`, so the
+  committed blobs were **already LF in every repo** — only the checkouts differed.
+  The three repositories never diverged on line endings at all. Sizes are not
+  evidence in this corpus; diff normalised, or you will "sync" 30 files that were
   already identical and bury the six that matter.
 - ⚠ **Neither INDEX is a superset.** robot_team's lists `TTDB-RFC-0009` and
   `-0010` and zero TTG entries; toot-toot's lists all five TTG entries and neither
@@ -294,10 +296,10 @@ it.
 > | A1 normalise | ✅ all 37 files pure LF; `replicate/RFCs/*.md eol=lf` added |
 > | A2 import TTG | ✅ 5 files, byte-identical to the donor |
 > | A3 INDEX union | ✅ TTG section + per-entry hardware status; all links resolve; every file listed |
-> | A4 `TTN-RFC-0002` | ⚠ **resolved to a question** — see below; nothing pushed, nothing reverted |
+> | A4 `TTN-RFC-0002` | ✅ **resolved: v1.1 correct**; upstream 1.0 traced to a stale-baseline regression, pushed to both with the corpus record repaired |
 > | A5 corpus union | ✅ 38 → **44 records**; native `test_rfc_ttdb` **passes 10/10** |
-> | A5 handhelds | ⏳ **owed — needs hardware.** Both `data/rfc.ttdb.md` staged byte-identical; FS re-flash not yet run |
-> | A6 push out | ◐ toot-toot done (uncommitted); **website not cloned locally** |
+> | A5 handhelds | ◐ **T-Deck done** — flashed COM10, reads back `RFC globe loaded: 52692 bytes, 44 records` (byte- and record-exact). **Cardputer still owed** |
+> | A6 push out | ✅ **both done** — toot-toot and `~/Documents/GitHub/antfriend.github.io`, each verified; uncommitted for review |
 > | A7 reader | ✅ note only, no code (by design) |
 >
 > **Full native suite: 11/11 green, exit 0** — after fixing a pre-existing
@@ -337,28 +339,42 @@ entries. Then extend the index with what only this repo can say: each RFC's
 **implementation status on real hardware**, which is the one axis the other two
 checkouts have no evidence for.
 
-### A4. Reconcile `TTN-RFC-0002-Typed-Edges.md` — ⚠ resolved to a question, not an answer
+### A4. Reconcile `TTN-RFC-0002-Typed-Edges.md` — ✅ resolved: v1.1 is correct
 
-**Done 2026-09-30, and the answer was the opposite of the one this plan expected.**
-Three lengths (1140 / 845 / 900) resolved to two contents: the two smaller copies
-are 1.0 and identical (CRLF explains their gap), and robot_team's is 1.1, a strict
-superset adding §Semantic Polarity / `opposes`.
+**Done 2026-09-30, after two wrong readings, and the second one is the instructive
+one.** Three lengths (1140 / 845 / 900) resolved to two contents: the two smaller
+copies are 1.0 and identical (CRLF explains their gap); robot_team's is 1.1, a
+strict superset adding §Semantic Polarity / `opposes`.
 
-The tempting inference — *superset ⇒ newer ⇒ push it outward* — is **wrong**. Git
-says both `opposes` sections were authored 2026-08-01 (here `dc42f40`, upstream
-`ecac881`), and upstream **deliberately removed it on 2026-09-22** (`796f633`),
-reverting to 1.0. This checkout is behind a decision, not ahead of one.
+- **First wrong reading:** *superset ⇒ newer ⇒ push it.* Refuted by `git log -S`:
+  the section was added in **both** repos on 2026-08-01 and then vanished upstream
+  on 2026-09-22.
+- **Second wrong reading** (this plan's previous text): *therefore upstream
+  retracted it, so we are behind a decision.* Also wrong.
 
-It is a real question because `TTDB-RFC-0003` §7, which *defines* `opposes`, is
-v1.1 and **byte-identical in all three checkouts, and was not reverted** — so
-upstream now defines the type in the TTDB layer while omitting it from this
-network-layer taxonomy. Coherent as an editorial position; unexplained, because
-`796f633`'s message is a web-edit default.
+**It was a stale-baseline regression, and it happened twice in 45 seconds.**
+Upstream `24cea1d "TTG Grammar"` (11:01:35) added the five TTG RFCs and **also
+rewrote `rfc.ttdb.md`, reverting its TTN-RFC-0002 record from "seven groups" to
+"six"** — regenerated from a base predating the feature. `796f633` (11:02:20) then
+edited the RFC itself down to 1.0, making the regression self-consistent and so
+invisible. Default web-edit messages, no rationale.
 
-**Nothing is pushed for this file, and it is not reverted here either.** Both the
-file's changelog and `INDEX.md` record it as unresolved. §8.6 carries the decision.
-📎 The lesson generalises and is why A1 exists: *in this corpus a byte count is not
-a direction, and neither is a superset.*
+What settles it is that **everything the feature rests on survived both commits
+untouched**: `TTDB-RFC-0003` §7 (which *defines* `opposes`) is still v1.1;
+`feelings_ttdb.md` still carries **22 `opposes` edges** across 11 antonym pairs;
+`research/valence/` still has 17 references. And those edges are **in production** —
+`feelings.ttdb.md` is flashed to both handhelds. A taxonomy omitting a type its own
+canonical store uses 22 times is exactly the inconsistency §7's rationale names.
+
+**Action taken:** v1.1 stands here, and is pushed to both checkouts *with the
+upstream corpus record repaired*. The website's 1.0 was merely **stale** (last
+touched 2026-05-09, before the section existed) — a fast-forward, not a conflict.
+
+📎 Two lessons, both now in `.gitattributes` and memory: *a byte count is not a
+direction, and neither is a superset.* The thing that actually decided it was
+**reading the target's `git log`, and then checking whether the dependent artifacts
+moved with it.** A real retraction takes its dependents along; a regression leaves
+them behind.
 
 ### A5. Rebuild `rfc.ttdb.md` as the union
 
@@ -383,7 +399,13 @@ opens on it, and `companion.py pull` of that globe is byte-exact against
 (verified safe: `git log --all --diff-filter=D` shows it never existed upstream and
 was never deleted, so this is a genuine absence and not a retraction like A4's).
 `TTDB-RFC-0009-Counter-Story…` → the website only; toot-toot already has it,
-byte-identical. Plus the INDEX entries. **`TTN-RFC-0002` is excluded** — see A4.
+byte-identical. Plus the INDEX entries, and **`TTN-RFC-0002` v1.1 after all** — see A4.
+
+⚠ **The website needs a fifth change the other repo does not, and without it the push
+is invisible.** Its reader builds its contents panel from a hand-maintained list in
+`index_ttdb.md` (`@LAT-32LON90`), not from the directory — so a new RFC file lands on
+disk and never appears on the site. Both new RFCs were added there, along with its
+ASCII summary card (33 → 35 documents, and the `lat 10` bar 8 → 10 filled).
 
 This is the half of "sync" that is easy to forget, because the ask was phrased as
 an import; robot_team is the sole holder of 0010, which is the RFC the `@LAT101`
