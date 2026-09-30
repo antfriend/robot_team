@@ -1,7 +1,7 @@
 """Clear every node's percept lanes over ONE held connection.
 
 Five `companion.py cmd` invocations would reset the bridge five times and probe a
-node that just rebooted (companion.md §6, 2026-07-31). This opens once without the
+node that just rebooted (FLEET.md §6, 2026-07-31). This opens once without the
 DTR reset and sends all five clears over that session.
 
 Lane 0 = every percept lane 94..97. Nodes refuse anything outside that range, so

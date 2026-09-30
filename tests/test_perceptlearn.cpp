@@ -365,7 +365,7 @@ int main(void) {
   // This is the check that makes the on-device result meaningful. The sequence below is
   // the verdict order the Cardputer actually wrote to @LAT92LON17..23 while the T-Deck
   // was carried to another room and back, and the expected conf values are the ones
-  // computed BY HAND from those records (percept-learning-return.md §0b). If Stage D on
+  // computed BY HAND from those records (docs/handoffs/percept-learning-return.md §0b). If Stage D on
   // the device disagrees with this, one of the two is wrong and we find out — which is
   // exactly the property a RAM counter would not have given us.
   // -------------------------------------------------------------------------

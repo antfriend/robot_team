@@ -1,5 +1,14 @@
 # Toot Toot Engineering
-free, open-source software. [MIT License](LICENSE) | [antfriend.github.io](https://antfriend.github.io/)
+
+> **This is `robot_team`'s slice of Toot Toot Engineering, not a mirror of it.**
+> The canonical project lives at
+> [antfriend/toot-toot-engineering](https://github.com/antfriend/toot-toot-engineering); links
+> marked *upstream* below point there rather than to files in this repo. What IS local and
+> canonical here is **[RFCs/](RFCs/)** — it is a build input, not a copy: `RFCs/rfc.ttdb.md` is
+> flashed byte-exact to both handhelds, and `RFCs/INDEX.md` carries the one thing the other
+> checkouts cannot, each RFC's **implementation status on real hardware**. Decided in
+> [ACT-III.md](../ACT-III.md) §8.4; last three-way sync 2026-09-30.
+free, open-source software. [MIT License](../LICENSE) | [antfriend.github.io](https://antfriend.github.io/)
 ![Release](https://img.shields.io/github/v/release/antfriend/toot-toot-engineering)
 
 # Universal Agent Memory & Learning System
@@ -15,11 +24,11 @@ It's a synthetic, experimentally unified field with concrete elements of:
 
 - [agent-memory-system_ttdb.md](agent-memory-system_ttdb.md) — the semantically compressed spec file for all of this. It is also *an instance of the thing it specifies*: **a conforming store describing itself in its own format.** If you read one file, read this one.
 
-- [feelings_ttdb.md](feelings_ttdb.md) — a second conforming store, and the one to load if you want to *see* what a knowledge globe is rather than read about it. An affective landscape: latitude is valence (north positive, south negative), longitude is what the feeling points at (east toward others, west toward the self), and distance from the origin is intensity. Serenity sits near the middle; Rage and Ecstasy sit at the edges, opposite each other. Walk it in the viewer below.
+- [feelings_ttdb.md](https://github.com/antfriend/toot-toot-engineering/blob/main/feelings_ttdb.md) — *upstream* — a second conforming store, and the one to load if you want to *see* what a knowledge globe is rather than read about it. An affective landscape: latitude is valence (north positive, south negative), longitude is what the feeling points at (east toward others, west toward the self), and distance from the origin is intensity. Serenity sits near the middle; Rage and Ecstasy sit at the edges, opposite each other. Walk it in the viewer below.
 
 - [RFCs/](RFCs/) — the Request For Comment, internet spec style documents: the fully expanded version of agent-memory-system_ttdb.md. Start at [RFCs/INDEX.md](RFCs/INDEX.md).
 
-- [research/valence/](research/valence/) — **not spec, and deliberately so.** An
+- [research/valence/](https://github.com/antfriend/toot-toot-engineering/tree/main/research/valence) — *upstream* — **not spec, and deliberately so.** An
 open line of work asking whether a signed scalar field over a store's typed edges
 locates its contradictions. It survived its first falsification round — the field
 recovers held-out valence at r = +0.941 against published human norms — and has

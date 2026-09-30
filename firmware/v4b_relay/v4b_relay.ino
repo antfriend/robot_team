@@ -1,6 +1,6 @@
 // v4b_relay.ino — Heltec WiFi LoRa 32 V4, RELAY / midpoint node (A32 agent).
 //
-// Role: spine-mid store-and-forward (toot_network_architecture.md). In Phase 4 it
+// Role: spine-mid store-and-forward (docs/design/toot_network_architecture.md). In Phase 4 it
 // decrements ttl, dedups on (src,seq), re-signs and re-emits over LoRa. Until then
 // it comes up as a verified **ESP-NOW Dream-Cycle participant** — the third node in
 // the mesh — so the 3-node fleet (V4-A bridge + V4-B + K10) can be sync'd,
@@ -41,8 +41,8 @@
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
-// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per max98357a-v4-wiring.html /
-// hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
+// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per docs/hardware/max98357a-v4-wiring.html /
+// docs/hardware/hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
 // SD float. Same driver as the T-Deck console: no analog/PWM path, so a tone is
 // synthesized as 16-bit I2S samples. toneI2S blocks ~ms, so it runs from setup()/loop()
 // only — never a callback (the deferred-tone discipline every other node uses).
@@ -50,7 +50,7 @@
 #if USE_SPEAKER
 #include <ESP_I2S.h>
 static I2SClass gI2S;
-// 8 kHz (not 16k): the hand-wired MAX98357A only locks reliably at a low BCLK (see companion.md
+// 8 kHz (not 16k): the hand-wired MAX98357A only locks reliably at a low BCLK (see FLEET.md
 // §6 / v4a_bridge). Higher fs degrades over the jumper wiring. Fine for toots/beeps/kicks.
 static const uint32_t I2S_RATE = 8000;
 static const int PIN_I2S_BCLK = 7;   // MAX98357A BCLK
@@ -213,7 +213,7 @@ static bool neighborNeedsLock(uint32_t src, uint32_t now) {
 
 // --- onboard SSD1306 OLED (status display) ----------------------------------
 // Heltec V4: SSD1306 128x64 on I2C (SDA 17 / SCL 18 / RST 21), powered through
-// Vext (GPIO36, active-LOW). U8g2 on the generic esp32 core (hardware_specs.md §2).
+// Vext (GPIO36, active-LOW). U8g2 on the generic esp32 core (docs/hardware/hardware_specs.md §2).
 static const int kVextCtrl = 36;            // drive LOW to power the OLED rail
 static const int kOledRst = 21, kOledScl = 18, kOledSda = 17;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C gOled(U8G2_R0, kOledRst, kOledScl, kOledSda);
@@ -450,7 +450,7 @@ static void emitAck(const toot::Toot& orig, uint8_t status,
 // so the RAW pin millivolts still print beside the derived voltage on the first sample. That
 // matters more here than on the bridge: V4-B is the solar+battery node, so its pack voltage
 // is the one number that will eventually mean something operationally.
-static const int   PIN_BAT_ADC  = 1;      // measured; matches hardware_specs.md §2
+static const int   PIN_BAT_ADC  = 1;      // measured; matches docs/hardware/hardware_specs.md §2
 static const int   PIN_ADC_CTRL = 37;     // measured: HIGH connects the divider, LOW opens it
 static const float BAT_DIVIDER  = 4.9f;   // V3 divider 390k/100k -> (390+100)/100
 static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes

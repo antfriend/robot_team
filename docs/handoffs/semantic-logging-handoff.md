@@ -1,7 +1,7 @@
 # Handoff: recency in time, then semantic logging
 
 **Work order for a fresh session.** Authored 2026-08-03 against `robot_team` @ `6abc919`
-with a clean tree. Read [companion.md](companion.md) §6 first — it is the source of truth,
+with a clean tree. Read [../../FLEET.md](../../FLEET.md) §6 first — it is the source of truth,
 and its last four entries are the team-time-stream work this document builds on.
 
 This continues [timestream-handoff.md](timestream-handoff.md), whose Part 1 (the
@@ -18,7 +18,7 @@ after reading the code it touches.
 > **STATUS 2026-08-03: Part A is DONE** (`--since`, the fleet-clock reference, and the
 > A.1 entity-tier fix; `test_prox_py` 74 → 94 checks). Its first run on the real corpus
 > found that **the `@LAT97` lane is at its 48-record cap on all five nodes with zero
-> post-flash records** — see companion.md §6. **Prune it (`proximity --clear`) before
+> post-flash records** — see ../../FLEET.md §6. **Prune it (`proximity --clear`) before
 > starting Part C's collection**, or the window collects nothing. Next: Part B.
 
 1. **Part A — recency becomes a TIME window** (`--last N` → `--since`). The old handoff
@@ -63,10 +63,10 @@ Python suite: **7 files, all passing** (run each `tests/test_*_py.py` directly).
 ### A.0 Why this is first, and why it is not merely an audit
 
 `companion.py proximity --last N` is documented as "use only each node's newest N windows —
-the recency filter" ([companion.py:2244](orchestrator/companion.py#L2244)). It is
+the recency filter" ([companion.py:2244](../../orchestrator/companion.py#L2244)). It is
 implemented as a **slice**: `wins = wins[-last:]`
-([companion.py:2257](orchestrator/companion.py#L2257)) and
-`windows = windows[-last:]` ([companion.py:1944](orchestrator/companion.py#L1944)).
+([companion.py:2257](../../orchestrator/companion.py#L2257)) and
+`windows = windows[-last:]` ([companion.py:1944](../../orchestrator/companion.py#L1944)).
 
 Under periodic logging, N records ≈ N minutes, so the slice is a passable proxy for time.
 **Under change-triggered logging it is not**, and the error is not random: a node that sat
@@ -82,7 +82,7 @@ team time stream pays for, and it is a small change.
 ### A.1 ⚠ FINDING — `--last` is silently NOT applied to the entity tier
 
 `consolidate_entity_jaccard(windows_by_node, last=None)` takes a `last` parameter
-([companion.py:1962](orchestrator/companion.py#L1962)) and passes it to `_entity_set`.
+([companion.py:1962](../../orchestrator/companion.py#L1962)) and passes it to `_entity_set`.
 **Its only call site does not supply one:**
 
 ```python
@@ -104,7 +104,7 @@ is too tight produces a plausible number rather than an error. **Fix it in the s
 ### A.2 What to build
 
 1. Add `--since <duration>` to `proximity` (and anywhere else the recency filter lands),
-   parsed to milliseconds. Keep `--last N` working — it is in `companion.md` runbooks and
+   parsed to milliseconds. Keep `--last N` working — it is in `../../FLEET.md` runbooks and
    in muscle memory — but have it **warn** when the corpus contains change-triggered lanes.
 2. Filter on `w["t_ms"]` relative to the newest window **in that node's own stream**, not
    wall-clock: most records are `wall:0` and always will be in a garden.
@@ -150,8 +150,8 @@ cardputer_console.ino:3513   } else if (gLearn.arm(lane)) {
 ```
 
 where `lane = laneCount(95)` — the count of existing @LAT95 records
-([cardputer_console.ino:3473](firmware/cardputer_console/cardputer_console.ino#L3473),
-`laneCount` at [:1149](firmware/cardputer_console/cardputer_console.ino#L1149)).
+([cardputer_console.ino:3473](../../firmware/cardputer_console/cardputer_console.ino#L3473),
+`laneCount` at [:1149](../../firmware/cardputer_console/cardputer_console.ino#L1149)).
 
 So Rule 1's expectation is **provenanced to a specific @LAT95 record**: the still-claim that
 makes the prediction refutable. Under naive change-triggered logging a `still` window that
@@ -174,9 +174,9 @@ that should be preserved:
 > then went quiet with no error anywhere. The motion lane fills ~2× faster than the link lane
 > (motion flushes with no peers in range; link needs an observation), so it is always the
 > first cap to bite.
-> — [cardputer_console.ino:3478](firmware/cardputer_console/cardputer_console.ino#L3478)
+> — [cardputer_console.ino:3478](../../firmware/cardputer_console/cardputer_console.ino#L3478)
 
-`MOTIONPERCEPT_MAX_LANE 48` ([MotionPercept.h:79](firmware/libraries/MotionPercept/src/MotionPercept.h#L79))
+`MOTIONPERCEPT_MAX_LANE 48` ([MotionPercept.h:79](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L79))
 with `MOTIONPERCEPT_FLUSH_MS 60000` = the lane fills in 48 minutes of uptime regardless of
 whether anything happened. Change-triggered, a node on a shelf writes ~1.
 
@@ -186,7 +186,7 @@ the window and disarms the loop**. Loud is not fixed.
 ### B.2 The rule that must NOT be broken
 
 `@LAT92` is a **tally**, not a state series: `met_ / violated_ / unobserved_`
-([PerceptLearn.h:200](firmware/libraries/PerceptLearn/src/PerceptLearn.h#L200)) feed `conf`.
+([PerceptLearn.h:200](../../firmware/libraries/PerceptLearn/src/PerceptLearn.h#L200)) feed `conf`.
 You can compress a state series by keeping only transitions. **You cannot compress a tally
 that way** — dropping the unchanged windows removes the denominator and `conf` is then
 computed from a biased sample that is systematically over-confident.
@@ -201,13 +201,13 @@ The old handoff's §3.3.3 says *derive the thresholds, do not choose them*, and 
 `PERCEPTLEARN_RSSI_BAND 6` as the model — correctly: it is the **p90 of that node's own
 consecutive-window drift across 33 known-quiet link windows**, with the derivation table
 written into the header
-([PerceptLearn.h:48–71](firmware/libraries/PerceptLearn/src/PerceptLearn.h#L48)).
+([PerceptLearn.h:48–71](../../firmware/libraries/PerceptLearn/src/PerceptLearn.h#L48)).
 
 `MOTIONPERCEPT_MOVING_MG 60` is **not** derived that way:
 
 > Hand tremor on a held device is ~20-40 mg; a walking stride peaks in the hundreds. 60 mg
 > keeps "held still in a hand" on the still side of the line.
-> — [MotionPercept.h:83](firmware/libraries/MotionPercept/src/MotionPercept.h#L83)
+> — [MotionPercept.h:83](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L83)
 
 That is a reasoned choice from published figures, not a measurement of **this BMI270 on
 this board**. It has never been checked against the Cardputer's own noise floor. Before
@@ -221,7 +221,7 @@ have been resting on the wrong line.
 
 A signal sitting exactly at the threshold produces **more** records than periodic logging.
 `PerceptLearn`'s band already landed a `d=6` exactly on the line once. `@LAT95`'s verdict is
-`permille >= 100` ([MotionPercept.h:116](firmware/libraries/MotionPercept/src/MotionPercept.h#L116)),
+`permille >= 100` ([MotionPercept.h:116](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L116)),
 so a node at ~10% motion flaps every window. Needs hysteresis (different up/down thresholds)
 or a minimum dwell. Derive that too — do not pick it.
 
@@ -235,7 +235,7 @@ still node writes none. That is the template. Generalize its shape; do not inven
 
 Same cap (`ENTITYPERCEPT_MAX_LANE 48`), same window
 (`ENTITYPERCEPT_FLUSH_MS 60000`), max 12 entities per window
-([EntityPercept.h:26–37](firmware/libraries/EntityPercept/src/EntityPercept.h#L26)).
+([EntityPercept.h:26–37](../../firmware/libraries/EntityPercept/src/EntityPercept.h#L26)).
 
 The change signal is **Jaccard drift between consecutive windows**, and its threshold has to
 be measured, not chosen — the same standard as B.3. That measurement needs a stretch of
@@ -266,7 +266,7 @@ close to binding and **should not be raised** (`TimeStreamNode.h:34–40` explai
 a guard against a pathology, not a routine ceiling — if it is reached, that *is* the finding).
 
 What is still undecided is only what happens **when** it fills. Today it prints and refuses
-([TimeStreamNode.h:203](firmware/libraries/TimeStream/src/TimeStreamNode.h#L203)), which
+([TimeStreamNode.h:203](../../firmware/libraries/TimeStream/src/TimeStreamNode.h#L203)), which
 means the next stream's records carry an id nothing in the lane explains — a silent
 un-interpretable subset, exactly the failure class this project keeps finding. Decide
 deliberately; "loud and refuse" may be right, but it should be a decision rather than a
@@ -333,4 +333,4 @@ they are specifying an order by accident.
 *Every file path, line number, constant and count above was verified against the working
 tree at `6abc919` on 2026-08-03, not recalled. The two findings marked ⚠ FINDING (A.1, B.3)
 and the B.0 citation coupling were discovered while writing this document; they are also
-recorded in `companion.md` §6, which stays the source of truth.*
+recorded in `../../FLEET.md` §6, which stays the source of truth.*

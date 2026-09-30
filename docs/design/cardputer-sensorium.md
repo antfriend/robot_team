@@ -8,8 +8,8 @@ steady — the cheapest view on the node), all 2026-07-28.** All three hold the 
 arbiter** (§3), so the keyboard is the only thing that picks a view. Console and
 constellation are still proposal. See §7 for what each phase now owes.
 **Node:** `cardputer_1` = `0x300`, `firmware/cardputer_console`.
-**Governing docs:** [companion.md](companion.md) §2/§6 (state), [PLAN.md](PLAN.md) (build
-order), [ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the primary
+**Governing docs:** [../../FLEET.md](../../FLEET.md) §2/§6 (state), [PLAN.md](../../PLAN.md) (build
+order), [ttn-semantic-positioning.md](../../ttn-semantic-positioning.md) (the primary
 hypothesis), `replicate/RFCs/TTDB-RFC-0005-Epistemic-Weight.md` (the attention math this
 reuses), `replicate/RFCs/TTCP-RFC-0002-Globe-and-Navigation.md` (the views this sits
 beside).
@@ -148,7 +148,7 @@ data-quality bug in the acoustic tier as it stands today.
 We already learned this node's lesson the expensive way: **the toot link is serviced
 once per `loop()` pass, so the slowest pass is the node's response time on the mesh.**
 An `edgesAt()` call per record per frame cost 767 ms per repaint and blew `verify` to a
-419 ms rtt (companion.md §6).
+419 ms rtt (../../FLEET.md §6).
 
 Therefore the representor is **budgeted before it is written**:
 
@@ -447,7 +447,7 @@ measurement, not a prettier screen.*
 | unallocated | **4 MB** | 0 |
 
 ⚠ Changing this **requires updating the offset in
-[scripts/Upload-Cardputer-FS.ps1](scripts/Upload-Cardputer-FS.ps1)**. Flashing the FS at
+[scripts/Upload-Cardputer-FS.ps1](../../scripts/Upload-Cardputer-FS.ps1)**. Flashing the FS at
 the wrong offset for the scheme is the documented failure that boots a node to an empty
 globe with the app otherwise looking fine (CLAUDE.md). Treat the partition change and
 the script change as one atomic commit.

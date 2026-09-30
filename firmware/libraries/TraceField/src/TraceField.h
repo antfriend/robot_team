@@ -23,7 +23,7 @@
 // ⚠ THE DIGEST CARRIES ALREADY-DECAYED VALUES, SO NO CLOCK IS COMPARED. A first cut sent
 // `(strength, last_ms)` pairs and made the receiver age them, which drags in the sender's
 // time base — and a stream clock is a RATCHET (fastest crystal heard wins: right for
-// recency, wrong for a duration, companion.md §6). Ageing a peer's trace against our own
+// recency, wrong for a duration, FLEET.md §6). Ageing a peer's trace against our own
 // clock would have applied an unbounded offset to every cell. Decaying at the sender and
 // shipping the result means a digest is a statement about NOW, true when it was built,
 // needing nothing but arrival. It is also why `merge` takes our `now` and not theirs.

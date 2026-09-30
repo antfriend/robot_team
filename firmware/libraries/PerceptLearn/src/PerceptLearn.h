@@ -77,7 +77,7 @@
 // RUN-LENGTH (2026-08-04) — the SAME decision as @LAT95's, not a separate one
 // ---------------------------------------------------------------------------
 // @LAT95 became change-triggered because a periodic lane fills with uptime rather than
-// with events (part-b-handoff.md Part 1). This lane has the same disease and a worse
+// with events (docs/handoffs/part-b-handoff.md Part 1). This lane has the same disease and a worse
 // prognosis — an outcome is 573-1595 B against a percept window's ~200 B, and
 // PERCEPTLEARN_MAX_LANE is 24, so it fills in 24 minutes.
 //
@@ -96,7 +96,7 @@
 // conf, sal and streak as an uncompressed one, and `tests/test_perceptlearn.cpp` pins
 // that equivalence directly rather than trusting the argument.
 //
-// The shape mirrors @LAT95's, deliberately (part-b-handoff.md §1.3: generalize the
+// The shape mirrors @LAT95's, deliberately (docs/handoffs/part-b-handoff.md §1.3: generalize the
 // shape, do not invent a new one). A record is written when the VERDICT VECTOR changes,
 // when PERCEPTLEARN_MAX_RUN windows have passed, or when it is the first — and it
 // carries the windows it suppressed:
@@ -374,7 +374,7 @@ class Loop {
 //     then fell is not the same as one that never rose. Summing met/violated and applying
 //     the arithmetic once would be subtly wrong over long runs.
 //
-// MEASURED, 2026-08-02 (percept-learning-return.md §0b): over a run where the peer was
+// MEASURED, 2026-08-02 (docs/handoffs/percept-learning-return.md §0b): over a run where the peer was
 // carried to another room and back, 9 met / 5 violated drove espnow 128 -> 106 and ble
 // 128 -> 88. tests/test_perceptlearn.cpp replays that exact verdict sequence and asserts
 // those numbers, so the on-device result is checkable against the hand computation.

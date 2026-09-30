@@ -6,7 +6,7 @@ reading the same records off the same pulled file, must arrive at the same conf/
 
 It deliberately re-reads the lane rather than tracking a running total, for the same
 reason the device does — a running total would agree with the device by construction
-and prove nothing (companion.md, Stage D).
+and prove nothing (FLEET.md, Stage D).
 
   python scratchpad/refold.py master/gate-2026-08-02/cardputer_walkrun.md
 """

@@ -1,7 +1,7 @@
 # Handoff: Part B proper — change-triggered logging
 
 **Work order for a fresh session.** Authored 2026-08-03 against `robot_team` @ `c353568`.
-Read [companion.md](companion.md) §6 first — it is the source of truth, and its last eight
+Read [../../FLEET.md](../../FLEET.md) §6 first — it is the source of truth, and its last eight
 entries are the work this document continues.
 
 This supersedes [semantic-logging-handoff.md](semantic-logging-handoff.md), whose **Part A
@@ -29,7 +29,7 @@ Tests: native **453 checks, rc=0** (`bash scratchpad/t.sh`; portable zig at
 `c:/tmp/toolchain/`, there is no host g++ or make). Python **230 checks across 8 files**
 (run each `tests/test_*_py.py` directly).
 
-**Landed this session** (all hardware-verified, detail in companion.md §6):
+**Landed this session** (all hardware-verified, detail in ../../FLEET.md §6):
 `proximity --since` with the fleet-clock reference · the `@LAT97`/`@LAT96` prune on all
 five nodes · **lane generations** (`@LAT100`, `firmware/libraries/LaneGen`) · **B.3's
 measurement** — `MOTIONPERCEPT_MOVING_MG 60` confirmed at 5.0× the measured noise floor ·
@@ -40,8 +40,8 @@ its stream ids forward.
 
 ## Part 1 — `@LAT95` CHANGE-TRIGGERED (the remaining substance)
 
-`MOTIONPERCEPT_MAX_LANE 48` ([MotionPercept.h:79](firmware/libraries/MotionPercept/src/MotionPercept.h#L79))
-with `MOTIONPERCEPT_FLUSH_MS 60000` ([:76](firmware/libraries/MotionPercept/src/MotionPercept.h#L76))
+`MOTIONPERCEPT_MAX_LANE 48` ([MotionPercept.h:79](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L79))
+with `MOTIONPERCEPT_FLUSH_MS 60000` ([:76](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L76))
 fills the lane in 48 minutes of uptime whether or not anything happened. **Measured three
 times on 2026-08-03: every lane on every node refilled to its cap within one afternoon of
 being emptied.** Pruning is a treadmill; this is the fix.
@@ -49,12 +49,12 @@ being emptied.** Pruning is a treadmill; this is the fix.
 ### 1.1 ⚠ The record is a CITATION — solve this first or not at all
 
 `PerceptLearn::arm(int motion_lane)`
-([PerceptLearn.h:159](firmware/libraries/PerceptLearn/src/PerceptLearn.h#L159)) stores it as
+([PerceptLearn.h:159](../../firmware/libraries/PerceptLearn/src/PerceptLearn.h#L159)) stores it as
 `acting_lane_` — *"the @LAT95 record whose `still` claim armed this"*
-([:196](firmware/libraries/PerceptLearn/src/PerceptLearn.h#L196)) — and the sketch arms
+([:196](../../firmware/libraries/PerceptLearn/src/PerceptLearn.h#L196)) — and the sketch arms
 from the record it has just written: `int lane = laneCount(95)`
-([cardputer_console.ino:3476](firmware/cardputer_console/cardputer_console.ino#L3476)) then
-`gLearn.arm(lane)` ([:3516](firmware/cardputer_console/cardputer_console.ino#L3516)).
+([cardputer_console.ino:3476](../../firmware/cardputer_console/cardputer_console.ino#L3476)) then
+`gLearn.arm(lane)` ([:3516](../../firmware/cardputer_console/cardputer_console.ino#L3516)).
 
 So an expectation is **provenanced to a specific record**. Change-trigger the lane naively
 and a `still` window matching its predecessor writes nothing — leaving nothing to cite.
@@ -68,7 +68,7 @@ covers N windows and remains a valid citation for all of them.
 ### 1.2 ⚠ `@LAT92` is a TALLY and shares the same fix
 
 `met_ / violated_ / unobserved_`
-([PerceptLearn.h:200](firmware/libraries/PerceptLearn/src/PerceptLearn.h#L200)) feed `conf`.
+([PerceptLearn.h:200](../../firmware/libraries/PerceptLearn/src/PerceptLearn.h#L200)) feed `conf`.
 A state series can be compressed by keeping transitions; **a tally cannot** — dropping
 unchanged windows removes the denominator and `conf` becomes systematically
 over-confident. Either leave `@LAT92` periodic or give it the same run-length form. Decide
@@ -86,7 +86,7 @@ both together; they are one decision.
   whether hysteresis or a minimum dwell is needed there. Derive it; do not pick it.
 - 📎 `@LAT93` (transitions) is **already** change-triggered with its own budget
   (`MOTIONPERCEPT_MAX_TRANSITION_LANE 32`,
-  [MotionPercept.h:135](firmware/libraries/MotionPercept/src/MotionPercept.h#L135)).
+  [MotionPercept.h:135](../../firmware/libraries/MotionPercept/src/MotionPercept.h#L135)).
   **Generalize that shape; do not invent a new one.**
 
 ---
@@ -94,8 +94,8 @@ both together; they are one decision.
 ## Part 2 — `@LAT96` CHANGE-TRIGGERED
 
 Same cap and window (`ENTITYPERCEPT_MAX_LANE 48`
-[EntityPercept.h:36](firmware/libraries/EntityPercept/src/EntityPercept.h#L36),
-`ENTITYPERCEPT_FLUSH_MS 60000` [:31](firmware/libraries/EntityPercept/src/EntityPercept.h#L31)).
+[EntityPercept.h:36](../../firmware/libraries/EntityPercept/src/EntityPercept.h#L36),
+`ENTITYPERCEPT_FLUSH_MS 60000` [:31](../../firmware/libraries/EntityPercept/src/EntityPercept.h#L31)).
 The change signal is **Jaccard drift between consecutive windows**, and its threshold has
 to be measured, not chosen — the same standard B.3 met.
 

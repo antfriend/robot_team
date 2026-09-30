@@ -62,7 +62,7 @@
 //      phase is all that matters and a lurch is inaudible at a handoff — and fatal
 //      for a log. The handoff says it plainly: *do not reuse that rule here; they
 //      are different jobs.*
-//   2. The band is measured tight (+-9 ms across three runs, companion.md §6) and
+//   2. The band is measured tight (+-9 ms across three runs, FLEET.md §6) and
 //      is the one subsystem in this fleet that is fully working. Hanging record
 //      timestamps off it would put every future timeline change in the blast radius
 //      of the beat.
@@ -328,7 +328,7 @@ size_t buildStreamRecord(char* out, size_t cap, int lane_n, const Transition& tr
 // The lane is specified as "timeline CHANGES, not time", and the first two-node run
 // showed it was not living up to that: it grew ONE RECORD PER REBOOT, and
 // `companion.py` reboots the cabled node on every invocation — 0 to 7 records in one
-// session against a cap of 16 (companion.md §6). Most of those said nothing: a node
+// session against a cap of 16 (FLEET.md §6). Most of those said nothing: a node
 // that reboots and rejoins THE STREAM IT WAS ALREADY ON has not changed timeline. The
 // clearest case was a node re-adopting, from its peer, a stream it had itself
 // originated four records earlier.

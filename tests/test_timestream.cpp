@@ -1,4 +1,4 @@
-// test_timestream.cpp — the team time stream (Part 2 of timestream-handoff.md).
+// test_timestream.cpp — the team time stream (Part 2 of docs/handoffs/timestream-handoff.md).
 //
 // The wire round-trip checks are the cheap half. The ones that matter are the
 // behavioural invariants, because every one of them is a property the handoff calls

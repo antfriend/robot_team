@@ -24,7 +24,7 @@
 // Portable (no Arduino dependency), fixed RAM, integer math, no per-block flash
 // write — the same discipline as LinkPercept / EntityPercept / MotionPercept. Like
 // MotionPercept, its native test is **not written yet**: this tier has so far been
-// verified only on hardware (companion.md §6, 2026-07-27).
+// verified only on hardware (FLEET.md §6, 2026-07-27).
 #pragma once
 #include <stdint.h>
 #include <stddef.h>

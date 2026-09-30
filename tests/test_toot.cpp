@@ -210,7 +210,7 @@ int main() {
   // Wrong-type guard: a TIME_REQ is not parseable as a TIME_SYNC.
   CHECK(!toot::parseTimeSync(tr, sid, ems), "parseTimeSync rejects a TIME_REQ");
 
-  // 5e) CMD payload accessors (companion.md §4b): op | target | args.
+  // 5e) CMD payload accessors (FLEET.md §4b): op | target | args.
   toot::Toot cm;
   cm.type = toot::CMD;
   cm.payload[0] = toot::CMD_SET_LED;

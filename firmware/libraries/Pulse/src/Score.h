@@ -49,7 +49,7 @@ inline const Note* noteAt(const Phrase& ph, uint16_t step_in_phrase) {
 // step (125 ms at 120 BPM) jumps the steps in between and their notes are never reported. On
 // the bench that has NOT been observed to lose a note: a double-time duet measured 4.0 s per
 // phrase with all 15 notes present in every cycle. But the hazard is real and the margin is
-// thin — the percept-window flash append alone takes 60-220 ms (companion.md §6), well over a
+// thin — the percept-window flash append alone takes 60-220 ms (FLEET.md §6), well over a
 // step, and a duet's notes are only 2 steps apart. So this closes it cheaply rather than
 // leaving the melody dependent on the loop never stalling.
 //

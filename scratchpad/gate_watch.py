@@ -1,6 +1,6 @@
 """Passive gate watcher — holds ONE connection, sends nothing, resets nothing.
 
-Written for timestream-handoff.md Part 1. Same discipline as tail.py (open without
+Written for docs/handoffs/timestream-handoff.md Part 1. Same discipline as tail.py (open without
 DTR/RTS so it cannot reboot the node it is observing — [[looping-companion-py-resets-bridge]]),
 but it also tees to a log file and pulls the lines that matter to the gate out into a
 running summary, so a 30-minute walk does not have to be re-read by eye afterwards.

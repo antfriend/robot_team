@@ -1,7 +1,7 @@
 # Handoff: team time stream, semantic logging, and the verification gate
 
 **Work order for a fresh session.** Authored 2026-08-02 against `robot_team` @ `33a7a02`
-with a clean tree. Read [companion.md](companion.md) §6 first — it is the source of truth
+with a clean tree. Read [../../FLEET.md](../../FLEET.md) §6 first — it is the source of truth
 and its last five entries are this session's results.
 
 This document does three things, and **the order is load-bearing**:
@@ -62,13 +62,13 @@ plausible new source of one that would be indistinguishable from it.
       **DONE 2026-08-02: 150 ms @ 8.6 KB → 1757 ms @ 74 KB, ~10-13 µs/byte; crosses 1 s at
       ~53 KB.** ⚠ The section profiler **could not have answered this**: it skipped the
       FIRST loop pass, which is where the boot Dream Cycle runs. Fixed; the two instruments
-      now agree to 8 ms. See companion.md §6.
+      now agree to 8 ms. See ../../FLEET.md §6.
 - [ ] If it is seconds, move the rewrite off `loop()` or make the belief lane
       append-with-supersede instead of rewrite-in-place. **STILL OPEN — it IS seconds-class
       (1.76 s).** `removeLane` is O(file) and `appendRecord` is O(file) too, so a changing
       cycle is 1 rewrite + N appends = **9 full-file passes at 8 beliefs**. Decide before
       Part 2 adds more writers.
-- [x] Record the number in companion.md either way. **"It seemed fine" is not a result.**
+- [x] Record the number in ../../FLEET.md either way. **"It seemed fine" is not a result.**
 
 ### 1.2 The constants verdict rests on n=1
 
@@ -159,12 +159,12 @@ flashed.
 ## Part 2 — The team time stream
 
 > **STATUS 2026-08-03: BUILT, NATIVE-TESTED, ALL SIX SKETCHES COMPILE. NOT ON HARDWARE.**
-> See companion.md §6. Two of the three hazards in §2.2 turned out to be **the same
+> See ../../FLEET.md §6. Two of the three hazards in §2.2 turned out to be **the same
 > mechanism**: because a stream's clock reads elapsed-since-its-own-origin, "older
 > stream wins" (§2.2.2) and "never move backward" (§2.2.3) are one rule, not two that
 > must agree. §2.2.1 (`stream:` on every record) was built as specified.
 > Two deviations from the sketch below, both deliberate and both explained in
-> companion.md §6: the anchor rides on **HELLO, not PULSE** (only the conductor emits a
+> ../../FLEET.md §6: the anchor rides on **HELLO, not PULSE** (only the conductor emits a
 > PULSE, and the conductor is elected by id, so the oldest stream usually cannot speak);
 > and `touched:` stays **Unix seconds per TTDB-RFC-0005** with the stream frame added
 > beside it on a `**TOUCHED**` line, rather than having its unit redefined — the RFC
@@ -179,7 +179,7 @@ flashed.
 > deduped by stream id read off flash, and — the bigger catch — the listen window is now
 > measured from `begin()` rather than absolute `millis()`, because `setup()` on the
 > Cardputer exceeds it and the node was originating a stream having never listened.
-> Lane held at 10 across three reboots, versus 1–2 per reboot before. companion.md §6.
+> Lane held at 10 across three reboots, versus 1–2 per reboot before. ../../FLEET.md §6.
 > ⚠ **The T-Deck still runs the mid-session build** (wire-compatible, so it worked as the
 > peer throughout, but its own lane will still churn until reflashed). And
 > `TIMESTREAM_MAX_LANE`'s refusal-on-full policy is deliberately still unexamined.
@@ -264,7 +264,7 @@ Also:
   makes decay possible; wire it to stream time.**
 
 **Migration:** old records must keep parsing. Accept `synced:` on read, emit
-`stream:`/`wall:` on write, and say in companion.md which build changed it.
+`stream:`/`wall:` on write, and say in ../../FLEET.md which build changed it.
 
 ### 2.4 What this does NOT fix
 

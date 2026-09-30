@@ -43,7 +43,7 @@
 // @LAT95 and @LAT92 got this treatment on 2026-08-04 and it is NOT mechanically
 // copyable here. A motion window's verdict is a 2-state label, so "unchanged" is a
 // fact a reader can see. An entity window is a SET, so "unchanged" would be a
-// judgement against a constant — and companion.md records what measuring that
+// judgement against a constant — and FLEET.md records what measuring that
 // judgement offline said (`scratchpad/lat96_trigger_sim.py`, over the gate-validated
 // night-1 segment):
 //
@@ -181,7 +181,7 @@ struct CoveredEntity {
 // ⚠ Branch on this, NEVER on the returned byte count. Before the lane became
 // change-triggered, 0 bytes meant "no window". It now means "covered", which is the
 // normal case for a node in a stable environment — this is the same trap that would
-// have silenced @LAT95's learning loop for 29 windows in 30 (companion.md, 2026-08-04).
+// have silenced @LAT95's learning loop for 29 windows in 30 (FLEET.md, 2026-08-04).
 enum Close : uint8_t {
   CLOSE_EMPTY = 0,    // no sightings, or the record did not fit
   CLOSE_WRITTEN,      // a record was rendered; it opens a new run

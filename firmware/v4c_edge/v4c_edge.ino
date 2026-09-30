@@ -1,6 +1,6 @@
 // v4c_edge.ino — Heltec WiFi LoRa 32 V4, EDGE / tail node (A32 agent).
 //
-// Role: gateway for the most remote ESP-NOW cluster (toot_network_architecture.md).
+// Role: gateway for the most remote ESP-NOW cluster (docs/design/toot_network_architecture.md).
 // Aggregates/summarizes the local K10-cluster percepts before spending LoRa airtime;
 // optional GNSS stamps real @LATxLONy. Serves its own TTDB to the companion via TtdbShare.
 //
@@ -41,8 +41,8 @@
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
-// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per max98357a-v4-wiring.html /
-// hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
+// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per docs/hardware/max98357a-v4-wiring.html /
+// docs/hardware/hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
 // SD float. Same driver as the T-Deck console: no analog/PWM path, so a tone is
 // synthesized as 16-bit I2S samples. toneI2S blocks ~ms, so it runs from setup()/loop()
 // only — never a callback (the deferred-tone discipline every other node uses).
@@ -50,7 +50,7 @@
 #if USE_SPEAKER
 #include <ESP_I2S.h>
 static I2SClass gI2S;
-// 8 kHz (not 16k): the hand-wired MAX98357A only locks reliably at a low BCLK (see companion.md
+// 8 kHz (not 16k): the hand-wired MAX98357A only locks reliably at a low BCLK (see FLEET.md
 // §6 / v4a_bridge). Higher fs degrades over the jumper wiring. Fine for toots/beeps/kicks.
 static const uint32_t I2S_RATE = 8000;
 static const int PIN_I2S_BCLK = 7;   // MAX98357A BCLK
@@ -220,7 +220,7 @@ static bool neighborNeedsLock(uint32_t src, uint32_t now) {
 
 // --- onboard SSD1306 OLED (status display) ----------------------------------
 // Heltec V4: SSD1306 128x64 on I2C (SDA 17 / SCL 18 / RST 21), powered through
-// Vext (GPIO36, active-LOW). U8g2 on the generic esp32 core (hardware_specs.md §2).
+// Vext (GPIO36, active-LOW). U8g2 on the generic esp32 core (docs/hardware/hardware_specs.md §2).
 static const int kVextCtrl = 36;            // drive LOW to power the OLED rail
 static const int kOledRst = 21, kOledScl = 18, kOledSda = 17;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C gOled(U8G2_R0, kOledRst, kOledScl, kOledSda);
@@ -446,10 +446,10 @@ static void emitAck(const toot::Toot& orig, uint8_t status,
 // measurement, not the pixels.
 //
 // ⚠ `PIN_ADC_CTRL` is ACTIVE HIGH. Heltec's V3 documents its `ADC_Ctrl` as active LOW and
-// hardware_specs.md §2 says the V4 retains the V3 map — for THIS pin it does not, and
+// docs/hardware/hardware_specs.md §2 says the V4 retains the V3 map — for THIS pin it does not, and
 // driving it LOW leaves the divider disconnected so a perfectly good pack reads a flat
 // 0.000 V. That cost a whole build cycle on V4-A/V4-B before an ADC sweep settled it
-// (companion.md §6); V4-C is simply built with the measured answer.
+// (FLEET.md §6); V4-C is simply built with the measured answer.
 // ⚠ BAT_DIVIDER is still inherited and unmetered — plausible, not checked — so the raw pin
 // millivolts print beside the derived voltage on the first sample.
 static const int   PIN_BAT_ADC  = 1;      // measured on V4-A/V4-B; matches hardware_specs §2
@@ -459,7 +459,7 @@ static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minute
 
 // ⚠ Have-we-sampled is its OWN flag, never `gBatMv != 0`: 0 mV is a legitimate reading, and
 // a measurement that doubles as its own validity flag makes the sampler re-run and re-print
-// every loop pass — a serial flood that reports as a 2-4 s worst loop pass (companion.md §6).
+// every loop pass — a serial flood that reports as a 2-4 s worst loop pass (FLEET.md §6).
 static bool     gBatSampled = false;
 static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / divider open)
 static float    gBatSlow  = 0.0f;   // slow EMA — the fill/drain reference

@@ -168,7 +168,7 @@ class Ttdb {
   // Same, for every latitude in [lo, hi] — in ONE rewrite. Prefer this over
   // calling removeLane() per lane: each call rewrites the whole file, so four
   // sequential calls cost four rewrites AND four windows in which the file moves
-  // under a concurrent reader (the stitched-pull hazard, companion.md §6).
+  // under a concurrent reader (the stitched-pull hazard, FLEET.md §6).
   bool removeLaneRange(int16_t lo, int16_t hi);
 
   // CMD_CLEAR_PERCEPTS backing call. `lane` is the wire byte: 0 = every percept

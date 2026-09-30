@@ -1,8 +1,8 @@
 # PLAN.md — Building the Robot Team
 
 Build plan for `robot_team`. The orchestration model lives in
-[companion.md](companion.md) — read it first. This file is the **how and in what
-order**; `companion.md` is the **who and why**.
+[FLEET.md](FLEET.md) — read it first. This file is the **how and in what
+order**; `FLEET.md` is the **who and why**.
 
 **Goal:** a working swarm of A32 (ESP32) robots — 3× Heltec V4 LoRa spine
 (bridge/relay/edge) + UNIHIKER K10 percept nodes + the T-Deck console —
@@ -18,7 +18,7 @@ T-Deck** (the end goal).
 **Strategy:** additive and bottom-up. Every phase ends with something that runs
 and is verified. We never wire the long-range mesh before the in-range default
 (ESP-NOW) works. Phases map onto the bring-up order in
-`toot_network_architecture.md §6`.
+`docs/design/toot_network_architecture.md §6`.
 
 ---
 
@@ -27,7 +27,7 @@ and is verified. We never wire the long-range mesh before the in-range default
 > 📌 **Re-aligned 2026-08-11 to `ttn-semantic-positioning.md` Draft 0.3.** The
 > hypothesis doc was revised in ten places by a month of "off-path" work
 > (`TTDB-RFC-0010`, the time stream, lane generations, stable ids, change-triggered
-> lanes, `default-network.md`). Three of those changes move work *into* this plan
+> lanes, `docs/design/default-network.md`). Three of those changes move work *into* this plan
 > and one **blocks an experiment that was previously considered ready**. Read §0.1
 > (shape vs pose), §0.3 (the falsifier's false-positive mode) and §4.5 (experiments
 > are not free) before picking anything up.
@@ -161,7 +161,7 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    🧩 It took two firmware fixes to get there, both verified on hardware: the dedup re-ACK
    no longer reports a failed command as APPLIED, and a prune that cannot run with the
    radios up (~7 KB largest block) is **durably scheduled and run at the next boot**
-   (~102 KB), answering `ACK_DEFERRED` in the meantime. See companion.md §6 (2026-08-13).
+   (~102 KB), answering `ACK_DEFERRED` in the meantime. See FLEET.md §6 (2026-08-13).
    *Original scope, kept for the record:* The night-3 interlock is
    discharged, so it can take the default folding `MAX_RUN 6` and the fold gets
    confirmed on the node that was the instrument. ⚠ But see item 1 — if the
@@ -188,7 +188,7 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    consolidator must read the **pulse**, never the time stream (spec §3 Phase 3) —
    the stream clock is a ratchet and TDoA is a duration.
 9. **Later, gated on the above:** attach the LoRa antennas **before** powering the
-   V4s (SX1262 PA safety, `hardware_specs.md`) when we un-gate `USE_LORA` for
+   V4s (SX1262 PA safety, `docs/hardware/hardware_specs.md`) when we un-gate `USE_LORA` for
    **SP5 transport auto-switch** (proof leg 2 — needs a node **walked out of
    ESP-NOW range**); a **K10 core bump to 3.x** to un-block its BLE +
    promiscuous-RSSI capture. ⚠ The three V4s need **`huge_app`** before they can
@@ -225,7 +225,7 @@ code lives in `firmware/libraries/` and is added per-build with `--libraries`.
 - [x] `scripts/{setup,build,deploy,upload-fs}.sh` — arduino-cli compile/upload,
       plus `mklittlefs`+`esptool` for the LittleFS TTDB image.
 - [x] `libraries/Toot/` — 250-byte frame, portable SHA-256/HMAC, `(src,seq)`
-      dedup, TTL, serial framing (`toot_network_architecture.md §3`).
+      dedup, TTL, serial framing (`docs/design/toot_network_architecture.md §3`).
 - [x] `libraries/TTDB/` — streaming reader + offset index (`A32-RFC-0002`) and
       `TtdbShare` (serve any byte range to the companion).
 - [x] `libraries/Agent32/` — full sense→reason→act loop over the TTDB index:
@@ -314,7 +314,7 @@ gaps *over the air* through the V4-A bridge and recovered the same `ce3ca723…`
 
 ## Phase 2 — Reliability layer (ACK/retry + chunking) ✅ on-device verified
 
-Spec: **`RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (2026-06-22) — pins the ACK
+Spec: **`replicate/RFCs/TTN-RFC-0007-Reliable-Delivery.md`** (2026-06-22) — pins the ACK
 payload, retransmit/backoff params, the **dedup-vs-ACK re-ACK rule** (§5, the
 load-bearing gotcha: a dedup-dropped `want_ack` toot MUST be re-ACKed, body
 processed once), and chunk reassembly. The dependency for Phase 2.5's `TIME_SYNC`.
@@ -364,7 +364,7 @@ each node adopts `clock_offset = T − millis_at_receipt` so its wall clock is t
 laptop's epoch minus the one-way delivery delay. We *measure* that residual with an
 NTP-lite probe rather than asserting it, so the "in sync within X ms" claim is real.
 
-### New toot types (needs an RFC first — `RFCs/TTN-RFC-0008-Time-Sync.md`, builds on TTN-RFC-0007)
+### New toot types (needs an RFC first — `replicate/RFCs/TTN-RFC-0008-Time-Sync.md`, builds on TTN-RFC-0007)
 Per project convention (new toot type → RFC before code). Three types:
 - `TIME_SYNC = 9` — laptop → fleet. Payload: `sync_id (u32) | epoch_ms (u64 LE)`.
   Broadcast through the bridge; **every** node that hears it adopts the offset and
@@ -413,7 +413,7 @@ and V4-A clocks within a stated bound (target: ≤ 50 ms) of the laptop. Reprodu
 > parts — K10 lead + T-Deck harmony playing the **two-part Ode to Joy duet at
 > 120 BPM**, boot-silent and started/stopped via `CMD_PLAY`/`CMD_STOP`. Details
 > and gotchas (tempo lives in `Pulse.h`; era latch survives reflashes): see
-> `companion.md §6` + `@LAT90LON40`.
+> `FLEET.md §6` + `@LAT90LON40`.
 
 ---
 
@@ -431,7 +431,7 @@ the (stubbed) LoRa side via V4-C, summarized.
 ## Phase 4 — LoRa backbone (V4-B relay + V4-C over SX1262)
 
 Mind the PA-variant Arduino flag per board (`USE_GC1109_PA` V4.2 /
-`USE_KCT8103L_PA` V4.3) and **antenna-before-power** (`hardware_specs.md`).
+`USE_KCT8103L_PA` V4.3) and **antenna-before-power** (`docs/hardware/hardware_specs.md`).
 
 - [ ] V4-B firmware: pure store-and-forward — decrement `ttl`, dedup, re-sign,
       forward. OLED shows RSSI-to-A / RSSI-to-C / forward count.
@@ -478,7 +478,7 @@ returns end-to-end.
 > participant (pull/HMAC, sync+`@LAT99`, belief+`@LAT98`, STATUS, PULSE follower);
 > `companion.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). It also carries
 > an SX1262 (LoRa-spine-capable, `USE_LORA`). **Flashing note:** native-USB auto-reset is
-> flaky — manual BOOT/RST bootloader entry required (see `companion.md §6`).
+> flaky — manual BOOT/RST bootloader entry required (see `FLEET.md §6`).
 > **Console UI ✅ on-device verified (2026-07-06, `USE_TDECK_HW 1`):** boot "toot toot"
 > (I²S sine on the MAX98357A) + 320×240 fleet view (Adafruit_ST7789, runtime pins,
 > rotation 3 — not TFT_eSPI); the keyboard is a **fleet remote** (`t` cycle target,
@@ -733,7 +733,7 @@ with something measured.
       and both sketches now declare their `@LAT96` build at boot.
       📊 An afternoon buys ~40 min/station ⇒ ~3 pairs, labelled **UNDERPOWERED** — scouting
       that prices the real run, decisive only for the binary "is there anywhere within
-      reach where the AP populations diverge?". Full runbook in `companion.md` §6.
+      reach where the AP populations diverge?". Full runbook in `FLEET.md` §6.
 
 **Done when:** `pull` returns a percept lane with link + entity observations
 from every powered node; verified with a serial dump. Pure plumbing, no inference.
@@ -895,7 +895,7 @@ the verifier, never an input).
 ## SP2b — Distributed embedding: the fleet shapes itself 🆕 (spec §3 Phase 2b)
 
 *The shape estimate exists with the laptop switched off.* Promoted from
-`default-network.md` §5 — SP1/SP2 as written are provable with the laptop doing the
+`docs/design/default-network.md` §5 — SP1/SP2 as written are provable with the laptop doing the
 mathematics, which is weaker than the fleet's own premise. The machinery is built:
 `TraceField` (decay-on-read, HELLO-carried, max-merged), the `Social` capability
 table, and `pulse::Chart`'s idle scene, which is currently silence.
@@ -1007,7 +1007,7 @@ delivery dies and returns when back in range — zero manual transport config.
 
 - [ ] **Laptop:** master TTDB (+ proximity/position beliefs, node status:
       last-seen, skew, transport, `conf`/`sigma`) rendered in the browser per
-      `RFCs/TTCP-RFC-0001..0003` — the working example is
+      `replicate/RFCs/TTCP-RFC-0001..0003` — the working example is
       [antfriend.github.io](https://github.com/antfriend/antfriend.github.io)
       (dependency-free JS viewer, loads `?ttdb=<file>.md`); this leg is
       authoring discipline, not new renderer code.
@@ -1043,7 +1043,7 @@ a **trackball-navigable globe** (top half), a **record view** (bottom half), and
   [scripts/Upload-V4-FS.ps1](scripts/Upload-V4-FS.ps1#L22) needs the new offset/size
   and the FS must be re-flashed once. RAM was never the limit (any framebuffer lives
   in the 8 MB PSRAM; DRAM globals are at 17 %).
-- **The LCD is non-touch** (`hardware_specs.md` — ST7789, no touch panel). The
+- **The LCD is non-touch** (`docs/hardware/hardware_specs.md` — ST7789, no touch panel). The
   reference site's "swipe" cannot exist here; the only pointer is the **5-way
   trackball** (up/down/left/right = GPIO 3/15/1/2, click = GPIO 0), which the
   firmware does **not read yet**. Interaction re-maps: trackball drag → globe
@@ -1102,7 +1102,7 @@ stated number of Dream Cycles. **This is the project's end goal.**
 ---
 
 > **Cross-cutting ✅ (2026-07-08): the RFC corpus is now fleet-carryable.**
-> `RFCs/rfc.ttdb.md` semantically compresses the 28-file, ~266 KB RFC corpus
+> `replicate/RFCs/rfc.ttdb.md` semantically compresses the 28-file, ~266 KB RFC corpus
 > **8.4:1** into one conformant TTDB — one record per RFC (normative gist +
 > `depends_on` edge graph + `[ew]` status/salience), each record's `src:` line
 > its deterministic expansion target (TTN-RFC-0004 applied to itself), plus a
@@ -1125,8 +1125,8 @@ stated number of Dream Cycles. **This is the project's end goal.**
 1. Native tests pass (`tests/`, `make` or portable `zig c++` — SHA/HMAC, codec,
    TTDB parse, RFC round-trip) where logic is testable off-device.
 2. On-device serial assertions pass for hardware-bound behavior.
-3. The relevant A32 agent contract items (`companion.md §3`) hold.
-4. `companion.md §2` fleet status and `§6` next-action are updated.
+3. The relevant A32 agent contract items (`FLEET.md §3`) hold.
+4. `FLEET.md §2` fleet status and `§6` next-action are updated.
 
 ## Conventions
 
@@ -1134,4 +1134,4 @@ stated number of Dream Cycles. **This is the project's end goal.**
   the master.
 - Firmware version (platformio build flags) and TTDB version (`mmpdb.db_id`)
   version independently (`A32-RFC-0004 §7`).
-- New edge types or toot types get an RFC in `RFCs/` before code depends on them.
+- New edge types or toot types get an RFC in `replicate/RFCs/` before code depends on them.

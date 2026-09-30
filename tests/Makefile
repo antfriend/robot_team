@@ -72,7 +72,7 @@ LG_SRCS := test_lanegen.cpp \
         $(LIB)/LaneGen/src/LaneGen.cpp $(TS)
 TF_SRCS := test_tracefield.cpp \
         $(LIB)/TraceField/src/TraceField.cpp
-# The default network, stage 1 (default-network.md §6): capability advertisement, the
+# The default network, stage 1 (docs/design/default-network.md §6): capability advertisement, the
 # three-level status, and the staleness instrument whose own falsifier is pre-registered.
 # ⚠ Stage 3 (RFC-0010 §5, the @LAT101 field) added FOUR dependencies in one go — decay
 # arithmetic (TraceField), the stamp (TS), the sid (Sid) and the header-sid reader

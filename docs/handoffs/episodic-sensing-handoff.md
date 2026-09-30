@@ -1,7 +1,7 @@
 # Handoff: episodic sensing — record the dynamics, not the frames
 
 **Work order for a fresh session.** Authored 2026-08-15 against `robot_team` @ `80f6a86`.
-Read [companion.md](companion.md) §6 first — it is the source of truth. This document
+Read [../../FLEET.md](../../FLEET.md) §6 first — it is the source of truth. This document
 sharpens a loose idea into a staged plan, and the first half of it is an argument about
 where the loose idea is *wrong*, because two of those errors have already cost this fleet
 a field run each.
@@ -39,9 +39,9 @@ over. `@LAT93` is still the only instance in the corpus. Your instinct that this
 
 **And B targets the right lane.** `@LAT94` (acoustic) is the **last periodic percept lane
 on the fleet**. It writes one record per 60 s window unconditionally, so it fills its
-48-slot cap in **48 minutes** and then refuses writes. Grep companion.md for `@LAT94` and
+48-slot cap in **48 minutes** and then refuses writes. Grep ../../FLEET.md for `@LAT94` and
 it reads `48/48` on nearly every pull for months — including the entry that names the cost
-plainly: *"was 48/48 FULL — the fleet's SECOND EAR was discarding"* (companion.md:6452).
+plainly: *"was 48/48 FULL — the fleet's SECOND EAR was discarding"* (../../FLEET.md:6452).
 Meanwhile its siblings were fixed long ago:
 
 | lane | before | after | mechanism |
@@ -115,7 +115,7 @@ things break at once:
    away the room signature — a positioning input — to save slots.
 2. **A dead mic and a quiet room become byte-identical.** This is a lesson the fleet has
    already written down in a *different* subsystem and then had to learn again:
-   companion.md:4458 — *"A transient rejected as too quiet flashes `quiet`, because
+   ../../FLEET.md:4458 — *"A transient rejected as too quiet flashes `quiet`, because
    otherwise a deliberately deaf setting and a dead microphone look identical."*
 3. **It has the exact shape of the entity-survey failure.** From CLAUDE.md:
 
@@ -153,7 +153,7 @@ lane comes back near-empty, you cannot tell whether the mic is deaf, the detecto
 mistuned, or the room was quiet. That is the §2.3 failure again, one layer up.
 
 > 🛑 **And do not "improve" the existing transient threshold while you are in there.**
-> companion.md:4450 already refused this once: *"that lane is evidence, and redefining what
+> ../../FLEET.md:4450 already refused this once: *"that lane is evidence, and redefining what
 > it calls a transient would silently redefine a percept."* A tone detector is an
 > **additional channel**, layered the way the trace field's stricter gate was.
 
@@ -290,7 +290,7 @@ conductor already knows the timetable of. Three consequences:
   hypothesis doc calls *"the single largest hardware gap on the hypothesis path"* — its
   line 510, *"Only the Cardputer has a microphone"*, is **stale and should be corrected**.
   Two ears + a known emitter + a known schedule is the acoustic TDoA leg.
-- ♻️ **It converts a known live bug into the calibration signal.** companion.md:1587 records
+- ♻️ **It converts a known live bug into the calibration signal.** ../../FLEET.md:1587 records
   that phase S0 *"still owes the same gate to the `@LAT94` transient log — that is a live
   data-quality bug in the acoustic tier"*: nodes hear their own singing and log it as
   transients. A detector that knows the fleet's note frequencies can *label* self-noise

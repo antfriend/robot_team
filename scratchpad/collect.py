@@ -1,7 +1,7 @@
 """Pull every node into master/<node>.md, preferring each node's OWN cable.
 
 A bridged pull can silently return a file stitched from two generations of a TTDB that
-was being appended to underneath the stream (companion.md §6, 2026-07-31) — the gap
+was being appended to underneath the stream (FLEET.md §6, 2026-07-31) — the gap
 check tests offset coverage, not version. Direct pulls are one shot and take seconds,
 so they are far less exposed. This routes the two cabled nodes over their own ports and
 only bridges the rest, then reports each file's size and lane counts so a stitched or
@@ -56,7 +56,7 @@ def pull_once(node, port, settle):
     with serial.Serial(port, 115200, timeout=0.1) as ser:
         # Opening the port resets the S3. companion.py's stock 2.5 s settle is
         # NOT enough for a bridged pull: the bridge reboots too, and it has a
-        # multi-second stall early in boot (companion.md §6, seen on 4/4 nodes),
+        # multi-second stall early in boot (FLEET.md §6, seen on 4/4 nodes),
         # so the request can land while it is descheduled and get no reply at all.
         # A "no data" on every bridged node at once is that, not a size failure.
         time.sleep(settle)

@@ -409,14 +409,14 @@ part that is still unevidenced.
 ## 5. What changes in `TTE` when this lands
 
 - **`agent-memory-system_ttdb.md`** — §3's three edits; bump the `agent_note` draft.
-- **`RFCs/TTDB-RFC-0006`** — the §5 line-start prohibition (§2.3); optionally the §7.1
+- **`replicate/RFCs/TTDB-RFC-0006`** — the §5 line-start prohibition (§2.3); optionally the §7.1
   atomicity reading (§2.4) and the fail-closed logging requirement (§2.6).
 - **`README.md`** — the closing section's claim is that what's missing is *"one loop
   that writes the difference down."* **That sentence is now answered by a fleet of
   ESP32s**, and can say so with 559 B and two records attached. It should say in the
   same breath that the loop still does not *predict*, so the interesting half is open.
-- **`RFCs/ARC-RFC-0001`** — still no second-domain evidence for `K`; unchanged.
-- **`RFCs/TTN-RFC-0011`** — the §2.5 debt from the handoff is still unsettled, and
+- **`replicate/RFCs/ARC-RFC-0001`** — still no second-domain evidence for `K`; unchanged.
+- **`replicate/RFCs/TTN-RFC-0011`** — the §2.5 debt from the handoff is still unsettled, and
   §2.5 here adds to it: window quantization is a timing-integrity fact that any
   amplitude-or-timing tier inherits.
 - **`research/`** — nothing yet. The constants have still not been run, so there is no

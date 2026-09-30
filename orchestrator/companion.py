@@ -650,7 +650,7 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
 
 def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
              settle, rto0, attempts, scene=None, lane=0, view=None):
-    """Send an orchestrator CMD (companion.md §4b) addressed to one node and confirm
+    """Send an orchestrator CMD (FLEET.md §4b) addressed to one node and confirm
     it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval,
     set-scene, set-view. `node` may be "broadcast" for the band-wide ops
     (play/stop/set-scene)."""
@@ -1294,7 +1294,7 @@ def record(port, baud, nodes, lead_beats, dur_beats, outdir, settle, copies,
 
     Why schedule it rather than trigger on a threshold: the @LAT94 transient timestamps
     fire at a different point on the waveform depending on distance and gain, so their
-    error is the SHAPE of the sound rather than the geometry (cardputer-sensorium.md §6).
+    error is the SHAPE of the sound rather than the geometry (docs/design/cardputer-sensorium.md §6).
     A scheduled capture has no threshold anywhere in the path, so two nodes that heard
     one clap can be cross-correlated directly.
 
@@ -2416,7 +2416,7 @@ def percepts(port, baud, node, save):
 
 
 # --- motion percepts (SP0 motion tier, @LAT95) --------------------------------
-# The lane became CHANGE-TRIGGERED on 2026-08-04 (part-b-handoff.md Part 1): a window
+# The lane became CHANGE-TRIGGERED on 2026-08-04 (docs/handoffs/part-b-handoff.md Part 1): a window
 # whose verdict matches the run in progress writes no record, and the record that closes
 # the run says how many it suppressed.
 #
@@ -2733,7 +2733,7 @@ def _entity_set(windows, last=None, since_ms=None, refs=None):
 
 
 # --- Part 2 groundwork: is Jaccard drift a usable CHANGE signal? ---------------
-# @LAT96's change-trigger (part-b-handoff.md Part 2) needs a threshold, and the standard
+# @LAT96's change-trigger (docs/handoffs/part-b-handoff.md Part 2) needs a threshold, and the standard
 # B.3 set is that it must be MEASURED on a node known to be still — not chosen.
 #
 # ⚠ THIS FUNCTION REFUSES TO REPORT A DISTRIBUTION UNLESS THE RUN EARNS IT, and that is

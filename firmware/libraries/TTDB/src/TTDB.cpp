@@ -43,7 +43,7 @@ bool Ttdb::begin(fs::FS& fs, const char* path) {
   // pass 1 — `readLine()` OPENS AND CLOSES THE FILE PER CALL, so calling it once per
   // record turned this loop into one file open per record. On a node whose TTDB grows at
   // runtime that is the same defect that made `edgesAt()` cost 767 ms a frame
-  // (companion.md §6): the per-call open, not the bytes.
+  // (FLEET.md §6): the per-call open, not the bytes.
   char line[256];
   for (int i = 0; i < record_count_; ++i) {
     size_t fo = records_[i].file_offset;

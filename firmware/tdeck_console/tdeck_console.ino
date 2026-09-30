@@ -38,7 +38,7 @@
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <SocialNode.h>      // the default network: who is here and what can they do
 
-// --- the default network, stage 1 (default-network.md §6) -----------------------------
+// --- the default network, stage 1 (docs/design/default-network.md §6) -----------------------------
 // What this node CLAIMS. ⚠ A declaration is a claim, not a fact — `verify` and `exercise`
 // below are what turn it into one, and the render keeps the three apart.
 //
@@ -62,7 +62,7 @@ static const uint16_t TDECK_CAPS =
                social::CAP_TEMP | social::CAP_WALL | social::CAP_CONDUCT);
 static SocialNode gSocial;
 
-// --- the trace field (TTDB-RFC-0010 §5, stigmergy.md §4.E) ----------------------------
+// --- the trace field (TTDB-RFC-0010 §5, docs/design/stigmergy.md §4.E) ----------------------------
 // 16 cells on the pulse's 16-step grid, shared with the Cardputer over HELLO and merged by
 // max. This node has NO MICROPHONE, so its deposits come from the one sensor it does have
 // that the Cardputer lacks: a person. `f` deposits at the current step, which makes the
@@ -77,7 +77,7 @@ static uint32_t gFieldLastVoice = 0;
 // ⚠ A FIX FOR AN AUDIBLE DEFECT. The first cut printed a line per voiced note — up to 16 CDC
 // writes per 2 s bar, each blocking while a USB host is attached — and the operator HEARD it
 // as latency on the bar beats when tethered, absent on battery (no host, so the writes are
-// discarded rather than waited on). A 125 ms step cannot afford a blocking print; companion.md
+// discarded rather than waited on). A 125 ms step cannot afford a blocking print; FLEET.md
 // records the same hazard from the other side, CDC buffering showing 100 ms gaps on a 125 ms
 // grid. The instrument was deforming what it measured.
 //
@@ -172,7 +172,7 @@ static void serviceWifiScan() {
 #endif
 
 // --- T-Deck board pin map (LilyGo T-Deck / T-Deck Plus) ---------------------
-// Documented here (and in hardware_specs.md) even when USE_TDECK_HW is 0 so the
+// Documented here (and in docs/hardware/hardware_specs.md) even when USE_TDECK_HW is 0 so the
 // board is ready to bring up. The display, LoRa and SD share ONE SPI bus.
 static const int PIN_POWERON   = 10;  // board peripheral-power enable: MUST be HIGH
 static const int PIN_SPI_SCLK  = 40;  // shared SPI clock (LCD + LoRa + SD)
@@ -223,7 +223,7 @@ static Adafruit_ST7789 gTft(&gDispSpi, PIN_TFT_CS, PIN_TFT_DC, /*rst=*/-1);
 // Speaker is a MAX98357A I2S amp (no analog/PWM path like the K10's Music lib), so a
 // tone is synthesized as 16-bit I2S samples (see toneI2S).
 static I2SClass gI2S;
-// 8 kHz to match the V4 band voice (they run 8k; see companion.md §6). The T-Deck's
+// 8 kHz to match the V4 band voice (they run 8k; see FLEET.md §6). The T-Deck's
 // integrated MAX98357A is happy at any rate, but matching keeps the square timbre identical.
 static const uint32_t I2S_RATE = 8000;
 #endif
@@ -773,7 +773,7 @@ static uint8_t buildGps(uint8_t* p) {
 
 // --- INTEROCEPTION: this console's sense of its own body ----------------------
 // The T-Deck's half of "look inward", ported from the Cardputer's phase S4
-// (cardputer-sensorium.md §4.5). Four slow, cheap interior signals — how much ENERGY is
+// (docs/design/cardputer-sensorium.md §4.5). Four slow, cheap interior signals — how much ENERGY is
 // left, how HOT the die is, how much contiguous RAM is left to think in, and how fast it
 // is currently thinking — sampled HERE in loop context rather than in the renderer, for
 // the same two reasons that hold on the Cardputer: the number must exist whether or not
@@ -790,7 +790,7 @@ static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minute
 // divider left disconnected), and using the value as the sentinel makes the sampler re-run
 // AND re-print its one-time boot line on every loop pass. On a V4 that serial flood reported
 // as a 2-4 s worst loop pass — a fake performance number sitting right on top of a real and
-// still-unexplained one (companion.md §6). Latent rather than active here, because this
+// still-unexplained one (FLEET.md §6). Latent rather than active here, because this
 // board has never read 0 — which is exactly why it survived this long.
 static bool     gBatSampled = false;
 static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / divider open)
@@ -963,7 +963,7 @@ static void noteIntero(uint32_t src, const uint8_t* p) {
 // saying nothing. Toot.h calls the field "ambient" and a die reading is not that — but it
 // is a real measurement of a real body, and an empty field is not. ⚠ The field is
 // HUNDREDTHS of a degree and gDieC10 is TENTHS: the x10 is the whole reason the Cardputer's
-// first build printed 4.8C for a 48 C die (companion.md §6). Do not drop it.
+// first build printed 4.8C for a 48 C die (FLEET.md §6). Do not drop it.
 static uint8_t buildStatus(uint8_t* p) {
   toot::put_u16(p + 0, 0);
   toot::put_u16(p + 2, 0);
@@ -1950,7 +1950,7 @@ static void renderIntero(int rec, uint32_t id) {
   interoRow(1, v, tcol, (int)((die_c10 / 10 - 20) * 100 / 60));
 
   // --- room to think: maxalloc, NOT free heap (which reads ~5x higher and refuses the
-  // allocation anyway — companion.md §6). 64 KB is full scale.
+  // allocation anyway — FLEET.md §6). 64 KB is full scale.
   if (!s && !self) snprintf(v, sizeof(v), "--");
   else snprintf(v, sizeof(v), "%uK", maxalloc_kb);
   uint16_t mcol = stale ? IN_COL_STALE
@@ -2601,7 +2601,7 @@ void loop() {
         gScreenDirty = true;
         break;
       // `f` deposits into the trace field at the step the pulse is on — the operator as a
-      // stigmergic agent (stigmergy.md §4.F). Tap a rhythm and the fleet keeps it for a
+      // stigmergic agent (docs/design/stigmergy.md §4.F). Tap a rhythm and the fleet keeps it for a
       // half-life; the Cardputer hears it because it merged a digest, not because this node
       // sent it a command.
       case 'f': {

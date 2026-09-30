@@ -13,7 +13,7 @@ static const uint8_t ROBOT_TEAM_KEY[16] = {
 static const uint8_t ROBOT_TEAM_KEY_LEN = 16;
 
 // Prototype: pin every board to one ESP-NOW channel (no AP). See
-// toot_network_architecture.md section 3.
+// docs/design/toot_network_architecture.md section 3.
 static const uint8_t ROBOT_TEAM_ESPNOW_CHANNEL = 1;
 
 // --- boot voice --------------------------------------------------------------

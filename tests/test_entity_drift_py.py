@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_entity_drift_py.py -- pin the validation gates that guard Part 2's @LAT96
-Jaccard threshold (part-b-handoff.md Part 2).
+Jaccard threshold (docs/handoffs/part-b-handoff.md Part 2).
 
 WHY THIS FILE EXISTS. On 2026-08-04 the archived @LAT96 lane produced a completely
 plausible drift distribution -- p50 0.333, p90 0.538, max 0.727 -- and it was worthless:

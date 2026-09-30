@@ -1,13 +1,13 @@
 // v4a_bridge.ino — Heltec WiFi LoRa 32 V4, BRIDGE / head node (A32 agent).
 //
 // Role: the only path between the laptop companion and the mesh
-// (toot_network_architecture.md). It:
+// (docs/design/toot_network_architecture.md). It:
 //   - serves its OWN TTDB to the companion over USB-CDC serial;
 //   - relays a companion TTDB_REQ from serial into the ESP-NOW (later LoRa)
 //     mesh, and streams the mesh's TTDB_DATA replies back up the serial link.
 //
 // LoRa (SX1262) is gated behind USE_LORA so this compiles with just the esp32
-// core. Enable in Phase 4 with RadioLib and the V4 pin map in hardware_specs.md.
+// core. Enable in Phase 4 with RadioLib and the V4 pin map in docs/hardware/hardware_specs.md.
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <WiFi.h>
@@ -33,8 +33,8 @@
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
-// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per max98357a-v4-wiring.html /
-// hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
+// Adafruit MAX98357A I2S 3W amp (adafru.it/3006). Wiring per docs/hardware/max98357a-v4-wiring.html /
+// docs/hardware/hardware_specs.md §2: VIN->3V3, GND->GND, LRC->GPIO5, BCLK->GPIO7, DIN->GPIO6, GAIN &
 // SD float. Same driver as the T-Deck console: no analog/PWM path, so a tone is
 // synthesized as 16-bit I2S samples. toneI2S blocks ~ms, so it runs from setup()/loop()
 // only — never a callback (the deferred-tone discipline every other node uses).
@@ -146,7 +146,7 @@ static void onBleObserve(uint32_t peer, int rssi) {
 #define USE_PULSE 1
 static pulse::Engine gPulse;
 // Heltec WiFi LoRa 32 V4 onboard white LED. V4 is pin-compatible with V3, whose
-// LED is GPIO35 — confirm against the V4 pinmap (hardware_specs.md hedges board
+// LED is GPIO35 — confirm against the V4 pinmap (docs/hardware/hardware_specs.md hedges board
 // pins); the OLED beat dot is the guaranteed-visible fallback either way.
 static const int      kLedPin = 35;
 static const uint32_t PULSE_LED_MS = 110;
@@ -262,7 +262,7 @@ static bool neighborNeedsLock(uint32_t src, uint32_t now) {
 // --- onboard SSD1306 OLED (status display) ----------------------------------
 // Heltec V4: SSD1306 128x64 on I2C (SDA 17 / SCL 18 / RST 21), powered through
 // Vext (GPIO36, active-LOW). Driven with U8g2 on the generic esp32 core (no
-// Heltec board library). Pins per hardware_specs.md section 2.
+// Heltec board library). Pins per docs/hardware/hardware_specs.md section 2.
 static const int kVextCtrl = 36;            // drive LOW to power the OLED rail
 static const int kOledRst = 21, kOledScl = 18, kOledSda = 17;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C gOled(U8G2_R0, kOledRst, kOledScl, kOledSda);
@@ -408,7 +408,7 @@ static void adoptTimeSync(const toot::Toot& t) {
 // a textbook 1S pack on charge, so it is at worst close — but "plausible" is not "checked",
 // so the RAW pin millivolts still print beside the derived voltage on the first sample.
 // Same discipline as the T-Deck's BAT_DIVIDER.
-static const int   PIN_BAT_ADC  = 1;      // measured; matches hardware_specs.md §2
+static const int   PIN_BAT_ADC  = 1;      // measured; matches docs/hardware/hardware_specs.md §2
 static const int   PIN_ADC_CTRL = 37;     // measured: HIGH connects the divider, LOW opens it
 static const float BAT_DIVIDER  = 4.9f;   // V3 divider 390k/100k -> (390+100)/100
 static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minutes

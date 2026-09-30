@@ -19,7 +19,7 @@
 // dropped want_ack replay (TTN-RFC-0007 §5), defer every flash write out of the WiFi
 // task. Those lessons are not re-derived here — they are load-bearing.
 //
-// What differs from the T-Deck, hardware-wise (hardware_specs.md):
+// What differs from the T-Deck, hardware-wise (docs/hardware/hardware_specs.md):
 //   * the keyboard is a **TCA8418 I2C matrix scanner** (0x34), not a keyboard MCU that
 //     hands over ASCII — this sketch owns the keycode->character map;
 //   * there is **no trackball**, so the arrow keys navigate and ENTER cycles globes —
@@ -78,7 +78,7 @@
 #define USE_WIFI_SCAN 1
 #define WIFI_SCAN_PERIOD_MS 600000UL   // one ~2 s scan every 10 min
 
-// The representor's views (cardputer-sensorium.md §4). Declared UP HERE, far from the
+// The representor's views (docs/design/cardputer-sensorium.md §4). Declared UP HERE, far from the
 // renderers that use it, for one Arduino-specific reason: arduino-cli auto-generates
 // prototypes for every function in the .ino and inserts them near the top of the file,
 // so a function taking a type defined mid-sketch fails to compile against its own
@@ -89,7 +89,7 @@ enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_INTERO = 2,
                           FACE_BELIEF = 3, FACE_FIELD = 4, FACE_VIEW_COUNT = 5 };
 
 // --- Cardputer ADV pin map (M5Stack K132-Adv, Stamp-S3A) ---------------------
-// Documented here and in hardware_specs.md. Three peripherals share ONE I2C bus
+// Documented here and in docs/hardware/hardware_specs.md. Three peripherals share ONE I2C bus
 // (keyboard 0x34, codec 0x18, IMU 0x68); the LCD has its own SPI; the microSD has
 // another (unused here, listed so nobody re-uses those pins).
 static const int PIN_I2C_SDA   = 8;   // keyboard + codec + IMU
@@ -160,7 +160,7 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 static acousticpercept::Log gAcousticLog;  // @LAT94 what it heard
 #endif
 
-// --- the trace field: stigmergy, RAM-only (TTDB-RFC-0010 §5, stigmergy.md §4.E) -------
+// --- the trace field: stigmergy, RAM-only (TTDB-RFC-0010 §5, docs/design/stigmergy.md §4.E) -------
 //
 // 16 cells on the pulse's own 16-step grid. A deposit lands at the step where it HAPPENED,
 // so clapping a rhythm writes that rhythm into the field, the field is voiced back on
@@ -176,7 +176,7 @@ static acousticpercept::Log gAcousticLog;  // @LAT94 what it heard
 // field, voices nothing, and the band plays exactly as it did before.
 static TraceFieldNode gField;
 
-// --- the default network, stage 1 (default-network.md §6) -----------------------------
+// --- the default network, stage 1 (docs/design/default-network.md §6) -----------------------------
 // What this node CLAIMS. ⚠ A declaration is a claim, not a fact — this board is the reason
 // that sentence is in the library: its BMI270 is at I2C 0x69 and not the published 0x68, so
 // the first build declared an IMU it could not find. `verify`/`exercise` are what turn a
@@ -462,7 +462,7 @@ static uint32_t gRenderCount = 0;    // frames drawn this profiler window
 // Section profiler. "Worst pass 42 ms, of which render 12 ms" says the other 30 ms is
 // somewhere else and stops there; this says WHERE. Stamps are taken at a handful of
 // points through loop() and the widest gap in the worst pass is what gets reported —
-// the same discipline that found the edgesAt defect (companion.md §6): instrument the
+// the same discipline that found the edgesAt defect (FLEET.md §6): instrument the
 // mechanism, do not chain hypotheses off timings.
 static const char* const kSectionNames[] = {"link", "linkperc", "entity", "imu",
                                             "mic", "nav", "pulse", "intero", "render"};
@@ -695,7 +695,7 @@ static const uint32_t INTERO_PERIOD_MS = 2000;   // these signals move in minute
 // divider left disconnected), and using the value as the sentinel makes the sampler re-run
 // AND re-print its one-time boot line on every loop pass. On a V4 that serial flood reported
 // as a 2-4 s worst loop pass — a fake performance number sitting right on top of a real and
-// still-unexplained one (companion.md §6). Latent rather than active here, because this
+// still-unexplained one (FLEET.md §6). Latent rather than active here, because this
 // board has never read 0 — which is exactly why it survived this long.
 static bool     gBatSampled = false;
 static uint16_t gBatMv    = 0;      // pack millivolts (0 = no pack / divider open)
@@ -871,7 +871,7 @@ static void toneI2S(float freq, uint32_t ms, float amp);
 // Prune consumed percept lanes. This node carries all four tiers, so it had been
 // compacting them with four sequential removeLane() calls — four whole-file rewrites,
 // and four separate windows in which the file moved under any concurrent reader (the
-// stitched-pull hazard, companion.md §6). removePerceptLanes() does it in ONE rewrite.
+// stitched-pull hazard, FLEET.md §6). removePerceptLanes() does it in ONE rewrite.
 // `lane` is the wire byte: 0 = every percept lane, else exactly that one.
 // The outcome lane's boundary block: what the generation about to be destroyed had
 // accumulated, and what it concluded. Built here because it is the only place that can
@@ -1051,7 +1051,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
           case toot::CMD_GET_INTERO: {
             // "Show me your body." The T-Deck's record pane draws this node's
             // interoception from these 21 bytes, so the fleet's sense organ is also the
-            // first node another console can look INSIDE (companion.md §6).
+            // first node another console can look INSIDE (FLEET.md §6).
             uint8_t body[toot::INTERO_PERCEPT_PAYLOAD_LEN];
             uint8_t ilen = buildIntero(body);
             emit(toot::PERCEPT, body, ilen, reply, ctx);
@@ -1438,7 +1438,7 @@ static void reconcileBeliefs() {
   const uint32_t t_end = millis();
   Serial.printf("[dream] reconciled %d outcome record(s) -> %d belief(s), TTDB %uB\n",
                 gRecon.recordsFolded(), n, (unsigned)gDb.fileSize());
-  // The number companion.md owes the handoff. Printed on the CHANGING path only, which
+  // The number FLEET.md owes the handoff. Printed on the CHANGING path only, which
   // is the path that had never been observed. "It seemed fine" is not a result.
   Serial.printf("[dream] TIMING fold %lums rewrite %lums append %lums TOTAL %lums "
                 "(%luB -> %luB, %d records)\n",
@@ -1483,7 +1483,7 @@ static void serviceWifiScan() {
 }
 #endif
 
-// --- what the representor reads (cardputer-sensorium.md §4.1) ----------------
+// --- what the representor reads (docs/design/cardputer-sensorium.md §4.1) ----------------
 // The sense services publish here; the face only reads. Keeping the coupling one-way
 // is what lets the eyeball cost nothing while it is off screen, and it keeps the
 // percept tiers unaware that anything is watching them.
@@ -1780,7 +1780,7 @@ static void serviceImu(uint32_t now) {
 // So a 128-frame (16 ms) request waited for the full 30 ms descriptor no matter when it
 // was asked; the main loop spent 30 ms per pass waiting for the microphone. The toot link
 // is serviced once per pass, so whatever the loop waits on, the whole fleet waits on
-// (companion.md §6). Pacing alone does NOT fix this: any request smaller than a descriptor
+// (FLEET.md §6). Pacing alone does NOT fix this: any request smaller than a descriptor
 // still waits for the descriptor.
 //
 // The fix reads **exactly one descriptor** and only once per descriptor period, so the
@@ -2488,7 +2488,7 @@ static void toggleGlobeView() {
   activateView(nv);
 }
 
-// --- REPRESENTOR: the eyeball resting face (cardputer-sensorium.md §4.1) -----
+// --- REPRESENTOR: the eyeball resting face (docs/design/cardputer-sensorium.md §4.1) -----
 //
 // The first face of the representor. The other modality views (scope, console,
 // constellation) and the EPS arbiter that chooses between them are NOT built yet
@@ -3264,7 +3264,7 @@ static void renderIntero(uint32_t now) {
   // --- room to think --------------------------------------------------------
   // maxalloc, NOT free heap. The free-heap number reads ~245 KB and is a lie about what
   // can actually be allocated: the oscilloscope's 65 KB canvas was refused at exactly
-  // that number (companion.md §6). 64 KB is full scale.
+  // that number (FLEET.md §6). 64 KB is full scale.
   snprintf(v, sizeof(v), "%luK", (unsigned long)gMaxAllocK);
   uint16_t mcol = (gMaxAllocK > 32) ? IN_COL_MIND : (gMaxAllocK > 16) ? IN_COL_WARN
                                                                       : IN_COL_BAD;
@@ -3356,7 +3356,7 @@ static int belField(const char* s, const char* key, int dflt) {
 
 // Re-read the lane off flash. ⚠ Called ONLY when the belief revision changes or the view
 // is entered — never per frame. Eight records x (recordSpan + readBytes) is exactly the
-// per-frame file I/O that cost 767 ms/repaint in the `edgesAt` defect (companion.md §6).
+// per-frame file I/O that cost 767 ms/repaint in the `edgesAt` defect (FLEET.md §6).
 static void readBeliefs() {
   gBelN = 0;
   static char buf[768];
@@ -3682,7 +3682,7 @@ void setup() {
   // What this node actually has to spend, printed rather than assumed. The heap FIGURE
   // is not the useful one — `maxalloc` is: the oscilloscope's first build asked for a
   // contiguous 64,800 B canvas and was refused while plenty of heap was free
-  // (cardputer-sensorium.md §4.2). Anything sizing a buffer on this board should read
+  // (docs/design/cardputer-sensorium.md §4.2). Anything sizing a buffer on this board should read
   // this line first.
   Serial.printf("[mem] heap %lu free, maxalloc %lu, psram %lu\n",
                 (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMaxAllocHeap(),
@@ -4464,7 +4464,7 @@ void loop() {
       // empty medium decides nothing.
       //
       // ⚠ This deliberately does NOT apply the `!gPulse.conductor()` play gate, and the
-      // reasoning is the duet exception's (companion.md §6), not a widening of it: that gate
+      // reasoning is the duet exception's (FLEET.md §6), not a widening of it: that gate
       // exists so a self-appointed node cannot play out of phase against a band it has not
       // found, and it cannot apply here because BOTH nodes are voicing the SAME field on the
       // SAME step grid. With only the two handhelds powered one of them necessarily conducts,
@@ -4533,7 +4533,7 @@ void loop() {
   // The body's own senses (§4.5). Cheap and rare — four ADC reads and a die-temperature
   // read once per 2 s — but it gets its own profiler section rather than being folded
   // into a neighbour's, because a section that quietly carries somebody else's cost is
-  // how a profiler starts lying (companion.md §6: instrument the mechanism).
+  // how a profiler starts lying (FLEET.md §6: instrument the mechanism).
   serviceIntero(now);
 
   sectMark();                       // [8] end of "intero": battery + die temp + heap

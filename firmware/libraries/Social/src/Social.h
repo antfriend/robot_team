@@ -1,6 +1,6 @@
 // Social.h — the default network, stage 1: WHO IS HERE AND WHAT CAN THEY DO.
 //
-// `default-network.md` §6 stage 1. This library carries capability advertisement and
+// `docs/design/default-network.md` §6 stage 1. This library carries capability advertisement and
 // nothing else: no lane, no belief, no field. It is RAM-only and cites nothing, exactly
 // like `TraceField`, so TTDB-RFC-0010 §6.3's acceptance test ("the system must still be
 // correct with it EMPTY") is trivially true — a node that just booted knows nothing about
@@ -19,7 +19,7 @@
 // this table is not metadata: **it is the list of who can collapse which ambiguity**, and
 // `poseCeiling()` is the one number that says how much of its own shape the fleet can
 // currently know. (⚠ RSSI amplitude is NOT on that list — measured 2-7x over-range and
-// decorrelated from distance outdoors, companion.md.)
+// decorrelated from distance outdoors, FLEET.md.)
 //
 // ---------------------------------------------------------------------------
 // THREE STATUSES, EARNED RATHER THAN COMPILED IN
@@ -62,7 +62,7 @@
 // ⚠ BUT WITHIN ONE RADIO HOP IT SHOULD NEVER FIRE, AND THAT IS THE POINT. B's whole
 // capability vector is in B's every beacon, so A converges in one 2 s period regardless.
 // `staleReports()` is therefore an INSTRUMENT, not a mechanism: it measures whether the
-// mechanism has any work to do. default-network.md §6 pre-registered the falsifier before
+// mechanism has any work to do. docs/design/default-network.md §6 pre-registered the falsifier before
 // this file existed — *if every node's view of every other converges on the first beacon
 // and never disagrees, delete the staleness machinery and keep the masks*. It is expected
 // to fire only where that assumption breaks: a peer heard over multiple hops, a digest
@@ -232,7 +232,7 @@ inline uint16_t shortId(uint32_t node) { return (uint16_t)(node & 0xFFFFu); }
 // ⚠ UNKNOWN and ABSENT are different answers and must render differently. A V4 running
 // pre-stage-1 firmware sends no digest at all: every capability on it is UNKNOWN, and a
 // table that printed those as ABSENT would report the fleet's LoRa spine as having no
-// radio. default-network.md §6: "the table must say so rather than reporting a V4 as
+// radio. docs/design/default-network.md §6: "the table must say so rather than reporting a V4 as
 // capability-less."
 enum Status : uint8_t {
   ST_UNKNOWN = 0,   // this node has never told us anything

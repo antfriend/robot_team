@@ -1,7 +1,7 @@
 # Stigmergy in robot_team
 
 *Design exploration — 2026-08-07. Still NOT in PLAN.md and NOT state; nothing here has
-been built or measured. companion.md remains the source of truth for what is true of the
+been built or measured. ../../FLEET.md remains the source of truth for what is true of the
 fleet. Read §5 before §3: the discipline rule is what makes the rest safe.*
 
 📜 **The normative half of this document is now `replicate/RFCs/TTDB-RFC-0010-Stigmergic-Fields-and-Record-Identity.md`**
@@ -92,7 +92,7 @@ each other — they are opposites, and the project is currently paying for the w
 The pattern today: a lane fills to its cap (`ENTITYPERCEPT_MAX_LANE 48`,
 `PERCEPTLEARN_MAX_LANE 24`, `TIMESTREAM_MAX_LANE 16`), the node **goes blind**, an
 operator prunes the whole lane, a `@LAT100` boundary is written so the ordinal citations
-stay honest, and the lane refills. companion.md's own verdict: *"pruning is a treadmill
+stay honest, and the lane refills. ../../FLEET.md's own verdict: *"pruning is a treadmill
 until the lane is change-triggered."*
 
 Run-length made the treadmill 10× slower (48 min → 24 h on `@LAT95`) and it did so by
@@ -215,7 +215,7 @@ confident neighbour can answer a curious one with a deposit, which is the cheape
 possible form of mutual aid in a stigmergic field.
 
 ⚠ **Hard interlock: this must be OFF during a baseline run.** `WIFI_SCAN_PERIOD_MS` is
-600 000 and companion.md is explicit that *the quantity is churn over the interval the
+600 000 and ../../FLEET.md is explicit that *the quantity is churn over the interval the
 tier actually uses* — a threshold measured at one spacing does not apply to a tier that
 adapts its spacing. An adaptive duty cycle silently invalidates the Part 2 baseline. If D
 is built, the measurement runbook needs a "fixed cadence" mode and the record needs to say

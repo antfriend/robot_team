@@ -32,13 +32,13 @@ Throughout: `TTE` = `toot-toot-engineering`, `RT` = `robot_team`.
 
 | File | TTE (pull FROM) | RT (currently) |
 |---|---|---|
-| `RFCs/TTDB-RFC-0003-Typed-Edges.md` | **v1.1** — adds §7 symmetric types + `opposes` | v1.0, §7 absent |
-| `RFCs/TTN-RFC-0002-Typed-Edges.md` | **v1.1** — adds the semantic-polarity group | v1.0 |
-| `RFCs/INDEX.md` | reflects both v1.1 bumps | stale entries |
-| `RFCs/TTDB-RFC-0006-Experiential-Perception-as-Synthetic-Model.md` | §5/§8 point at `feelings_ttdb.md` | points at `emotions.md` — **a file that does not exist in either repo** |
-| `RFCs/rfc.ttdb.md` | `@LAT10LON3` `rev:1 sal:140 touched:1785542400` | `rev:0 sal:130 touched:1774396800` |
+| `replicate/RFCs/TTDB-RFC-0003-Typed-Edges.md` | **v1.1** — adds §7 symmetric types + `opposes` | v1.0, §7 absent |
+| `replicate/RFCs/TTN-RFC-0002-Typed-Edges.md` | **v1.1** — adds the semantic-polarity group | v1.0 |
+| `replicate/RFCs/INDEX.md` | reflects both v1.1 bumps | stale entries |
+| `replicate/RFCs/TTDB-RFC-0006-Experiential-Perception-as-Synthetic-Model.md` | §5/§8 point at `feelings_ttdb.md` | points at `emotions.md` — **a file that does not exist in either repo** |
+| `replicate/RFCs/rfc.ttdb.md` | `@LAT10LON3` `rev:1 sal:140 touched:1785542400` | `rev:0 sal:130 touched:1774396800` |
 
-`RFCs/TTN-RFC-0011-Semantic-Positioning.md` — the primary hypothesis — is
+`replicate/RFCs/TTN-RFC-0011-Semantic-Positioning.md` — the primary hypothesis — is
 **byte-identical** in both. Nothing to pull; see §2.5 for why that is itself a
 finding.
 
@@ -378,18 +378,18 @@ is a result, not a failure to deliver one.
   saying its "zero instances" count was overtaken by the run. Bump the
   `agent_note` draft number.
 - **`README.md`** — the closing section (["Where it stands,
-  2026-08-01"](README.md#L205-L235)) rewrites. Its current claim is that what's
+  2026-08-01"](../../README.md#L205-L235)) rewrites. Its current claim is that what's
   missing is *"one loop that writes the difference down."* If `RT` writes it
   down, that sentence is answered by a fleet of ESP32s and should say so, with
   what the run cost and what it left open.
-- **`RFCs/TTDB-RFC-0006`** — §7.1 mandates enforcing the pairing at write time.
+- **`replicate/RFCs/TTDB-RFC-0006`** — §7.1 mandates enforcing the pairing at write time.
   A real implementation on constrained hardware will surface whether that is
   actually enforceable in a fixed-RAM streaming writer; if it is not, that is an
   amendment, not a bug in `RT`.
-- **`RFCs/ARC-RFC-0001`** — the nearest formal expansion of Learning from Action
+- **`replicate/RFCs/ARC-RFC-0001`** — the nearest formal expansion of Learning from Action
   and still `Proposed`. Evidence for `K` from a second, non-game domain is
   directly relevant to it.
-- **`RFCs/TTN-RFC-0011`** — settle the §2.5 debt in the same pass.
+- **`replicate/RFCs/TTN-RFC-0011`** — settle the §2.5 debt in the same pass.
 - **`research/`** — if the constants come back wrong in an interesting way, that
   is research-line material before it is spec, on the pattern
   `research/valence/` already sets: results first, including where the method or

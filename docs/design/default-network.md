@@ -1,14 +1,14 @@
 # The default network — capabilities, testimony, and shape
 
 *Design exploration — 2026-08-09. **Stages 1 and 4 (§6) are BUILT and natively tested;
-stages 2, 3 and 5 are not.** Not in PLAN.md. companion.md remains the source of truth for
+stages 2, 3 and 5 are not.** Not in PLAN.md. ../../FLEET.md remains the source of truth for
 what is true of the fleet — see its 2026-08-09 entries for the state, including what has
 NOT been flashed. This is the exploratory half of a proposal; if it survives, its
 normative half is an extension to TTDB-RFC-0010 (lane classes) and TTN-RFC-0005 (trust),
 not a new corpus.*
 
 Companion documents: [stigmergy.md](stigmergy.md) (the field discipline this sits inside),
-[ttn-semantic-positioning.md](ttn-semantic-positioning.md) (the hypothesis §5 serves).
+[ttn-semantic-positioning.md](../../ttn-semantic-positioning.md) (the hypothesis §5 serves).
 
 ---
 

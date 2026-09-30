@@ -191,7 +191,7 @@ static uint32_t gPendSyncId = 0;
 static uint64_t gPendEpochMs = 0;
 static uint32_t gPendRecvMs = 0;
 
-// Laptop CMD override of the indicator LED (companion.md §4b). When enabled, the
+// Laptop CMD override of the indicator LED (FLEET.md §4b). When enabled, the
 // loop paints this color after the agent acts, so the orchestrator's set-led wins
 // over the local warm/cool indicator until a clear-led (or reboot).
 static struct {
@@ -702,7 +702,7 @@ static bool voicingNow() {
 // local can. That is the whole reason CMD_SET_VIEW exists: the console IS this node's
 // buttons, over the air. It also means the DEFAULT view has to be the one that is worth
 // looking at with nobody driving it — which is exactly the argument the Cardputer's
-// representor makes for an eye (cardputer-sensorium.md §3.2): a scope with no sound is a
+// representor makes for an eye (docs/design/cardputer-sensorium.md §3.2): a scope with no sound is a
 // flat line, a status page with nothing wrong is a wall of unchanged text, but an eye at
 // rest is still a face.
 //
@@ -2552,7 +2552,7 @@ void loop() {
     gAgent.reason();
     gAgent.act();
 #if USE_K10_HW
-    // A laptop set-led overrides the local indicator until clear-led (companion.md
+    // A laptop set-led overrides the local indicator until clear-led (FLEET.md
     // §4b) — applied after act() so the orchestrator's command wins this cycle.
     if (gLedOverride.enabled) k10.rgb->write(-1, gLedOverride.color);
 #endif

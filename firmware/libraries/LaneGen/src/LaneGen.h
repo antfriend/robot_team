@@ -55,7 +55,7 @@
 //  * A prune of an EMPTY lane writes no marker and reports success. That keeps
 //    `removePerceptLanes`' documented idempotency, and it is also what makes the CMD
 //    safe to retry — which matters, because a lane clear is one of the operations
-//    whose flash rewrite outruns the ACK window (companion.md §6: retry with
+//    whose flash rewrite outruns the ACK window (FLEET.md §6: retry with
 //    `--attempts 6+`). A retry finds nothing to remove and writes no second marker.
 //  * If the rewrite succeeds and the marker append then fails, the function returns
 //    false and says so on serial — the node ACKs only on true, so the operator learns.

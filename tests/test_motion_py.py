@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """test_motion_py.py -- verify companion.py's reader for the CHANGE-TRIGGERED @LAT95
-motion lane (part-b-handoff.md Part 1, landed 2026-08-04) without hardware.
+motion lane (docs/handoffs/part-b-handoff.md Part 1, landed 2026-08-04) without hardware.
 
 The one thing this file exists to stop: **counting records and calling them windows.**
 Since the lane suppresses windows whose verdict matches the run in progress, a record

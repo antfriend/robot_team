@@ -6,27 +6,27 @@
 
 **Status: PRIMARY HYPOTHESIS of robot_team (adopted 2026-07-07).** This is the
 claim the fleet now exists to prove. The build order is PLAN.md **Act II**;
-companion.md §6 tracks its live state. Everything verified so far — toots,
+FLEET.md §6 tracks its live state. Everything verified so far — toots,
 HMAC, sync, Dream Cycle, pulse — is the floor this proof stands on.
 
 **What changed in 0.3 (2026-08-11), and why.** Between 0.2 and 0.3 the fleet built
 a great deal of infrastructure that was filed as "off the hypothesis path" —
 stigmergic fields and lane discipline (`TTDB-RFC-0010`), the team time stream, lane
 generations, stable record identity, change-triggered lanes, and the default network
-(`default-network.md`). Read together, that work does not sit beside this document;
+(`docs/design/default-network.md`). Read together, that work does not sit beside this document;
 it **corrects** it in six places and **strengthens** it in two. Every change below is
 tagged with the measurement or RFC that forced it, so this revision reads as evidence
 rather than as opinion:
 
 | § | Change | Driven by |
 |---|---|---|
-| 0.1 | Shape vs pose: the ambiguity is **4 DoF**, not just flip | `default-network.md` §1 |
+| 0.1 | Shape vs pose: the ambiguity is **4 DoF**, not just flip | `docs/design/default-network.md` §1 |
 | 0.2 | Proof leg 1 reports `(sigma, pose_ceiling)`, not `sigma` alone | the above, made honest |
 | 0.3 | **The falsifier can fire falsely at bench scale** | cross-node overlap, 2026-08-11 |
 | 1.1 | The entity tier's resolving power is bounded by AP alphabet | night 1/3 baselines |
 | 1.2 | Anchoring on V4-A is **circular** — its coordinate is configured | this revision |
 | 2.3–2.4 | Lane register + identity kinds for positioning records | `TTDB-RFC-0010` §3, §4.2 |
-| 3.2b | **Distributed embedding** — the fleet shapes itself, no laptop | `default-network.md` §5 |
+| 3.2b | **Distributed embedding** — the fleet shapes itself, no laptop | `docs/design/default-network.md` §5 |
 | 3.3 | TDoA must use the **pulse**, never the time stream | `TimeStream` is a ratchet |
 | 4.3 | The ablation needs a stated geometry or it proves nothing | cross-node overlap |
 | A | Phase 0's risk is retired; the mitigation was the wrong one | run-length, 2026-08-04 |
@@ -41,7 +41,7 @@ rather than as opinion:
 
 ### 0.1 Shape and pose — what "its own physical arrangement" can and cannot mean
 
-**(New in 0.3. Source: `default-network.md` §1, which reached this by a different
+**(New in 0.3. Source: `docs/design/default-network.md` §1, which reached this by a different
 road and got there first.)**
 
 A relation between two nodes — do we hear each other, do we see the same access
@@ -441,7 +441,7 @@ better than an unverifiable one.
 
 *Goal: the shape estimate exists with the laptop switched off.*
 
-**(Source: `default-network.md` §5, promoted here from "off the hypothesis path".)**
+**(Source: `docs/design/default-network.md` §5, promoted here from "off the hypothesis path".)**
 
 Phases 1–2 as written permit the embedding to run "on the head node (V4-A) or
 attached host" — so the hypothesis as stated in 0.2 is **provable with a laptop
@@ -558,7 +558,7 @@ different screens from the same TTDB.*
 
 - **Laptop:** the master TTDB (`reconcile` output + `@BELIEF:PROXIMITY` /
   `@BELIEF:POSITION` records) rendered in the browser per the TTCP RFCs
-  (`RFCs/TTCP-RFC-0001..0003`: record rendering, knowledge globe + cursor
+  (`replicate/RFCs/TTCP-RFC-0001..0003`: record rendering, knowledge globe + cursor
   navigation, toot URIs). The working example is
   **[antfriend.github.io](https://github.com/antfriend/antfriend.github.io)** —
   a dependency-free JS viewer that loads a TTDB via `?ttdb=<file>.md`; the
@@ -580,7 +580,7 @@ different screens from the same TTDB.*
      "Nobody has reinforced this for an hour" and "there is no such node" are
      different claims, and this fleet has already **fabricated** the second one
      once. A stale position belief dims; it does not vanish.
-  2. **The pose renders its own ambiguity** (`default-network.md` §5). If no
+  2. **The pose renders its own ambiguity** (`docs/design/default-network.md` §5). If no
      GPS-capable node has taken a fix, the shape is correct and the map is one of
      four — drawing it as a map is the same class of lie as rule 1. **Show the
      shape; show which of the four degrees of freedom are pinned, and by whom.**
@@ -673,7 +673,7 @@ different screens from the same TTDB.*
 **mobile-node / SLAM-lite** mode, which became the T-Deck's anchoring role in Phase
 2 once §1.2's circular anchor was retracted and the roaming GPS became the fleet's
 *only* source of pose; and the **stigmergic/distributed** direction, which became
-Phase 2b. `default-network.md` is the design note behind both.
+Phase 2b. `docs/design/default-network.md` is the design note behind both.
 
 **Denser evidence, same framework.**
 - BLE scanning as a second entity class (tighter distance bounds than WiFi, ~10–30 m).

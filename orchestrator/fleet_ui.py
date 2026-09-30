@@ -257,7 +257,7 @@ class Link:
             if self.reset_on_open:
                 # The reset costs the node its RAM clock offset and ~2.5 s of boot, but
                 # it is the only way to read a node's console — the S3's USB CDC only
-                # transmits while the host asserts DTR (companion.md §6).
+                # transmits while the host asserts DTR (FLEET.md §6).
                 ser = serial.Serial(self.port, self.baud, timeout=0.05)
                 time.sleep(2.5)
             else:

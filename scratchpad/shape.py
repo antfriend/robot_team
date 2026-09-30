@@ -1,6 +1,6 @@
 """Per-(peer, proto) verdict matrix for a labelled walk run.
 
-The shape claim under test (percept-learning-return.md §0b): violations track CHANGE,
+The shape claim under test (docs/handoffs/percept-learning-return.md §0b): violations track CHANGE,
 not distance — a link that is far but STATIONARY should read `met`, and only transit
 windows should violate. Testing it needs ground-truth labels that do NOT come from the
 RSSI being tested, which is why the operator's transition marks are passed in here

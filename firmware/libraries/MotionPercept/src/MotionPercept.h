@@ -21,7 +21,7 @@
 // Same discipline as its siblings: fixed RAM, integer math, no per-sample flash write,
 // portable (no Arduino dependency) so the stats and the record format are pinned by
 // tests/test_motionpercept.cpp. (Until 2026-08-01 that test did not exist and this tier
-// had only ever been verified on hardware — companion.md §6, 2026-07-27.)
+// had only ever been verified on hardware — FLEET.md §6, 2026-07-27.)
 // The sketch supplies the IMU read and the Ttdb::appendRecord.
 //
 // ---------------------------------------------------------------------------
@@ -64,10 +64,10 @@
 //     duplicated into the body: the transition stays self-sufficient without them.
 //
 // Stage A only. This writes the difference down; it does not yet predict, testify, or
-// reconcile (percept-learning-handoff.md Stages B-E).
+// reconcile (docs/handoffs/percept-learning-handoff.md Stages B-E).
 //
 // ---------------------------------------------------------------------------
-// CHANGE-TRIGGERED WITH EXPLICIT RUN-LENGTH (2026-08-04) — part-b-handoff.md Part 1
+// CHANGE-TRIGGERED WITH EXPLICIT RUN-LENGTH (2026-08-04) — docs/handoffs/part-b-handoff.md Part 1
 // ---------------------------------------------------------------------------
 // Until now this lane was PERIODIC: one record per 60 s window whether or not anything
 // happened, so `MOTIONPERCEPT_MAX_LANE 48` filled in 48 minutes of UPTIME. Measured

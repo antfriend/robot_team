@@ -2,21 +2,29 @@
 
 ## What this is
 
-A team of autonomous **ESP32 robots** (A32 agents) coordinated by a laptop
-**companion**. Each robot reasons from a Toot-Toot Database (TTDB) markdown file
-on its filesystem — no cloud LLM, no neural inference. Start every session by
-reading [companion.md](companion.md); it is the orchestrator and source of truth.
-The build roadmap is [PLAN.md](PLAN.md). The **primary hypothesis** the fleet
-exists to prove is **semantic positioning**
-([ttn-semantic-positioning.md](ttn-semantic-positioning.md)): infer node
-positions from umwelt overlap, verify against the T-Deck GPS, auto-switch links
-ESP-NOW ↔ LoRa from the resulting beliefs, and render fleet/node status as TTCP
-on the laptop and the T-Deck (PLAN.md Act II).
+A team of autonomous **ESP32 robots** (A32 agents), observed by a laptop. Each robot
+reasons from a Toot-Toot Database (TTDB) markdown file on its filesystem — no cloud
+LLM, no neural inference. Start every session by reading [FLEET.md](FLEET.md)
+(renamed from `companion.md` on 2026-09-30); it is the fleet brain and source of truth.
+
+The **hypothesis** is an **autonomous fleet** — see [ACT-III.md](ACT-III.md) §2, the plan
+of record: a fleet that keeps a memory which never refuses a write, discovers its own
+arrangement cooperatively, agrees without coordinating, and displays what it knows
+unprompted. **Semantic positioning**
+([ttn-semantic-positioning.md](ttn-semantic-positioning.md)) is how that is tested, not
+the claim itself: infer node positions from umwelt overlap, verify against the T-Deck
+GPS, auto-switch links ESP-NOW ↔ LoRa from the resulting beliefs, and render fleet/node
+status as TTCP (PLAN.md Act II, then ACT-III Phase F). The build roadmap is
+[PLAN.md](PLAN.md); dated findings go in [docs/log/](docs/log/), one file per month.
+
+⚠ **A capability that only works with a cable attached is not yet a fleet capability.**
+That is the practical edge of the new hypothesis, and it is why the laptop-side half of
+several proofs now counts as unfinished rather than done.
 
 ## Layout
 
 ```
-companion.md            Orchestrator brain (read first)
+FLEET.md            Orchestrator brain (read first)
 PLAN.md                 Phased build plan (Act I floor -> Act II hypothesis)
 ttn-semantic-positioning.md   The primary hypothesis + its proof legs
 firmware/
@@ -44,7 +52,7 @@ firmware/
                         single `synced` bit; anchors ride on HELLO; @LAT90 logs timeline
                         CHANGES. TimeStreamNode.h is the Arduino glue (one copy, six
                         sketches).
-    Social/             The default network (default-network.md): capability advertisement
+    Social/             The default network (docs/design/default-network.md): capability advertisement
                         with a THREE-level status (declared/verified/exercised), riding as a
                         third HELLO block after the anchor and the trace digest. Not an
                         inventory — it is the list of who can collapse which positioning
@@ -77,7 +85,7 @@ master/ui/              TTDBs pulled by fleet_ui.py, kept out of the curated set
 scripts/                setup / build / deploy / upload-fs (arduino-cli)
 tests/                  Native test for the portable libs (g++ + make)
 replicate/              Open-source publication front door (README + the spec store)
-  RFCs/                 Governing specs (A32, TTDB, TTN, TTCP) — MOVED here from the
+  replicate/RFCs/                 Governing specs (A32, TTDB, TTN, TTCP) — MOVED here from the
                         repo root on 2026-07-31; `replicate/RFCs/rfc.ttdb.md` is the
                         canonical corpus the handhelds carry in their data/ dirs
 ```
@@ -151,7 +159,7 @@ which is the tell. Leave `TFT_BL` undefined: the backlight still works and the s
 keeps GPIO45. (A bad `TFT_BL 45` was the original cause of "only the startup toot is
 audible.")
 
-The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `hardware_specs.md`
+The Heltec V4 is `esp32:esp32:esp32s3`; set its PA variant per `docs/hardware/hardware_specs.md`
 (`USE_GC1109_PA` V4.2 / `USE_KCT8103L_PA` V4.3) once the LoRa path is enabled. The
 K10's only LittleFS-capable partition is `model` (subtype spiffs, @0x510000),
 mounted by label in the sketch.
@@ -306,7 +314,7 @@ Only the sketch's own string literals tell the boards apart.
 file. It is **not** a firmware regression — control-tested by reflashing both V4s from
 HEAD, which failed identically. V4-B's TTDB has grown 858 B → 54 KB on unpruned percept
 lanes, and ~270 ESP-NOW frames across a busy mesh is a different job from ~5. The direct
-pull on the node's own port is byte-exact and repeatable (companion.md §6).
+pull on the node's own port is byte-exact and repeatable (FLEET.md §6).
 
 As of 2026-07-30 both V4s answer **`CMD_GET_INTERO` (op 12)** and **`CMD_DUET` (op 13)**,
 so the T-Deck's record pane and its `d` key work against the spine, not just the two

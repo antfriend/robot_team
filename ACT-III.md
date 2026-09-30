@@ -3,7 +3,7 @@
 **A plan for a comprehensive reorganization, consolidation, and new focus.**
 Authored 2026-09-30 against `robot_team` @ `79b3967`; direction settled the same
 day (§8). Amends [PLAN.md](PLAN.md) (Act I floor → Act II hypothesis) with a
-third act, and is written to be read *after* [companion.md](companion.md) §1–5 —
+third act, and is written to be read *after* [FLEET.md](FLEET.md) §1–5 —
 renamed `FLEET.md` by Phase B — but *instead of* its §6, which Phase B retires.
 
 Every number below was measured during the survey that produced this plan, not
@@ -43,7 +43,7 @@ write has no cap to crash into. The replacement is better and is stated there.
 
 Three copies of the corpus exist: `robot_team/replicate/RFCs/` (32 files),
 `toot-toot-engineering/RFCs/` (37), and `antfriend.github.io/RFCs/` (36 — the
-website repo, plus `RFCs/index.html` + `js/rfc-reader.js` + `css/rfc-reader.css`,
+website repo, plus `replicate/RFCs/index.html` + `js/rfc-reader.js` + `css/rfc-reader.css`,
 a reader UI that renders the corpus as a walkable globe).
 
 Compared with line endings normalised, **every file is byte-identical across all
@@ -119,7 +119,7 @@ form:
    Dream Cycle, and carries a grammar hash as `scene_id` so a split is a
    convergence failure. It ships a five-item test plan (§4.8).
    **robot_team owns the only hardware that can run it.**
-3. **TTG-RFC-0005 gives "episodic" a spec.** `episodic-sensing-handoff.md`
+3. **TTG-RFC-0005 gives "episodic" a spec.** `docs/handoffs/episodic-sensing-handoff.md`
    (2026-08-15) argued its way to the right primitive — *"the covering record must
    carry whatever the lane's consumer computes, so the fold is lossless for that
    consumer by construction"* — without a record format to put it in. TTG-0002
@@ -135,7 +135,7 @@ permuted-grammar control (TTG-0004 §3.6).
 
 ### 1.3 The repo has outgrown its own front door
 
-- **`companion.md` is 7,122 lines / 585 KB, and §6 alone is lines 184–6,707** —
+- **`FLEET.md` is 7,122 lines / 585 KB, and §6 alone is lines 184–6,707** —
   92% of the file. §6 is titled *"Current state & next action"* and is in fact a
   flat chronological log: **296 date strings, zero subheadings**, oldest entry
   first. CLAUDE.md instructs every session to read this file first. The two facts
@@ -168,7 +168,7 @@ had to be made addressed-only and grow a `VIEW_NEXT` sentinel, because no shared
 view vocabulary exists to name a view with.
 
 And the piece that would make the views mean something is designed and unbuilt:
-the **EPS arbiter**, `cardputer-sensorium.md` §7 Phase S1 — *"Per-modality
+the **EPS arbiter**, `docs/design/cardputer-sensorium.md` §7 Phase S1 — *"Per-modality
 `(sal, conf)`, EPS ranking, hysteresis. No new rendering."* Both call sites still
 say so in the source
 ([:2494](firmware/cardputer_console/cardputer_console.ino#L2494),
@@ -246,7 +246,7 @@ specified and already unbuilt:
 - **Which action to take** is already the project's own attention math.
   `EPS = sal × (255 − conf) / 255` is exactly *"what I rely on but have not
   verified"* — a ranked list of what to go and check. The **EPS arbiter**
-  (`cardputer-sensorium.md` §7 S1) is specified and unbuilt, and it is the same
+  (`docs/design/cardputer-sensorium.md` §7 S1) is specified and unbuilt, and it is the same
   object.
 - **How to act** already exists as toots. `CMD_DUET` is the precedent: two nodes
   coordinating an action, re-asserted every 2 s because a single invitation gets
@@ -279,7 +279,7 @@ tolerance is honestly reported as concurrent.
 **Act III's own documents change too**, and this is Phase B work rather than a
 footnote: `CLAUDE.md`, `README.md` and `PLAN.md` all currently open by naming
 semantic positioning as *the primary hypothesis the fleet exists to prove*. All
-three need the new framing, and `companion.md` §1–5 need it most, since they
+three need the new framing, and `FLEET.md` §1–5 need it most, since they
 describe a fleet organised around a laptop that is now explicitly optional.
 
 ---
@@ -430,7 +430,39 @@ in Phase A; the note is here so D does not start from a blank page.
 
 Low risk, no firmware, and it pays for itself at every subsequent session start.
 
-### B1. `companion.md` → `FLEET.md`, and split it
+> ### ✅ Phase B status — 2026-09-30
+>
+> | step | state |
+> |---|---|
+> | B1 `FLEET.md` + log split | ✅ 7,122 → **715 lines**; §6 6,524 → **62**. 197 entries → `docs/log/{2026-06,07,08}.md`, dated by `git blame`. **Losslessness proven: 6,391 non-blank lines in, 6,391 out, 0 missing, 0 extra.** §1/§4/§5 reframed for the new hypothesis |
+> | B2 `companion.py` → `fleet.py` | ⏳ deliberately deferred to Phase C, as planned |
+> | B3 `docs/` | ✅ root is **6 files** (was 17). 47 files' references rewritten; **0 broken links across 179 markdown files** |
+> | B4 `replicate/` pointer | ✅ prose points upstream, `RFCs/` stays local as a build input; all links resolve |
+> | B5 one test entry point | ✅ **`tests/run-all`**: 16 native + 16 laptop suites + the Makefile guard, **33/33 green** (was 11 targets). Exit codes negative-controlled |
+>
+> **Gate met:** `README.md` → `FLEET.md` reaches current state at **line 28** (target <200).
+>
+> 📎 **On history across the rename — a claim this plan first overstated.** `git mv`
+> does not *make* history follow; rename detection is a diff-time **similarity** heuristic,
+> and `FLEET.md` keeps only ~10 per cent of `companion.md` (715 of 7,122 lines). Git in fact
+> pairs the old path with `docs/log/2026-08.md`, which inherited the bulk. Nothing is lost —
+> git stores snapshots, and all **129** commits stay reachable via `git log -- companion.md`
+> — but `git log --follow FLEET.md` needs a lowered threshold (`-M10%`) to cross the rename.
+> Worth knowing before someone concludes the file has no past.
+>
+> ⚠ **Two self-inflicted defects worth recording, because both were caught only by a
+> check that did not share the buggy code's logic.**
+> **(1)** The reference rewriter skipped `companion.md` → `FLEET.md` for every root-level
+> file, because its "already a sibling" shortcut compared *directories* and a **rename
+> changes the basename, not the directory**. My verification reproduced the same flaw and
+> therefore reported 0 stale references. An independent link-resolver found 23.
+> **(2)** A blanket `RFCs/` → `replicate/RFCs/` rewrite corrupted **historical** prose in
+> `docs/log/`, turning a 2026-07-31 entry into the tautology *"`replicate/RFCs/` now lives
+> at `replicate/RFCs/`"*. Fixed by regenerating the log from `git HEAD` and re-applying
+> **only link-target** repointing. → *Rule: never blanket-rewrite an archive; and a
+> verification that shares the implementation's assumptions verifies nothing.*
+
+### B1. `FLEET.md` → `FLEET.md`, and split it
 
 **The rename is not cosmetic — "companion" names the laptop, and §2 just made the
 laptop optional.** The file is the *fleet's* brain, not its companion's, so it
@@ -465,9 +497,9 @@ in muscle memory — and whether `fleet_ui.py` folds into it as `fleet.py ui`.
 
 ```
 docs/handoffs/    the 8 spent handoff docs, moved verbatim
-docs/hardware/    hardware_specs.md, heltec-v4-solar-charging.md, max98357a-v4-wiring.html
-docs/design/      cardputer-sensorium.md, toot_network_architecture.md,
-                  default-network.md, stigmergy.md
+docs/hardware/    docs/hardware/hardware_specs.md, docs/hardware/heltec-v4-solar-charging.md, docs/hardware/max98357a-v4-wiring.html
+docs/design/      docs/design/cardputer-sensorium.md, docs/design/toot_network_architecture.md,
+                  docs/design/default-network.md, docs/design/stigmergy.md
 docs/log/         FLEET.md §6, by month
 ```
 
@@ -495,12 +527,15 @@ Settled (§8.4). Two halves, and they are different, so be precise:
 `c:/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe`. It should move into `tests/`
 and grow to cover everything.
 
-📎 **Measured 2026-09-30 while verifying Phase A: the suite is green (11/11, exit 0)
-but the runner covers 11 of 16 native tests.** Omitted from its `NAMES`:
-`test_citation`, `test_sid`, `test_social`, `test_tracefield`, `test_ttdb_index`.
-So five tests have not run in this session's toolchain and their status is unknown —
-not failing, *unobserved*. B5 is therefore mostly a list-completion job plus the
-Python suites, which still have no runner at all.
+✅ **Done 2026-09-30: `tests/run-all` covers 16 native targets, all 16 `*_py.py`
+suites and `check_makefile.py` — 33/33 green.** The five previously *unobserved*
+native tests (`citation`, `sid`, `social`, `tracefield`, `ttdb_index`) all pass; that
+is now known rather than assumed. `scratchpad/t.sh` is a shim that `exec`s the new
+runner, kept because runbooks and log entries name it.
+
+📐 **Its three guards are negative-controlled, not just written:** a bogus target
+exits 1 with *ZERO NATIVE TARGETS BUILT*, a bad toolchain path exits 2 with a message
+saying not to re-download, and a good target exits 0.
 
 ⚠ **A missing source in that list is invisible unless the stale `.exe` is deleted
 first, and it bit again on 2026-09-30.** `test_perceptlearn` had been failing to
@@ -637,7 +672,7 @@ exception to rule. `LaneGen`'s boundary already carries
 belief, precisely so a prune does not reset what was learned; `EntityPercept`'s
 `**COVERED-ENTITY**` already carries the union its consumer computes. The
 governing rule was already written down in
-[episodic-sensing-handoff.md](episodic-sensing-handoff.md) (which Phase B moves to
+[docs/handoffs/episodic-sensing-handoff.md](docs/handoffs/episodic-sensing-handoff.md) (which Phase B moves to
 `docs/handoffs/`):
 
 > **The covering record must carry whatever the lane's consumer computes, so that
@@ -839,7 +874,7 @@ the silent failure above. Match boards by `SER=` MAC, never by COM number.
 
 ### D4. Give the EPS arbiter its display
 
-Build `cardputer-sensorium.md` §7 **Phase S1** at last: per-modality
+Build `docs/design/cardputer-sensorium.md` §7 **Phase S1** at last: per-modality
 `(sal, conf)`, `EPS = sal × (255 − conf) / 255`, hysteresis, headless, winner
 printed to serial. It is specified, it is owed, and it is the data source Phase E
 needs. Its own done-condition is already written: *tilting, clapping, and a
@@ -981,7 +1016,7 @@ warm.
 |---|---|---|
 | **8.1** | **"Autonomous fleet" is the new hypothesis**, with active discovery *and* display of semantic positioning as a cooperative fleet activity | §2 rewritten. Positioning is demoted from terminal claim to exercise; the laptop becomes an observer that can be unplugged; `poseCeiling()` becomes a controller, not a gauge (§2.3). `CLAUDE.md`, `README.md`, `PLAN.md` and `FLEET.md` §1–5 all need reframing (§2.4) |
 | **8.2** | **Replace every logging-style write with one memory that never fills up.** Less data logger, more dynamic agent with a memory | §5 rebuilt around admit-always / reclaim-lowest-EPS / fold-before-forget. Inherits RFC-0010 §8.1's falsifier: **the pass condition is that every `clear` verb is deleted** (C0, C5). Declares a divergence from TTG-0003 §2 and offers it upstream as a bounded-store profile (C2d). **Removed the snake's wall and death** (§7.2) |
-| **8.3** | **Outside citations are not a constraint. Rename away from "companion"** | `companion.md` → **`FLEET.md`** (B1) — the rename is substantive, since §2 made the laptop optional. `companion.py` → `fleet.py` deferred to Phase C, where the file is rewritten anyway (B2). The external-citation warning is gone |
+| **8.3** | **Outside citations are not a constraint. Rename away from "companion"** | `FLEET.md` → **`FLEET.md`** (B1) — the rename is substantive, since §2 made the laptop optional. `companion.py` → `fleet.py` deferred to Phase C, where the file is rewritten anyway (B2). The external-citation warning is gone |
 | **8.4** | **`replicate/` is a pointer** | B4. Prose front door points upstream; **`replicate/RFCs/` stays a real local copy because it is a build input** — `rfc.ttdb.md` is flashed byte-exact |
 | **8.5** | **Repartitioning is fine** | D3: all three V4s move to `huge_app` **first**, so the unified layer lands on all six boards. ⚠ Carries a known silent-failure trap — `Upload-V4-FS.ps1` hard-codes 0x290000 and must move to 0x310000 |
 
@@ -1028,7 +1063,7 @@ in as `fleet.py ui`.
 | **C0** ✅ the memory gate | C2c + C3 + C4 | **every `clear` verb deleted from `orchestrator/`, and nothing replacing it** — RFC-0010 §8.1's own falsifier |
 | **D0** V4 repartition | — (can precede D1) | all three V4s on `huge_app`, each reading back a `TTDB loaded: … records indexed` banner |
 | **D1–D3** TTCP layer | C2 (the scene model needs the tier model), D0 | all six boards render from one scene model, each inside its measured render/loop budget |
-| **D4** EPS arbiter | D1; S0 first | S1's own done-condition, verbatim from `cardputer-sensorium.md` §7 |
+| **D4** EPS arbiter | D1; S0 first | S1's own done-condition, verbatim from `docs/design/cardputer-sensorium.md` §7 |
 | **E** snake | C2 (the E7 contract), D2, D4 | K10 shows `VIEW_SNAKE` in budget; a beep feeds it; **the tail recedes** once the ring is warm |
 | **F** active discovery | C4, D4 | the fleet raises its own `poseCeiling()` by asking the node with the unique capability — §2.3, and the first new claim of the new hypothesis |
 

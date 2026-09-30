@@ -3,7 +3,7 @@
 Drives the same CMD_DUET the T-Deck's `d` key sends, through the V4-A bridge: V4-A leads
 (kOdeLead), V4-B harmonises (kOdeHarm), double time. The invitation is RE-ASSERTED every
 2 s exactly as serviceDuet does on the T-Deck — a single ESP-NOW CMD_DUET gets dropped
-(companion.md §6), and this test is worthless if it can't tell "the V4 ignored the ask"
+(FLEET.md §6), and this test is worthless if it can't tell "the V4 ignored the ask"
 from "the ask never arrived".
 
 Confirmation is the partner's own INTERO_VOICING bit, never an ACK: a blocking tone call

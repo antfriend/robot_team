@@ -1,7 +1,7 @@
 // Toot.h — the 250-byte robot_team wire frame.
 //
 // Layout (little-endian multi-byte fields), matching
-// toot_network_architecture.md section 3:
+// docs/design/toot_network_architecture.md section 3:
 //
 //   off  field         bytes
 //   0    magic         2     0x54 0x54 ("TT")
@@ -101,7 +101,7 @@ enum RecFlags : uint8_t {
   REC_FLAG_SELF   = 1 << 2,   // our own speaker sounded during the capture (§3.3)
 };
 
-// CMD payload layout — the orchestrator drives node behavior (companion.md §4b).
+// CMD payload layout — the orchestrator drives node behavior (FLEET.md §4b).
 //   [0]     op (CmdOp)
 //   [1..4]  target_node_id (u32 LE) — only the addressed node acts + ACKs
 //   [5..]   op-specific args
@@ -125,7 +125,7 @@ enum CmdOp : uint8_t {
                            // gets the all-lanes prune, which is the safe default: the
                            // @LAT96 entity lane had no way to be cleared at all, and
                            // it is what grew a TTDB past the size its own bridged
-                           // pull can carry (companion.md §6, 2026-07-31).
+                           // pull can carry (FLEET.md §6, 2026-07-31).
   CMD_GET_GPS = 9,         // no args — GPS-bearing node (T-Deck Plus) replies a GPS
                            // PERCEPT (semantic positioning SP2: the roaming
                            // ground-truth anchor/verifier). Cheap (no flash): the
@@ -147,7 +147,7 @@ enum CmdOp : uint8_t {
                            // threshold anywhere in the path — and a threshold is exactly
                            // what made the @LAT94 transient timestamps weak, because it
                            // fires at a different point on the waveform depending on
-                           // distance and gain (cardputer-sensorium.md §6).
+                           // distance and gain (docs/design/cardputer-sensorium.md §6).
                            // Safe to broadcast; a node with no mic or no chart declines.
                            // Read the result back with TTDB_REQ_RECORDING.
   CMD_GET_INTERO = 12,     // no args — node replies an INTERO PERCEPT: its sense of its
@@ -198,7 +198,7 @@ enum CmdOp : uint8_t {
                            //
                            // This is what gives a screen-only node an input device it does
                            // not physically have: the UNIHIKER K10 has no reachable button,
-                           // so the console IS its buttons (companion.md §6, 2026-08-12).
+                           // so the console IS its buttons (FLEET.md §6, 2026-08-12).
 };
 
 // CMD_SET_VIEW's "advance one" argument. 0xFF rather than a count so it cannot collide
@@ -283,7 +283,7 @@ const size_t STATUS_PULSE_PAYLOAD_LEN = 45;
 const size_t GPS_PERCEPT_PAYLOAD_LEN = 24;
 
 // INTERO PERCEPT payload — a node's INTEROCEPTION, returned as a PERCEPT toot in answer
-// to CMD_GET_INTERO (cardputer-sensorium.md §4.5). Same payload-convention discipline as
+// to CMD_GET_INTERO (docs/design/cardputer-sensorium.md §4.5). Same payload-convention discipline as
 // STATUS and GPS: an existing toot type (so the bridge already forwards it), and its
 // 21-byte length distinguishes it from a STATUS (15/43/45) or GPS (24) PERCEPT.
 //
@@ -300,7 +300,7 @@ const size_t GPS_PERCEPT_PAYLOAD_LEN = 24;
 //   [4..5]   die_c_x10      i16   DIE temperature x10 (not ambient; -32768 = none)
 //   [6..7]   maxalloc_kb    u16   largest CONTIGUOUS heap block, KiB — never free heap,
 //                                 which reads ~5x higher and refuses the allocation
-//                                 anyway (companion.md §6)
+//                                 anyway (FLEET.md §6)
 //   [8..11]  uptime_s       u32   seconds since boot
 //   [12..13] worst_loop_ms  u16   worst loop pass in the node's current profiler window.
 //                                 The node's own sense of its response time: the toot

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# tests/run-all — the ONE entry point for this project's tests.
+#
+# Run from anywhere:   bash tests/run-all            # everything
+#                      bash tests/run-all sid social # named native targets only
+#                      NATIVE_ONLY=1 bash tests/run-all
+#                      PY_ONLY=1     bash tests/run-all
+#
+# Replaces scratchpad/t.sh (2026-09-30, ACT-III.md Phase B5), which covered 11 of the
+# 16 native tests and no Python suite at all. There is no `make` and no `g++` on the
+# K10 dev box; the toolchain is a portable `zig c++` — see [[no-host-cpp-toolchain]].
+#
+# THREE RULES THIS FILE EXISTS TO ENFORCE, each one paid for:
+#
+#   1. DELETE THE BINARIES FIRST. Without `make`, a link failure leaves the previous
+#      .exe in place and a build-then-run loop reports PASS for code that was never
+#      compiled. Measured twice: 2026-08-07 (TimeStream.cpp missing from four source
+#      lists) and 2026-09-30 (Sid.cpp/TtdbParse.cpp missing from perceptlearn, which
+#      had been failing to link since 2026-08-09 while looking green).
+#   2. A BUILD ERROR IS A FAILED TEST, never a reason to read the output underneath it.
+#   3. FAIL ON ZERO TARGETS. tests/Makefile once referenced three undefined variables,
+#      so `make` compiled NOTHING and `make test` passed on stale binaries. A suite
+#      that did not compile is worse than a red one, so this script prints the target
+#      count and treats 0 as failure.
+set -u
+cd "$(dirname "$0")/.."
+ROOT="$PWD"
+
+ZIG="${ZIG:-/c/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe}"
+PY="${PY:-python}"
+LIB=firmware/libraries
+INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src
+     -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
+     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/LaneGen/src -I$LIB/Social/src"
+FLAGS="-std=c++11 -Wall -Wextra -O2"
+TS="$LIB/TimeStream/src/TimeStream.cpp"
+
+# name : extra sources (tests/test_<name>.cpp is implied). Keep in sync with tests/Makefile;
+# `python tests/check_makefile.py` guards the Makefile's copy of the same information.
+declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
+                  symmetric_edges nmea pulse timestream lanegen
+                  tracefield social sid citation ttdb_index)
+declare -A SRCS=(
+  [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [linkpercept]="$TS $LIB/LinkPercept/src/LinkPercept.cpp"
+  [entitypercept]="$TS $LIB/EntityPercept/src/EntityPercept.cpp"
+  [motionpercept]="$TS $LIB/MotionPercept/src/MotionPercept.cpp"
+  [perceptlearn]="$TS $LIB/PerceptLearn/src/PerceptLearn.cpp $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [rfc_ttdb]="$LIB/TTDB/src/TtdbParse.cpp"
+  [symmetric_edges]="$LIB/TTDB/src/TtdbParse.cpp"
+  [nmea]="$LIB/Gps/src/Nmea.cpp"
+  [pulse]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/Pulse/src/Pulse.cpp"
+  [timestream]="$TS"
+  [lanegen]="$TS $LIB/LaneGen/src/LaneGen.cpp"
+  [tracefield]="$LIB/TraceField/src/TraceField.cpp"
+  [social]="$LIB/Social/src/Social.cpp $LIB/TraceField/src/TraceField.cpp $TS $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [sid]="$LIB/TTDB/src/Sid.cpp"
+  [citation]="$LIB/TTDB/src/TtdbParse.cpp"
+  [ttdb_index]="$LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/TtdbParse.cpp"
+)
+# ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)
+# with a small cap so index saturation is reachable in a fixture, not at 289 records.
+declare -A XFLAGS=( [ttdb_index]="-I shim -DTTDB_MAX_RECORDS=16" )
+
+[ $# -gt 0 ] && NAMES=("$@")
+
+built=0; ran=0; fail=0; failed=""
+note() { printf '%s\n' "$*"; }
+
+if [ "${PY_ONLY:-0}" != "1" ]; then
+  if [ ! -x "$ZIG" ]; then
+    note "FATAL: no zig at $ZIG"
+    note "  The persistent toolchain is NOT on PATH by design; do not re-download it."
+    note "  Override with:  ZIG=/path/to/zig.exe bash tests/run-all"
+    exit 2
+  fi
+  note "== native =="
+  note "toolchain: $($ZIG version)  targets: ${#NAMES[@]}"
+  # RULE 1 — delete first, so a link failure cannot be read as a pass.
+  for n in "${NAMES[@]}"; do rm -f "tests/test_$n" "tests/test_$n.exe"; done
+
+  for n in "${NAMES[@]}"; do
+    if [ -z "${SRCS[$n]+x}" ]; then
+      note "  NO SUCH TARGET: $n"; fail=1; failed="$failed $n(unknown)"; continue
+    fi
+    # shellcheck disable=SC2086
+    if ( cd tests && "$ZIG" c++ $FLAGS ${XFLAGS[$n]:-} $(echo $INC | sed 's#-I#-I../#g') \
+           "test_$n.cpp" $(for s in ${SRCS[$n]}; do echo "../$s"; done) \
+           -o "test_$n.exe" ) 2>"tests/.build_$n.log"; then
+      built=$((built+1))
+    else
+      note "  BUILD FAILED: $n"; sed 's/^/      /' "tests/.build_$n.log" | grep -iE "error" | head -6
+      fail=1; failed="$failed $n(build)"; continue     # RULE 2
+    fi
+    if out=$( cd tests && "./test_$n.exe" 2>&1 ); then
+      ran=$((ran+1)); note "  PASS  $n"
+    else
+      note "  FAIL  $n"; printf '%s\n' "$out" | tail -12 | sed 's/^/      /'
+      fail=1; failed="$failed $n(run)"
+    fi
+    rm -f "tests/.build_$n.log"
+  done
+fi
+
+pyok=0; pytot=0
+if [ "${NATIVE_ONLY:-0}" != "1" ] && [ $# -eq 0 ]; then
+  note ""
+  note "== laptop (python) =="
+  for f in tests/*_py.py; do
+    [ -e "$f" ] || continue
+    pytot=$((pytot+1))
+    if out=$( "$PY" "$f" 2>&1 ); then
+      pyok=$((pyok+1)); note "  PASS  $(basename "$f")"
+    else
+      note "  FAIL  $(basename "$f")"; printf '%s\n' "$out" | tail -12 | sed 's/^/      /'
+      fail=1; failed="$failed $(basename "$f")"
+    fi
+  done
+  note ""
+  note "== makefile guard =="
+  if out=$( "$PY" tests/check_makefile.py 2>&1 ); then note "  PASS  check_makefile.py"
+  else note "  FAIL  check_makefile.py"; printf '%s\n' "$out" | tail -8 | sed 's/^/      /'; fail=1; failed="$failed check_makefile"; fi
+fi
+
+note ""
+note "== summary =="
+note "  native: built $built, passed $ran, of ${#NAMES[@]} target(s)"
+[ "$pytot" -gt 0 ] && note "  python: passed $pyok of $pytot suite(s)"
+
+# RULE 3 — a suite that compiled nothing is a failure, not a pass.
+if [ "${PY_ONLY:-0}" != "1" ] && [ "$built" -eq 0 ]; then
+  note "  *** ZERO NATIVE TARGETS BUILT — treating as failure (see rule 3 in this file) ***"
+  fail=1
+fi
+if [ "$fail" -ne 0 ]; then note "  RESULT: FAIL —$failed"; else note "  RESULT: OK"; fi
+exit $fail

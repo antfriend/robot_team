@@ -1,6 +1,6 @@
 """Offline simulation: what would a change-trigger on @LAT96 actually cost?
 
-Part 2 proper is unwritten, and companion.md §6 flagged the decision that must be made
+Part 2 proper is unwritten, and FLEET.md §6 flagged the decision that must be made
 BEFORE code: `@LAT95`'s verdict is a 2-state label, `@LAT96`'s would be a threshold on a
 continuous drift, so a `**COVERED**` window is a *judgement* rather than a repeat.
 
