@@ -1012,6 +1012,9 @@ void setup() {
 }
 
 void loop() {
+#if USE_BLE
+  blelink::loop();  // 60 s BLE scan restart: the 2026-10-01 scanner leak (docs/log/2026-10.md)
+#endif
 
   // FIRST, before anything reads a clock: settle which timeline this node is on and
   // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed

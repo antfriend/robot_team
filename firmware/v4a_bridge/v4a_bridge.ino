@@ -805,7 +805,28 @@ void setup() {
                 USE_LORA ? "on" : "off", USE_BLE ? "on" : "off");
 }
 
+// The 2026-10-01 BLE-scanner leak (docs/log/2026-10.md): the continuous passive scan drains
+// free heap; blelink::loop() stops/clears/restarts it every BLELINK_RESTART_MS. Overridable
+// so the unpatched slope can be measured on this board with -DV4_BLE_RESTART=0.
+#ifndef V4_BLE_RESTART
+#define V4_BLE_RESTART 1
+#endif
+
 void loop() {
+#if USE_BLE && V4_BLE_RESTART
+  blelink::loop();
+#endif
+  // FREE heap, every 30 s. Until 2026-10-01 this board reported only maxalloc, which can
+  // sit flat while free heap drains beneath it — that is how the Cardputer's leak hid.
+  {
+    static uint32_t last_heap_ms = 0;
+    const uint32_t t = millis();
+    if (t - last_heap_ms >= 30000 || last_heap_ms == 0) {
+      last_heap_ms = t;
+      Serial.printf("[heap] free %u maxalloc %u up %lus\n", (unsigned)ESP.getFreeHeap(),
+                    (unsigned)ESP.getMaxAllocHeap(), (unsigned long)(t / 1000));
+    }
+  }
 
   // FIRST, before anything reads a clock: settle which timeline this node is on and
   // refresh gStamp. Every tier below stamps from that one snapshot, so records flushed

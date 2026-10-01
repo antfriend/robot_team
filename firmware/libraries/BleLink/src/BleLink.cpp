@@ -93,9 +93,10 @@ void begin(uint32_t node_id, const uint8_t* key, size_t key_len, ObserveFn cb) {
 
 // 60 s, MEASURED (2026-10-01, Cardputer, peers off, 12 min): free heap held ~26.4 KB ±300 B
 // and maxalloc ROSE 8 → 17 KB, against ≈ −500 B/min to a reset every ~20 min without it.
-// ⚠ Takes effect only on a board that CALLS blelink::loop() — today only the Cardputer.
-// The V4s/T-Deck/K10 do not, so they are unchanged; V4-A's 2026-08 maxalloc decline
-// (101 → 38 KB over 2.5 h) has the same shape and is the next board to give this to.
+// V4-A, same day: −517 B/min unpatched (136.6 → 129.1 KB in 14.5 min, zero in ~4.4 h — the
+// 2026-08 decline), and with this on, free heap read EXACTLY 145,172 B after every restart
+// for 15 min. ⚠ Takes effect only on a board that CALLS blelink::loop(): every sketch with
+// USE_BLE 1 does as of 2026-10-01 (Cardputer, V4-A/B/C, T-Deck; the K10 builds USE_BLE 0).
 // A library #define, so it changes only as a BUILD PROPERTY (separate translation unit).
 #ifndef BLELINK_RESTART_MS
 #define BLELINK_RESTART_MS 60000

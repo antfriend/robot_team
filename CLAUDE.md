@@ -701,6 +701,12 @@ the lane you mean.
   in the radio recv callback, never in the shared `handleToot` dispatch.
 - ESP-NOW is the in-range default; LoRa is long-haul and gated behind `USE_LORA`
   until Phase 4. Don't add the radio before the ESP-NOW floor works.
+- ⚠ **Every sketch that calls `blelink::begin()` must call `blelink::loop()` every pass.**
+  The continuous BLE passive scan leaks ≈500 B/min of free heap (even from foreign adverts
+  alone); `loop()` stops/clears/restarts it every 60 s, which bounds it exactly. Without
+  it the Cardputer reset every ~20 min and a V4 would in ~4.4 h (2026-10-01,
+  docs/log/2026-10.md). And read **free** heap, not only maxalloc — maxalloc sat flat
+  over that leak for two months.
 
 ## Tests
 
