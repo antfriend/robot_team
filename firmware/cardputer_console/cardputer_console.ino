@@ -54,6 +54,7 @@
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
 #include <EpisodeNode.h>     // ACT-III §C2: one episode per scored window -> @LAT103/@LAT104
+#include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound>` (TTG-RFC-0004 §4.3)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
@@ -4039,8 +4040,14 @@ void loop() {
             lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
                                         k.predicted, k.observed};
           }
-          char at[64];
-          timestream::buildStamp(at, sizeof(at), gStamp);
+          // ACT-III §C4 / TTG-0004 §4.3: `at: <pulse ms> ±<bound ms>`, not the time stream —
+          // a bound is a DURATION and the stream's clock is a ratchet. No chart yet means
+          // UNBOUNDED: the episode still counts live, and joins no bar view (FleetTime.h).
+          char at[48];
+          semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now),
+                                                gPulse.msSinceBeacon(now),
+                                                gPulse.playing(), gPulse.conductor()),
+                             at, sizeof(at));
           if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
             Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u%s\n",
                           SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.ring().live(),

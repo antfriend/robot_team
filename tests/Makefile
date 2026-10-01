@@ -115,7 +115,11 @@ SEM_SRCS := test_semantic.cpp $(LIB)/Semantic/src/Semantic.cpp
 # ACT-III Phase C, the EPISODE tier: writer, reader, fold checkpoint and ring, driven through
 # the whole append -> fold -> commit -> cut -> reboot protocol with commits and cuts made to
 # FAIL. TtdbParse.cpp is here so the rendered header is indexed by the firmware's own parser.
-EPI_SRCS := test_episode.cpp $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/Semantic.cpp         $(LIB)/TTDB/src/TtdbParse.cpp
+EPI_SRCS := test_episode.cpp $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/Semantic.cpp \
+        $(LIB)/TTDB/src/TtdbParse.cpp
+# ACT-III Phase C4: TTG-RFC-0004 §4 — bounded pulse stamps, partial order across agents,
+# maximal facts, and the bar view two agents agree on without coordinating (§4.8 items 1-4).
+FT_SRCS := test_fleettime.cpp $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp
 
 test: build
 	./test_toot
@@ -136,8 +140,9 @@ test: build
 	./test_ttdb_index
 	./test_semantic
 	./test_episode
+	./test_fleettime
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -156,6 +161,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(IDX_FLAGS) $(INCLUDES) $(IDX_SRCS) -o test_ttdb_index
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SEM_SRCS) -o test_semantic
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EPI_SRCS) -o test_episode
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(FT_SRCS) -o test_fleettime
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -172,6 +178,6 @@ clean:
 	      test_citation test_citation.exe \
 	      test_ttdb_index test_ttdb_index.exe \
 	      test_semantic test_semantic.exe \
-	      test_episode test_episode.exe
+	      test_episode test_episode.exe test_fleettime test_fleettime.exe
 
 .PHONY: test build clean

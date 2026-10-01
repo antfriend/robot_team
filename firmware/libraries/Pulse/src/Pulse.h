@@ -128,6 +128,9 @@ class Engine {
   const Chart& chart() const { return chart_; }
   int64_t offsetMs() const { return offset_ms_; }
   int64_t pulseNow(uint32_t now_ms) const { return (int64_t)now_ms + offset_ms_; }
+  // How long since this node last adopted a beacon (or, as conductor, sent one). The drift
+  // term of a TTG-RFC-0004 §4.3 stamp bound is DRIFT_PPM × this (Semantic/FleetTime.h).
+  uint32_t msSinceBeacon(uint32_t now_ms) const { return now_ms - last_beacon_rx_ms_; }
 
  private:
   static bool better(const Chart& a, const Chart& b);  // a strictly preferred over b
