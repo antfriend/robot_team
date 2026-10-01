@@ -572,7 +572,7 @@ It is:
 > | C0 the gate | ✅ stated, and inherited verbatim from RFC-0010 §8.1 rather than invented |
 > | C0b before-picture | ✅ **measured on hardware**: six of six capped lanes at cap, index 257/288, and **three** distinct refusal modes, not two |
 > | C1 what works | ✅ written down; the five findings constrain the design below |
-> | C2 three tiers | ◐ TERM/BELIEF **built**; EPISODE lane **built** 2026-10-01 (`Semantic/src/Episode.*`: `@LAT103` episodes, `@LAT104` fold checkpoint, `Ttdb::removeCuts`) and **wired into the Cardputer** via `EpisodeNode.h` beside `@LAT92` — compiled (+10.9 KB flash, +4.8 KB RAM), **not yet run on hardware**. FIELD unchanged by design |
+> | C2 three tiers | ◐ TERM/BELIEF **built**; EPISODE lane **built** 2026-10-01 (`Semantic/src/Episode.*`: `@LAT103` episodes, `@LAT104` fold checkpoint, `Ttdb::removeCuts`) and **wired into the Cardputer** via `EpisodeNode.h` beside `@LAT92` — **verified on hardware 2026-10-01**: fold, commit, boot cut, runtime cut, and reboot agreement through a checkpoint and a crash. FIELD unchanged by design |
 > | C2c fold-before-forget | ✅ **built and gated** — and it fell out of the streaming shape as a *move*, so losslessness is arithmetic rather than argued. On flash: **fold → append checkpoint (commit) → cut**, so a refused rewrite is garbage left over, never a double count — gated by a reboot-from-store after every episode with faults injected ([log](docs/log/2026-10.md)) |
 > | C3 consolidator | ◐ **built, both gates green**; Rule 3 kept beside it and **measured** on the fleet's own 24 outcome records. Not yet wired into a sketch |
 > | C4 time (TTG-0004 §4) | ⏳ not started — the headline, and still unimplemented in any checkout |
