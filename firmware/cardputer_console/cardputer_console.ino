@@ -3984,13 +3984,17 @@ void loop() {
   // and every lane is capped until SP1 pruning takes it (CMD_CLEAR_PERCEPTS).
   if (gLinkLog.due(now)) {
     int lane = laneCount(97);
-    if (lane >= LINKPERCEPT_MAX_LANE) {
-      // No @LAT97 record will be written, so an outstanding expectation has nothing to
-      // cite as the observation that answered it. Drop it rather than testify with
-      // provenance pointing at a record that does not exist.
-      gLearn.disarm();
-      gLinkLog.reset(now);
-    } else {
+    // ⚠ A FULL @LAT97 NO LONGER STOPS SCORING (ACT-III Phase C, 2026-10-01). It used to
+    // disarm and skip the window, which was right while @LAT92 was the only consumer: no
+    // @LAT97 record means an outcome would cite one that does not exist. But the episode
+    // tier consumes the SAME scored window and cites nothing in @LAT97 — and gating it on
+    // the old lane's cap meant the tier built to never refuse received no evidence at all
+    // (measured on the first boot: @LAT97 was 48/48 a day after a fresh FS flash, and the
+    // tier stayed at `appended 0`). So the window is staged and scored either way; only
+    // the @LAT97 record and the @LAT92 outcome — whose provenance would dangle — are
+    // withheld, and the outcome is still RENDERED so the run accounting stays true.
+    const bool link_lane_full = (lane >= LINKPERCEPT_MAX_LANE);
+    {
       // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
       // double duty: they SCORE the expectation armed last window, and they are the
       // basis for the next one (Rule 1 — re-derived from current state, every window).
@@ -4009,12 +4013,16 @@ void loop() {
                       "(PERCEPTLEARN_MAX_CLAIMS %d): they will score as 'unobserved' and "
                       "are NOT missing peers\n",
                       gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
-      char rec[1024];
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                      gStamp, now);
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
+      if (link_lane_full) {
+        gLinkLog.reset(now);       // what buildRecord would have cleared
+      } else {
+        char rec[1024];
+        size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                        gStamp, now);
+        if (m && gDb.appendRecord(rec, m))
+          Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
+                        (unsigned)gDb.fileSize());
+      }
 
       // Rule 2: the world has answered — score the prediction and TESTIFY. Appended to
       // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
@@ -4033,7 +4041,12 @@ void loop() {
           }
           char at[64];
           timestream::buildStamp(at, sizeof(at), gStamp);
-          if (!gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
+          if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
+            Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u%s\n",
+                          SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.ring().live(),
+                          (unsigned)gEpisodes.ring().present(),
+                          link_lane_full ? "  [@LAT97 full: episode only]" : "");
+          else
             Serial.printf("[episode] window NOT appended (render fail %lu, append fail %lu, "
                           "index headroom %d)\n",
                           (unsigned long)gEpisodes.stats().render_failed,
@@ -4069,7 +4082,10 @@ void loop() {
           // real change could be folded away as "unchanged". A record dropped for want
           // of lane space must not also corrupt the run accounting.
           size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
-          if (olane >= PERCEPTLEARN_MAX_LANE) {
+          if (link_lane_full) {
+            // Rendered (the run is adopted) and discarded: it would cite @LAT97LON<lane>,
+            // which was not written. The episode above carries this window instead.
+          } else if (olane >= PERCEPTLEARN_MAX_LANE) {
             Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
                           "still predicting but no longer testifying\n",
                           PERCEPTLEARN_LANE, olane);
