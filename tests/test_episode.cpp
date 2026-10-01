@@ -1,0 +1,554 @@
+// test_episode.cpp — ACT-III Phase C, the EPISODE tier: writer, reader, checkpoint, ring.
+//
+// test_semantic.cpp holds C3's gates over the CONSOLIDATOR in isolation. This file holds
+// them over the whole path the firmware will run — render a record, append it, read the
+// lane back, fold, commit, cut, reboot — against a stand-in store, because every expensive
+// defect this repo has had was in the seam between two individually-correct pieces.
+//
+// THE GATES:
+//   1. NEVER REFUSES. Every episode offered is appended. Not "almost every", and not
+//      "every one that fitted" — the phase's pass condition is a deletion (ACT-III §C0),
+//      and a refusal is the thing being deleted.
+//   2. FOLD IS INVISIBLE TO BELIEF. At every step the node's beliefs equal a reference
+//      consolidator that saw every episode and never evicted anything.
+//   3. A REBOOT AT ANY POINT AGREES. A fresh consolidator rebuilt from the store alone —
+//      newest checkpoint + live episodes — equals the reference too. Checked after EVERY
+//      step, including with commits and cuts made to FAIL, which is the case the
+//      checkpoint-as-commit-point design exists for: the heap refuses lane rewrites with
+//      the radios up (TTDB.h), so a cut that never happens must cost nothing but space.
+//   4. BOUNDED. The live window never exceeds capacity once a commit can land.
+//   5. THE GRAVESTONE. Nothing in a checkpoint may be read back as evidence.
+//   6. ORDINALS WRAP at 32768 (TtdbRecord::lon is int16_t) without a double count.
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <map>
+#include <string>
+#include <vector>
+
+#include "Episode.h"
+#include "Semantic.h"
+#include "TtdbParse.h"
+
+static int gChecks = 0, gFails = 0;
+static void check(bool ok, const char* what) {
+  ++gChecks;
+  if (!ok) { ++gFails; printf("  FAIL: %s\n", what); }
+}
+static void checkStr(const std::string& got, const std::string& want, const char* what) {
+  ++gChecks;
+  if (got != want) {
+    ++gFails;
+    printf("  FAIL: %s\n        want |%s|\n        got  |%s|\n", what, want.c_str(), got.c_str());
+  }
+}
+
+using namespace semantic;
+
+static Percept mk(uint32_t sentence, const char* s, const char* v, const char* o,
+                  Polarity pol, Quant q) {
+  Percept p;
+  memset(&p, 0, sizeof(p));
+  p.sentence = sentence;
+  snprintf(p.subject, SEMANTIC_LEMMA_MAX, "%s", s);
+  snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s", v);
+  snprintf(p.object, SEMANTIC_LEMMA_MAX, "%s", o);
+  p.pol = pol;
+  p.quant = q;
+  return p;
+}
+
+// Feed a block of text to anything with a line(const char*) method, one line at a time,
+// the way the glue will stream it off flash.
+template <class R>
+static void feedText(R& r, const std::string& text) {
+  size_t i = 0;
+  while (i <= text.size()) {
+    size_t j = text.find('\n', i);
+    if (j == std::string::npos) j = text.size();
+    std::string l = text.substr(i, j - i);
+    r.line(l.c_str());
+    i = j + 1;
+  }
+}
+
+// All belief lines, keyed by triple — insertion order legitimately differs after a reboot
+// (carried terms are interned first), so equality is per triple, byte-for-byte per line.
+static std::map<std::string, std::string> beliefs(const Consolidator& c) {
+  std::map<std::string, std::string> out;
+  for (size_t i = 0; i < c.termCount(); ++i) {
+    const Term* t = c.term(i);
+    char b[128];
+    c.beliefLine(*t, b, sizeof(b));
+    out[std::string(t->subject) + "|" + t->vec + "|" + t->object] = b;
+  }
+  return out;
+}
+
+// =======================================================================================
+// 1. serial ordinals
+// =======================================================================================
+static void testOrdinals() {
+  printf("ordinals\n");
+  check(ordinalAdd(32767, 1) == 0, "32767 + 1 wraps to 0");
+  check(ordinalAdd(0, -1) == 32767, "0 - 1 wraps to 32767");
+  check(ordinalDistance(32760, 5) == 13, "distance across the wrap is the short way forward");
+  check(ordinalInRun(2, 32766, 4), "a run that wraps contains an ordinal after the wrap");
+  check(ordinalInRun(32767, 32766, 4), "and one before it");
+  check(!ordinalInRun(5, 32766, 4), "but not one past its end");
+  check(!ordinalInRun(32765, 32766, 4), "nor one before its start");
+}
+
+// =======================================================================================
+// 2. the builder — exact bytes, rejection, and both ends of the buffer rule
+// =======================================================================================
+static const char* kGolden =
+    "\n---\n\n@LAT103LON7 | created:1234 | updated:1234\n\n**link window**\n\n"
+    "```ttdb-episode\nsource: linkpercept\nat: 1234\n"
+    "said: 1 | 0x00000200 held the link over ble\n"
+    "percept: 1 | 0x00000200 | link_stable | ble | + | -\n"
+    "```\n";
+
+static size_t buildGolden(char* buf, size_t cap, EpisodeBuilder** out = 0) {
+  static EpisodeBuilder* keep = 0;
+  delete keep;
+  keep = new EpisodeBuilder(buf, cap);
+  keep->begin(7, 1234, "link window", "linkpercept", "1234");
+  keep->said(1, "0x00000200 held the link over ble");
+  keep->percept(mk(1, "0x00000200", "link_stable", "ble", POL_PLUS, Q_NONE));
+  if (out) *out = keep;
+  return keep->finish();
+}
+
+static void testBuilder() {
+  printf("builder\n");
+  char buf[512];
+  size_t n = buildGolden(buf, sizeof(buf));
+  check(n == strlen(kGolden), "finish() returns the record length");
+  checkStr(std::string(buf, n), kGolden, "an episode record renders byte-for-byte");
+
+  // The header must index as the record it claims to be — through the firmware's own
+  // parser, not a reimplementation of it.
+  TtdbRecord r;
+  check(ttdbParseHeader("@LAT103LON7 | created:1234 | updated:1234", r) && r.lat == 103 &&
+            r.lon == 7 && r.created == 1234,
+        "the header indexes through ttdbParseHeader as @LAT103LON7");
+
+  // Both directions of the buffer rule: exactly enough fits; one byte less writes NOTHING.
+  const size_t need = strlen(kGolden) + 1;
+  std::vector<char> exact(need), shortb(need - 1);
+  check(buildGolden(exact.data(), exact.size()) == need - 1, "a buffer of exactly len+1 fits");
+  check(buildGolden(shortb.data(), shortb.size()) == 0,
+        "one byte short writes NOTHING — never a truncated record");
+  check(shortb[0] == '\0' || strlen(shortb.data()) < shortb.size(),
+        "and leaves no unterminated half-line behind");
+
+  // A lemma carrying the separator would read back as a DIFFERENT triple. Rejected and
+  // counted, and the rest of the episode still renders.
+  EpisodeBuilder b(buf, sizeof(buf));
+  b.begin(1, 0, "t", "s", "0");
+  check(!b.percept(mk(1, "a|b", "v", "o", POL_PLUS, Q_NONE)), "a lemma with `|` is rejected");
+  check(!b.percept(mk(1, "a", "v\nx", "o", POL_PLUS, Q_NONE)), "a lemma with a newline is rejected");
+  check(b.percept(mk(1, "a", "v", "o", POL_PLUS, Q_NONE)), "and the next good percept still lands");
+  check(b.finish() > 0 && b.rejected() == 2 && b.percepts() == 1,
+        "rejections are counted, the record is still written");
+  check(strstr(buf, "a|b") == 0, "and the rejected lemma never reached the record");
+
+  EpisodeBuilder bad(buf, sizeof(buf));
+  check(!bad.begin(1, 0, "title|x", "s", "0"), "a header field with `|` is unwritable");
+  check(bad.finish() == 0, "so the record is not written at all");
+}
+
+// =======================================================================================
+// 3. the reader — lane discipline, selection, damage
+// =======================================================================================
+static std::string record(int16_t lane, int16_t ord, const std::vector<Percept>& ps) {
+  char buf[2048];
+  EpisodeBuilder b(buf, sizeof(buf));
+  b.begin(ord, (uint32_t)ord, "w", "test", "0", lane);
+  for (size_t i = 0; i < ps.size(); ++i) b.percept(ps[i]);
+  size_t n = b.finish();
+  return std::string(buf, n);
+}
+
+static void testReader() {
+  printf("reader\n");
+  std::vector<Percept> plus1(1, mk(1, "p", "v", "o", POL_PLUS, Q_NONE));
+  std::vector<Percept> minus1(1, mk(1, "p", "v", "o", POL_MINUS, Q_NONE));
+
+  std::string store = record(103, 0, plus1) + record(103, 1, plus1) + record(103, 2, minus1);
+
+  {
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(0, 2, Consolidator::KEEPING);
+    feedText(r, store);
+    r.finish();
+    const Term* t = c.find("p", "v", "o");
+    check(r.fed() == 3 && t && t->totalFor() == 4 && t->totalAgainst() == 2,
+          "three on-lane episodes feed: for 2, against 1 (in halves 4/2)");
+  }
+  {
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(1, 2, Consolidator::KEEPING);
+    feedText(r, store);
+    r.finish();
+    check(r.fed() == 2 && r.outside() == 1, "a selection skips — and counts — the rest");
+  }
+  {
+    // TTG-0002 §5.1: a block of the same tag OFF the lane is a quotation. Checked for
+    // malformed lines, contributes nothing.
+    std::string quoted = record(50, 0, plus1) +
+                         "\n---\n\n@LAT51LON0 | created:0 | updated:0\n\n```ttdb-episode\n"
+                         "percept: x | p | v | o | + | -\n```\n";
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(0, 32767, Consolidator::KEEPING);
+    feedText(r, quoted);
+    r.finish();
+    check(c.termCount() == 0 && r.fed() == 0, "an off-lane block teaches nothing");
+    check(r.foreignBlocks() == 2 && r.foreignMalformed() == 1,
+          "but it is still checked: 2 foreign blocks, 1 malformed line reported");
+  }
+  {
+    // A fence that never closes is damage: closed at the next header, and counted.
+    std::string broken = "\n---\n\n@LAT103LON0 | created:0 | updated:0\n\n```ttdb-episode\n"
+                         "percept: 1 | p | v | o | + | -\n" + record(103, 1, plus1);
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(0, 1, Consolidator::KEEPING);
+    feedText(r, broken);
+    r.finish();
+    const Term* t = c.find("p", "v", "o");
+    check(r.unclosed() == 1 && r.fed() == 2 && t && t->totalFor() == 4,
+          "an unclosed block closes at the next header — counted, and the next record is "
+          "not swallowed into it");
+  }
+  {
+    // A malformed percept on the lane: skipped, counted, the episode continues.
+    std::string mixed = "\n---\n\n@LAT103LON0 | created:0 | updated:0\n\n```ttdb-episode\n"
+                        "said: 1 | percept: 1 | not | a | percept | + | -\n"
+                        "percept: oops | p | v | o | + | -\n"
+                        "percept: 2 | p | v | o | + | -\n```\n";
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(0, 0, Consolidator::KEEPING);
+    feedText(r, mixed);
+    r.finish();
+    const Term* t = c.find("p", "v", "o");
+    check(c.malformedCount() == 1 && t && t->totalFor() == 2 && !c.find("not", "a", "percept"),
+          "a malformed percept is skipped and counted; a `said:` line quoting one is NOT read");
+  }
+}
+
+// =======================================================================================
+// 4. the checkpoint — round trip, gravestone, only-the-newest, worst-case size
+// =======================================================================================
+static void testCheckpoint() {
+  printf("checkpoint\n");
+  Consolidator c; c.begin();
+  for (int e = 0; e < 4; ++e) {
+    c.beginEpisode();
+    c.percept(mk(1, "0x00000200", "link_stable", "ble", e == 2 ? POL_MINUS : POL_PLUS,
+                 e == 3 ? Q_SOME : Q_NONE));
+    c.endEpisode(Consolidator::KEEPING);
+  }
+  c.beginEpisode();
+  c.percept(mk(1, "0x00000100", "link_stable", "espnow", POL_PLUS, Q_NONE));
+  c.endEpisode(Consolidator::KEEPING);       // live only: must NOT appear in a checkpoint
+  // Fold the first four (replay them EVICTING).
+  for (int e = 0; e < 4; ++e) {
+    c.beginEpisode();
+    c.percept(mk(1, "0x00000200", "link_stable", "ble", e == 2 ? POL_MINUS : POL_PLUS,
+                 e == 3 ? Q_SOME : Q_NONE));
+    c.endEpisode(Consolidator::EVICTING);
+  }
+
+  static char buf[SEMANTIC_CARRIED_BUF];
+  size_t n = renderCheckpoint(c, 3, 0, 99, buf, sizeof(buf));
+  std::string ck(buf, n);
+  checkStr(ck,
+           "\n---\n\n@LAT104LON0 | created:99 | updated:99\n\n"
+           "**carried through @LAT103LON3**\n\n```ttdb-carried\nthrough: 3\n"
+           "carried: 2.5 1 4 | 0x00000200 | link_stable | ble\n```\n",
+           "a checkpoint renders byte-for-byte, and only terms with a carried tally appear");
+
+  // --- THE GRAVESTONE, three layers ------------------------------------------------
+  bool clean = true;
+  for (size_t i = 0; i < ck.size();) {
+    size_t j = ck.find('\n', i);
+    if (j == std::string::npos) j = ck.size();
+    std::string l = ck.substr(i, j - i);
+    if (l.compare(0, 8, "percept:") == 0 || l.compare(0, 7, "belief:") == 0) clean = false;
+    i = j + 1;
+  }
+  check(clean, "layer 1: no checkpoint line begins `percept:` or `belief:`");
+  Percept p; Malformed why;
+  check(!Consolidator::parsePerceptLine("carried: 2.5 1 4 | 0x00000200 | link_stable | ble", p, why) &&
+            why == MAL_COLUMNS,
+        "layer 2: a carried line does not parse as a percept even WITHOUT the key check");
+  {
+    Consolidator g; g.begin();
+    EpisodeReader r(g);
+    r.select(0, 32767, Consolidator::KEEPING);
+    feedText(r, ck);
+    r.finish();
+    check(g.termCount() == 0 && r.fed() == 0,
+          "layer 3: the episode reader learns nothing from a checkpoint");
+  }
+
+  // --- round trip -------------------------------------------------------------------
+  {
+    Consolidator g; g.begin();
+    CheckpointReader cr(g, 0);
+    feedText(cr, ck);
+    const Term* t = g.find("0x00000200", "link_stable", "ble");
+    check(cr.found() && cr.through() == 3 && cr.seeded() == 1 && cr.malformed() == 0,
+          "the checkpoint reads back: through 3, one term seeded");
+    check(t && t->carried_for == 5 && t->carried_against == 2 && t->live_for == 0,
+          "into CARRIED, never live — 2.5/1 in halves is 5/2");
+  }
+  // --- only the newest ----------------------------------------------------------------
+  {
+    Consolidator g; g.begin();
+    CheckpointReader cr(g, 1);               // ask for LON1; the store holds LON0
+    feedText(cr, ck);
+    check(!cr.found() && g.termCount() == 0,
+          "a reader told to honour LON1 ignores LON0 entirely — an older checkpoint would "
+          "resurrect a belief the store chose to forget");
+  }
+
+  // --- worst case: a full table of maximal lemmas and tallies must fit ---------------
+  {
+    Consolidator big; big.begin();
+    char lem[SEMANTIC_LEMMA_MAX];
+    for (int k = 0; k < SEMANTIC_MAX_TERMS; ++k) {
+      memset(lem, 'a' + (k % 26), sizeof(lem) - 1);
+      lem[sizeof(lem) - 1] = '\0';
+      snprintf(lem, 4, "%03d", k);           // unique prefix
+      lem[3] = 'x';
+      char line[64];
+      snprintf(line, sizeof(line), "carried: 2147483647.5 2147483647.5 65535");
+      big.seedCarried(lem, lem, lem, line);
+    }
+    size_t w = renderCheckpoint(big, 32767, 32767, 4294967295u, buf, sizeof(buf));
+    check(big.termCount() == SEMANTIC_MAX_TERMS && w > 0,
+          "a FULL table of maximal lemmas and tallies fits SEMANTIC_CARRIED_BUF — a "
+          "checkpoint that cannot render cannot commit, and then the ring only grows");
+    std::vector<char> tight(w);              // one byte short of w + 1
+    check(renderCheckpoint(big, 32767, 32767, 4294967295u, tight.data(), tight.size()) == 0,
+          "and one byte less writes nothing — the size is pinned, not guessed");
+    printf("    worst-case checkpoint %u B of %u B\n", (unsigned)w, (unsigned)sizeof(buf));
+  }
+}
+
+// =======================================================================================
+// 5. the whole protocol, against a stand-in store, with failures injected
+// =======================================================================================
+struct Rec {
+  int16_t lat, lon;
+  std::string text;
+};
+
+struct Store {
+  std::vector<Rec> recs;
+  size_t appends = 0;
+  void append(int16_t lat, int16_t lon, const std::string& t) {
+    recs.push_back(Rec{lat, lon, t});
+    ++appends;
+  }
+  void cut(const Cut* c, uint8_t n) {
+    std::vector<Rec> keep;
+    for (size_t i = 0; i < recs.size(); ++i) {
+      bool drop = false;
+      for (uint8_t k = 0; k < n; ++k)
+        if (recs[i].lat == c[k].lat && recs[i].lon >= c[k].lon_lo && recs[i].lon <= c[k].lon_hi)
+          drop = true;
+      if (!drop) keep.push_back(recs[i]);
+    }
+    recs.swap(keep);
+  }
+  size_t count(int16_t lat) const {
+    size_t n = 0;
+    for (size_t i = 0; i < recs.size(); ++i) n += recs[i].lat == lat;
+    return n;
+  }
+};
+
+static void scan(EpisodeRing& ring, const Store& s) {
+  ring.resetScan();
+  for (size_t i = 0; i < s.recs.size(); ++i) ring.observe(s.recs[i].lat, s.recs[i].lon);
+}
+
+// Exactly what the glue will do at boot. Returns false if the store is inconsistent.
+static void bootFrom(const Store& s, Consolidator& c, EpisodeRing& ring, uint16_t cap,
+                     uint16_t batch) {
+  c.begin();
+  ring.begin(cap, batch);
+  scan(ring, s);
+  if (ring.hasCheckpoint()) {
+    CheckpointReader cr(c, ring.checkpointOrdinal());
+    for (size_t i = 0; i < s.recs.size(); ++i)
+      if (s.recs[i].lat == SEMANTIC_CARRIED_LANE) feedText(cr, s.recs[i].text);
+    if (cr.found()) ring.setHorizon(cr.through());
+  }
+  int16_t from, through;
+  if (ring.liveRun(from, through)) {
+    EpisodeReader r(c);
+    r.select(from, through, Consolidator::KEEPING);
+    for (size_t i = 0; i < s.recs.size(); ++i)
+      if (s.recs[i].lat == SEMANTIC_EPISODE_LANE) feedText(r, s.recs[i].text);
+    r.finish();
+  }
+}
+
+// A deterministic episode: 1-3 percepts over a small vocabulary, with repeats inside an
+// episode (per-episode max), partials, and about one denial in five.
+static uint32_t gRng = 12345;
+static uint32_t rnd() { gRng = gRng * 1103515245u + 12345u; return (gRng >> 16) & 0x7fff; }
+static std::vector<Percept> randomEpisode() {
+  static const char* peers[] = {"0x00000100", "0x00000200", "0x00000300", "0x00000010"};
+  static const char* protos[] = {"espnow", "ble"};
+  std::vector<Percept> ps;
+  int n = 1 + (int)(rnd() % 3);
+  for (int i = 0; i < n; ++i)
+    ps.push_back(mk((uint32_t)(i + 1), peers[rnd() % 4], "link_stable", protos[rnd() % 2],
+                    (rnd() % 5 == 0) ? POL_MINUS : POL_PLUS, (rnd() % 4 == 0) ? Q_SOME : Q_NONE));
+  return ps;
+}
+
+struct Faults {
+  int commit_fail_every;   // 0 = never; else every Nth commit attempt fails
+  int cut_fail_every;      // 0 = never; else every Nth cut attempt fails
+};
+
+static void runProtocol(const char* name, uint16_t cap, uint16_t batch, int episodes,
+                        Faults f, int16_t start_horizon /* -1 = fresh lane */) {
+  printf("protocol: %s\n", name);
+  Store s;
+  if (start_horizon >= 0) {
+    // A lane that has already been cut down to nothing behind this horizon: the only
+    // way to start ordinals near the wrap without writing 32k episodes first.
+    Consolidator empty; empty.begin();
+    static char ckbuf[SEMANTIC_CARRIED_BUF];
+    size_t n = renderCheckpoint(empty, start_horizon, 0, 0, ckbuf, sizeof(ckbuf));
+    s.append(SEMANTIC_CARRIED_LANE, 0, std::string(ckbuf, n));
+  }
+
+  Consolidator node, ref;
+  EpisodeRing ring;
+  bootFrom(s, node, ring, cap, batch);
+  ref.begin();
+
+  int commits = 0, cuts = 0, failed_commits = 0, failed_cuts = 0;
+  bool agree_live = true, agree_boot = true, bounded = true, wrapped = false;
+  uint16_t max_present = 0;
+  static char ckbuf[SEMANTIC_CARRIED_BUF];
+
+  for (int e = 0; e < episodes; ++e) {
+    std::vector<Percept> ps = randomEpisode();
+    const int16_t ord = ring.nextOrdinal();
+    if (ord < 100 && e > 0 && start_horizon > 30000) wrapped = true;
+    std::string text = record(SEMANTIC_EPISODE_LANE, ord, ps);
+
+    // APPEND — never refused.
+    s.append(SEMANTIC_EPISODE_LANE, ord, text);
+    ring.appended(ord);
+    {
+      EpisodeReader r(node);
+      r.select(ord, ord, Consolidator::KEEPING);
+      feedText(r, text);
+      r.finish();
+    }
+    ref.beginEpisode();
+    for (size_t i = 0; i < ps.size(); ++i) ref.percept(ps[i]);
+    ref.endEpisode(Consolidator::KEEPING);
+
+    // 1. FOLD
+    int16_t from, through;
+    if (ring.foldDue(from, through)) {
+      EpisodeReader r(node);
+      r.select(from, through, Consolidator::EVICTING);
+      for (size_t i = 0; i < s.recs.size(); ++i)
+        if (s.recs[i].lat == SEMANTIC_EPISODE_LANE) feedText(r, s.recs[i].text);
+      r.finish();
+      ring.folded(through);
+    }
+    // 2. COMMIT
+    if (ring.commitDue()) {
+      ++commits;
+      if (f.commit_fail_every && commits % f.commit_fail_every == 0) {
+        ++failed_commits;                    // the append failed: RAM ahead of flash
+      } else {
+        const int16_t ck = ring.nextCheckpointOrdinal();
+        size_t n = renderCheckpoint(node, ring.ramHorizon(), ck, (uint32_t)e, ckbuf, sizeof(ckbuf));
+        if (n == 0) { check(false, "a checkpoint failed to RENDER"); return; }
+        s.append(SEMANTIC_CARRIED_LANE, ck, std::string(ckbuf, n));
+        ring.checkpointAppended(ck);
+      }
+    }
+    // 3. CUT
+    Cut cs[4];
+    uint8_t nc = ring.cuts(cs, 4);
+    if (nc) {
+      ++cuts;
+      if (f.cut_fail_every && cuts % f.cut_fail_every == 0) {
+        ++failed_cuts;                       // the heap refused the rewrite
+      } else {
+        s.cut(cs, nc);
+        scan(ring, s);                       // Ttdb re-indexes after a rewrite
+      }
+    }
+
+    if (ring.present() > max_present) max_present = ring.present();
+    if (ring.live() > cap) bounded = false;
+
+    if (beliefs(node) != beliefs(ref)) agree_live = false;
+    // GATE 3 — reboot from the store alone, right now.
+    Consolidator boot;
+    EpisodeRing bring;
+    bootFrom(s, boot, bring, cap, batch);
+    if (beliefs(boot) != beliefs(ref)) {
+      if (agree_boot) printf("    first disagreement after episode %d\n", e);
+      agree_boot = false;
+    }
+  }
+
+  check(s.count(SEMANTIC_EPISODE_LANE) <= s.appends, "sanity");
+  check((int)s.appends >= episodes, "GATE 1: every episode offered was appended — none refused");
+  check(agree_live, "GATE 2: the node's beliefs equal the never-evicting reference at EVERY step");
+  check(agree_boot, "GATE 3: a reboot from the store alone agrees at EVERY step");
+  check(node.foldUnderflow() == 0 && node.refused() == 0,
+        "no fold underflow, no refusal — the replay matched what was counted");
+  if (!f.commit_fail_every) check(bounded, "GATE 4: the live window never exceeded capacity");
+  check(s.count(SEMANTIC_CARRIED_LANE) <= (size_t)(f.cut_fail_every ? 64 : 2),
+        "superseded checkpoints are cut, not accumulated");
+  if (start_horizon > 30000) check(wrapped, "GATE 6: the run actually crossed the wrap");
+  printf("    %d episodes, %u folded, %d commits (%d failed), %d cuts (%d failed), "
+         "max %u episode records on flash, %u now\n",
+         episodes, (unsigned)ring.folds(), commits, failed_commits, cuts, failed_cuts,
+         (unsigned)max_present, (unsigned)ring.present());
+}
+
+int main() {
+  testOrdinals();
+  testBuilder();
+  testReader();
+  testCheckpoint();
+
+  Faults none = {0, 0};
+  Faults cutsFail = {0, 2};          // every other rewrite refused, as with radios up
+  Faults commitsFail = {3, 0};       // every third checkpoint append fails
+  Faults both = {3, 2};
+  runProtocol("clean", 8, 3, 300, none, -1);
+  runProtocol("cuts refused half the time", 8, 3, 300, cutsFail, -1);
+  runProtocol("commits fail one in three", 8, 3, 300, commitsFail, -1);
+  runProtocol("both", 8, 3, 300, both, -1);
+  runProtocol("batch 1", 5, 1, 120, none, -1);
+  runProtocol("across the 32768 wrap", 8, 3, 200, both, 32700);
+  runProtocol("fleet constants", SEMANTIC_RING_CAPACITY, SEMANTIC_EVICT_BATCH, 400, cutsFail, -1);
+
+  printf("\n%d checks, %d failures\n", gChecks, gFails);
+  return gFails ? 1 : 0;
+}

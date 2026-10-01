@@ -402,6 +402,61 @@ int main() {
           countHeaders(after));
   }
 
+  // -----------------------------------------------------------------------
+  // 9) removeCuts — the episode ring's delete (ACT-III §C2c).
+  //    Drops the oldest ordinals of ONE lane and superseded checkpoints of another in a
+  //    single rewrite, and must leave everything else — including the newer half of the
+  //    same lanes — byte-identical and in order. It shares the copy loop with
+  //    removeLaneRange (one predicate, `dropsRecord`), so a lane prune is re-checked here
+  //    against the refactor too.
+  // -----------------------------------------------------------------------
+  {
+    std::vector<std::pair<int, int> > lanes;
+    for (int i = 0; i < 2; ++i) lanes.push_back(std::make_pair(50, i));
+    for (int i = 0; i < 6; ++i) lanes.push_back(std::make_pair(103, i));
+    for (int i = 0; i < 3; ++i) lanes.push_back(std::make_pair(104, i));
+    lanes.push_back(std::make_pair(96, 0));
+    writeFixture(lanes);
+
+    Ttdb db;
+    db.begin(gFs, kPath);
+    // Appended after begin(), as the ring's newest episode always is.
+    std::string newest = block(103, 6, 901);
+    CHECK(db.appendRecord(newest.c_str(), newest.size()), "a new episode appends");
+
+    const TtdbCut cuts[] = {{103, 0, 3}, {104, 0, 1}};
+    CHECK(db.removeCuts(cuts, 2), "removeCuts: episodes 0-3 and checkpoints 0-1, ONE rewrite");
+    CHECK(db.lastRewriteErr() == TTDB_RW_OK, "with no error (got '%s')", db.lastRewriteErrName());
+
+    std::string after = slurp();
+    bool gone = true, kept = true;
+    char h[32];
+    for (int i = 0; i <= 3; ++i) { snprintf(h, sizeof(h), "@LAT103LON%d ", i); gone &= !has(after, h); }
+    for (int i = 4; i <= 6; ++i) { snprintf(h, sizeof(h), "@LAT103LON%d ", i); kept &= has(after, h); }
+    CHECK(gone, "episodes 0-3 are gone");
+    CHECK(kept, "episodes 4-6 survive, INCLUDING the one appended after begin()");
+    CHECK(!has(after, "@LAT104LON0 ") && !has(after, "@LAT104LON1 ") && has(after, "@LAT104LON2 "),
+          "only the newest checkpoint survives");
+    CHECK(has(after, "@LAT50LON0 ") && has(after, "@LAT50LON1 ") && has(after, "@LAT96LON0 "),
+          "records on other lanes are untouched");
+    CHECK(countHeaders(after) == 7 && db.recordCount() == 7,
+          "2 + 3 + 1 + 1 = 7 records, in the file AND the index (got %d / %d)",
+          countHeaders(after), db.recordCount());
+    CHECK(after.find("@LAT103LON4 ") < after.find("@LAT103LON6 "),
+          "FILE ORDER is preserved — the ring reads the newest episode off it");
+
+    const size_t sz = db.fileSize();
+    CHECK(db.removeCuts(cuts, 2) && db.fileSize() == sz,
+          "idempotent: cutting what is already gone is true and rewrites nothing");
+
+    const TtdbCut bad[] = {{103, 5, 4}};
+    CHECK(!db.removeCuts(bad, 1) && db.lastRewriteErr() == TTDB_RW_BAD_ARGS,
+          "an inverted range is BAD_ARGS, never an empty no-op that reads as success");
+
+    CHECK(db.removeLaneRange(96, 96) && !has(slurp(), "@LAT96LON0 ") && db.recordCount() == 6,
+          "and a plain lane prune still works through the shared predicate");
+  }
+
   std::remove(kPath);
   printf("\n%s\n", fails ? "FAILED" : "all TTDB index checks passed");
   return fails ? 1 : 0;

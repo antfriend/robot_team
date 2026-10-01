@@ -100,6 +100,13 @@ inline const char* ttdbRewriteErrName(TtdbRewriteErr e) {
   return "?";
 }
 
+// One ordinal range on one lane, for Ttdb::removeCuts.
+struct TtdbCut {
+  int16_t lat;
+  int16_t lon_lo;
+  int16_t lon_hi;
+};
+
 class Ttdb {
  public:
   // Mount must already be done by the caller (LittleFS.begin / SD.begin).
@@ -177,6 +184,14 @@ class Ttdb {
   // belief attestations or @LAT99 sync logs — the prune is not a general delete.
   bool removePerceptLanes(uint8_t lane);
 
+  // Drop every record matching ANY cut — `lat` exact, `lon` in [lon_lo, lon_hi] — in ONE
+  // rewrite. This is the episode ring's delete (ACT-III §C2c): it drops the oldest
+  // ordinals of a lane and superseded checkpoints together, without touching the rest of
+  // either lane. Same failure reporting and idempotence as removeLaneRange (no match ->
+  // true, no rewrite). Deliberately NOT range-guarded like removePerceptLanes: its only
+  // caller is library code naming its own lane, never a wire byte.
+  bool removeCuts(const TtdbCut* cuts, uint8_t n);
+
   // Byte span of record `index` (header line through just before the next
   // record or EOF).
   bool recordSpan(int index, size_t& offset, size_t& length) const;
@@ -190,6 +205,7 @@ class Ttdb {
   uint8_t edgesAt(int index, TtdbEdge* out, uint8_t max);
 
  private:
+  bool rewriteDropping(int16_t lo, int16_t hi, const TtdbCut* cuts, uint8_t n);
   size_t readLine(size_t offset, char* buf, size_t cap);
   // Same, through a handle the caller already holds. readLine() opens and closes the
   // file per call, so any loop reading more than one line must use this instead.

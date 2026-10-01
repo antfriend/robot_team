@@ -256,8 +256,8 @@ If a fact lives in one of these, link to it from here — don't copy it.
 - ✅ **Phase B (this reorganization) is COMPLETE** — this file's rename, the log split,
   root down to 6 files, and one test entry point. `orchestrator/companion.py` →
   `fleet.py` is deliberately held for Phase C (B2).
-- ✅ **Repo health, current:** **0 broken links across 221 markdown files**;
-  `bash tests/run-all` is **34/34** (17 native + 16 laptop + the Makefile guard).
+- ✅ **Repo health, current:** **0 broken links across 222 markdown files**;
+  `bash tests/run-all` is **35/35** (18 native + 16 laptop + the Makefile guard).
 - ◐ **Phase C is underway. The TERM/BELIEF tier is built and gated**:
   `firmware/libraries/Semantic/` implements TTG-RFC-0003 §2 counting as a *stream*, which
   makes fold-before-forget a **move** (live → carried) and so lossless arithmetically
@@ -283,12 +283,16 @@ If a fact lives in one of these, link to it from here — don't copy it.
 
 ### Next action
 
-1. **Phase C, continued** (ACT-III §5 and its ◐ status block). The consolidator is done;
-   next is the **EPISODE lane writer** — one lane of `ttdb-episode` blocks replacing the
-   `@LAT93`–`@LAT97` grammars, with the four samplers keeping their thresholds and losing
-   their record formats, prune paths and readers. Then **C4** (TTG-RFC-0004 §4 time, the
-   headline, unimplemented in any checkout), then **C0's deletion**: every `clear` verb
-   gone from `orchestrator/` and nothing replacing it.
+1. **Phase C, continued** (ACT-III §5 and its ◐ status block). The consolidator **and the
+   EPISODE lane library** are done (`Semantic/src/Episode.*`, `@LAT103` episodes +
+   `@LAT104` fold checkpoint, 2026-10-01 — [docs/log/2026-10.md](docs/log/2026-10.md)).
+   Next is the **sketch glue** (`EpisodeNode.h`, the `LaneGenNode` shape) and **one
+   sampler** emitting `percept:` lines into it — the link tier first — then an ESP32
+   compile with its cost stated. Then **C4** (TTG-RFC-0004 §4 time, the headline,
+   unimplemented in any checkout), then **C0's deletion**: every `clear` verb gone from
+   `orchestrator/` and nothing replacing it.
+   ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
+   serial numbers mod 32768 (`TtdbRecord::lon` is `int16_t`) and wrap in ~23 days.
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257

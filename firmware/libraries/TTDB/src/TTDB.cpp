@@ -199,9 +199,34 @@ bool Ttdb::removePerceptLanes(uint8_t lane) {
 bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
   rewrite_err_ = TTDB_RW_OK;
   if (!fs_ || lo > hi) { rewrite_err_ = TTDB_RW_BAD_ARGS; return false; }
+  return rewriteDropping(lo, hi, nullptr, 0);
+}
+
+bool Ttdb::removeCuts(const TtdbCut* cuts, uint8_t n) {
+  rewrite_err_ = TTDB_RW_OK;
+  if (!fs_ || (n && !cuts)) { rewrite_err_ = TTDB_RW_BAD_ARGS; return false; }
+  for (uint8_t c = 0; c < n; ++c)
+    if (cuts[c].lon_lo > cuts[c].lon_hi) { rewrite_err_ = TTDB_RW_BAD_ARGS; return false; }
+  // An empty latitude range (1 > 0) so only the cuts select.
+  return rewriteDropping(1, 0, cuts, n);
+}
+
+// One predicate for both entry points, so a lane prune and an ordinal cut cannot drift
+// apart in what they consider "in" — the copy loop below is the part with seven failure
+// modes, and there is exactly one of it.
+static bool dropsRecord(const TtdbRecord& r, int16_t lo, int16_t hi, const TtdbCut* cuts,
+                        uint8_t n) {
+  if (r.lat >= lo && r.lat <= hi) return true;
+  for (uint8_t c = 0; c < n; ++c)
+    if (r.lat == cuts[c].lat && r.lon >= cuts[c].lon_lo && r.lon <= cuts[c].lon_hi)
+      return true;
+  return false;
+}
+
+bool Ttdb::rewriteDropping(int16_t lo, int16_t hi, const TtdbCut* cuts, uint8_t n) {
   bool any = false;
   for (int i = 0; i < record_count_; ++i)
-    if (records_[i].lat >= lo && records_[i].lat <= hi) { any = true; break; }
+    if (dropsRecord(records_[i], lo, hi, cuts, n)) { any = true; break; }
   if (!any) return true;  // idempotent: nothing to remove
 
   char tmp[72];
@@ -231,7 +256,7 @@ bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
   size_t copied = 0;
   bool ok = copyRange(in, out, 0, pre, rewrite_err_, copied);
   for (int i = 0; ok && i < record_count_; ++i) {
-    if (records_[i].lat >= lo && records_[i].lat <= hi) continue;
+    if (dropsRecord(records_[i], lo, hi, cuts, n)) continue;
     size_t off, len;
     recordSpan(i, off, len);
     ok = copyRange(in, out, off, len, rewrite_err_, copied);

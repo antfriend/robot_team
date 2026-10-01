@@ -572,13 +572,13 @@ It is:
 > | C0 the gate | ✅ stated, and inherited verbatim from RFC-0010 §8.1 rather than invented |
 > | C0b before-picture | ✅ **measured on hardware**: six of six capped lanes at cap, index 257/288, and **three** distinct refusal modes, not two |
 > | C1 what works | ✅ written down; the five findings constrain the design below |
-> | C2 three tiers | ◐ the TERM/BELIEF tier is **built** (`firmware/libraries/Semantic/`). The EPISODE lane writer and the FIELD tier (unchanged) are not yet |
-> | C2c fold-before-forget | ✅ **built and gated** — and it fell out of the streaming shape as a *move*, so losslessness is arithmetic rather than argued |
+> | C2 three tiers | ◐ TERM/BELIEF **built**; EPISODE lane **built as a library** 2026-10-01 (`Semantic/src/Episode.*`: `@LAT103` episodes, `@LAT104` fold checkpoint, `Ttdb::removeCuts`) — not yet wired into a sketch. FIELD unchanged by design |
+> | C2c fold-before-forget | ✅ **built and gated** — and it fell out of the streaming shape as a *move*, so losslessness is arithmetic rather than argued. On flash: **fold → append checkpoint (commit) → cut**, so a refused rewrite is garbage left over, never a double count — gated by a reboot-from-store after every episode with faults injected ([log](docs/log/2026-10.md)) |
 > | C3 consolidator | ◐ **built, both gates green**; Rule 3 kept beside it and **measured** on the fleet's own 24 outcome records. Not yet wired into a sketch |
 > | C4 time (TTG-0004 §4) | ⏳ not started — the headline, and still unimplemented in any checkout |
 > | C0 the deletion | ⏳ the `clear` verbs are still in `orchestrator/` |
 >
-> `tests/test_semantic.cpp`: **88 checks, 0 failures**. Suite **34/34**.
+> `tests/test_semantic.cpp`: **88 checks, 0 failures**; `tests/test_episode.cpp`: **82, 0**. Suite **35/35**.
 >
 > 📐 **The measurement C3 asked for, on real data** (`scratchpad/consolidator_compare.py`
 > over the banked `@LAT92` lane, run-length expanded back to windows and cross-checked
