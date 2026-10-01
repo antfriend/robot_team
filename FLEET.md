@@ -292,11 +292,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    crash — all pass.** Not yet seen: a runtime (radios-up) cut. Defect: `seen` is not
    carried, so EPS drops on every reboot. C4's portable core (`FleetTime.*`, §4.8 items
    1–4) is built and the episodes now carry `at: <pulse> ±<bound>`.
-   🛑 **The Cardputer resets every ~20 min: free heap drains ≈500 B/min to zero.** A/B on
-   the same board says **not Phase C** (`-DPHASEC_EPISODES=0` leaks at the same rate) and
-   it contradicts the 2026-08 "ceiling, not a leak" note, which read only `maxalloc`.
-   **Next: the same slope with the PEERS OFF** — if it vanishes, the leak is per received
-   frame. Then the `seen` fix, the runtime cut, C4's chart-frame question, then **C0's
+   ✅ **The Cardputer's ~20-min reset was the BLE SCANNER leaking ≈500 B/min** (not Phase
+   C — A/B'd; it overturns the 2026-08 "ceiling, not a leak" note). A **60 s scan restart**
+   (`blelink::loop()`, Cardputer only) holds free heap flat at ~26 KB. BLE also costs
+   ~92 KB of heap just by being on. **Next: peers ON** to confirm BLE adverts are still
+   heard across restarts; then measure V4-A's free heap (its 2026-08 decline has the same
+   shape). Then the `seen` fix, the runtime cut, C4's chart-frame question, then **C0's
    deletion**: every `clear` verb gone from `orchestrator/` and nothing replacing it.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers mod 32768 (`TtdbRecord::lon` is `int16_t`) and wrap in ~23 days.

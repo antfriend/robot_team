@@ -69,7 +69,9 @@
 // either way, which is what makes a bad codec or a bad panel a non-blocking problem.
 #define USE_CARD_HW 1
 #define USE_PULSE   1     // follow the band clock so `band`/`monitor` see this node
+#ifndef USE_BLE           // overridable as a build property for A/B (the 2026-10-01 leak hunt)
 #define USE_BLE     1     // SP0 near-range tier: advertise+scan over BLE (proto:ble)
+#endif
 #define USE_IMU     1     // SP0 motion tier (@LAT95) + tilt-to-roll the globe
 #define USE_MIC     1     // SP0 acoustic tier (@LAT94) — needs the codec (USE_CARD_HW)
 
@@ -3936,6 +3938,9 @@ void loop() {
   const uint32_t now = millis();
   gSectN = 0;
   sectMark();                       // [0] top of the pass
+#if USE_BLE
+  blelink::loop();                  // no-op unless BLELINK_RESTART_MS > 0 (the BLE leak)
+#endif
 
   // FIRST, before anything reads a clock: settle which timeline this node is on and
   // refresh gStamp. Every tier below stamps from that one snapshot, so four records

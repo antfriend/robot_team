@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include <Arduino.h>
 #include <Toot.h>
 #include <BLEDevice.h>
 #include <BLEAdvertising.h>
@@ -71,6 +72,12 @@ void begin(uint32_t node_id, const uint8_t* key, size_t key_len, ObserveFn cb) {
   adv->setMaxInterval(0x0140);   // 200 ms — cheap, still frequent enough to range
   adv->start();
 
+  // 🔬 Build-property switch (2026-10-01): with BLE on, the Cardputer's free heap drains
+  // ~500 B/min to zero and resets the node; with BLE compiled out it is flat at 108 KB.
+  // BLELINK_SCAN=0 keeps the advert and drops the scanner, to split those two halves.
+#if defined(BLELINK_SCAN) && BLELINK_SCAN == 0
+  return;
+#endif
   // Passive, duty-cycled scan; wantDuplicates=true so every reception feeds the
   // histogram (we WANT repeats). Passive = listen only, less airtime for WiFi coexist.
   BLEScan* scan = BLEDevice::getScan();
@@ -84,8 +91,34 @@ void begin(uint32_t node_id, const uint8_t* key, size_t key_len, ObserveFn cb) {
   scan->start(0, nullptr, false);   // duration 0 = scan until stopped
 }
 
+// 60 s, MEASURED (2026-10-01, Cardputer, peers off, 12 min): free heap held ~26.4 KB ±300 B
+// and maxalloc ROSE 8 → 17 KB, against ≈ −500 B/min to a reset every ~20 min without it.
+// ⚠ Takes effect only on a board that CALLS blelink::loop() — today only the Cardputer.
+// The V4s/T-Deck/K10 do not, so they are unchanged; V4-A's 2026-08 maxalloc decline
+// (101 → 38 KB over 2.5 h) has the same shape and is the next board to give this to.
+// A library #define, so it changes only as a BUILD PROPERTY (separate translation unit).
+#ifndef BLELINK_RESTART_MS
+#define BLELINK_RESTART_MS 60000
+#endif
+
 void loop() {
-  // The BLE stack advertises/scans in its own FreeRTOS tasks; no periodic work needed.
+  // The BLE stack advertises/scans in its own FreeRTOS tasks; nothing is needed here —
+  // EXCEPT the 2026-10-01 leak: the continuous (`start(0)`) passive scan drains free heap
+  // ~500 B/min on the Cardputer, from FOREIGN adverts alone (peers off; the callback never
+  // fired). Advertise-only is flat. BLELINK_RESTART_MS > 0 periodically stops, clears and
+  // restarts the scan, to test whether the stack releases what it holds across a restart.
+  // 0 = never. A sketch that does not call loop() is unaffected at any value.
+#if BLELINK_RESTART_MS > 0 && !(defined(BLELINK_SCAN) && BLELINK_SCAN == 0)
+  static uint32_t last = 0;
+  const uint32_t now = millis();
+  if (last == 0) { last = now; return; }
+  if (now - last < (uint32_t)BLELINK_RESTART_MS) return;
+  last = now;
+  BLEScan* scan = BLEDevice::getScan();
+  scan->stop();
+  scan->clearResults();
+  scan->start(0, nullptr, false);
+#endif
 }
 
 }  // namespace blelink
