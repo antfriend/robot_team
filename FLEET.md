@@ -293,14 +293,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
    1–4) is built and the episodes now carry `at: <pulse> ±<bound>`.
    ✅ **The Cardputer's ~20-min reset was the BLE SCANNER leaking ≈500 B/min** (not Phase
    C — A/B'd; it overturns the 2026-08 "ceiling, not a leak" note). A **60 s scan restart**
-   (`blelink::loop()`, Cardputer only) holds free heap flat at ~26 KB. BLE also costs
+   (`blelink::loop()`, Cardputer only) holds free heap flat at ~26 KB **with peers OFF (~9–11 KB with peers on)**. BLE also costs
    ~92 KB of heap just by being on. ✅ With peers on: BLE claims still heard every window, heap flat. ✅ **V4-A had the same leak (−517 B/min) and the restart bounds it exactly**; the fix is now in every BLE sketch — **All five BLE boards now run it** (Cardputer + V4-A measured; T-Deck, V4-B, V4-C flashed, unmeasured). ✅ The `seen`/EPS drift and C4's chart-frame question are both fixed in source (stamps now carry `frame:<downbeat>`) — ✅ **flashed and verified on the Cardputer** (`frame:` held across a takeover; first new-format checkpoint carries `seen`). Next: **C0's
    deletion is not yet honest** (census 2026-10-01: seven capped lanes still treadmill or refuse). ✅ **Per-tier quotas built** (one LON
    band per tier, GATE 7) and flashed. ✅ **ENTITY tier moved into `@LAT103`** (2026-10-01) with
    `parse_entity_percepts` reading both containers in the same commit; Cardputer `@LAT96` released
    once (index 257 → 212/288). 🛑 Its first flash **boot-looped on heap** (+5.6 KB `.bss`) — every
    episode render now shares **one** scratch buffer (`EpisodeNode::scratch()`), net −768 B vs before.
-   ⚠ **Loop free heap is ~9–11 KB, not ~26 KB** — find where it went before moving another tier.
+   ⚠ **With peers on, loop free heap is ~9–11 KB** (measured twice) — that is the margin, so a
+   moved tier adds **no** static buffer; diff `.bss` against HEAD before flashing.
    **Next:** motion/acoustic, then link (+ `fleetmap`); caps, prunes and `clear` verbs go together at the end.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.

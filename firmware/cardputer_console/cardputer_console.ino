@@ -4343,7 +4343,37 @@ void loop() {
 
 #if USE_MIC && USE_CARD_HW
   serviceMic(now);
-  if (gAcousticLog.due(now)) {
+  if (gAcousticLog.due(now) && PHASEC_EPISODES) {
+    // ACT-III §C2: the ACOUSTIC tier lives in @LAT103 (tier 3, quota 24), so a window is
+    // never refused for a full lane — @LAT94 sat at 48/48 dropping every one. Rendered
+    // into the episode scratch and wrapped in place (no buffer of its own: this board's
+    // margin is ~9–11 KB with peers on). The record cites nothing, so its own header is
+    // simply dropped by the wrap. No `percept:` lines — nothing on the node or laptop
+    // computes over this lane yet; the trace field reads gAcousticLog live.
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ACOUSTIC);
+    const size_t m = gAcousticLog.buildRecord(gEpisodes.scratch(), ACOUSTICPERCEPT_RECORD_BUF,
+                                              ord, gStreamWallSec, gStamp, now, I2S_RATE);
+    if (m) {
+      char at[72];
+      episodeAt(at, sizeof(at), now);
+      if (gEpisodes.appendSaidScratch(ord, m, "acoustic window", "acousticpercept", at,
+                                      gStreamWallSec)) {
+        // The fleet's only ear, on the record — same rule as before: the append.
+        gSocial.table().exercise(social::CAP_MIC);
+        Serial.printf("[acoustic] window -> @LAT%dLON%d (acoustic live %u/%u)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live(),
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).capacity());
+        gEpisodes.service(now, gStreamWallSec);
+      } else {
+        Serial.printf("[acoustic] window LOST: episode render/append failed at @LAT%dLON%d "
+                      "(render_failed %lu append_failed %lu)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned long)gEpisodes.stats().render_failed,
+                      (unsigned long)gEpisodes.stats().append_failed);
+      }
+    }
+  } else if (gAcousticLog.due(now)) {
     int lane = laneCount(94);
     if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
       gAcousticLog.reset(now);
