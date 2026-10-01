@@ -11,20 +11,27 @@ namespace semantic {
 // ---------------------------------------------------------------------------------------
 // serial ordinals
 // ---------------------------------------------------------------------------------------
-int16_t ordinalAdd(int16_t x, int32_t d) {
-  int32_t v = ((int32_t)x + d) % SEMANTIC_ORDINAL_MOD;
-  if (v < 0) v += SEMANTIC_ORDINAL_MOD;
-  return (int16_t)v;
+int16_t bandAdd(int16_t x, int32_t d, Band b) {
+  int32_t v = ((int32_t)x - b.base + d) % (int32_t)b.span;
+  if (v < 0) v += b.span;
+  return (int16_t)(b.base + v);
 }
 
-uint16_t ordinalDistance(int16_t from, int16_t to) {
-  int32_t d = ((int32_t)to - (int32_t)from) % SEMANTIC_ORDINAL_MOD;
-  if (d < 0) d += SEMANTIC_ORDINAL_MOD;
+uint16_t bandDistance(int16_t from, int16_t to, Band b) {
+  int32_t d = ((int32_t)to - (int32_t)from) % (int32_t)b.span;
+  if (d < 0) d += b.span;
   return (uint16_t)d;
 }
 
+bool bandInRun(int16_t x, int16_t from, int16_t through, Band b) {
+  if (!inBand(x, b)) return false;
+  return bandDistance(from, x, b) <= bandDistance(from, through, b);
+}
+
+int16_t ordinalAdd(int16_t x, int32_t d) { return bandAdd(x, d, wholeLane()); }
+uint16_t ordinalDistance(int16_t from, int16_t to) { return bandDistance(from, to, wholeLane()); }
 bool ordinalInRun(int16_t x, int16_t from, int16_t through) {
-  return ordinalDistance(from, x) <= ordinalDistance(from, through);
+  return bandInRun(x, from, through, wholeLane());
 }
 
 // ---------------------------------------------------------------------------------------
@@ -160,13 +167,14 @@ size_t EpisodeBuilder::finish() {
 // EpisodeReader
 // ---------------------------------------------------------------------------------------
 EpisodeReader::EpisodeReader(Consolidator& c, int16_t lane)
-    : c_(c), lane_(lane), from_(0), through_(0), any_(false),
+    : c_(c), lane_(lane), from_(0), through_(0), band_(wholeLane()), any_(false),
       close_(Consolidator::KEEPING), cur_lat_(0), cur_lon_(0), have_rec_(false),
       mode_(OUT), fed_(0), outside_(0), foreign_blocks_(0), foreign_malformed_(0),
       unclosed_(0) {}
 
-void EpisodeReader::select(int16_t from, int16_t through, Consolidator::Close close) {
-  from_ = from; through_ = through; close_ = close; any_ = true;
+void EpisodeReader::select(int16_t from, int16_t through, Consolidator::Close close,
+                           Band band) {
+  from_ = from; through_ = through; close_ = close; band_ = band; any_ = true;
 }
 
 void EpisodeReader::selectNone() { any_ = false; }
@@ -201,7 +209,7 @@ void EpisodeReader::line(const char* l) {
       mode_ = CHECK;
       return;
     }
-    if (any_ && ordinalInRun(cur_lon_, from_, through_)) {
+    if (any_ && bandInRun(cur_lon_, from_, through_, band_)) {
       c_.beginEpisode();
       mode_ = FEED;
     } else {
@@ -250,14 +258,22 @@ struct Sink {
 };
 }  // namespace
 
-static size_t checkpointTo(Sink& s, const Consolidator& c, int16_t through, int16_t ordinal,
-                           uint32_t t, int16_t lane) {
-  if (ordinal < 0 || through < 0) return 0;
+static size_t checkpointTo(Sink& s, const Consolidator& c, const int16_t* throughs,
+                           uint8_t n, int16_t ordinal, uint32_t t, int16_t lane) {
+  if (ordinal < 0 || !throughs || n == 0 || n > SEMANTIC_TIERS) return 0;
+  // One horizon per band, or the reader would have to choose between two (it keeps the
+  // first and counts the second malformed — so never write one).
+  uint8_t seen = 0;
+  for (uint8_t i = 0; i < n; ++i) {
+    const int k = tierOf(throughs[i]);
+    if (k < 0 || k >= SEMANTIC_TIERS || ((seen >> k) & 1)) return 0;
+    seen = (uint8_t)(seen | (1u << k));
+  }
   s.put("\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n"
-        "**carried through @LAT%dLON%d**\n\n```" SEMANTIC_CARRIED_TAG "\n"
-        SEMANTIC_THROUGH_KEY " %d\n",
+        "**carried through @LAT%dLON%d**\n\n```" SEMANTIC_CARRIED_TAG "\n",
         (int)lane, (int)ordinal, (unsigned long)t, (unsigned long)t,
-        (int)SEMANTIC_EPISODE_LANE, (int)through, (int)through);
+        (int)SEMANTIC_EPISODE_LANE, (int)throughs[0]);
+  for (uint8_t i = 0; i < n; ++i) s.put(SEMANTIC_THROUGH_KEY " %d\n", (int)throughs[i]);
   for (size_t i = 0; i < c.termCount(); ++i) {
     const Term* tm = c.term(i);
     char cl[64];
@@ -268,19 +284,19 @@ static size_t checkpointTo(Sink& s, const Consolidator& c, int16_t through, int1
   return s.bad ? 0 : s.len;
 }
 
-size_t renderCheckpoint(const Consolidator& c, int16_t through, int16_t ordinal,
-                        uint32_t t, char* out, size_t cap, int16_t lane) {
+size_t renderCheckpoint(const Consolidator& c, const int16_t* throughs, uint8_t nt,
+                        int16_t ordinal, uint32_t t, char* out, size_t cap, int16_t lane) {
   if (!out || cap == 0) return 0;
   Sink s = {out, cap, 0, false};
-  size_t n = checkpointTo(s, c, through, ordinal, t, lane);
+  size_t n = checkpointTo(s, c, throughs, nt, ordinal, t, lane);
   if (!n) out[0] = '\0';
   return n;
 }
 
-size_t checkpointBytes(const Consolidator& c, int16_t through, int16_t ordinal, uint32_t t,
-                       int16_t lane) {
+size_t checkpointBytes(const Consolidator& c, const int16_t* throughs, uint8_t nt,
+                       int16_t ordinal, uint32_t t, int16_t lane) {
   Sink s = {0, 0, 0, false};
-  return checkpointTo(s, c, through, ordinal, t, lane);
+  return checkpointTo(s, c, throughs, nt, ordinal, t, lane);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -316,7 +332,9 @@ size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32
 
 CheckpointReader::CheckpointReader(Consolidator& c, int16_t ordinal, int16_t lane)
     : c_(c), lane_(lane), ordinal_(ordinal), in_rec_(false), in_block_(false),
-      have_through_(false), through_(0), seeded_(0), malformed_(0) {}
+      have_mask_(0), seeded_(0), malformed_(0) {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) through_[k] = -1;
+}
 
 // `carried: <f> <a> <e> | <subject> | <vector> | <object>` — split, then hand the numeric
 // head to Consolidator::seedCarried, which already owns that grammar.
@@ -372,8 +390,10 @@ void CheckpointReader::line(const char* l) {
     bool digits = false;
     while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); digits = true; if (v >= SEMANTIC_ORDINAL_MOD) break; ++p; }
     if (!digits || v >= SEMANTIC_ORDINAL_MOD) { ++malformed_; return; }
-    through_ = (int16_t)v;
-    have_through_ = true;
+    const int k = tierOf((int16_t)v);
+    if ((have_mask_ >> k) & 1) { ++malformed_; return; }   // two horizons for one tier
+    through_[k] = (int16_t)v;
+    have_mask_ = (uint8_t)(have_mask_ | (1u << k));
     return;
   }
   if (startsWith(s, SEMANTIC_CARRIED_KEY)) {
@@ -390,25 +410,30 @@ void CheckpointReader::line(const char* l) {
 // ---------------------------------------------------------------------------------------
 // EpisodeRing
 // ---------------------------------------------------------------------------------------
+// Every episode ordinal here is a LON inside band_, and all its arithmetic is the band's;
+// the checkpoint ordinals (@LAT104) are the whole lane's. A whole-lane ring (the default)
+// is exactly the pre-band ring.
 EpisodeRing::EpisodeRing()
-    : capacity_(SEMANTIC_RING_CAPACITY), batch_(SEMANTIC_EVICT_BATCH), ep_any_(false),
-      ep_oldest_(0), ep_newest_(0), ep_count_(0), ck_oldest_(0), ck_newest_(0),
-      ck_count_(0), has_flash_h_(false), has_ram_h_(false), flash_h_(0), ram_h_(0),
-      folds_(0) {}
+    : capacity_(SEMANTIC_RING_CAPACITY), batch_(SEMANTIC_EVICT_BATCH), band_(wholeLane()),
+      owns_ck_(true), ep_any_(false), ep_oldest_(0), ep_newest_(0), ep_count_(0),
+      ck_oldest_(0), ck_newest_(0), ck_count_(0), has_flash_h_(false), has_ram_h_(false),
+      flash_h_(0), ram_h_(0), folds_(0) {}
 
-void EpisodeRing::begin(uint16_t capacity, uint16_t batch) {
+void EpisodeRing::begin(uint16_t capacity, uint16_t batch, Band band, bool owns_checkpoints) {
   capacity_ = capacity ? capacity : 1;
   // A batch larger than the ring would fold episodes that are not there.
   batch_ = (batch == 0) ? 1 : (batch > capacity_ ? capacity_ : batch);
+  band_ = band.span ? band : wholeLane();
+  owns_ck_ = owns_checkpoints;
   has_flash_h_ = has_ram_h_ = false;
-  flash_h_ = ram_h_ = 0;
+  flash_h_ = ram_h_ = band_.base;
   folds_ = 0;
   resetScan();
 }
 
 void EpisodeRing::resetScan() {
   ep_any_ = false;
-  ep_oldest_ = ep_newest_ = 0;
+  ep_oldest_ = ep_newest_ = band_.base;
   ep_count_ = 0;
   ck_oldest_ = ck_newest_ = 0;
   ck_count_ = 0;
@@ -417,10 +442,11 @@ void EpisodeRing::resetScan() {
 void EpisodeRing::observe(int16_t lat, int16_t lon) {
   if (lon < 0) return;                       // not an ordinal this ring wrote
   if (lat == SEMANTIC_EPISODE_LANE) {
+    if (!inBand(lon, band_)) return;         // another tier's episode
     if (!ep_any_) { ep_oldest_ = lon; ep_any_ = true; }
     ep_newest_ = lon;                        // FILE ORDER: the last one seen is the newest
     ++ep_count_;
-  } else if (lat == SEMANTIC_CARRIED_LANE) {
+  } else if (lat == SEMANTIC_CARRIED_LANE && owns_ck_) {
     if (ck_count_ == 0) ck_oldest_ = lon;
     ck_newest_ = lon;
     ++ck_count_;
@@ -428,21 +454,22 @@ void EpisodeRing::observe(int16_t lat, int16_t lon) {
 }
 
 void EpisodeRing::setHorizon(int16_t through) {
+  if (!inBand(through, band_)) return;       // not this ring's horizon
   flash_h_ = ram_h_ = through;
   has_flash_h_ = has_ram_h_ = true;
 }
 
 // Oldest LIVE ordinal and how many are live. The live run is contiguous by construction:
-// ordinals are assigned max+1 and only the oldest are ever cut.
+// ordinals are assigned max+1 within the band and only the oldest are ever cut.
 uint16_t EpisodeRing::liveFrom(int16_t& from) const {
   if (!ep_any_) return 0;
-  const uint16_t span = ordinalDistance(ep_oldest_, ep_newest_);   // count - 1, if contiguous
+  const uint16_t span = bandDistance(ep_oldest_, ep_newest_, band_);   // count - 1
   if (!has_ram_h_) { from = ep_oldest_; return (uint16_t)(span + 1); }
   // Age of the horizon behind the newest. A horizon at or behind (oldest - 1) folds
   // nothing that is present: everything on flash is live.
-  const uint16_t age_h = ordinalDistance(ram_h_, ep_newest_);
+  const uint16_t age_h = bandDistance(ram_h_, ep_newest_, band_);
   if (age_h > span) { from = ep_oldest_; return (uint16_t)(span + 1); }
-  from = ordinalAdd(ram_h_, 1);
+  from = bandAdd(ram_h_, 1, band_);
   return age_h;                              // ordinals strictly newer than the horizon
 }
 
@@ -458,11 +485,11 @@ bool EpisodeRing::liveRun(int16_t& from, int16_t& through) const {
 }
 
 int16_t EpisodeRing::nextOrdinal() const {
-  if (ep_any_) return ordinalAdd(ep_newest_, 1);
-  // An empty lane with a horizon was cut down to nothing: continue past the horizon so an
+  if (ep_any_) return bandAdd(ep_newest_, 1, band_);
+  // An empty band with a horizon was cut down to nothing: continue past the horizon so an
   // ordinal is never re-used while a checkpoint still names it.
-  if (has_ram_h_) return ordinalAdd(ram_h_, 1);
-  return 0;
+  if (has_ram_h_) return bandAdd(ram_h_, 1, band_);
+  return band_.base;
 }
 
 int16_t EpisodeRing::nextCheckpointOrdinal() const {
@@ -470,15 +497,18 @@ int16_t EpisodeRing::nextCheckpointOrdinal() const {
 }
 
 void EpisodeRing::appended(int16_t ordinal) {
+  if (!inBand(ordinal, band_)) return;
   if (!ep_any_) { ep_oldest_ = ordinal; ep_any_ = true; }
   ep_newest_ = ordinal;
   ++ep_count_;
 }
 
 void EpisodeRing::checkpointAppended(int16_t ordinal) {
-  if (ck_count_ == 0) ck_oldest_ = ordinal;
-  ck_newest_ = ordinal;
-  ++ck_count_;
+  if (owns_ck_) {
+    if (ck_count_ == 0) ck_oldest_ = ordinal;
+    ck_newest_ = ordinal;
+    ++ck_count_;
+  }
   flash_h_ = ram_h_;
   has_flash_h_ = has_ram_h_;
 }
@@ -490,7 +520,7 @@ bool EpisodeRing::foldDue(int16_t& from, int16_t& through) const {
   // than one: every fold is eventually a whole-file rewrite.
   uint16_t n = (uint16_t)(n_live - capacity_ + batch_);
   if (n > n_live) n = n_live;
-  through = ordinalAdd(from, (int32_t)n - 1);
+  through = bandAdd(from, (int32_t)n - 1, band_);
   return true;
 }
 
@@ -508,13 +538,14 @@ bool EpisodeRing::commitDue() const {
   return !has_flash_h_ || flash_h_ != ram_h_;
 }
 
-// Append [lo..hi] (forward, possibly wrapping) as one or two cuts.
-static uint8_t addRun(Cut* out, uint8_t n, uint8_t max, int16_t lat, int16_t lo, int16_t hi) {
+// Append [lo..hi] (forward inside band b, possibly wrapping) as one or two cuts.
+static uint8_t addRun(Cut* out, uint8_t n, uint8_t max, int16_t lat, int16_t lo, int16_t hi,
+                      Band b) {
   if (lo <= hi) {
     if (n < max) out[n++] = Cut{lat, lo, hi};
-  } else {                                   // wrapped: [lo..32767] + [0..hi]
-    if (n < max) out[n++] = Cut{lat, lo, (int16_t)(SEMANTIC_ORDINAL_MOD - 1)};
-    if (n < max) out[n++] = Cut{lat, 0, hi};
+  } else {                                   // wrapped: [lo..top] + [base..hi]
+    if (n < max) out[n++] = Cut{lat, lo, (int16_t)(b.base + b.span - 1)};
+    if (n < max) out[n++] = Cut{lat, b.base, hi};
   }
   return n;
 }
@@ -525,24 +556,128 @@ uint8_t EpisodeRing::cuts(Cut* out, uint8_t max) const {
   // Episodes at or behind the COMMITTED horizon. Never the RAM one: a fold that has not
   // reached flash must leave its episodes there, or a reboot would lose them outright.
   if (ep_any_ && has_flash_h_) {
-    const uint16_t span = ordinalDistance(ep_oldest_, ep_newest_);
-    const uint16_t age_h = ordinalDistance(flash_h_, ep_newest_);
-    if (age_h <= span) n = addRun(out, n, max, SEMANTIC_EPISODE_LANE, ep_oldest_, flash_h_);
+    const uint16_t span = bandDistance(ep_oldest_, ep_newest_, band_);
+    const uint16_t age_h = bandDistance(flash_h_, ep_newest_, band_);
+    if (age_h <= span)
+      n = addRun(out, n, max, SEMANTIC_EPISODE_LANE, ep_oldest_, flash_h_, band_);
   }
   // Every checkpoint but the newest.
   if (ck_count_ > 1)
-    n = addRun(out, n, max, SEMANTIC_CARRIED_LANE, ck_oldest_, ordinalAdd(ck_newest_, -1));
+    n = addRun(out, n, max, SEMANTIC_CARRIED_LANE, ck_oldest_, ordinalAdd(ck_newest_, -1),
+               wholeLane());
   return n;
 }
 
 uint16_t EpisodeRing::dead() const {
   uint16_t d = 0;
   if (ep_any_ && has_flash_h_) {
-    const uint16_t span = ordinalDistance(ep_oldest_, ep_newest_);
-    const uint16_t age_h = ordinalDistance(flash_h_, ep_newest_);
+    const uint16_t span = bandDistance(ep_oldest_, ep_newest_, band_);
+    const uint16_t age_h = bandDistance(flash_h_, ep_newest_, band_);
     if (age_h <= span) d = (uint16_t)(span - age_h + 1);   // oldest..horizon inclusive
   }
   if (ck_count_ > 1) d = (uint16_t)(d + ck_count_ - 1);
+  return d;
+}
+
+// ---------------------------------------------------------------------------------------
+// EpisodeTiers
+// ---------------------------------------------------------------------------------------
+EpisodeTiers::EpisodeTiers() {}
+
+void EpisodeTiers::begin(const uint16_t* quotas, uint16_t batch) {
+  static const uint16_t kDefault[SEMANTIC_TIERS] = {
+      SEMANTIC_QUOTA_LINK, SEMANTIC_QUOTA_ENTITY, SEMANTIC_QUOTA_MOTION,
+      SEMANTIC_QUOTA_ACOUSTIC};
+  const uint16_t* q = quotas ? quotas : kDefault;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k)
+    r_[k].begin(q[k], batch, tierBand(k), k == TIER_LINK);
+}
+
+void EpisodeTiers::resetScan() {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) r_[k].resetScan();
+}
+
+void EpisodeTiers::observe(int16_t lat, int16_t lon) {
+  if (lat == SEMANTIC_CARRIED_LANE) { r_[TIER_LINK].observe(lat, lon); return; }
+  const int k = tierOf(lon);
+  if (k >= 0 && k < SEMANTIC_TIERS) r_[k].observe(lat, lon);
+}
+
+void EpisodeTiers::applyCheckpoint(const CheckpointReader& cr) {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k)
+    if (cr.has(k)) r_[k].setHorizon(cr.through(k));
+}
+
+int16_t EpisodeTiers::nextOrdinal(uint8_t tier) const {
+  return tier < SEMANTIC_TIERS ? r_[tier].nextOrdinal() : -1;
+}
+
+void EpisodeTiers::appended(int16_t ordinal) {
+  const int k = tierOf(ordinal);
+  if (k >= 0 && k < SEMANTIC_TIERS) r_[k].appended(ordinal);
+}
+
+bool EpisodeTiers::foldDue(uint8_t& tier, int16_t& from, int16_t& through) const {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k)
+    if (r_[k].foldDue(from, through)) { tier = k; return true; }
+  return false;
+}
+
+void EpisodeTiers::folded(uint8_t tier, int16_t through) {
+  if (tier < SEMANTIC_TIERS) r_[tier].folded(through);
+}
+
+bool EpisodeTiers::commitDue() const {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k)
+    if (r_[k].commitDue()) return true;
+  return false;
+}
+
+uint8_t EpisodeTiers::horizons(int16_t* out) const {
+  uint8_t n = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k)
+    if (r_[k].hasRamHorizon()) out[n++] = r_[k].ramHorizon();
+  return n;
+}
+
+void EpisodeTiers::checkpointAppended(int16_t ordinal) {
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) r_[k].checkpointAppended(ordinal);
+}
+
+uint8_t EpisodeTiers::cuts(Cut* out, uint8_t max) const {
+  uint8_t n = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS && n < max; ++k)
+    n = (uint8_t)(n + r_[k].cuts(out + n, (uint8_t)(max - n)));
+  return n;
+}
+
+uint16_t EpisodeTiers::dead() const {
+  uint16_t d = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) d = (uint16_t)(d + r_[k].dead());
+  return d;
+}
+
+uint16_t EpisodeTiers::live() const {
+  uint16_t d = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) d = (uint16_t)(d + r_[k].live());
+  return d;
+}
+
+uint16_t EpisodeTiers::present() const {
+  uint16_t d = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) d = (uint16_t)(d + r_[k].present());
+  return d;
+}
+
+uint32_t EpisodeTiers::folds() const {
+  uint32_t d = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) d += r_[k].folds();
+  return d;
+}
+
+uint16_t EpisodeTiers::capacity() const {
+  uint16_t d = 0;
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) d = (uint16_t)(d + r_[k].capacity());
   return d;
 }
 

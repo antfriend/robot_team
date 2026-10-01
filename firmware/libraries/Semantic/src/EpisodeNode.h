@@ -12,7 +12,7 @@
 //                  scan the index → read the NEWEST checkpoint (seeds carried + horizon)
 //                  → stream the live episodes KEEPING → cut whatever is dead.
 //   appendLink() per scored link window: render → appendRecord → feed it KEEPING.
-//   service()    fold if due (EVICTING replay) → commit (append a checkpoint) → cut
+//   service()    fold each tier over ITS quota (EVICTING replay) → commit (append a checkpoint) → cut
 //                once SEMANTIC_CUT_SLACK records are dead, with a back-off after failure.
 //
 // ⚠ A FAILED CUT IS NOT AN ERROR STATE — it is the case the design is for. The checkpoint
@@ -103,69 +103,95 @@ inline void feedBuffer(const char* text, size_t n, R& r) {
 class Node {
  public:
   // Boot. Call from setup() AFTER gDb.begin() and BEFORE the radios come up, so the cut
-  // here runs with the heap that makes a rewrite succeed.
-  void begin(Ttdb& db, uint16_t capacity = SEMANTIC_RING_CAPACITY,
+  // here runs with the heap that makes a rewrite succeed. `quotas`: per-tier capacity
+  // (null = SEMANTIC_QUOTA_*).
+  void begin(Ttdb& db, const uint16_t* quotas = nullptr,
              uint16_t batch = SEMANTIC_EVICT_BATCH) {
     db_ = &db;
     c_.begin();
-    ring_.begin(capacity, batch);
+    tiers_.begin(quotas, batch);
     scan();
-    if (ring_.hasCheckpoint()) {
-      semantic::CheckpointReader cr(c_, ring_.checkpointOrdinal());
+    if (tiers_.hasCheckpoint()) {
+      semantic::CheckpointReader cr(c_, tiers_.checkpointOrdinal());
       for (int i = 0; i < db.recordCount(); ++i)
         if (db.record(i).lat == SEMANTIC_CARRIED_LANE &&
-            db.record(i).lon == ring_.checkpointOrdinal())
+            db.record(i).lon == tiers_.checkpointOrdinal())
           streamRecord(db, i, cr, st_.long_lines);
-      if (cr.found()) ring_.setHorizon(cr.through());
+      tiers_.applyCheckpoint(cr);
       ck_malformed_ = cr.malformed();
     }
-    int16_t from, through;
-    if (ring_.liveRun(from, through)) {
-      semantic::EpisodeReader r(c_);
-      r.select(from, through, semantic::Consolidator::KEEPING);
-      for (int i = 0; i < db.recordCount(); ++i)
-        if (db.record(i).lat == SEMANTIC_EPISODE_LANE) streamRecord(db, i, r, st_.long_lines);
-      r.finish();
-      boot_fed_ = r.fed();
+    // ONE pass over the lane, each record routed to its own tier's reader.
+    semantic::EpisodeReader rd[SEMANTIC_TIERS] = {
+        semantic::EpisodeReader(c_), semantic::EpisodeReader(c_),
+        semantic::EpisodeReader(c_), semantic::EpisodeReader(c_)};
+    int16_t from[SEMANTIC_TIERS], through[SEMANTIC_TIERS];
+    bool live[SEMANTIC_TIERS];
+    for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
+      live[k] = tiers_.ring(k).liveRun(from[k], through[k]);
+      if (live[k]) rd[k].select(from[k], through[k], semantic::Consolidator::KEEPING,
+                                tiers_.ring(k).band());
+    }
+    for (int i = 0; i < db.recordCount(); ++i) {
+      const TtdbRecord& rec = db.record(i);
+      if (rec.lat != SEMANTIC_EPISODE_LANE) continue;
+      const int k = semantic::tierOf(rec.lon);
+      if (k < 0 || k >= SEMANTIC_TIERS || !live[k]) continue;
+      if (!tiers_.ring(k).inRun(rec.lon, from[k], through[k])) continue;
+      streamRecord(db, i, rd[k], st_.long_lines);
+    }
+    for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
+      rd[k].finish();
+      boot_fed_ += rd[k].fed();
     }
     cut(true);                     // boot: always, regardless of slack
   }
 
-  // One scored link window → one episode. The write is never refused by THIS tier; the
-  // only refusal left is the whole-file index cap inside appendRecord, which is counted.
+  // One scored link window -> one episode in the LINK band. The write is never refused by
+  // this tier; the only refusal left is the whole-file index cap inside appendRecord.
   bool appendLink(const semantic::LinkClaim* claims, int n, const char* at, uint32_t t) {
     if (!db_) return false;
     static char rec[SEMANTIC_LINK_EPISODE_BUF];      // static: too big for the loop stack
-    const int16_t ord = ring_.nextOrdinal();
+    const int16_t ord = tiers_.nextOrdinal(semantic::TIER_LINK);
     const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, rec, sizeof(rec));
     if (!m) { ++st_.render_failed; return false; }
+    return appendRendered(rec, m, ord);
+  }
+
+  // Any tier: a record already rendered at `ord` = nextOrdinal(tier). Appends, then feeds
+  // it KEEPING from RAM (it is not read back).
+  bool appendRendered(const char* rec, size_t m, int16_t ord) {
+    if (!db_) return false;
+    const int k = semantic::tierOf(ord);
+    if (k < 0 || k >= SEMANTIC_TIERS) { ++st_.render_failed; return false; }
     if (!db_->appendRecord(rec, m)) { ++st_.append_failed; return false; }
     ++st_.appended;
-    ring_.appended(ord);
+    tiers_.appended(ord);
     semantic::EpisodeReader r(c_);
-    r.select(ord, ord, semantic::Consolidator::KEEPING);
+    r.select(ord, ord, semantic::Consolidator::KEEPING, semantic::tierBand((uint8_t)k));
     feedBuffer(rec, m, r);
     r.finish();
     return true;
   }
+  int16_t nextOrdinal(uint8_t tier) const { return tiers_.nextOrdinal(tier); }
 
-  // Fold → commit → cut. Cheap when nothing is due (no file I/O at all).
+  // Fold -> commit -> cut. Cheap when nothing is due (no file I/O at all).
   void service(uint32_t now_ms, uint32_t t) {
     if (!db_) return;
+    uint8_t k;
     int16_t from, through;
-    if (ring_.foldDue(from, through)) {
+    while (tiers_.foldDue(k, from, through)) {       // each tier over ITS quota, in turn
       semantic::EpisodeReader r(c_);
-      r.select(from, through, semantic::Consolidator::EVICTING);
+      r.select(from, through, semantic::Consolidator::EVICTING, tiers_.ring(k).band());
       for (int i = 0; i < db_->recordCount(); ++i) {
         const TtdbRecord& rec = db_->record(i);
-        if (rec.lat == SEMANTIC_EPISODE_LANE && semantic::ordinalInRun(rec.lon, from, through))
+        if (rec.lat == SEMANTIC_EPISODE_LANE && tiers_.ring(k).inRun(rec.lon, from, through))
           streamRecord(*db_, i, r, st_.long_lines);
       }
       r.finish();
-      ring_.folded(through);
+      tiers_.folded(k, through);
     }
-    if (ring_.commitDue()) commit(t);
-    if (ring_.dead() >= SEMANTIC_CUT_SLACK &&
+    if (tiers_.commitDue()) commit(t);
+    if (tiers_.dead() >= SEMANTIC_CUT_SLACK &&
         (last_cut_fail_ms_ == 0 || now_ms - last_cut_fail_ms_ >= EPISODENODE_CUT_RETRY_MS)) {
       if (!cut(false)) last_cut_fail_ms_ = now_ms ? now_ms : 1;
       else last_cut_fail_ms_ = 0;
@@ -173,24 +199,29 @@ class Node {
   }
 
   semantic::Consolidator& beliefs() { return c_; }
-  const semantic::EpisodeRing& ring() const { return ring_; }
+  const semantic::EpisodeTiers& tiers() const { return tiers_; }
   const Stats& stats() const { return st_; }
   uint32_t bootFed() const { return boot_fed_; }
   uint32_t checkpointMalformed() const { return ck_malformed_; }
 
   // One line of state, then one `belief:` line per term, for the serial log.
   void print(Print& out) const {
+    const semantic::EpisodeRing& lk = tiers_.ring(semantic::TIER_LINK);
     out.printf("[episode] live %u present %u dead %u horizon %s%d terms %u reclaimed %lu "
                "| appended %lu (fail %lu) commits %lu (fail %lu nomem %lu) cuts %lu "
-               "(fail %lu last '%s') malformed %lu\n",
-               (unsigned)ring_.live(), (unsigned)ring_.present(), (unsigned)ring_.dead(),
-               ring_.hasHorizon() ? "" : "none/", (int)ring_.flashHorizon(),
+               "(fail %lu last '%s') malformed %lu | tiers L%u/%u E%u/%u M%u/%u A%u/%u\n",
+               (unsigned)tiers_.live(), (unsigned)tiers_.present(), (unsigned)tiers_.dead(),
+               lk.hasHorizon() ? "" : "none/", (int)lk.flashHorizon(),
                (unsigned)c_.termCount(), (unsigned long)c_.reclaimed(),
                (unsigned long)st_.appended, (unsigned long)st_.append_failed,
                (unsigned long)st_.commits, (unsigned long)st_.commit_failed,
                (unsigned long)st_.commit_nomem, (unsigned long)st_.cuts,
                (unsigned long)st_.cut_failed, ttdbRewriteErrName(st_.last_cut_err),
-               (unsigned long)c_.malformedCount());
+               (unsigned long)c_.malformedCount(),
+               (unsigned)tiers_.ring(0).live(), (unsigned)tiers_.ring(0).capacity(),
+               (unsigned)tiers_.ring(1).live(), (unsigned)tiers_.ring(1).capacity(),
+               (unsigned)tiers_.ring(2).live(), (unsigned)tiers_.ring(2).capacity(),
+               (unsigned)tiers_.ring(3).live(), (unsigned)tiers_.ring(3).capacity());
     for (size_t i = 0; i < c_.termCount(); ++i) {
       const semantic::Term* tm = c_.term(i);
       char b[128];
@@ -203,37 +234,40 @@ class Node {
 
  private:
   void scan() {
-    ring_.resetScan();
+    tiers_.resetScan();
     for (int i = 0; i < db_->recordCount(); ++i)
-      ring_.observe(db_->record(i).lat, db_->record(i).lon);
+      tiers_.observe(db_->record(i).lat, db_->record(i).lon);
   }
 
   // Exact-size heap allocation, freed at once: a 4.4 KB static for a write that happens
   // once per BATCH windows is the wrong trade on a node whose maxalloc is single-digit KB.
   // A failed malloc just leaves the commit due — harmless by the commit-point order.
+  // ⚠ EVERY tier's horizon goes in, not just the one that folded: only the newest
+  // checkpoint is ever read (Episode.h, THE CHECKPOINT).
   void commit(uint32_t t) {
-    const int16_t ck = ring_.nextCheckpointOrdinal();
-    const int16_t through = ring_.ramHorizon();
-    const size_t need = semantic::checkpointBytes(c_, through, ck, t);
+    const int16_t ck = tiers_.nextCheckpointOrdinal();
+    int16_t hs[SEMANTIC_TIERS];
+    const uint8_t nh = tiers_.horizons(hs);
+    const size_t need = semantic::checkpointBytes(c_, hs, nh, ck, t);
     if (!need) { ++st_.commit_failed; return; }
     char* buf = (char*)malloc(need + 1);
     if (!buf) { ++st_.commit_nomem; return; }
-    const size_t m = semantic::renderCheckpoint(c_, through, ck, t, buf, need + 1);
+    const size_t m = semantic::renderCheckpoint(c_, hs, nh, ck, t, buf, need + 1);
     const bool ok = m && db_->appendRecord(buf, m);
     free(buf);
     if (!ok) { ++st_.commit_failed; return; }
     ++st_.commits;
-    ring_.checkpointAppended(ck);
+    tiers_.checkpointAppended(ck);
   }
 
   bool cut(bool boot) {
-    semantic::Cut cs[4];
-    const uint8_t n = ring_.cuts(cs, 4);
+    semantic::Cut cs[SEMANTIC_TIER_CUTS_MAX];
+    const uint8_t n = tiers_.cuts(cs, SEMANTIC_TIER_CUTS_MAX);
     if (!n) return true;
     (void)boot;
-    TtdbCut tc[4];
+    TtdbCut tc[SEMANTIC_TIER_CUTS_MAX];
     for (uint8_t i = 0; i < n; ++i) tc[i] = TtdbCut{cs[i].lat, cs[i].lon_lo, cs[i].lon_hi};
-    const uint16_t dead = ring_.dead();
+    const uint16_t dead = tiers_.dead();
     db_->clearRewriteErr();
     if (!db_->removeCuts(tc, n)) {
       ++st_.cut_failed;
@@ -246,13 +280,13 @@ class Node {
     ++st_.cuts;
     st_.cut_records += dead;
     st_.last_cut_err = TTDB_RW_OK;
-    scan();                        // removeCuts re-indexed; the ring re-reads the index
+    scan();                        // removeCuts re-indexed; the tiers re-read the index
     return true;
   }
 
   Ttdb* db_ = nullptr;
   semantic::Consolidator c_;
-  semantic::EpisodeRing ring_;
+  semantic::EpisodeTiers tiers_;
   Stats st_;
   uint32_t last_cut_fail_ms_ = 0;
   uint32_t boot_fed_ = 0;

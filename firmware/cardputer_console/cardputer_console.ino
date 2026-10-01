@@ -3798,7 +3798,7 @@ void setup() {
     Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                   "maxalloc %u B\n",
                   (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
-                  (unsigned)gEpisodes.ring().present(), (unsigned)ESP.getMaxAllocHeap());
+                  (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
     gEpisodes.print(Serial);
   }
 #if USE_WIFI_SCAN
@@ -4070,8 +4070,8 @@ void loop() {
             // falling maxalloc is fragmentation, and those need opposite fixes.
             Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u "
                           "heap %u maxalloc %u%s\n",
-                          SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.ring().live(),
-                          (unsigned)gEpisodes.ring().present(), (unsigned)ESP.getFreeHeap(),
+                          SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.tiers().live(),
+                          (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getFreeHeap(),
                           (unsigned)ESP.getMaxAllocHeap(),
                           link_lane_full ? "  [@LAT97 full: episode only]" : "");
           else

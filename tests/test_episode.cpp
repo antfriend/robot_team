@@ -635,12 +635,250 @@ static void testLink() {
   check(same, "checkpointBytes() equals renderCheckpoint()'s length, and want+1 bytes is enough");
 }
 
+// =======================================================================================
+// 7. per-tier quotas: one lane, one band of LONs per tier, one checkpoint for all
+// =======================================================================================
+static void testBands() {
+  printf("bands\n");
+  const Band e = tierBand(TIER_ENTITY);
+  check(e.base == 8192 && e.span == 8192, "tier 1 owns [8192, 16384)");
+  check(tierOf(0) == TIER_LINK && tierOf(8191) == TIER_LINK && tierOf(8192) == TIER_ENTITY &&
+        tierOf(32767) == TIER_ACOUSTIC && tierOf(-1) == -1, "tierOf reads the band off a LON");
+  check(bandAdd(16383, 1, e) == 8192, "a band wraps to its own base, not to the next tier");
+  check(bandAdd(8192, -1, e) == 16383, "and backwards to its own top");
+  check(bandDistance(16380, 8195, e) == 7, "distance across a band's wrap is the short way");
+  check(bandInRun(8193, 16382, 8194, e), "a run wrapping inside the band contains its tail");
+  check(!bandInRun(16381, 16382, 8194, e), "but not one before its start");
+  check(!bandInRun(5, 16382, 8194, e), "and never a LON of another tier");
+  check(ordinalAdd(32767, 1) == 0 && ordinalInRun(2, 32766, 4),
+        "the whole-lane helpers are the band {0, 32768}");
+}
+
+static void testTierCheckpoint() {
+  printf("tier checkpoint\n");
+  Consolidator c; c.begin();
+  c.beginEpisode(); c.percept(mk(1, "0x00000100", "link_stable", "espnow", POL_PLUS, Q_NONE));
+  c.endEpisode(Consolidator::EVICTING);
+  static char buf[SEMANTIC_CARRIED_BUF];
+  const int16_t hs[] = {143, 8231, 24600};
+  size_t n = renderCheckpoint(c, hs, 3, 7, 0, buf, sizeof(buf));
+  check(n > 0, "a three-tier checkpoint renders");
+  check(std::string(buf, n).find("through: 143\nthrough: 8231\nthrough: 24600\n") !=
+            std::string::npos, "one through: line per tier, in the order given");
+  {
+    Consolidator back; back.begin();
+    CheckpointReader cr(back, 7);
+    feedText(cr, std::string(buf, n));
+    check(cr.has(TIER_LINK) && cr.through(TIER_LINK) == 143, "link horizon read back");
+    check(cr.has(TIER_ENTITY) && cr.through(TIER_ENTITY) == 8231, "entity horizon read back");
+    check(!cr.has(TIER_MOTION), "a tier that never folded has no horizon");
+    check(cr.has(TIER_ACOUSTIC) && cr.through(TIER_ACOUSTIC) == 24600, "acoustic horizon");
+    check(cr.malformed() == 0 && cr.seeded() == 1, "and the carried tally with it");
+  }
+  const int16_t dup[] = {143, 150};
+  check(renderCheckpoint(c, dup, 2, 7, 0, buf, sizeof(buf)) == 0,
+        "two horizons in ONE band are refused at render time");
+  {
+    // A hand-written store with two horizons for one tier: first kept, second counted.
+    const std::string bad =
+        "@LAT104LON3 | created:0 | updated:0\n\n```ttdb-carried\nthrough: 10\nthrough: 12\n```\n";
+    Consolidator back; back.begin();
+    CheckpointReader cr(back, 3);
+    feedText(cr, bad);
+    check(cr.through(TIER_LINK) == 10 && cr.malformed() == 1,
+          "a second horizon for one tier is malformed and the first is kept");
+  }
+  {
+    // The Cardputer's on-flash checkpoint today: one through:, pre-band. It is the link's.
+    const std::string old =
+        "@LAT104LON2 | created:0 | updated:0\n\n```ttdb-carried\nthrough: 143\n"
+        "carried: 141 2 499 9 | 0x00000200 | link_stable | ble\n```\n";
+    Consolidator back; back.begin();
+    CheckpointReader cr(back, 2);
+    feedText(cr, old);
+    EpisodeTiers t; t.begin();
+    t.observe(SEMANTIC_CARRIED_LANE, 2);
+    for (int16_t o = 100; o <= 150; ++o) t.observe(SEMANTIC_EPISODE_LANE, o);
+    t.applyCheckpoint(cr);
+    check(t.ring(TIER_LINK).hasHorizon() && t.ring(TIER_LINK).flashHorizon() == 143 &&
+              !t.ring(TIER_ENTITY).hasHorizon(),
+          "a pre-band checkpoint's single horizon lands on the link tier only");
+    check(t.ring(TIER_LINK).live() == 7 && t.live() == 7,
+          "and the existing episodes LON 100..150 are link episodes, 7 of them live");
+  }
+}
+
+struct TierFaults {
+  int commit_fail_every;
+  int cut_fail_every;
+};
+
+static void bootTiers(const Store& s, Consolidator& c, EpisodeTiers& t, const uint16_t* q,
+                      uint16_t batch) {
+  c.begin();
+  t.begin(q, batch);
+  t.resetScan();
+  for (size_t i = 0; i < s.recs.size(); ++i) t.observe(s.recs[i].lat, s.recs[i].lon);
+  if (t.hasCheckpoint()) {
+    CheckpointReader cr(c, t.checkpointOrdinal());
+    for (size_t i = 0; i < s.recs.size(); ++i)
+      if (s.recs[i].lat == SEMANTIC_CARRIED_LANE) feedText(cr, s.recs[i].text);
+    t.applyCheckpoint(cr);
+  }
+  for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
+    int16_t from, through;
+    if (!t.ring(k).liveRun(from, through)) continue;
+    EpisodeReader r(c);
+    r.select(from, through, Consolidator::KEEPING, t.ring(k).band());
+    for (size_t i = 0; i < s.recs.size(); ++i)
+      if (s.recs[i].lat == SEMANTIC_EPISODE_LANE) feedText(r, s.recs[i].text);
+    r.finish();
+  }
+}
+
+// `rate[k]`: tier k's share of appends (link busy, entity slow). `entity_start`: if ≥ 0, a
+// store whose entity band was already cut down behind this horizon — to cross ITS wrap.
+static void runTierProtocol(const char* name, const uint16_t* q, uint16_t batch, int episodes,
+                            TierFaults f, int16_t entity_start, uint16_t slack) {
+  printf("tier protocol: %s\n", name);
+  static const int rate[SEMANTIC_TIERS] = {12, 1, 3, 2};
+  int rate_sum = 0;
+  for (int k = 0; k < SEMANTIC_TIERS; ++k) rate_sum += rate[k];
+
+  Store s;
+  if (entity_start >= 0) {
+    Consolidator empty; empty.begin();
+    static char ckb[SEMANTIC_CARRIED_BUF];
+    size_t n = renderCheckpoint(empty, entity_start, 0, 0, ckb, sizeof(ckb));
+    s.append(SEMANTIC_CARRIED_LANE, 0, std::string(ckb, n));
+  }
+  Consolidator node, ref;
+  EpisodeTiers tiers;
+  bootTiers(s, node, tiers, q, batch);
+  ref.begin();
+
+  int appended[SEMANTIC_TIERS] = {0, 0, 0, 0};
+  int commits = 0, cuts = 0, failed_commits = 0, failed_cuts = 0;
+  bool agree_live = true, agree_boot = true, bounded = true, protected_ = true;
+  bool dead_exact = true, entity_wrapped = false, left_band = false;
+  size_t max_records = 0;
+  static char ckbuf[SEMANTIC_CARRIED_BUF];
+
+  for (int e = 0; e < episodes; ++e) {
+    int pick = (int)(rnd() % (uint32_t)rate_sum);
+    uint8_t tier = 0;
+    while (pick >= rate[tier]) pick -= rate[tier++];
+    std::vector<Percept> ps = randomEpisode();
+    const int16_t ord = tiers.nextOrdinal(tier);
+    if (tier == TIER_ENTITY && entity_start >= 0 && ord < entity_start) entity_wrapped = true;
+    if (tierOf(ord) != tier) left_band = true;
+    const std::string text = record(SEMANTIC_EPISODE_LANE, ord, ps);
+    s.append(SEMANTIC_EPISODE_LANE, ord, text);
+    tiers.appended(ord);
+    ++appended[tier];
+    {
+      EpisodeReader r(node);
+      r.select(ord, ord, Consolidator::KEEPING, tierBand(tier));
+      feedText(r, text);
+      r.finish();
+    }
+    ref.beginEpisode();
+    for (size_t i = 0; i < ps.size(); ++i) ref.percept(ps[i]);
+    ref.endEpisode(Consolidator::KEEPING);
+
+    // 1. FOLD — every tier that is over its quota, one at a time.
+    uint8_t ft;
+    int16_t from, through;
+    while (tiers.foldDue(ft, from, through)) {
+      EpisodeReader r(node);
+      r.select(from, through, Consolidator::EVICTING, tiers.ring(ft).band());
+      for (size_t i = 0; i < s.recs.size(); ++i)
+        if (s.recs[i].lat == SEMANTIC_EPISODE_LANE) feedText(r, s.recs[i].text);
+      r.finish();
+      tiers.folded(ft, through);
+    }
+    // 2. COMMIT — every tier's horizon, every time.
+    if (tiers.commitDue()) {
+      ++commits;
+      if (f.commit_fail_every && commits % f.commit_fail_every == 0) {
+        ++failed_commits;
+      } else {
+        int16_t hs[SEMANTIC_TIERS];
+        const uint8_t nh = tiers.horizons(hs);
+        const int16_t ck = tiers.nextCheckpointOrdinal();
+        size_t n = renderCheckpoint(node, hs, nh, ck, (uint32_t)e, ckbuf, sizeof(ckbuf));
+        if (n == 0) { check(false, "a multi-tier checkpoint failed to RENDER"); return; }
+        s.append(SEMANTIC_CARRIED_LANE, ck, std::string(ckbuf, n));
+        tiers.checkpointAppended(ck);
+      }
+    }
+    // 3. CUT
+    Cut cs[SEMANTIC_TIER_CUTS_MAX];
+    const uint16_t dead_before = tiers.dead();
+    const uint8_t nc = (dead_before >= slack) ? tiers.cuts(cs, SEMANTIC_TIER_CUTS_MAX) : 0;
+    if (nc) {
+      ++cuts;
+      if (f.cut_fail_every && cuts % f.cut_fail_every == 0) {
+        ++failed_cuts;
+      } else {
+        const size_t before = s.recs.size();
+        s.cut(cs, nc);
+        if (before - s.recs.size() != dead_before) dead_exact = false;
+        tiers.resetScan();
+        for (size_t i = 0; i < s.recs.size(); ++i) tiers.observe(s.recs[i].lat, s.recs[i].lon);
+      }
+    }
+
+    if (s.recs.size() > max_records) max_records = s.recs.size();
+    for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
+      const uint16_t lv = tiers.ring(k).live();
+      if (lv > q[k]) bounded = false;
+      // THE QUOTA CLAIM: a tier keeps its own window however busy the others are.
+      const int floor_k = appended[k] < (int)(q[k] - batch) ? appended[k] : (int)(q[k] - batch);
+      if ((int)lv < floor_k) {
+        if (protected_) printf("    tier %u held %u live, expected >= %d, at episode %d\n",
+                               (unsigned)k, (unsigned)lv, floor_k, e);
+        protected_ = false;
+      }
+    }
+    if (beliefs(node) != beliefs(ref)) agree_live = false;
+    Consolidator boot;
+    EpisodeTiers bt;
+    bootTiers(s, boot, bt, q, batch);
+    if (beliefs(boot) != beliefs(ref)) {
+      if (agree_boot) printf("    first disagreement after episode %d (tier %u)\n", e, tier);
+      agree_boot = false;
+    }
+  }
+
+  check(!left_band, "nextOrdinal never left its tier's band");
+  check((int)s.appends >= episodes, "GATE 1 (tiers): every episode appended — none refused");
+  check(agree_live, "GATE 2 (tiers): beliefs equal the never-evicting reference at every step");
+  check(agree_boot, "GATE 3 (tiers): a reboot from the store alone agrees at every step");
+  check(node.foldUnderflow() == 0 && node.refused() == 0, "no fold underflow, no refusal");
+  check(bounded, "GATE 4 (tiers): no tier's live window exceeded its own quota");
+  check(protected_, "GATE 7: no tier was evicted by another — each keeps min(appended, quota-batch)");
+  check(dead_exact, "dead() predicts exactly how many records each multi-tier cut removes");
+  if (entity_start >= 0) check(entity_wrapped, "GATE 6 (tiers): the entity band crossed its wrap");
+  if (!f.commit_fail_every && !f.cut_fail_every)
+    check(max_records <= (size_t)tiers.capacity() + SEMANTIC_TIERS * (batch + 1) +
+                         (slack ? slack : 1) + 2,
+          "the tier set's footprint stays near Σquota + batch per tier + slack");
+  printf("    %d episodes (link %d entity %d motion %d acoustic %d), %u folded, %d commits "
+         "(%d failed), %d cuts (%d failed), peak %u records\n",
+         episodes, appended[0], appended[1], appended[2], appended[3],
+         (unsigned)tiers.folds(), commits, failed_commits, cuts, failed_cuts,
+         (unsigned)max_records);
+}
+
 int main() {
   testOrdinals();
   testLink();
   testBuilder();
   testReader();
   testCheckpoint();
+  testBands();
+  testTierCheckpoint();
 
   Faults none = {0, 0};
   Faults cutsFail = {0, 2};          // every other rewrite refused, as with radios up
@@ -656,6 +894,16 @@ int main() {
   runProtocol("fleet constants, cut at slack", SEMANTIC_RING_CAPACITY, SEMANTIC_EVICT_BATCH,
               400, none, -1, SEMANTIC_CUT_SLACK);
   runProtocol("slack, both faults, across the wrap", 8, 3, 300, both, 32700, 5);
+
+  const uint16_t small[SEMANTIC_TIERS] = {8, 5, 4, 4};
+  const uint16_t fleet[SEMANTIC_TIERS] = {SEMANTIC_QUOTA_LINK, SEMANTIC_QUOTA_ENTITY,
+                                          SEMANTIC_QUOTA_MOTION, SEMANTIC_QUOTA_ACOUSTIC};
+  runTierProtocol("clean", small, 2, 400, TierFaults{0, 0}, -1, 0);
+  runTierProtocol("both faults", small, 2, 400, TierFaults{3, 2}, -1, 0);
+  runTierProtocol("slack, both faults, entity across its band wrap", small, 2, 500,
+                  TierFaults{3, 2}, 16370, 5);
+  runTierProtocol("fleet quotas, cut at slack", fleet, SEMANTIC_EVICT_BATCH, 1200,
+                  TierFaults{0, 0}, -1, SEMANTIC_CUT_SLACK);
 
   printf("\n%d checks, %d failures\n", gChecks, gFails);
   return gFails ? 1 : 0;
