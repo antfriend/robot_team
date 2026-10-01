@@ -156,6 +156,12 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 // Same evidence (each scored window's verdicts), different store: a ring that folds into
 // a carried tally instead of refusing at a cap, and TTG-0003 counting instead of Rule 3.
 // The old path stays until the comparison is made on hardware (ACT-III §C3).
+// Kill-switch for the episode tier AND the @LAT97-full scoring change that feeds it: 0
+// restores the pre-Phase-C link flush exactly. Kept because it is how the 2026-10-01 heap
+// leak was A/B-tested on the same board with the same peers (docs/log/2026-10.md).
+#ifndef PHASEC_EPISODES
+#define PHASEC_EPISODES 1
+#endif
 static episodenode::Node gEpisodes;
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
               (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
@@ -3784,7 +3790,7 @@ void setup() {
   // --- THE EPISODE TIER BOOTS HERE, FOR THE SAME REASON: its boot cut is a whole-file
   // rewrite, and above the radios is where a rewrite has the heap to succeed. Reads the
   // newest @LAT104 checkpoint, replays the live @LAT103 episodes, cuts what is dead.
-  {
+  if (PHASEC_EPISODES) {
     const uint32_t t0 = millis();
     gEpisodes.begin(gDb);
     Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
@@ -3995,7 +4001,10 @@ void loop() {
     // the @LAT97 record and the @LAT92 outcome — whose provenance would dangle — are
     // withheld, and the outcome is still RENDERED so the run accounting stays true.
     const bool link_lane_full = (lane >= LINKPERCEPT_MAX_LANE);
-    {
+    if (!PHASEC_EPISODES && link_lane_full) {
+      gLearn.disarm();             // the pre-Phase-C behaviour, for the A/B
+      gLinkLog.reset(now);
+    } else {
       // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
       // double duty: they SCORE the expectation armed last window, and they are the
       // basis for the next one (Rule 1 — re-derived from current state, every window).
@@ -4032,7 +4041,7 @@ void loop() {
       if (gLearn.score(gStamp, gStreamWallSec)) {
         // ACT-III §C2: EVERY scored window is one episode — folded or not, and even when
         // @LAT92 is full. That is what TTG-0003 §2 counts and what the comparison measured.
-        {
+        if (PHASEC_EPISODES) {
           semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
           const int nc = gLearn.scoredCount();
           for (int i = 0; i < nc; ++i) {
@@ -4049,9 +4058,13 @@ void loop() {
                                                 gPulse.playing(), gPulse.conductor()),
                              at, sizeof(at));
           if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
-            Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u%s\n",
+            // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
+            // falling maxalloc is fragmentation, and those need opposite fixes.
+            Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u "
+                          "heap %u maxalloc %u%s\n",
                           SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.ring().live(),
-                          (unsigned)gEpisodes.ring().present(),
+                          (unsigned)gEpisodes.ring().present(), (unsigned)ESP.getFreeHeap(),
+                          (unsigned)ESP.getMaxAllocHeap(),
                           link_lane_full ? "  [@LAT97 full: episode only]" : "");
           else
             Serial.printf("[episode] window NOT appended (render fail %lu, append fail %lu, "
@@ -4116,7 +4129,7 @@ void loop() {
     if (now - last_dream >= DREAM_RECONCILE_MS || last_dream == 0) {
       last_dream = now;
       reconcileBeliefs();
-      gEpisodes.print(Serial);   // the new tier's beliefs, beside Rule 3's, same cadence
+      if (PHASEC_EPISODES) gEpisodes.print(Serial);   // the new tier's beliefs, beside Rule 3's, same cadence
     }
   }
 
@@ -4738,10 +4751,14 @@ void loop() {
       // should track (~25/s). A resting node quietly burning 25 fps would look identical
       // on every other number in this line.
       Serial.printf("[loop] worst pass %lums (render %lums, widest section %s %lums) "
-                    "| worst render %lums | frames %lu | maxalloc %luK\n",
+                    "| worst render %lums | frames %lu | heap %lu maxalloc %luK\n",
                     (unsigned long)worst, (unsigned long)worstOwnRender,
                     worstSectName, (unsigned long)worstSect,
                     (unsigned long)gWorstRenderMs, (unsigned long)gRenderCount,
+                    // ⚠ FREE heap, not only maxalloc: on 2026-10-01 free heap was found
+                    // falling ~500 B/min to zero and resetting this node every ~20 min —
+                    // invisible for two months because only the largest block was printed.
+                    (unsigned long)ESP.getFreeHeap(),
                     (unsigned long)(ESP.getMaxAllocHeap() / 1024));
       gRenderCount = 0;
       worst = 0;

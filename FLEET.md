@@ -286,14 +286,18 @@ If a fact lives in one of these, link to it from here — don't copy it.
 1. **Phase C, continued** (ACT-III §5 and its ◐ status block). The consolidator **and the
    EPISODE lane library** are done (`Semantic/src/Episode.*`, `@LAT103` episodes +
    `@LAT104` fold checkpoint, 2026-10-01 — [docs/log/2026-10.md](docs/log/2026-10.md)).
-   ✅ **Wired into the Cardputer firmware, compiled, NOT yet flashed** (no board attached
-   2026-10-01): every scored link window → one `@LAT103` episode, beside the untouched
-   `@LAT92`/`@LAT91` path. Cost **+10.9 KB flash, +4.8 KB static RAM** — ⚠ the RAM is the
-   risk on a node whose maxalloc was ~7 KB with radios up. **Next: flash it and run the
-   five-step check in [docs/log/2026-10.md](docs/log/2026-10.md)** (boot replay, fold +
-   commit at 49, runtime cut, reboot agreement, maxalloc). Then **C4** (TTG-RFC-0004 §4 time, the headline,
-   unimplemented in any checkout), then **C0's deletion**: every `clear` verb gone from
-   `orchestrator/` and nothing replacing it.
+   ✅ **RUNNING ON THE CARDPUTER** (2026-10-01): every scored link window → one `@LAT103`
+   episode, beside the untouched `@LAT92`/`@LAT91` path. **On hardware: fold + commit at
+   49, boot cut, and reboot agreement — including THROUGH a checkpoint and an unplanned
+   crash — all pass.** Not yet seen: a runtime (radios-up) cut. Defect: `seen` is not
+   carried, so EPS drops on every reboot. C4's portable core (`FleetTime.*`, §4.8 items
+   1–4) is built and the episodes now carry `at: <pulse> ±<bound>`.
+   🛑 **The Cardputer resets every ~20 min: free heap drains ≈500 B/min to zero.** A/B on
+   the same board says **not Phase C** (`-DPHASEC_EPISODES=0` leaks at the same rate) and
+   it contradicts the 2026-08 "ceiling, not a leak" note, which read only `maxalloc`.
+   **Next: the same slope with the PEERS OFF** — if it vanishes, the leak is per received
+   frame. Then the `seen` fix, the runtime cut, C4's chart-frame question, then **C0's
+   deletion**: every `clear` verb gone from `orchestrator/` and nothing replacing it.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers mod 32768 (`TtdbRecord::lon` is `int16_t`) and wrap in ~23 days.
    📌 Reproduce the consolidator comparison any time with
