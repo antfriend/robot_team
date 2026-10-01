@@ -1,0 +1,262 @@
+// EpisodeNode.h — the Arduino-side glue for the EPISODE tier (ACT-III §C2). The portable
+// half (Episode.h) owns the record grammar, the reader and the ring's bookkeeping; this
+// half owns the order of operations against a real Ttdb — the same split as
+// LaneGen/LaneGenNode and TimeStream/TimeStreamNode.
+//
+// ⚠ Header-only and NOT part of the native test build: it includes <Arduino.h> and
+// TTDB.h. Everything here that could be wrong in a way a test could catch lives in
+// Episode.cpp; what remains is plumbing, and it is kept small on purpose.
+//
+// THE ORDER, and every step is from loop(), never a radio callback (a flash write):
+//   begin()      at boot — before the radios, while the heap is free:
+//                  scan the index → read the NEWEST checkpoint (seeds carried + horizon)
+//                  → stream the live episodes KEEPING → cut whatever is dead.
+//   appendLink() per scored link window: render → appendRecord → feed it KEEPING.
+//   service()    fold if due (EVICTING replay) → commit (append a checkpoint) → cut
+//                once SEMANTIC_CUT_SLACK records are dead, with a back-off after failure.
+//
+// ⚠ A FAILED CUT IS NOT AN ERROR STATE — it is the case the design is for. The checkpoint
+// is the commit point, so dead records behind it are skipped on every read and the only
+// cost is index slots. What IS worth saying out loud is a cut failing repeatedly with the
+// index running low, which is why stats carry the failing step's name.
+#pragma once
+#include <Arduino.h>
+#include <TTDB.h>
+#include <stdlib.h>
+#include "Episode.h"
+
+namespace episodenode {
+
+// TtdbCut and semantic::Cut are declared as twins so Semantic never includes <FS.h>.
+static_assert(sizeof(TtdbCut) == sizeof(semantic::Cut), "TtdbCut / semantic::Cut drifted");
+
+#ifndef EPISODENODE_CUT_RETRY_MS
+// After a refused rewrite, wait before trying again: with the radios up the refusal is
+// usually the heap (TTDB.h), and retrying every window would spend a whole-file copy per
+// minute learning the same thing.
+#define EPISODENODE_CUT_RETRY_MS 300000UL
+#endif
+
+struct Stats {
+  uint32_t appended = 0, append_failed = 0, render_failed = 0;
+  uint32_t commits = 0, commit_failed = 0, commit_nomem = 0;
+  uint32_t cuts = 0, cut_failed = 0, cut_records = 0;
+  uint32_t long_lines = 0;          // body lines longer than the line buffer, skipped
+  TtdbRewriteErr last_cut_err = TTDB_RW_OK;
+};
+
+// Stream one indexed record's lines into anything with line(const char*).
+// ⚠ An over-long BODY line is skipped and counted, never fed truncated: a cut percept
+// line can parse as a DIFFERENT triple. An over-long HEADER line is fed truncated, because
+// the readers only take its leading `@LATxLONy`.
+template <class R>
+inline bool streamRecord(Ttdb& db, int idx, R& r, uint32_t& long_lines) {
+  size_t off = 0, len = 0;
+  if (!db.recordSpan(idx, off, len)) return false;
+  char chunk[256];
+  char line[SEMANTIC_LINE_MAX + 56];
+  size_t ll = 0;
+  bool over = false;
+  auto emit = [&]() {
+    line[ll] = '\0';
+    if (ll && line[ll - 1] == '\r') line[--ll] = '\0';
+    if (!over || line[0] == '@') r.line(line);
+    else ++long_lines;
+    ll = 0;
+    over = false;
+  };
+  while (len) {
+    const size_t want = len < sizeof(chunk) ? len : sizeof(chunk);
+    const size_t got = db.readBytes(off, (uint8_t*)chunk, want);
+    if (!got) return false;
+    for (size_t i = 0; i < got; ++i) {
+      const char c = chunk[i];
+      if (c == '\n') emit();
+      else if (ll < sizeof(line) - 1) line[ll++] = c;
+      else over = true;
+    }
+    off += got;
+    len -= got;
+    yield();
+  }
+  if (ll) emit();
+  return true;
+}
+
+// Same, over bytes already in RAM (the record just rendered, so it is not read back).
+template <class R>
+inline void feedBuffer(const char* text, size_t n, R& r) {
+  char line[SEMANTIC_LINE_MAX + 56];
+  size_t ll = 0;
+  for (size_t i = 0; i <= n; ++i) {
+    const char c = (i < n) ? text[i] : '\n';
+    if (c == '\n') {
+      line[ll] = '\0';
+      if (ll || i < n) r.line(line);
+      ll = 0;
+    } else if (ll < sizeof(line) - 1) {
+      line[ll++] = c;
+    }
+  }
+}
+
+class Node {
+ public:
+  // Boot. Call from setup() AFTER gDb.begin() and BEFORE the radios come up, so the cut
+  // here runs with the heap that makes a rewrite succeed.
+  void begin(Ttdb& db, uint16_t capacity = SEMANTIC_RING_CAPACITY,
+             uint16_t batch = SEMANTIC_EVICT_BATCH) {
+    db_ = &db;
+    c_.begin();
+    ring_.begin(capacity, batch);
+    scan();
+    if (ring_.hasCheckpoint()) {
+      semantic::CheckpointReader cr(c_, ring_.checkpointOrdinal());
+      for (int i = 0; i < db.recordCount(); ++i)
+        if (db.record(i).lat == SEMANTIC_CARRIED_LANE &&
+            db.record(i).lon == ring_.checkpointOrdinal())
+          streamRecord(db, i, cr, st_.long_lines);
+      if (cr.found()) ring_.setHorizon(cr.through());
+      ck_malformed_ = cr.malformed();
+    }
+    int16_t from, through;
+    if (ring_.liveRun(from, through)) {
+      semantic::EpisodeReader r(c_);
+      r.select(from, through, semantic::Consolidator::KEEPING);
+      for (int i = 0; i < db.recordCount(); ++i)
+        if (db.record(i).lat == SEMANTIC_EPISODE_LANE) streamRecord(db, i, r, st_.long_lines);
+      r.finish();
+      boot_fed_ = r.fed();
+    }
+    cut(true);                     // boot: always, regardless of slack
+  }
+
+  // One scored link window → one episode. The write is never refused by THIS tier; the
+  // only refusal left is the whole-file index cap inside appendRecord, which is counted.
+  bool appendLink(const semantic::LinkClaim* claims, int n, const char* at, uint32_t t) {
+    if (!db_) return false;
+    static char rec[SEMANTIC_LINK_EPISODE_BUF];      // static: too big for the loop stack
+    const int16_t ord = ring_.nextOrdinal();
+    const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, rec, sizeof(rec));
+    if (!m) { ++st_.render_failed; return false; }
+    if (!db_->appendRecord(rec, m)) { ++st_.append_failed; return false; }
+    ++st_.appended;
+    ring_.appended(ord);
+    semantic::EpisodeReader r(c_);
+    r.select(ord, ord, semantic::Consolidator::KEEPING);
+    feedBuffer(rec, m, r);
+    r.finish();
+    return true;
+  }
+
+  // Fold → commit → cut. Cheap when nothing is due (no file I/O at all).
+  void service(uint32_t now_ms, uint32_t t) {
+    if (!db_) return;
+    int16_t from, through;
+    if (ring_.foldDue(from, through)) {
+      semantic::EpisodeReader r(c_);
+      r.select(from, through, semantic::Consolidator::EVICTING);
+      for (int i = 0; i < db_->recordCount(); ++i) {
+        const TtdbRecord& rec = db_->record(i);
+        if (rec.lat == SEMANTIC_EPISODE_LANE && semantic::ordinalInRun(rec.lon, from, through))
+          streamRecord(*db_, i, r, st_.long_lines);
+      }
+      r.finish();
+      ring_.folded(through);
+    }
+    if (ring_.commitDue()) commit(t);
+    if (ring_.dead() >= SEMANTIC_CUT_SLACK &&
+        (last_cut_fail_ms_ == 0 || now_ms - last_cut_fail_ms_ >= EPISODENODE_CUT_RETRY_MS)) {
+      if (!cut(false)) last_cut_fail_ms_ = now_ms ? now_ms : 1;
+      else last_cut_fail_ms_ = 0;
+    }
+  }
+
+  semantic::Consolidator& beliefs() { return c_; }
+  const semantic::EpisodeRing& ring() const { return ring_; }
+  const Stats& stats() const { return st_; }
+  uint32_t bootFed() const { return boot_fed_; }
+  uint32_t checkpointMalformed() const { return ck_malformed_; }
+
+  // One line of state, then one `belief:` line per term, for the serial log.
+  void print(Print& out) const {
+    out.printf("[episode] live %u present %u dead %u horizon %s%d terms %u reclaimed %lu "
+               "| appended %lu (fail %lu) commits %lu (fail %lu nomem %lu) cuts %lu "
+               "(fail %lu last '%s') malformed %lu\n",
+               (unsigned)ring_.live(), (unsigned)ring_.present(), (unsigned)ring_.dead(),
+               ring_.hasHorizon() ? "" : "none/", (int)ring_.flashHorizon(),
+               (unsigned)c_.termCount(), (unsigned long)c_.reclaimed(),
+               (unsigned long)st_.appended, (unsigned long)st_.append_failed,
+               (unsigned long)st_.commits, (unsigned long)st_.commit_failed,
+               (unsigned long)st_.commit_nomem, (unsigned long)st_.cuts,
+               (unsigned long)st_.cut_failed, ttdbRewriteErrName(st_.last_cut_err),
+               (unsigned long)c_.malformedCount());
+    for (size_t i = 0; i < c_.termCount(); ++i) {
+      const semantic::Term* tm = c_.term(i);
+      char b[128];
+      if (c_.beliefLine(*tm, b, sizeof(b)))
+        out.printf("[episode]   %s %s eps:%u carried:%s\n", tm->subject, b,
+                   (unsigned)c_.eps(*tm),
+                   (tm->carried_for || tm->carried_against) ? "yes" : "no");
+    }
+  }
+
+ private:
+  void scan() {
+    ring_.resetScan();
+    for (int i = 0; i < db_->recordCount(); ++i)
+      ring_.observe(db_->record(i).lat, db_->record(i).lon);
+  }
+
+  // Exact-size heap allocation, freed at once: a 4.4 KB static for a write that happens
+  // once per BATCH windows is the wrong trade on a node whose maxalloc is single-digit KB.
+  // A failed malloc just leaves the commit due — harmless by the commit-point order.
+  void commit(uint32_t t) {
+    const int16_t ck = ring_.nextCheckpointOrdinal();
+    const int16_t through = ring_.ramHorizon();
+    const size_t need = semantic::checkpointBytes(c_, through, ck, t);
+    if (!need) { ++st_.commit_failed; return; }
+    char* buf = (char*)malloc(need + 1);
+    if (!buf) { ++st_.commit_nomem; return; }
+    const size_t m = semantic::renderCheckpoint(c_, through, ck, t, buf, need + 1);
+    const bool ok = m && db_->appendRecord(buf, m);
+    free(buf);
+    if (!ok) { ++st_.commit_failed; return; }
+    ++st_.commits;
+    ring_.checkpointAppended(ck);
+  }
+
+  bool cut(bool boot) {
+    semantic::Cut cs[4];
+    const uint8_t n = ring_.cuts(cs, 4);
+    if (!n) return true;
+    (void)boot;
+    TtdbCut tc[4];
+    for (uint8_t i = 0; i < n; ++i) tc[i] = TtdbCut{cs[i].lat, cs[i].lon_lo, cs[i].lon_hi};
+    const uint16_t dead = ring_.dead();
+    db_->clearRewriteErr();
+    if (!db_->removeCuts(tc, n)) {
+      ++st_.cut_failed;
+      st_.last_cut_err = db_->lastRewriteErr();
+      // ⚠ RENAME means the TTDB is in `<path>.tmp` and the index is stale; anything but
+      // a rescan of what Ttdb now believes would compound it.
+      scan();
+      return false;
+    }
+    ++st_.cuts;
+    st_.cut_records += dead;
+    st_.last_cut_err = TTDB_RW_OK;
+    scan();                        // removeCuts re-indexed; the ring re-reads the index
+    return true;
+  }
+
+  Ttdb* db_ = nullptr;
+  semantic::Consolidator c_;
+  semantic::EpisodeRing ring_;
+  Stats st_;
+  uint32_t last_cut_fail_ms_ = 0;
+  uint32_t boot_fed_ = 0;
+  uint32_t ck_malformed_ = 0;
+};
+
+}  // namespace episodenode

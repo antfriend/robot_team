@@ -53,6 +53,7 @@
 #include <EntityPercept.h>   // SP0 entity tier: WiFi BSSID sightings -> @LAT96
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
+#include <EpisodeNode.h>     // ACT-III §C2: one episode per scored window -> @LAT103/@LAT104
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
@@ -150,6 +151,15 @@ static motionpercept::Log gMotionLog;    // @LAT95 was-this-node-still
 // The percept-learning loop. Armed by a `still` @LAT95 window, scored by the next
 // @LAT97 window, testified to @LAT92. It never edits anything (Rule 2).
 static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
+// ACT-III Phase C: the EPISODE tier, running BESIDE @LAT92/@LAT91 during the transition.
+// Same evidence (each scored window's verdicts), different store: a ring that folds into
+// a carried tally instead of refusing at a cap, and TTG-0003 counting instead of Rule 3.
+// The old path stays until the comparison is made on hardware (ACT-III §C3).
+static episodenode::Node gEpisodes;
+static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
+              (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
+              (int)perceptlearn::VERDICT_UNOBSERVED == (int)semantic::LINK_UNOBSERVED,
+              "Semantic's LinkVerdict must mirror perceptlearn::Verdict");
 // How often the Dream Cycle re-reads the outcome lane and reconciles @LAT91. Slower than
 // the 60 s percept windows on purpose: a lane rewrite is a whole-TTDB flash operation, and
 // Rule 2 wants reconciliation to be a separate phase from testimony, not a side effect of
@@ -3770,6 +3780,18 @@ void setup() {
                        "Not rescheduled; this needs a look, not another reboot.");
     }
   }
+  // --- THE EPISODE TIER BOOTS HERE, FOR THE SAME REASON: its boot cut is a whole-file
+  // rewrite, and above the radios is where a rewrite has the heap to succeed. Reads the
+  // newest @LAT104 checkpoint, replays the live @LAT103 episodes, cuts what is dead.
+  {
+    const uint32_t t0 = millis();
+    gEpisodes.begin(gDb);
+    Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                  "maxalloc %u B\n",
+                  (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                  (unsigned)gEpisodes.ring().present(), (unsigned)ESP.getMaxAllocHeap());
+    gEpisodes.print(Serial);
+  }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
   // inside EntityPercept.cpp — a separate translation unit — so it can only be changed
@@ -3999,6 +4021,26 @@ void loop() {
       // doing it from the live loop is the exact violation Rule 2 names (and the one
       // LOCUS committed).
       if (gLearn.score(gStamp, gStreamWallSec)) {
+        // ACT-III §C2: EVERY scored window is one episode — folded or not, and even when
+        // @LAT92 is full. That is what TTG-0003 §2 counts and what the comparison measured.
+        {
+          semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
+          const int nc = gLearn.scoredCount();
+          for (int i = 0; i < nc; ++i) {
+            const perceptlearn::Claim& k = gLearn.scored(i);
+            lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
+                                        k.predicted, k.observed};
+          }
+          char at[64];
+          timestream::buildStamp(at, sizeof(at), gStamp);
+          if (!gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
+            Serial.printf("[episode] window NOT appended (render fail %lu, append fail %lu, "
+                          "index headroom %d)\n",
+                          (unsigned long)gEpisodes.stats().render_failed,
+                          (unsigned long)gEpisodes.stats().append_failed,
+                          gDb.indexHeadroom());
+          gEpisodes.service(now, gStreamWallSec);
+        }
         if (!gLearn.outcomePending()) {
           // Run-length: this window's verdicts matched the record before it, so it is
           // FOLDED, not written. Say so — a lane that has gone quiet because nothing is
@@ -4051,6 +4093,7 @@ void loop() {
     if (now - last_dream >= DREAM_RECONCILE_MS || last_dream == 0) {
       last_dream = now;
       reconcileBeliefs();
+      gEpisodes.print(Serial);   // the new tier's beliefs, beside Rule 3's, same cadence
     }
   }
 

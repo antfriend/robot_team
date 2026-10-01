@@ -62,6 +62,10 @@ firmware/
                         co-presence trace per peer, decay-on-read, reclaim-lowest, NO
                         prune path by design — the RAM table is the live medium and the
                         lane its change-triggered durable shadow. SocialNode.h is the glue.
+    Semantic/           ACT-III Phase C memory: TTG-0003 counting consolidator (Semantic.*),
+                        the EPISODE tier (Episode.*: @LAT103 episodes, @LAT104 fold
+                        checkpoint = the commit point, so a refused rewrite never double-
+                        counts) and EpisodeNode.h, the Arduino glue (Cardputer only so far).
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md — percept leaf, and since

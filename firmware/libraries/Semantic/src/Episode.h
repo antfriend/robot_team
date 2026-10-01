@@ -123,6 +123,18 @@ namespace semantic {
 #define SEMANTIC_CARRIED_LINE_MAX (16 + 3 * 12 + 3 * (SEMANTIC_LEMMA_MAX + 3))
 #define SEMANTIC_CARRIED_BUF (160 + SEMANTIC_MAX_TERMS * SEMANTIC_CARRIED_LINE_MAX)
 
+// Dead records (episodes behind the committed horizon + superseded checkpoints) tolerated
+// before a cut is attempted. A cut is a whole-file rewrite, so attempting one per fold
+// would be one rewrite per BATCH+1 windows; this makes it one per ~SLACK. The cost is
+// index slots: the tier peaks near CAPACITY + SLACK + a few, against 4×48 + 24 + 16 for
+// the lanes it replaces. Boot always cuts regardless (radios down, heap free).
+#ifndef SEMANTIC_CUT_SLACK
+#define SEMANTIC_CUT_SLACK 16
+#endif
+
+// Rendered episode buffer for one link window: header + said/percept pair per claim.
+#define SEMANTIC_LINK_EPISODE_BUF 1280   // worst case (8 maximal claims) measured 1194 B by test_episode
+
 // One ordinal range on one lane: the portable twin of TTDB.h's TtdbCut (same fields, same
 // order), so the glue converts with a field copy and Semantic never includes <FS.h>.
 struct Cut {
@@ -233,6 +245,42 @@ size_t renderCheckpoint(const Consolidator& c, int16_t through, int16_t ordinal,
                         uint32_t t, char* out, size_t cap,
                         int16_t lane = SEMANTIC_CARRIED_LANE);
 
+// The exact byte count renderCheckpoint would write (excluding the terminator), so the
+// glue can allocate exactly instead of holding SEMANTIC_CARRIED_BUF static on a node
+// whose maxalloc is single-digit KB. If the allocation fails the commit simply does not
+// happen yet — which the checkpoint-as-commit-point order makes harmless.
+size_t checkpointBytes(const Consolidator& c, int16_t through, int16_t ordinal, uint32_t t,
+                       int16_t lane = SEMANTIC_CARRIED_LANE);
+
+// ---------------------------------------------------------------------------------------
+// THE LINK TIER AS EPISODES
+// ---------------------------------------------------------------------------------------
+// One scored PerceptLearn window = one episode. Each claim becomes one sentence:
+//
+//   said: <k> | <peer> <proto> <verdict> predicted:<p> observed:<o>
+//   percept: <k> | <peer> | link_stable | <proto> | <+ - ?> | -
+//
+// met → `+`, violated → `-`, unobserved → `?` (HELD: the expectation was made and the
+// world did not answer. Counted in `seen`, never believed — exactly what Rule 3 and
+// consolidator_compare.py do with it, so the measured comparison carries over).
+// The verdict numbering mirrors perceptlearn::Verdict; Semantic does not include
+// PerceptLearn (one dependency direction), so the glue static_asserts they agree.
+#define SEMANTIC_LINK_VECTOR "link_stable"
+enum LinkVerdict : uint8_t { LINK_MET = 0, LINK_VIOLATED = 1, LINK_UNOBSERVED = 2 };
+
+struct LinkClaim {
+  uint32_t    peer;
+  const char* proto;      // "espnow" / "ble" / "lora"
+  uint8_t     verdict;    // LinkVerdict
+  int16_t     predicted;
+  int16_t     observed;
+};
+
+// Returns record bytes, or 0 if it did not fit (never truncated). `at` is the caller's
+// stamp text (TimeStream's buildStamp today; TTG-0004 §4's `<pulse> ±<bound>` in C4).
+size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
+                         const char* at, char* out, size_t cap);
+
 class CheckpointReader {
  public:
   // Honours ONLY the record at (lane, ordinal) — see ONLY THE NEWEST CHECKPOINT above.
@@ -295,6 +343,9 @@ class EpisodeRing {
   // 3. CUT — what may be deleted now. Uses the FLASH horizon only, never RAM. Up to four
   //    cuts (each lane's range may wrap). Returns the count; 0 = nothing to cut.
   uint8_t cuts(Cut* out, uint8_t max) const;
+  // How many records those cuts would remove: the glue cuts once this reaches
+  // SEMANTIC_CUT_SLACK (and always at boot), not on every fold.
+  uint16_t dead() const;
 
   uint32_t folds() const { return folds_; }                   // episodes folded, lifetime
 

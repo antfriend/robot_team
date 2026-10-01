@@ -277,6 +277,15 @@ class Loop {
   // Windows since the last record was written, counting the one just scored.
   int  windowsSinceLast() const { return cov_windows_ + 1; }
 
+  // The verdict vector of the window JUST scored — every window, folded or not. This is
+  // the EPISODE tier's input (ACT-III §C2, Semantic/Episode.h): one episode per scored
+  // window, which is what TTG-0003 §2 counts and what consolidator_compare.py measured.
+  // ⚠ Read it right after score(), and read THIS rather than anything derived from
+  // claims_: the sketch re-arms in the motion flush and arm() overwrites claims_ (the
+  // same trap adoptRun() fell into — see scored_vec_ below).
+  int scoredCount() const { return scored_vec_n_; }
+  const Claim& scored(int i) const { return scored_vec_[i]; }
+
   // Render the outcome record and clear the pending flag. Carries the full tuple
   // Rule 2 specifies: acting record, edge, expectation, observed, verdict,
   // provenance. Returns bytes written, or 0 if nothing was pending or it did not fit.

@@ -231,30 +231,87 @@ void EpisodeReader::finish() {
 // ---------------------------------------------------------------------------------------
 // the checkpoint
 // ---------------------------------------------------------------------------------------
-size_t renderCheckpoint(const Consolidator& c, int16_t through, int16_t ordinal,
-                        uint32_t t, char* out, size_t cap, int16_t lane) {
-  if (!out || cap == 0 || ordinal < 0 || through < 0) return 0;
-  size_t len = 0;
-  int n = snprintf(out, cap,
-                   "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n"
-                   "**carried through @LAT%dLON%d**\n\n```" SEMANTIC_CARRIED_TAG "\n"
-                   SEMANTIC_THROUGH_KEY " %d\n",
-                   (int)lane, (int)ordinal, (unsigned long)t, (unsigned long)t,
-                   (int)SEMANTIC_EPISODE_LANE, (int)through, (int)through);
-  if (n < 0 || (size_t)n >= cap) { out[0] = '\0'; return 0; }
-  len = (size_t)n;
+// One writer for both renderCheckpoint and checkpointBytes, so the size the glue
+// allocates and the bytes it then renders cannot drift apart. `out == 0` counts only.
+namespace {
+struct Sink {
+  char*  out;
+  size_t cap, len;
+  bool   bad;
+  void put(const char* fmt, ...) {
+    if (bad) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = out ? vsnprintf(out + len, cap - len, fmt, ap) : vsnprintf(0, 0, fmt, ap);
+    va_end(ap);
+    if (n < 0 || (out && (size_t)n >= cap - len)) { bad = true; return; }
+    len += (size_t)n;
+  }
+};
+}  // namespace
+
+static size_t checkpointTo(Sink& s, const Consolidator& c, int16_t through, int16_t ordinal,
+                           uint32_t t, int16_t lane) {
+  if (ordinal < 0 || through < 0) return 0;
+  s.put("\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n"
+        "**carried through @LAT%dLON%d**\n\n```" SEMANTIC_CARRIED_TAG "\n"
+        SEMANTIC_THROUGH_KEY " %d\n",
+        (int)lane, (int)ordinal, (unsigned long)t, (unsigned long)t,
+        (int)SEMANTIC_EPISODE_LANE, (int)through, (int)through);
   for (size_t i = 0; i < c.termCount(); ++i) {
     const Term* tm = c.term(i);
     char cl[64];
     if (!c.carriedLine(*tm, cl, sizeof(cl))) continue;   // nothing carried for this term
-    n = snprintf(out + len, cap - len, "%s | %s | %s | %s\n", cl, tm->subject, tm->vec,
-                 tm->object);
-    if (n < 0 || (size_t)n >= cap - len) { out[0] = '\0'; return 0; }
-    len += (size_t)n;
+    s.put("%s | %s | %s | %s\n", cl, tm->subject, tm->vec, tm->object);
   }
-  n = snprintf(out + len, cap - len, "```\n");
-  if (n < 0 || (size_t)n >= cap - len) { out[0] = '\0'; return 0; }
-  return len + (size_t)n;
+  s.put("```\n");
+  return s.bad ? 0 : s.len;
+}
+
+size_t renderCheckpoint(const Consolidator& c, int16_t through, int16_t ordinal,
+                        uint32_t t, char* out, size_t cap, int16_t lane) {
+  if (!out || cap == 0) return 0;
+  Sink s = {out, cap, 0, false};
+  size_t n = checkpointTo(s, c, through, ordinal, t, lane);
+  if (!n) out[0] = '\0';
+  return n;
+}
+
+size_t checkpointBytes(const Consolidator& c, int16_t through, int16_t ordinal, uint32_t t,
+                       int16_t lane) {
+  Sink s = {0, 0, 0, false};
+  return checkpointTo(s, c, through, ordinal, t, lane);
+}
+
+// ---------------------------------------------------------------------------------------
+// the link tier
+// ---------------------------------------------------------------------------------------
+size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
+                         const char* at, char* out, size_t cap) {
+  if (!out || cap == 0 || (n > 0 && !claims)) return 0;
+  EpisodeBuilder b(out, cap);
+  if (!b.begin(ordinal, t, "link window", "perceptlearn", at)) return 0;
+  for (int i = 0; i < n; ++i) {
+    const LinkClaim& k = claims[i];
+    const char* proto = k.proto ? k.proto : "?";
+    const char* vname = k.verdict == LINK_MET ? "met"
+                      : k.verdict == LINK_VIOLATED ? "violated" : "unobserved";
+    char said[96];
+    snprintf(said, sizeof(said), "0x%08lx %s %s predicted:%d observed:%d",
+             (unsigned long)k.peer, proto, vname, (int)k.predicted, (int)k.observed);
+    b.said((uint32_t)(i + 1), said);
+    Percept p;
+    memset(&p, 0, sizeof(p));
+    p.sentence = (uint32_t)(i + 1);
+    snprintf(p.subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)k.peer);
+    snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s", SEMANTIC_LINK_VECTOR);
+    snprintf(p.object, SEMANTIC_LEMMA_MAX, "%s", proto);
+    p.pol = k.verdict == LINK_MET ? POL_PLUS
+          : k.verdict == LINK_VIOLATED ? POL_MINUS : POL_HELD;
+    p.quant = Q_NONE;
+    b.percept(p);
+  }
+  return b.finish();
 }
 
 CheckpointReader::CheckpointReader(Consolidator& c, int16_t ordinal, int16_t lane)
@@ -476,6 +533,17 @@ uint8_t EpisodeRing::cuts(Cut* out, uint8_t max) const {
   if (ck_count_ > 1)
     n = addRun(out, n, max, SEMANTIC_CARRIED_LANE, ck_oldest_, ordinalAdd(ck_newest_, -1));
   return n;
+}
+
+uint16_t EpisodeRing::dead() const {
+  uint16_t d = 0;
+  if (ep_any_ && has_flash_h_) {
+    const uint16_t span = ordinalDistance(ep_oldest_, ep_newest_);
+    const uint16_t age_h = ordinalDistance(flash_h_, ep_newest_);
+    if (age_h <= span) d = (uint16_t)(span - age_h + 1);   // oldest..horizon inclusive
+  }
+  if (ck_count_ > 1) d = (uint16_t)(d + ck_count_ - 1);
+  return d;
 }
 
 }  // namespace semantic

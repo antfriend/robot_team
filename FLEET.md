@@ -286,9 +286,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
 1. **Phase C, continued** (ACT-III §5 and its ◐ status block). The consolidator **and the
    EPISODE lane library** are done (`Semantic/src/Episode.*`, `@LAT103` episodes +
    `@LAT104` fold checkpoint, 2026-10-01 — [docs/log/2026-10.md](docs/log/2026-10.md)).
-   Next is the **sketch glue** (`EpisodeNode.h`, the `LaneGenNode` shape) and **one
-   sampler** emitting `percept:` lines into it — the link tier first — then an ESP32
-   compile with its cost stated. Then **C4** (TTG-RFC-0004 §4 time, the headline,
+   ✅ **Wired into the Cardputer firmware, compiled, NOT yet flashed** (no board attached
+   2026-10-01): every scored link window → one `@LAT103` episode, beside the untouched
+   `@LAT92`/`@LAT91` path. Cost **+10.9 KB flash, +4.8 KB static RAM** — ⚠ the RAM is the
+   risk on a node whose maxalloc was ~7 KB with radios up. **Next: flash it and run the
+   five-step check in [docs/log/2026-10.md](docs/log/2026-10.md)** (boot replay, fold +
+   commit at 49, runtime cut, reboot agreement, maxalloc). Then **C4** (TTG-RFC-0004 §4 time, the headline,
    unimplemented in any checkout), then **C0's deletion**: every `clear` verb gone from
    `orchestrator/` and nothing replacing it.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are

@@ -424,7 +424,8 @@ struct Faults {
 };
 
 static void runProtocol(const char* name, uint16_t cap, uint16_t batch, int episodes,
-                        Faults f, int16_t start_horizon /* -1 = fresh lane */) {
+                        Faults f, int16_t start_horizon /* -1 = fresh lane */,
+                        uint16_t slack = 0 /* cut when dead() >= slack; 0 = always */) {
   printf("protocol: %s\n", name);
   Store s;
   if (start_horizon >= 0) {
@@ -443,7 +444,9 @@ static void runProtocol(const char* name, uint16_t cap, uint16_t batch, int epis
 
   int commits = 0, cuts = 0, failed_commits = 0, failed_cuts = 0;
   bool agree_live = true, agree_boot = true, bounded = true, wrapped = false;
+  bool dead_exact = true;
   uint16_t max_present = 0;
+  size_t max_records = 0;
   static char ckbuf[SEMANTIC_CARRIED_BUF];
 
   for (int e = 0; e < episodes; ++e) {
@@ -490,18 +493,22 @@ static void runProtocol(const char* name, uint16_t cap, uint16_t batch, int epis
     }
     // 3. CUT
     Cut cs[4];
-    uint8_t nc = ring.cuts(cs, 4);
+    const uint16_t dead_before = ring.dead();
+    uint8_t nc = (dead_before >= slack) ? ring.cuts(cs, 4) : 0;
     if (nc) {
       ++cuts;
       if (f.cut_fail_every && cuts % f.cut_fail_every == 0) {
         ++failed_cuts;                       // the heap refused the rewrite
       } else {
+        const size_t before = s.recs.size();
         s.cut(cs, nc);
+        if (before - s.recs.size() != dead_before) dead_exact = false;
         scan(ring, s);                       // Ttdb re-indexes after a rewrite
       }
     }
 
     if (ring.present() > max_present) max_present = ring.present();
+    if (s.recs.size() > max_records) max_records = s.recs.size();
     if (ring.live() > cap) bounded = false;
 
     if (beliefs(node) != beliefs(ref)) agree_live = false;
@@ -525,14 +532,93 @@ static void runProtocol(const char* name, uint16_t cap, uint16_t batch, int epis
   check(s.count(SEMANTIC_CARRIED_LANE) <= (size_t)(f.cut_fail_every ? 64 : 2),
         "superseded checkpoints are cut, not accumulated");
   if (start_horizon > 30000) check(wrapped, "GATE 6: the run actually crossed the wrap");
+  check(dead_exact, "dead() predicts exactly how many records each cut removes");
+  if (!f.commit_fail_every && !f.cut_fail_every)
+    check(max_records <= (size_t)cap + batch + (slack ? slack : 1) + 2,
+          "the tier's index footprint stays near capacity + batch + slack");
   printf("    %d episodes, %u folded, %d commits (%d failed), %d cuts (%d failed), "
-         "max %u episode records on flash, %u now\n",
+         "max %u episode records on flash, %u now, peak %u records in the tier\n",
          episodes, (unsigned)ring.folds(), commits, failed_commits, cuts, failed_cuts,
-         (unsigned)max_present, (unsigned)ring.present());
+         (unsigned)max_present, (unsigned)ring.present(), (unsigned)max_records);
+}
+
+// =======================================================================================
+// 6. the link tier as episodes, and the exact checkpoint size
+// =======================================================================================
+static void testLink() {
+  printf("link\n");
+  LinkClaim k[3] = {
+    {0x200, "ble", LINK_MET, -40, -38},
+    {0x10, "espnow", LINK_VIOLATED, -50, -71},
+    {0x100, "espnow", LINK_UNOBSERVED, -60, 0},
+  };
+  static char buf[SEMANTIC_LINK_EPISODE_BUF];
+  size_t n = renderLinkEpisode(k, 3, 4, 77, "t_ms:77 stream:0x00000000 wall:0", buf, sizeof(buf));
+  checkStr(std::string(buf, n),
+           "\n---\n\n@LAT103LON4 | created:77 | updated:77\n\n**link window**\n\n"
+           "```ttdb-episode\nsource: perceptlearn\nat: t_ms:77 stream:0x00000000 wall:0\n"
+           "said: 1 | 0x00000200 ble met predicted:-40 observed:-38\n"
+           "percept: 1 | 0x00000200 | link_stable | ble | + | -\n"
+           "said: 2 | 0x00000010 espnow violated predicted:-50 observed:-71\n"
+           "percept: 2 | 0x00000010 | link_stable | espnow | - | -\n"
+           "said: 3 | 0x00000100 espnow unobserved predicted:-60 observed:0\n"
+           "percept: 3 | 0x00000100 | link_stable | espnow | ? | -\n```\n",
+           "a scored link window renders as one episode, one sentence per claim");
+
+  Consolidator c; c.begin();
+  EpisodeReader r(c);
+  r.select(4, 4, Consolidator::KEEPING);
+  feedText(r, std::string(buf, n));
+  r.finish();
+  const Term* met = c.find("0x00000200", "link_stable", "ble");
+  const Term* vio = c.find("0x00000010", "link_stable", "espnow");
+  const Term* un  = c.find("0x00000100", "link_stable", "espnow");
+  check(met && met->totalFor() == 2 && met->totalAgainst() == 0, "met reads back as one vote FOR");
+  check(vio && vio->totalFor() == 0 && vio->totalAgainst() == 2, "violated as one vote AGAINST");
+  check(un && un->totalFor() == 0 && un->totalAgainst() == 0 && un->seen == 1,
+        "unobserved is HELD: seen, never believed — as Rule 3 and the comparison treat it");
+
+  // The fleet's worst case: PERCEPTLEARN_MAX_CLAIMS (8) claims of maximal width.
+  LinkClaim w[8];
+  for (int i = 0; i < 8; ++i)
+    w[i] = LinkClaim{0xFFFFFFF0u + (uint32_t)i, "espnow", LINK_UNOBSERVED, -32768, -32768};
+  size_t wn = renderLinkEpisode(w, 8, 32767, 4294967295u,
+                                "t_ms:18446744073709551615 stream:0xffffffff wall:1", buf,
+                                sizeof(buf));
+  check(wn > 0, "eight maximal claims fit SEMANTIC_LINK_EPISODE_BUF");
+  printf("    worst-case link episode %u B of %u B\n", (unsigned)wn, (unsigned)sizeof(buf));
+
+  // checkpointBytes is what the glue allocates; it must equal what renderCheckpoint writes.
+  for (int e = 0; e < 6; ++e) {
+    c.beginEpisode();
+    c.percept(mk(1, "0x00000300", "link_stable", "ble", e % 3 ? POL_PLUS : POL_MINUS,
+                 e % 2 ? Q_SOME : Q_NONE));
+    c.endEpisode(Consolidator::KEEPING);
+  }
+  for (int e = 0; e < 3; ++e) {
+    c.beginEpisode();
+    c.percept(mk(1, "0x00000300", "link_stable", "ble", e % 3 ? POL_PLUS : POL_MINUS,
+                 e % 2 ? Q_SOME : Q_NONE));
+    c.endEpisode(Consolidator::EVICTING);
+  }
+  static char ck[SEMANTIC_CARRIED_BUF];
+  const int16_t throughs[] = {0, 9, 32767};
+  bool same = true;
+  for (int i = 0; i < 3; ++i) {
+    const int16_t ord = (int16_t)(i * 7);
+    const uint32_t t = (uint32_t)i * 1000003u;
+    size_t want = checkpointBytes(c, throughs[i], ord, t);
+    size_t got = renderCheckpoint(c, throughs[i], ord, t, ck, sizeof(ck));
+    if (want != got || got == 0) same = false;
+    std::vector<char> exact(want + 1);
+    if (renderCheckpoint(c, throughs[i], ord, t, exact.data(), exact.size()) != want) same = false;
+  }
+  check(same, "checkpointBytes() equals renderCheckpoint()'s length, and want+1 bytes is enough");
 }
 
 int main() {
   testOrdinals();
+  testLink();
   testBuilder();
   testReader();
   testCheckpoint();
@@ -548,6 +634,9 @@ int main() {
   runProtocol("batch 1", 5, 1, 120, none, -1);
   runProtocol("across the 32768 wrap", 8, 3, 200, both, 32700);
   runProtocol("fleet constants", SEMANTIC_RING_CAPACITY, SEMANTIC_EVICT_BATCH, 400, cutsFail, -1);
+  runProtocol("fleet constants, cut at slack", SEMANTIC_RING_CAPACITY, SEMANTIC_EVICT_BATCH,
+              400, none, -1, SEMANTIC_CUT_SLACK);
+  runProtocol("slack, both faults, across the wrap", 8, 3, 300, both, 32700, 5);
 
   printf("\n%d checks, %d failures\n", gChecks, gFails);
   return gFails ? 1 : 0;
