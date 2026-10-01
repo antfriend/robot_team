@@ -4057,10 +4057,13 @@ void loop() {
           // ACT-III §C4 / TTG-0004 §4.3: `at: <pulse ms> ±<bound ms>`, not the time stream —
           // a bound is a DURATION and the stream's clock is a ratchet. No chart yet means
           // UNBOUNDED: the episode still counts live, and joins no bar view (FleetTime.h).
-          char at[48];
+          // 72: a maximal `<i64> ±<u32> frame:<u64>` is ~60 B. The frame is the chart's
+          // downbeat_epoch — the lineage, which `era` is not (FleetTime.h).
+          char at[72];
           semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now),
                                                 gPulse.msSinceBeacon(now),
-                                                gPulse.playing(), gPulse.conductor()),
+                                                gPulse.playing(), gPulse.conductor(),
+                                                gPulse.chart().downbeat_epoch),
                              at, sizeof(at));
           if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
             // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a

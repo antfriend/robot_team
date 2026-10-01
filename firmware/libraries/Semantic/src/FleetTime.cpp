@@ -19,9 +19,11 @@ uint32_t boundMs(uint32_t ms_since_beacon, uint32_t drift_ppm, uint32_t delivery
 }
 
 At stampNow(int64_t pulse_now_ms, uint32_t ms_since_beacon, bool have_beacon,
-            bool conductor) {
+            bool conductor, uint64_t frame) {
   At a;
   a.t_ms = pulse_now_ms;
+  a.frame = frame;
+  a.has_frame = true;
   if (conductor) {
     a.bound_ms = 0;          // it IS the reference; nothing was delivered to it
     a.bounded = true;
@@ -31,14 +33,25 @@ At stampNow(int64_t pulse_now_ms, uint32_t ms_since_beacon, bool have_beacon,
   } else {
     a.bound_ms = 0;
     a.bounded = false;
+    a.frame = 0;
+    a.has_frame = false;     // no chart, so no frame to name
   }
   return a;
 }
 
+bool sameFrame(const At& a, const At& b) {
+  return a.has_frame && b.has_frame && a.frame == b.frame;
+}
+
 size_t renderAt(const At& a, char* out, size_t cap) {
-  int n = a.bounded ? snprintf(out, cap, "%lld \xC2\xB1%lu", (long long)a.t_ms,
-                               (unsigned long)a.bound_ms)
-                    : snprintf(out, cap, "%lld", (long long)a.t_ms);
+  int n;
+  if (a.bounded && a.has_frame)
+    n = snprintf(out, cap, "%lld \xC2\xB1%lu frame:%llu", (long long)a.t_ms,
+                 (unsigned long)a.bound_ms, (unsigned long long)a.frame);
+  else if (a.bounded)
+    n = snprintf(out, cap, "%lld \xC2\xB1%lu", (long long)a.t_ms, (unsigned long)a.bound_ms);
+  else
+    n = snprintf(out, cap, "%lld", (long long)a.t_ms);
   if (n < 0 || (size_t)n >= cap) { if (cap) out[0] = '\0'; return 0; }
   return (size_t)n;
 }
@@ -63,7 +76,7 @@ static bool readInt(const char** p, int64_t* out) {
 
 At parseAt(const char* s) {
   At a;
-  a.t_ms = 0; a.bound_ms = 0; a.bounded = false;
+  a.t_ms = 0; a.bound_ms = 0; a.bounded = false; a.frame = 0; a.has_frame = false;
   if (!s) return a;
   s = skipWs(s);
   if (strncmp(s, "at:", 3) == 0) s = skipWs(s + 3);
@@ -78,9 +91,23 @@ At parseAt(const char* s) {
       int64_t b;
       if (readInt(&q, &b) && b >= 0 && b <= 0xFFFFFFFFLL) {
         const char* r = skipWs(q);
-        if (*r == '\0' || *r == '\r' || *r == '\n') {
+        // Optional ` frame:<u64>`. A malformed frame makes the WHOLE stamp unbounded, not
+        // merely frameless: a half-read stamp is one we are not sure we read.
+        bool ok = true;
+        uint64_t fr = 0;
+        bool hf = false;
+        if (strncmp(r, "frame:", 6) == 0) {
+          const char* f = r + 6;
+          if (*f < '0' || *f > '9') ok = false;
+          while (ok && *f >= '0' && *f <= '9') { fr = fr * 10 + (uint64_t)(*f - '0'); ++f; }
+          hf = ok;
+          r = skipWs(f);
+        }
+        if (ok && (*r == '\0' || *r == '\r' || *r == '\n')) {
           a.bound_ms = (uint32_t)b;
           a.bounded = true;
+          a.frame = fr;
+          a.has_frame = hf;
         }
       }
     }
@@ -109,8 +136,10 @@ static bool knows(const EpisodeRef& later, const EpisodeRef& earlier) {
 }
 
 // Strictly-before by stamps alone: both bounded and the ranges do not overlap.
+// Strictly-before by stamps alone: both bounded, in the SAME frame, and the ranges do not
+// overlap. Stamps from different lineages are numbers on different clocks.
 static bool stampBefore(const At& a, const At& b) {
-  if (!a.bounded || !b.bounded) return false;
+  if (!a.bounded || !b.bounded || !sameFrame(a, b)) return false;
   return a.t_ms + (int64_t)a.bound_ms < b.t_ms - (int64_t)b.bound_ms;
 }
 
@@ -155,8 +184,9 @@ int64_t barLine(int64_t downbeat_ms, uint32_t bar_ms, uint32_t n) {
   return downbeat_ms + (int64_t)bar_ms * (int64_t)n;
 }
 
-bool inBar(const At& a, int64_t line) {
-  return a.bounded && a.t_ms + (int64_t)a.bound_ms < line;
+bool inBar(const At& a, int64_t line, uint64_t frame) {
+  return a.bounded && a.has_frame && a.frame == frame &&
+         a.t_ms + (int64_t)a.bound_ms < line;
 }
 
 }  // namespace semantic

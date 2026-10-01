@@ -44,15 +44,31 @@
 // to the pulse before this has anything to agree about (today's `t_ms:` stamps parse as
 // unbounded — readable, never mis-ordered, just not yet in any bar).
 //
-// ⚠ OPEN: A STAMP IS ONLY COMPARABLE WITHIN ONE CHART FRAME. A node that self-appoints
-// alone (a handheld booted with no peers) stamps against ITS OWN epoch; when it later
-// yields to a better chart its pulse clock JUMPS to the new conductor's epoch, and every
-// stamp it took before is in a frame nothing else shares. The bound does not cover that —
-// it models drift since the last beacon, not a change of reference. Not solved here. The
-// candidate fixes are (a) carry the chart (`conductor`, `era`) beside `at:` and treat
-// stamps from different charts as unbounded relative to each other, or (b) a conductor
-// that has never heard a peer stamps unbounded. (a) is the honest one; it needs the
-// episode block to grow a line, which is the next increment's to decide.
+// ---------------------------------------------------------------------------
+// ⚠ A STAMP IS ONLY COMPARABLE WITHIN ONE FRAME — so it names its frame (2026-10-01)
+// ---------------------------------------------------------------------------
+// A node that self-appoints alone stamps against ITS OWN epoch; when it later yields to a
+// better chart its pulse clock JUMPS to that lineage's epoch, and every stamp it took
+// before is in a frame nothing else shares. A bound models drift since the last beacon,
+// not a change of reference, so it cannot cover this. The stamp therefore carries
+//
+//     at: <t> ±<b> frame:<downbeat_epoch>
+//
+// and the FRAME is the chart's `downbeat_epoch`, NOT (`conductor`, `era`). Read
+// Pulse.cpp to see why: `era` bumps on a scene change and on a takeover, neither of which
+// moves the clock, while `downbeat_epoch` is minted exactly once — by a FRESH
+// self-appointment, the only place a new frame is born (offset 0, downbeat from local
+// time) — and then carried unchanged through every beacon, handoff and scene change.
+// So it is the lineage's identity, and two stamps compare iff they name the same one.
+//
+// ⚠ Residual, stated: two lineages founded independently can mint the same downbeat (it is
+// local ms rounded up to a beat). That needs two fresh self-appointments landing in the
+// same beat of their OWN clocks — e.g. two boards powered together and isolated — and then
+// their frames differ by roughly their boot skew, which is small but not bounded by the
+// stamp's ±. Not covered; a founder id on the PULSE wire would cover it.
+//
+// A stamp with no `frame:` (bounded stamps written before this, or any unbounded one)
+// orders nothing across agents and joins no bar — the same rule as an unbounded stamp.
 //
 // What this file does NOT do: §4.6's scene = grammar hash. These episodes are sensor
 // windows read by a fixed mapping (Episode.h renderLinkEpisode), not prose read through
@@ -88,22 +104,28 @@ struct At {
   int64_t  t_ms;       // pulse time
   uint32_t bound_ms;   // ± this
   bool     bounded;    // false: orders nothing outside its own agent, in no bar view
+  uint64_t frame;      // the chart's downbeat_epoch — see "COMPARABLE WITHIN ONE FRAME"
+  bool     has_frame;  // false: no frame named, so comparable with nothing across agents
 };
 
 // The bound for a stamp taken now. `conductor`: this node IS the chart's reference, so
-// only delivery applies. `have_beacon` false (never heard a chart): unbounded.
+// only delivery applies. `have_beacon` false (never heard a chart): unbounded, no frame.
+// `frame` = pulse::Engine::chart().downbeat_epoch.
 At stampNow(int64_t pulse_now_ms, uint32_t ms_since_beacon, bool have_beacon,
-            bool conductor);
+            bool conductor, uint64_t frame);
+// Do two stamps share a frame, so that their ranges may be compared at all?
+bool sameFrame(const At& a, const At& b);
 uint32_t boundMs(uint32_t ms_since_beacon, uint32_t drift_ppm = FLEETTIME_DRIFT_PPM,
                  uint32_t delivery_ms = FLEETTIME_DELIVERY_MS);
 
-// `<t> ±<b>` (no key) for a bounded stamp; `<t>` alone for an unbounded one. ± is UTF-8
-// (C2 B1) as the RFC writes it. Returns bytes, or 0 if it did not fit.
+// `<t> ±<b> frame:<f>` (no key) for a bounded stamp — `frame:` omitted when !has_frame;
+// `<t>` alone for an unbounded one. ± is UTF-8 (C2 B1) as the RFC writes it. Returns
+// bytes, or 0 if it did not fit.
 size_t renderAt(const At& a, char* out, size_t cap);
-// Parse the value of an `at:` line (key optional). Anything that is not `<int> ±<uint>`
-// parses as UNBOUNDED — including every pre-C4 `t_ms:… stream:… wall:…` stamp — with
-// t_ms taken from a leading integer or a `t_ms:` field when present. Never fails: an
-// unreadable stamp is a stamp that orders nothing, which is the safe reading.
+// Parse the value of an `at:` line (key optional). `<int> ±<uint>` is bounded, with an
+// optional ` frame:<u64>`; anything else parses as UNBOUNDED — including every pre-C4
+// `t_ms:… stream:… wall:…` stamp — with t_ms taken from a leading integer or a `t_ms:`
+// field. Never fails: an unreadable stamp is a stamp that orders nothing.
 At parseAt(const char* s);
 
 // ---------------------------------------------------------------------------------------
@@ -141,9 +163,10 @@ size_t maximal(const EpisodeRef* cands, size_t n, size_t* out, size_t max);
 // number of pulse bars (meter × beat), long enough to be a Dream Cycle — an hour in the
 // RFC's example; it is the caller's `bar_ms`.
 int64_t barLine(int64_t downbeat_ms, uint32_t bar_ms, uint32_t n);
-// Is this episode part of the view as of bar line `line`? Bounded AND its whole range
-// ends strictly before the line.
-bool inBar(const At& a, int64_t line);
+// Is this episode part of the view as of bar line `line` OF FRAME `frame`? Bounded, in
+// that frame, AND its whole range ends strictly before the line. A bar is a moment in
+// one lineage's clock; a stamp from another lineage cannot be placed against it.
+bool inBar(const At& a, int64_t line, uint64_t frame);
 
 }  // namespace semantic
 

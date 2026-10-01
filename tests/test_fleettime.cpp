@@ -28,11 +28,16 @@ static void check(bool ok, const char* what) {
 
 using namespace semantic;
 
-static EpisodeRef ep(uint32_t agent, uint32_t seq, int64_t t, uint32_t b, bool bounded = true) {
+// The fleet's frame in these fixtures: one lineage's downbeat_epoch.
+static const uint64_t kFrame = 5000;
+
+static EpisodeRef ep(uint32_t agent, uint32_t seq, int64_t t, uint32_t b, bool bounded = true,
+                     uint64_t frame = kFrame) {
   EpisodeRef e;
   memset(&e, 0, sizeof(e));
   e.agent = agent; e.seq = seq;
   e.at.t_ms = t; e.at.bound_ms = b; e.at.bounded = bounded;
+  e.at.frame = frame; e.at.has_frame = bounded;
   return e;
 }
 
@@ -44,17 +49,35 @@ static void testStamps() {
   check(boundMs(1, 50, 0) == 1, "drift rounds UP — a bound may over-state, never under-state");
   check(boundMs(0) == FLEETTIME_DELIVERY_MS, "fresh beacon: delivery only");
 
-  At c = stampNow(1000, 99999, true, true);
-  check(c.bounded && c.bound_ms == 0, "the conductor's own stamp is exact");
-  At u = stampNow(1000, 0, false, false);
-  check(!u.bounded, "never heard a chart: UNBOUNDED, orders nothing outside its agent");
+  At c = stampNow(1000, 99999, true, true, kFrame);
+  check(c.bounded && c.bound_ms == 0 && c.has_frame && c.frame == kFrame,
+        "the conductor's own stamp is exact, and names its frame");
+  At u = stampNow(1000, 0, false, false, kFrame);
+  check(!u.bounded && !u.has_frame,
+        "never heard a chart: UNBOUNDED and frameless, orders nothing outside its agent");
+
+  // --- the frame -------------------------------------------------------------------------
+  char fb[64];
+  At fa = {1789257600LL, 4, true, 6500, true};
+  check(renderAt(fa, fb, sizeof(fb)) &&
+            strcmp(fb, "1789257600 \xC2\xB1" "4 frame:6500") == 0,
+        "a framed stamp renders `<t> ±<b> frame:<downbeat>`");
+  At fr = parseAt(fb);
+  check(fr.bounded && fr.has_frame && fr.frame == 6500 && fr.bound_ms == 4, "and parses back");
+  check(!parseAt("at: 5 \xC2\xB1" "3 frame:").bounded &&
+            !parseAt("at: 5 \xC2\xB1" "3 frame:x").bounded,
+        "a malformed frame makes the WHOLE stamp unbounded — a half-read stamp orders nothing");
+  At x1 = {1000, 10, true, 5000, true}, x2 = {9000, 10, true, 6500, true},
+     x3 = {9000, 10, true, 5000, true};
+  check(!sameFrame(x1, x2) && sameFrame(x1, x3), "sameFrame compares lineages");
 
   char b[48];
-  At a = {1789257600LL, 4, true};
+  At a = {1789257600LL, 4, true, 0, false};
   size_t n = renderAt(a, b, sizeof(b));
   check(n && strcmp(b, "1789257600 \xC2\xB1" "4") == 0, "renders as the RFC writes it: `1789257600 ±4`");
   At r = parseAt("at: 1789257600 \xC2\xB1" "4");
-  check(r.bounded && r.t_ms == 1789257600LL && r.bound_ms == 4, "and parses back");
+  check(r.bounded && r.t_ms == 1789257600LL && r.bound_ms == 4 && !r.has_frame,
+        "and parses back — bounded but FRAMELESS (the stamps written before 2026-10-01's fix)");
   At old = parseAt("at: t_ms:77 stream:0x00000000 wall:0");
   check(!old.bounded && old.t_ms == 77,
         "a pre-C4 `t_ms:` stamp parses as UNBOUNDED — readable, never mis-ordered");
@@ -105,6 +128,23 @@ static void testOrder() {
         "same agent: its own sequence decides, not its clock");
   check(order(ep(0x10, 1, 0, 0, false), ep(0x200, 1, 99999, 0)) == CONCURRENT,
         "an unbounded stamp orders nothing across agents");
+
+  // THE FRAME CASE (2026-10-01): a node that self-appointed alone, stamped, then joined the
+  // fleet's lineage. Its old stamp's NUMBER is far below the fleet's, but it is on a
+  // different clock — disjoint-looking ranges in different frames must not order.
+  EpisodeRef lone = ep(0x300, 1, 1000, 5, true, 6500);       // its own lineage
+  EpisodeRef fleet = ep(0x10, 40, 90000, 5, true, kFrame);    // the fleet's
+  check(order(lone, fleet) == CONCURRENT,
+        "stamps in DIFFERENT frames never order by their numbers, however far apart");
+  EpisodeRef nofr = ep(0x300, 2, 1000, 5);
+  nofr.at.has_frame = false;
+  check(order(nofr, fleet) == CONCURRENT,
+        "a bounded but FRAMELESS stamp orders nothing across agents either");
+  EpisodeRef edge = lone;
+  fleet.follows[0] = Follows{0x300, 1};
+  fleet.n_follows = 1;
+  check(order(edge, fleet) == BEFORE,
+        "...but a `follows` edge still orders across frames: knowledge is not a clock");
 }
 
 // ---------------------------------------------------------------------------------------
@@ -138,7 +178,7 @@ static std::map<std::string, std::string> view(const std::vector<const World*>& 
   c.begin();
   for (size_t i = 0; i < held.size(); ++i) {
     const World* w = held[i];
-    bool use = !bar || inBar(w->ref.at, line) ||
+    bool use = !bar || inBar(w->ref.at, line, kFrame) ||
                (include_unbounded_own && !w->ref.at.bounded && w->ref.agent == owner &&
                 w->ref.at.t_ms < line);
     if (!use) continue;
@@ -203,9 +243,13 @@ static void testBar() {
         "agreement breaks — which is why FleetTime excludes them for everyone");
 
   // An episode straddling the line belongs to the NEXT bar, for everyone.
-  At straddle = {line - 10, 50, true};
-  check(!inBar(straddle, line) && inBar(straddle, barLine(downbeat, bar_ms, 3)),
+  At straddle = {line - 10, 50, true, kFrame, true};
+  check(!inBar(straddle, line, kFrame) &&
+            inBar(straddle, barLine(downbeat, bar_ms, 3), kFrame),
         "a stamp whose range crosses the line joins the next bar, not this one");
+  At other = {line - 30000, 50, true, 6500, true};
+  check(!inBar(other, line, kFrame),
+        "an episode stamped in ANOTHER lineage's frame joins none of this lineage's bars");
   printf("    %u episodes; X holds %u, Y holds %u; %u terms agree as of bar 2\n",
          (unsigned)world.size(), (unsigned)X.size(), (unsigned)Y.size(), (unsigned)xb.size());
 }

@@ -120,7 +120,8 @@ namespace semantic {
 // ⚠ This must never be undersized: a checkpoint that does not render cannot commit, and a
 // ring that cannot commit can only grow until the WHOLE-FILE index refuses — the exact
 // failure this phase exists to delete.
-#define SEMANTIC_CARRIED_LINE_MAX (16 + 3 * 12 + 3 * (SEMANTIC_LEMMA_MAX + 3))
+// Four numbers since 2026-10-01 (for, against, episodes, seen), each ≤ 12 chars.
+#define SEMANTIC_CARRIED_LINE_MAX (16 + 4 * 12 + 3 * (SEMANTIC_LEMMA_MAX + 3))
 #define SEMANTIC_CARRIED_BUF (160 + SEMANTIC_MAX_TERMS * SEMANTIC_CARRIED_LINE_MAX)
 
 // Dead records (episodes behind the committed horizon + superseded checkpoints) tolerated

@@ -84,6 +84,7 @@ void Consolidator::reset() {
   memset(terms_, 0, sizeof(terms_));
   memset(ep_plus_, 0, sizeof(ep_plus_));
   memset(ep_minus_, 0, sizeof(ep_minus_));
+  memset(ep_seen_, 0, sizeof(ep_seen_));
   count_ = 0;
   malformed_ = skipped_ = reclaimed_ = refused_ = fold_underflow_ = 0;
   last_mal_ = MAL_OK;
@@ -240,10 +241,12 @@ int Consolidator::reclaimLowestEps() {
     terms_[i]    = terms_[i + 1];
     ep_plus_[i]  = ep_plus_[i + 1];
     ep_minus_[i] = ep_minus_[i + 1];
+    ep_seen_[i]  = ep_seen_[i + 1];
   }
   --count_;
   memset(&terms_[count_], 0, sizeof(Term));
   ep_plus_[count_] = ep_minus_[count_] = 0;
+  ep_seen_[count_] = 0;
   ++reclaimed_;
   return (int)victim;
 }
@@ -261,6 +264,7 @@ int Consolidator::intern(const char* s, const char* v, const char* o) {
   snprintf(t.object,  SEMANTIC_LEMMA_MAX, "%s", o);
   t.used = true;
   ep_plus_[count_] = ep_minus_[count_] = 0;
+  ep_seen_[count_] = 0;
   return (int)count_++;
 }
 
@@ -270,6 +274,7 @@ int Consolidator::intern(const char* s, const char* v, const char* o) {
 void Consolidator::beginEpisode() {
   memset(ep_plus_, 0, sizeof(ep_plus_));
   memset(ep_minus_, 0, sizeof(ep_minus_));
+  memset(ep_seen_, 0, sizeof(ep_seen_));
   in_episode_ = true;
 }
 
@@ -299,6 +304,7 @@ bool Consolidator::percept(const Percept& p) {
   if (i < 0) { ++refused_; return false; }   // must stay 0; see refused()
 
   ++terms_[i].seen;                          // held and comention percepts still count as seen
+  if (ep_seen_[i] < 0xFFFF) ++ep_seen_[i];   // ...and remembered per episode, for the fold
   if (held || comention) { ++skipped_; return false; }
 
   const uint8_t w = (p.quant == Q_SOME) ? 1 : 2;   // weight_partial 0.5 = one half
@@ -313,13 +319,21 @@ bool Consolidator::percept(const Percept& p) {
 void Consolidator::endEpisode(Close close) {
   for (size_t i = 0; i < count_; ++i) {
     const uint8_t pl = ep_plus_[i], mi = ep_minus_[i];
-    if (!pl && !mi) continue;
+    const uint16_t sn = ep_seen_[i];
+    if (!pl && !mi && !sn) continue;
     Term& t = terms_[i];
     if (close == KEEPING) {
       t.live_for     += pl;
       t.live_against += mi;
-      ++t.episodes;
+      if (pl || mi) ++t.episodes;
     } else {
+      // `seen`: percept() already counted this REPLAY into the total, and the episode was
+      // counted once when it was kept. Take the replay back out, and move the episode's
+      // share into carried_seen — the same move for/against make below, so the total is
+      // invariant across the fold and a reboot can re-seed exactly the evicted part.
+      if (t.seen >= sn) t.seen -= sn; else { t.seen = 0; ++fold_underflow_; }
+      t.carried_seen += sn;
+      if ((pl || mi) && t.carried_episodes < 0xFFFF) ++t.carried_episodes;
       // FOLD BEFORE FORGET: a MOVE, so live_ + carried_ is invariant. An underflow means
       // the replay did not match what was originally counted — impossible if the episode
       // was immutable (TTG-0002 §5.1), so it is a caller bug and must not be silent.
@@ -333,6 +347,7 @@ void Consolidator::endEpisode(Close close) {
   }
   memset(ep_plus_, 0, sizeof(ep_plus_));
   memset(ep_minus_, 0, sizeof(ep_minus_));
+  memset(ep_seen_, 0, sizeof(ep_seen_));
   in_episode_ = false;
 }
 
@@ -396,12 +411,17 @@ size_t Consolidator::beliefLine(const Term& t, char* out, size_t cap) const {
 }
 
 size_t Consolidator::carriedLine(const Term& t, char* out, size_t cap) const {
-  if (t.carried_for == 0 && t.carried_against == 0) { if (cap) out[0] = '\0'; return 0; }
+  // A term carried only by HELD percepts has no tally but does have a carried `seen`, and
+  // dropping it here would lose that on reboot — so `seen` alone is enough to write a line.
+  if (t.carried_for == 0 && t.carried_against == 0 && t.carried_seen == 0) {
+    if (cap) out[0] = '\0';
+    return 0;
+  }
   char fbuf[16], abuf[16];
   if (!halvesToStr(t.carried_for, fbuf, sizeof(fbuf))) return 0;
   if (!halvesToStr(t.carried_against, abuf, sizeof(abuf))) return 0;
-  int n = snprintf(out, cap, SEMANTIC_CARRIED_KEY " %s %s %u", fbuf, abuf,
-                   (unsigned)t.episodes);
+  int n = snprintf(out, cap, SEMANTIC_CARRIED_KEY " %s %s %u %lu", fbuf, abuf,
+                   (unsigned)t.carried_episodes, (unsigned long)t.carried_seen);
   if (n < 0 || (size_t)n >= cap) { if (cap) out[0] = '\0'; return 0; }
   return (size_t)n;
 }
@@ -416,16 +436,36 @@ bool Consolidator::seedCarried(const char* subject, const char* vec, const char*
   uint32_t cf = 0, ca = 0;
   if (!strToHalves(&p, &cf)) return false;
   if (!strToHalves(&p, &ca)) return false;
-  uint32_t eps_count = 0;
+  // episodes, then the OPTIONAL seen (absent on a pre-2026-10-01 line -> 0). Both are the
+  // carried shares; the old line's third number was a TOTAL, so a store written before this
+  // change over-reports `episodes` once — until its next checkpoint, which is rewritten from
+  // RAM. `episodes` feeds no conf or EPS, so that is a reporting error, never a belief one.
+  uint32_t vals[2] = {0, 0};
   const char* q = p;
-  while (*q == ' ' || *q == '\t') ++q;
-  while (*q >= '0' && *q <= '9') { eps_count = eps_count * 10 + (uint32_t)(*q - '0'); ++q; }
+  for (int k = 0; k < 2; ++k) {
+    while (*q == ' ' || *q == '\t') ++q;
+    if (*q < '0' || *q > '9') break;
+    uint64_t v = 0;
+    while (*q >= '0' && *q <= '9') {
+      v = v * 10 + (uint64_t)(*q - '0');
+      if (v > 0xFFFFFFFFu) v = 0xFFFFFFFFu;
+      ++q;
+    }
+    vals[k] = (uint32_t)v;
+  }
+  const uint16_t c_eps = vals[0] > 0xFFFF ? 0xFFFF : (uint16_t)vals[0];
+  const uint32_t c_seen = vals[1];
 
   int i = intern(subject, vec, object);
   if (i < 0) { ++refused_; return false; }
-  terms_[i].carried_for     = cf;
-  terms_[i].carried_against = ca;
-  if (eps_count > terms_[i].episodes) terms_[i].episodes = (uint16_t)eps_count;
+  Term& t = terms_[i];
+  t.carried_for     = cf;
+  t.carried_against = ca;
+  // Replace the carried share; whatever live share is already present stays.
+  t.seen     = t.seen - t.carried_seen + c_seen;
+  t.episodes = (uint16_t)(t.episodes - t.carried_episodes + c_eps);
+  t.carried_seen     = c_seen;
+  t.carried_episodes = c_eps;
   return true;
 }
 

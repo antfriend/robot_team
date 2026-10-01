@@ -211,9 +211,17 @@ struct Term {
   uint32_t live_for, live_against;        // from episodes still on flash — recomputable
   uint32_t carried_for, carried_against;  // from episodes evicted — NOT recomputable
   uint32_t seen;                          // every matching percept, incl. held/mentions
+  // ⚠ `seen` and `episodes` are TOTALS (live + carried), and the carried share of each is
+  // kept separately for the same reason for/against are: a reboot recomputes the live part
+  // from flash and must re-seed ONLY the evicted part. Until 2026-10-01 neither was split:
+  // the fold's EVICTING replay counted `seen` a second time, and a reboot dropped the
+  // carried share — so sal, and with it EPS (the eviction key), moved on every fold and
+  // every reboot while every belief line stayed byte-identical. Measured on hardware.
+  uint32_t carried_seen;
   uint32_t asked;                         // queries that found purchase (TTG-0002 §5.2)
   uint16_t rev;                           // += 1 when the belief line changes
   uint16_t episodes;                      // episodes that contributed either way
+  uint16_t carried_episodes;
   bool     used;
 
   uint32_t totalFor()     const { return live_for + carried_for; }
@@ -264,7 +272,9 @@ class Consolidator {
   // or 0 if it would not fit — never a truncated line (four undersized buffers in this
   // repo's history, so builders here write nothing rather than something).
   size_t beliefLine(const Term& t, char* out, size_t cap) const;
-  // `carried: <for> <against> <episodes>`. Written only when carried_* is non-zero;
+  // `carried: <for> <against> <episodes> <seen>` — the CARRIED shares only. A 3-number
+  // line (pre-2026-10-01, whose third number was the term's TOTAL episodes) still parses,
+  // with seen 0. Written only when carried_* is non-zero;
   // returns 0 otherwise, which is also how a reader tells a fully-recomputable term
   // from one whose provenance is partly gone.
   size_t carriedLine(const Term& t, char* out, size_t cap) const;
@@ -307,6 +317,9 @@ class Consolidator {
   // either way, in halves. TTG-0003 §2's "per episode, plus = the LARGEST weight".
   uint8_t ep_plus_[SEMANTIC_MAX_TERMS];
   uint8_t ep_minus_[SEMANTIC_MAX_TERMS];
+  // Matching percepts said by THIS episode, so `seen` lands once — at endEpisode, KEEPING
+  // into the total or EVICTING into carried_seen — and never twice for one episode.
+  uint16_t ep_seen_[SEMANTIC_MAX_TERMS];
   Numbers n_;
   char    comention_[SEMANTIC_LEMMA_MAX];
   size_t  count_;

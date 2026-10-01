@@ -289,13 +289,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ✅ **RUNNING ON THE CARDPUTER** (2026-10-01): every scored link window → one `@LAT103`
    episode, beside the untouched `@LAT92`/`@LAT91` path. **On hardware: fold + commit at
    49, boot cut, and reboot agreement — including THROUGH a checkpoint and an unplanned
-   crash — all pass**, and so does the **runtime (radios-up) cut** (58 → 40 records, 1.7 s pass). Defect: `seen` is not
-   carried, so EPS drops on every reboot. C4's portable core (`FleetTime.*`, §4.8 items
+   crash — all pass**, and so does the **runtime (radios-up) cut** (58 → 40 records, 1.7 s pass). C4's portable core (`FleetTime.*`, §4.8 items
    1–4) is built and the episodes now carry `at: <pulse> ±<bound>`.
    ✅ **The Cardputer's ~20-min reset was the BLE SCANNER leaking ≈500 B/min** (not Phase
    C — A/B'd; it overturns the 2026-08 "ceiling, not a leak" note). A **60 s scan restart**
    (`blelink::loop()`, Cardputer only) holds free heap flat at ~26 KB. BLE also costs
-   ~92 KB of heap just by being on. ✅ With peers on: BLE claims still heard every window, heap flat. ✅ **V4-A had the same leak (−517 B/min) and the restart bounds it exactly**; the fix is now in every BLE sketch — **All five BLE boards now run it** (Cardputer + V4-A measured; T-Deck, V4-B, V4-C flashed, unmeasured). Then the `seen` fix, C4's chart-frame question, then **C0's
+   ~92 KB of heap just by being on. ✅ With peers on: BLE claims still heard every window, heap flat. ✅ **V4-A had the same leak (−517 B/min) and the restart bounds it exactly**; the fix is now in every BLE sketch — **All five BLE boards now run it** (Cardputer + V4-A measured; T-Deck, V4-B, V4-C flashed, unmeasured). ✅ The `seen`/EPS drift and C4's chart-frame question are both fixed in source (stamps now carry `frame:<downbeat>`) — **reflash the Cardputer to carry them.** Then **C0's
    deletion**: every `clear` verb gone from `orchestrator/` and nothing replacing it.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers mod 32768 (`TtdbRecord::lon` is `int16_t`) and wrap in ~23 days.

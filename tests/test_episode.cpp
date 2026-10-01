@@ -78,8 +78,15 @@ static std::map<std::string, std::string> beliefs(const Consolidator& c) {
   std::map<std::string, std::string> out;
   for (size_t i = 0; i < c.termCount(); ++i) {
     const Term* t = c.term(i);
-    char b[128];
-    c.beliefLine(*t, b, sizeof(b));
+    char b[160];
+    size_t n = c.beliefLine(*t, b, sizeof(b));
+    // ⚠ NOT ONLY THE BELIEF LINE. `seen` drives sal and therefore EPS — the eviction key,
+    // the arbiter's key, the snake's — and `episodes` is reported beside it. On hardware
+    // (2026-10-01) the belief lines survived a reboot byte-for-byte while EPS silently
+    // changed, because `seen` was neither carried nor protected from the fold's replay.
+    // A gate comparing belief lines alone could not see it.
+    snprintf(b + n, sizeof(b) - n, " | seen %lu episodes %u eps %u", (unsigned long)t->seen,
+             (unsigned)t->episodes, (unsigned)c.eps(*t));
     out[std::string(t->subject) + "|" + t->vec + "|" + t->object] = b;
   }
   return out;
@@ -271,7 +278,7 @@ static void testCheckpoint() {
   checkStr(ck,
            "\n---\n\n@LAT104LON0 | created:99 | updated:99\n\n"
            "**carried through @LAT103LON3**\n\n```ttdb-carried\nthrough: 3\n"
-           "carried: 2.5 1 4 | 0x00000200 | link_stable | ble\n```\n",
+           "carried: 2.5 1 4 4 | 0x00000200 | link_stable | ble\n```\n",
            "a checkpoint renders byte-for-byte, and only terms with a carried tally appear");
 
   // --- THE GRAVESTONE, three layers ------------------------------------------------
@@ -285,7 +292,7 @@ static void testCheckpoint() {
   }
   check(clean, "layer 1: no checkpoint line begins `percept:` or `belief:`");
   Percept p; Malformed why;
-  check(!Consolidator::parsePerceptLine("carried: 2.5 1 4 | 0x00000200 | link_stable | ble", p, why) &&
+  check(!Consolidator::parsePerceptLine("carried: 2.5 1 4 4 | 0x00000200 | link_stable | ble", p, why) &&
             why == MAL_COLUMNS,
         "layer 2: a carried line does not parse as a percept even WITHOUT the key check");
   {
@@ -308,6 +315,18 @@ static void testCheckpoint() {
           "the checkpoint reads back: through 3, one term seeded");
     check(t && t->carried_for == 5 && t->carried_against == 2 && t->live_for == 0,
           "into CARRIED, never live — 2.5/1 in halves is 5/2");
+    check(t && t->carried_seen == 4 && t->seen == 4 && t->carried_episodes == 4 &&
+              t->episodes == 4,
+          "seen and episodes round-trip as CARRIED shares (the 2026-10-01 EPS-drift fix)");
+  }
+  {
+    // A checkpoint written BEFORE that fix is on the Cardputer's flash right now: three
+    // numbers, the third a total. It must still parse — seen 0, never a malformed line.
+    Consolidator g; g.begin();
+    check(g.seedCarried("a", "v", "o", "carried: 3 1 7") && g.find("a", "v", "o") &&
+              g.find("a", "v", "o")->carried_for == 6 && g.find("a", "v", "o")->seen == 0 &&
+              g.find("a", "v", "o")->episodes == 7,
+          "a pre-fix 3-number carried line still seeds (seen 0)");
   }
   // --- only the newest ----------------------------------------------------------------
   {
@@ -329,7 +348,7 @@ static void testCheckpoint() {
       snprintf(lem, 4, "%03d", k);           // unique prefix
       lem[3] = 'x';
       char line[64];
-      snprintf(line, sizeof(line), "carried: 2147483647.5 2147483647.5 65535");
+      snprintf(line, sizeof(line), "carried: 2147483647.5 2147483647.5 65535 4294967295");
       big.seedCarried(lem, lem, lem, line);
     }
     size_t w = renderCheckpoint(big, 32767, 32767, 4294967295u, buf, sizeof(buf));
