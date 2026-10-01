@@ -2629,6 +2629,23 @@ ENTITY_BOUND_TIGHT_M = 30.0    # near-total AP overlap
 ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
 
 
+# ACT-III §C2 (2026-10-01): the Cardputer's entity tier moved into the EPISODE lane. One
+# lane for every percept tier, each tier owning a band of LONs (firmware Semantic/Episode.h:
+# tier k = [k*8192, (k+1)*8192); link 0, ENTITY 1, motion 2, acoustic 3). An entity
+# episode carries EntityPercept's own record lines, each as one `said: <k> | <line>`
+# sentence, so the parser below reads both containers with the same line rules.
+EPISODE_LANE = 103
+EPISODE_TIER_SPAN = 8192
+EPISODE_TIER_ENTITY = 1
+EPISODE_HEADER_RE = re.compile(r"@LAT(\d+)LON(\d+)")
+SAID_RE = re.compile(r"^said:\s*\d+\s*\|\s?(.*)$")
+
+
+def episode_tier(lon):
+    """Which tier band a @LAT103 LON belongs to (None for a negative LON)."""
+    return None if lon < 0 else lon // EPISODE_TIER_SPAN
+
+
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
     {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}],
@@ -2642,23 +2659,40 @@ def parse_entity_percepts(text):
 
     ⚠ `entities` is THIS window's set; `covered_entities` is the union of the windows
     this record's run suppressed. Keep them apart: the union is what proximity reads,
-    the per-window set is what drift reads, and mixing them corrupts one or the other."""
+    the per-window set is what drift reads, and mixing them corrupts one or the other.
+
+    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-01). A window is either an @LAT96 record (every
+    V4, the K10, and the Cardputer before Phase C) or an ENTITY-band @LAT103 episode (the
+    Cardputer since), whose `said:` lines carry the same `**ENTWIN**`/`**ENTITY**`/... lines.
+    Inside an episode ONLY `said:` lines are read: the episode's `source:`/`at:` lines and
+    any `percept:` line are the episode's own words, not the sampler's. Other tiers'
+    @LAT103 episodes (link, motion, acoustic) are not entity windows and are skipped.
+    `lat` says which container a window came from; `lane` is its LON, unique within it."""
     windows = []
     cur = None
+    in_episode = False
     for line in text.splitlines():
-        if line.startswith("@LAT96LON"):
-            lane = int(re.match(r"@LAT96LON(\d+)", line).group(1))
-            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
-                   "synced": None, "window_ms": None, "entities": [],
-                   "covered_entities": [], "covered_windows": 0,
-                   "run": None, "core": None}
-            windows.append(cur)
-            continue
-        if line.startswith("@"):     # any other record header ends the window
-            cur = None
+        if line.startswith("@"):
+            m = EPISODE_HEADER_RE.match(line)
+            lat, lon = (int(m.group(1)), int(m.group(2))) if m else (None, None)
+            in_episode = (lat == EPISODE_LANE and
+                          episode_tier(lon) == EPISODE_TIER_ENTITY)
+            if lat == 96 or in_episode:
+                cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None,
+                       "wall": None, "synced": None, "window_ms": None, "entities": [],
+                       "covered_entities": [], "covered_windows": 0,
+                       "run": None, "core": None}
+                windows.append(cur)
+            else:                    # any other record header ends the window
+                cur = None
             continue
         if cur is None:
             continue
+        if in_episode:
+            m = SAID_RE.match(line)
+            if not m:
+                continue
+            line = m.group(1)
         if line.startswith("**ENTWIN**"):
             tf = parse_time_fields(line)
             if tf:
@@ -3030,7 +3064,7 @@ def cross_node_pairs(wa, wb, stream, match_tol_s=ENTITY_SEP_MATCH_TOL_S):
                              set(e["id"] for e in m["entities"]))
         if d is None:
             continue
-        used.add(m["lane"])
+        used.add((m.get("lat"), m["lane"]))   # a LON is unique only within its lane
         out.append(d)
     return sorted(out), len(used)
 
@@ -3053,10 +3087,10 @@ def entity_separation(path_a, path_b, spacing_s=ENTITY_SCAN_PERIOD_S,
             texts.append(f.read().decode("utf-8", errors="replace"))
     wa, wb = (parse_entity_percepts(t) for t in texts)
 
-    print("A: %s  (%d @LAT96 window(s))" % (path_a, len(wa)))
-    print("B: %s  (%d @LAT96 window(s))\n" % (path_b, len(wb)))
+    print("A: %s  (%d entity window(s))" % (path_a, len(wa)))
+    print("B: %s  (%d entity window(s))\n" % (path_b, len(wb)))
     if not wa or not wb:
-        print("REFUSING: one of the lanes has no @LAT96 windows at all.")
+        print("REFUSING: one of the nodes has no entity windows at all (@LAT96 or @LAT103 entity band).")
         return
 
     # -- pick the shared stream with the most windows in both. Outcome-independent:
@@ -3191,11 +3225,11 @@ def entity_survey(path_anchor, path_walker, stations,
             texts.append(f.read().decode("utf-8", errors="replace"))
     wa, ww = (parse_entity_percepts(t) for t in texts)
 
-    print("ANCHOR (must NOT have moved): %s  (%d @LAT96 window(s))"
+    print("ANCHOR (must NOT have moved): %s  (%d entity window(s))"
           % (path_anchor, len(wa)))
-    print("WALKER: %s  (%d @LAT96 window(s))\n" % (path_walker, len(ww)))
+    print("WALKER: %s  (%d entity window(s))\n" % (path_walker, len(ww)))
     if not wa or not ww:
-        print("REFUSING: one of the lanes has no @LAT96 windows at all.")
+        print("REFUSING: one of the nodes has no entity windows at all (@LAT96 or @LAT103 entity band).")
         return None
 
     def counts(ws):

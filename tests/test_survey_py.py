@@ -205,7 +205,7 @@ check(rows5 is None and "no shared stream" in out5.lower(),
       "have no common zero")
 
 rows6, out6 = run("", lane_from(walker_sets), ["0,200,x"], min_pairs=3)
-check(rows6 is None and "no @LAT96 windows at all" in out6,
+check(rows6 is None and "no entity windows at all" in out6,
       "an empty lane is REFUSED rather than reported as a perfect score")
 
 # ---------------------------------------------------------------------------

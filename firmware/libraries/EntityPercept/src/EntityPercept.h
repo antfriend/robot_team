@@ -226,8 +226,13 @@ class Log {
   // Returns bytes written, or 0 when the window was covered or empty — ⚠ CHECK
   // lastClose(), NOT the byte count, to tell those apart. `cap` should be
   // ENTITYPERCEPT_RECORD_BUF: a record that does not fit is written NOT AT ALL.
+  //
+  // `lane_lat`: the latitude the record (and its `covered_by:` citation) names. 96 is the
+  // legacy lane; the Cardputer passes SEMANTIC_EPISODE_LANE (103) with `lane_n` = the
+  // episode ordinal, and wraps the body in a `ttdb-episode` block (Semantic's
+  // renderSaidEpisode) — so a run's citation points at the record that really covers it.
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     const timestream::Stamp& ts, uint32_t now_ms);
+                     const timestream::Stamp& ts, uint32_t now_ms, int lane_lat = 96);
 
   Close lastClose() const { return close_; }
   // Windows the open run speaks for, including the one its record itemises.
@@ -277,6 +282,7 @@ class Log {
 
   bool run_open_;
   int  run_lane_;
+  int  run_lat_;
   int  run_len_;
   Key  run_core_[ENTITYPERCEPT_MAX_ENTITIES];
   int  run_core_n_;

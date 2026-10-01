@@ -165,6 +165,8 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 #define PHASEC_EPISODES 1
 #endif
 static episodenode::Node gEpisodes;
+static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
+              "the entity record is rendered into the episode scratch and wrapped there");
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
               (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
               (int)perceptlearn::VERDICT_UNOBSERVED == (int)semantic::LINK_UNOBSERVED,
@@ -1473,6 +1475,19 @@ static int laneCount(int lat) {
   for (int i = 0; i < gDb.recordCount(); ++i)
     if (gDb.record(i).lat == lat) ++n;
   return n;
+}
+
+// ACT-III §C4 / TTG-0004 §4.3: an episode's `at: <pulse ms> ±<bound ms> frame:<f>`, not the
+// time stream — a bound is a DURATION and the stream's clock is a ratchet. No chart yet
+// means UNBOUNDED: the episode still counts live, and joins no bar view (FleetTime.h).
+// 72: a maximal `<i64> ±<u32> frame:<u64>` is ~60 B. The frame is the chart's
+// downbeat_epoch — the lineage, which `era` is not (FleetTime.h). One function so every
+// tier stamps its episodes the same way.
+static void episodeAt(char* at, size_t cap, uint32_t now) {
+  semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now), gPulse.msSinceBeacon(now),
+                                        gPulse.playing(), gPulse.conductor(),
+                                        gPulse.chart().downbeat_epoch),
+                     at, cap);
 }
 
 #if USE_WIFI_SCAN
@@ -4054,17 +4069,8 @@ void loop() {
             lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
                                         k.predicted, k.observed};
           }
-          // ACT-III §C4 / TTG-0004 §4.3: `at: <pulse ms> ±<bound ms>`, not the time stream —
-          // a bound is a DURATION and the stream's clock is a ratchet. No chart yet means
-          // UNBOUNDED: the episode still counts live, and joins no bar view (FleetTime.h).
-          // 72: a maximal `<i64> ±<u32> frame:<u64>` is ~60 B. The frame is the chart's
-          // downbeat_epoch — the lineage, which `era` is not (FleetTime.h).
-          char at[72];
-          semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now),
-                                                gPulse.msSinceBeacon(now),
-                                                gPulse.playing(), gPulse.conductor(),
-                                                gPulse.chart().downbeat_epoch),
-                             at, sizeof(at));
+          char at[72];                // the pulse stamp, not the time stream: episodeAt()
+          episodeAt(at, sizeof(at), now);
           if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
             // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
             // falling maxalloc is fragmentation, and those need opposite fixes.
@@ -4145,7 +4151,49 @@ void loop() {
 
 #if USE_WIFI_SCAN
   serviceWifiScan();
-  if (gEntityLog.due(now)) {
+  if (gEntityLog.due(now) && PHASEC_EPISODES) {
+    // ACT-III §C2: the ENTITY tier lives in @LAT103 now, in its own band with its own
+    // quota (SEMANTIC_QUOTA_ENTITY 48 = entity-survey's 8 h at MAX_RUN=1), so a window is
+    // never refused for a full lane and link's ~60/h cannot evict it. EntityPercept still
+    // decides WHAT to write (core, run, union); the episode is that record's `**` lines
+    // as `said:` sentences. The ordinal is taken FIRST so `covered_by:` cites the episode
+    // that really covers the run. No @LAT96 write: companion.py's parse_entity_percepts
+    // reads both lanes (2026-10-01), and old @LAT96 records on flash stay readable.
+    // ⚠ Rendered straight into the episode tier's ONE scratch buffer and wrapped there in
+    // place: a second static here boot-looped this board (see EpisodeNode::scratch()).
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ENTITY);
+    const size_t m = gEntityLog.buildRecord(gEpisodes.scratch(), ENTITYPERCEPT_RECORD_BUF,
+                                            ord, gStreamWallSec, gStamp, now,
+                                            SEMANTIC_EPISODE_LANE);
+    if (gEntityLog.lastClose() == entitypercept::CLOSE_WRITTEN) {
+      char at[72];
+      episodeAt(at, sizeof(at), now);
+      if (m && gEpisodes.appendSaidScratch(ord, m, "entity window", "entitypercept", at,
+                                           gStreamWallSec)) {
+        // EXERCISED: a percept reached a lane — the appendRecord, same rule as before.
+        gSocial.table().exercise(social::CAP_WIFI_SCAN);
+        Serial.printf("[entity] window -> @LAT%dLON%d (entity live %u/%u, TTDB %uB)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).live(),
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).capacity(),
+                      (unsigned)gDb.fileSize());
+        gEpisodes.service(now, gStreamWallSec);
+      } else {
+        // ⚠ The run now cites an ordinal that was never written. Say so: the next record
+        // takes the same ordinal, so the citation lands on the wrong run.
+        Serial.printf("[entity] window LOST: episode render/append failed at @LAT%dLON%d "
+                      "(render_failed %lu append_failed %lu)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned long)gEpisodes.stats().render_failed,
+                      (unsigned long)gEpisodes.stats().append_failed);
+      }
+    } else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED) {
+      // Not an exercise (see the legacy branch below): the window rides in the NEXT
+      // episode's union.
+      Serial.printf("[entity] window covered (run %d, core %d)\n",
+                    gEntityLog.runLength(), gEntityLog.coreCount());
+    }
+  } else if (gEntityLog.due(now)) {
     int lane = laneCount(96);
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
       // ⚠ SAY THIS OUT LOUD — the same argument `@LAT95` got after 2026-08-02, and it took
@@ -4168,8 +4216,9 @@ void loop() {
       // 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the old
       // 1024 nor the loop task's stack, and buildRecord writes NOTHING rather than
       // truncating — so an undersized buffer here loses whole windows silently.
-      static char rec[ENTITYPERCEPT_RECORD_BUF];
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+      // The episode tier's scratch, not a static of its own (EpisodeNode::scratch()).
+      char* rec = gEpisodes.scratch();
+      size_t m = gEntityLog.buildRecord(rec, ENTITYPERCEPT_RECORD_BUF, lane, gStreamWallSec,
                                         gStamp, now);
       if (m && gDb.appendRecord(rec, m)) {
         // EXERCISED: a percept reached a lane. That is the whole definition, and it is

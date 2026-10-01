@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "EntityPercept.h"
 #include "Episode.h"
 #include "Semantic.h"
 #include "TtdbParse.h"
@@ -638,6 +639,161 @@ static void testLink() {
 // =======================================================================================
 // 7. per-tier quotas: one lane, one band of LONs per tier, one checkpoint for all
 // =======================================================================================
+// =======================================================================================
+// 6b. the entity tier as episodes: a sampler's own record, wrapped as `said:` sentences
+// =======================================================================================
+static timestream::Stamp entSt(uint64_t t_ms) {
+  timestream::Stamp s;
+  s.t_ms = t_ms;
+  s.stream_id = 0x5EA51DE7u;
+  s.wall = true;
+  return s;
+}
+
+static std::vector<std::string> linesOf(const std::string& t) {
+  std::vector<std::string> out;
+  size_t a = 0;
+  while (a < t.size()) {
+    size_t b = t.find('\n', a);
+    if (b == std::string::npos) b = t.size();
+    out.push_back(t.substr(a, b - a));
+    a = b + 1;
+  }
+  return out;
+}
+
+static void testEntityEpisode() {
+  printf("entity\n");
+  // The worst case test_entitypercept pins for ENTITYPERCEPT_RECORD_BUF: 12 entities a
+  // window under a stable core, one fresh AP each window, so the covered union climbs
+  // to ENTITYPERCEPT_MAX_UNION. Rendered at @LAT103 with the ENTITY band's ordinals, the
+  // way the Cardputer renders it.
+  entitypercept::Log lg;
+  static char rec[ENTITYPERCEPT_RECORD_BUF];
+  static char ep[SEMANTIC_ENTITY_EPISODE_BUF];
+  uint32_t t = 0;
+  size_t worst_rec = 0, worst_ep = 0, written = 0, covered = 0, said_lines = 0, longest = 0;
+  bool all_ok = true, cites_103 = true, saw_covered = false, inplace_full_ok = true;
+  size_t inplace_match = 0, inplace_refused = 0, inplace_corrupt = 0;
+  size_t min_inplace_cap = (size_t)-1;
+  int16_t ord = tierBand(TIER_ENTITY).base;
+  for (int w = 0; w < 40; ++w) {
+    for (int i = 0; i < ENTITYPERCEPT_MAX_ENTITIES - 1; ++i) {
+      uint8_t ap[6] = {0x02, 0x00, 0x00, 0x00, 0x00, (uint8_t)i};
+      lg.add(ap, -70 - i, entitypercept::KIND_WIFI_AP);
+    }
+    uint8_t rot[6] = {0x03, 0x00, 0x00, 0x00, 0x00, (uint8_t)w};
+    lg.add(rot, -80, entitypercept::KIND_WIFI_AP);
+    t += ENTITYPERCEPT_FLUSH_MS;
+    const size_t m = lg.buildRecord(rec, sizeof(rec), ord, 1780000000 + t / 1000,
+                                    entSt(1780000000000ULL + t), t, SEMANTIC_EPISODE_LANE);
+    if (lg.lastClose() != entitypercept::CLOSE_WRITTEN) { ++covered; continue; }
+    if (m > worst_rec) worst_rec = m;
+    const std::string r(rec, m);
+    if (r.find("@LAT96") != std::string::npos) cites_103 = false;
+    if (r.find("**COVERED** ") != std::string::npos) saw_covered = true;
+    const size_t n = renderSaidEpisode(rec, m, ord, 1780000000 + t / 1000, "entity window",
+                                       "entitypercept", "1234 +-5 frame:9", ep, sizeof(ep));
+    if (!n) { all_ok = false; continue; }
+    ++written;
+    if (n > worst_ep) worst_ep = n;
+    // Every `**` line of the record is one `said:` line, in order, and nothing else is.
+    std::vector<std::string> body, said;
+    for (const std::string& l : linesOf(r))
+      if (l.compare(0, 2, "**") == 0) body.push_back(l);
+    for (const std::string& l : linesOf(std::string(ep, n))) {
+      if (l.compare(0, 6, "said: ") == 0) {
+        said.push_back(l.substr(l.find(" | ") + 3));
+        if (l.size() > longest) longest = l.size();
+      }
+      if (l.compare(0, 8, "percept:") == 0) all_ok = false;
+    }
+    said_lines += said.size();
+    if (said != body) all_ok = false;
+
+    // IN PLACE, the way the Cardputer does it (one scratch buffer, EpisodeNode::scratch()).
+    // The property is "refuse or match, never anything else": sweep every cap from just
+    // past the record to the scratch size, and each result must be 0 or byte-identical
+    // to the out-of-place render.
+    static char sc[SEMANTIC_ENTITY_EPISODE_BUF];
+    for (size_t cap = m + 1; cap <= sizeof(sc); ++cap) {
+      memcpy(sc, rec, m);
+      const size_t k = renderSaidEpisodeInPlace(sc, cap, m, ord, 1780000000 + t / 1000,
+                                                "entity window", "entitypercept",
+                                                "1234 +-5 frame:9");
+      if (k == 0) { ++inplace_refused; continue; }
+      if (k != n || memcmp(sc, ep, n) != 0) ++inplace_corrupt;
+      else ++inplace_match;
+      if (cap == sizeof(sc) && (k != n || memcmp(sc, ep, n) != 0)) inplace_full_ok = false;
+      if (cap < min_inplace_cap) min_inplace_cap = cap;
+    }
+    ord = bandAdd(ord, 1, tierBand(TIER_ENTITY));
+  }
+  check(inplace_corrupt == 0, "in place: every cap either REFUSES or matches byte-for-byte "
+                              "— never a corrupted record");
+  check(inplace_refused > 0 && inplace_match > 0,
+        "and the sweep exercised both outcomes (the guard fired, and it did not over-refuse)");
+  check(inplace_full_ok, "at the real scratch size every worst-case record wraps in place");
+  printf("    in place: %u match, %u refused, 0 corrupt required (got %u); smallest cap that "
+         "wrapped %u B\n",
+         (unsigned)inplace_match, (unsigned)inplace_refused, (unsigned)inplace_corrupt,
+         (unsigned)min_inplace_cap);
+  check(written > 3 && covered > 3, "the wide-union walk both wrote and covered windows");
+  check(saw_covered, "and at least one record carried a COVERED union");
+  check(all_ok, "every written record wraps: each `**` line is one `said:` line, in order, "
+                "and no `percept:` line is emitted");
+  check(cites_103, "with lane_lat 103 the header AND `covered_by:` name @LAT103, never @LAT96");
+  check(longest < SEMANTIC_LINE_MAX,
+        "every `said:` line comes back through the on-device line reader intact");
+  check(worst_ep <= SEMANTIC_ENTITY_EPISODE_BUF, "worst entity episode FITS its buffer");
+  check(worst_ep > ENTITYPERCEPT_RECORD_BUF,
+        "and does NOT fit ENTITYPERCEPT_RECORD_BUF: the wrap costs real bytes, so reusing "
+        "the record's own buffer would drop exactly the union-carrying windows");
+  printf("    worst entity record %u B, its episode %u B of %u B, longest said line %u B, "
+         "%u said lines over %u episodes\n",
+         (unsigned)worst_rec, (unsigned)worst_ep, (unsigned)SEMANTIC_ENTITY_EPISODE_BUF,
+         (unsigned)longest, (unsigned)said_lines, (unsigned)written);
+
+  // An entity episode feeds the consolidator NOTHING: an episode is read, no term forms.
+  {
+    entitypercept::Log l2;
+    uint8_t ap[6] = {1, 2, 3, 4, 5, 6};
+    l2.add(ap, -50, entitypercept::KIND_WIFI_AP);
+    const size_t m = l2.buildRecord(rec, sizeof(rec), 8200, 1, entSt(1000), 60000,
+                                    SEMANTIC_EPISODE_LANE);
+    const size_t k = renderSaidEpisode(rec, m, 8200, 1, "entity window", "entitypercept", "x",
+                                       ep, sizeof(ep));
+    check(m > 0 && k > 0, "a one-AP window renders as an episode");
+    check(tierOf(8200) == TIER_ENTITY, "LON 8200 is the entity tier's");
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(8200, 8200, Consolidator::KEEPING, tierBand(TIER_ENTITY));
+    feedText(r, std::string(ep, k));
+    r.finish();
+    check(r.fed() == 1 && c.termCount() == 0 && c.malformedCount() == 0,
+          "read back KEEPING: one episode fed, zero terms, zero malformed");
+  }
+
+  // Refusals: never a truncated or reinterpreted record.
+  {
+    const char* piped = "\n---\n\n@LAT103LON8192 | x\n\n**ENTWIN** a|b\n";
+    check(renderSaidEpisode(piped, strlen(piped), 8192, 1, "e", "s", "x", ep, sizeof(ep)) == 0,
+          "a `**` line holding `|` refuses the episode (it would read back as another sentence)");
+    const char* none = "\n---\n\n@LAT103LON8192 | x\n\nplain text\n";
+    check(renderSaidEpisode(none, strlen(none), 8192, 1, "e", "s", "x", ep, sizeof(ep)) == 0,
+          "a body with no `**` line is no episode");
+    std::string longl = "**CORE** ids:" + std::string(SEMANTIC_LINE_MAX, 'a') + "\n";
+    check(renderSaidEpisode(longl.c_str(), longl.size(), 8192, 1, "e", "s", "x", ep,
+                            sizeof(ep)) == 0,
+          "a line too long for the on-device reader refuses the episode");
+    const char* ok = "**ENTWIN** t_ms:1\n**ENTITY** kind:wifi_ap id:010203040506 n:1 rssi:-50\n";
+    char tiny[120];
+    check(renderSaidEpisode(ok, strlen(ok), 8192, 1, "e", "s", "x", tiny, sizeof(tiny)) == 0 &&
+              tiny[0] == '\0',
+          "no room is 0 bytes and an empty buffer, never a partial record");
+  }
+}
+
 static void testBands() {
   printf("bands\n");
   const Band e = tierBand(TIER_ENTITY);
@@ -874,6 +1030,7 @@ static void runTierProtocol(const char* name, const uint16_t* q, uint16_t batch,
 int main() {
   testOrdinals();
   testLink();
+  testEntityEpisode();
   testBuilder();
   testReader();
   testCheckpoint();

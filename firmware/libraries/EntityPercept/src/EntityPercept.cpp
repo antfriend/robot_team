@@ -32,6 +32,7 @@ void Log::histClear() {
 void Log::breakRun() {
   run_open_ = false;
   run_lane_ = -1;
+  run_lat_ = 96;
   run_len_ = 0;
   run_core_n_ = 0;
   memset(run_core_, 0, sizeof(run_core_));
@@ -186,7 +187,7 @@ bool Log::stats(int slot, const uint8_t*& id, uint8_t& kind, uint32_t& n,
 }
 
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                        const timestream::Stamp& ts, uint32_t now_ms) {
+                        const timestream::Stamp& ts, uint32_t now_ms, int lane_lat) {
   if (totalObs() == 0) {
     reset(now_ms);
     close_ = CLOSE_EMPTY;
@@ -240,10 +241,10 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
                                : (core_changed ? "changed"
                                                : (heartbeat ? "heartbeat" : "union_full"));
     int m = snprintf(out + w, cap - w,
-                     "\n---\n\n@LAT96LON%d | created:%lu | updated:%lu | "
+                     "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
                      "relates:observes@LAT0LON0\n\n"
                      "**ENTWIN** %s window_ms:%lu entities:%d\n",
-                     lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
+                     lane_lat, lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
                      stamp, (unsigned long)window_ms, ent_count_);
     if (m < 0 || (size_t)m >= cap - w) { reset(now_ms); close_ = CLOSE_EMPTY; return 0; }
     w += (size_t)m;
@@ -298,10 +299,10 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     if (cov_windows_ > 0) {
       m = snprintf(out + w, cap - w,
                    "**COVERED** windows:%ld entities:%d window_ms:%lu "
-                   "first_t_ms:%llu last_t_ms:%llu covered_by:@LAT96LON%d\n",
+                   "first_t_ms:%llu last_t_ms:%llu covered_by:@LAT%dLON%d\n",
                    (long)cov_windows_, cov_ent_n_, (unsigned long)cov_window_ms_,
                    (unsigned long long)cov_first_t_ms_,
-                   (unsigned long long)cov_last_t_ms_, run_lane_);
+                   (unsigned long long)cov_last_t_ms_, run_lat_, run_lane_);
       if (m < 0 || (size_t)m >= cap - w) { reset(now_ms); close_ = CLOSE_EMPTY; return 0; }
       w += (size_t)m;
       for (int i = 0; i < cov_ent_n_; ++i) {
@@ -329,6 +330,7 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     breakRun();                     // clears the covered accumulators too
     run_open_ = true;
     run_lane_ = lane_n;
+    run_lat_ = lane_lat;
     run_len_ = 1;
     run_core_n_ = cur_core_n_;
     for (int i = 0; i < cur_core_n_; ++i) run_core_[i] = cur_core_[i];

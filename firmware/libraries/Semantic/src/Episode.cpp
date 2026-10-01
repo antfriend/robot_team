@@ -115,6 +115,11 @@ bool EpisodeBuilder::put(const char* fmt, ...) {
   return true;
 }
 
+// One format for the header, so the in-place wrap can size it BEFORE writing it.
+#define EPISODE_HEADER_FMT                                                                \
+  "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n**%s**\n\n```" SEMANTIC_EPISODE_TAG \
+  "\nsource: %s\nat: %s\n"
+
 bool EpisodeBuilder::begin(int16_t ordinal, uint32_t t, const char* title,
                            const char* source, const char* at, int16_t lane) {
   len_ = 0; percepts_ = 0; rejected_ = 0; overflow_ = false; open_ = false;
@@ -124,9 +129,8 @@ bool EpisodeBuilder::begin(int16_t ordinal, uint32_t t, const char* title,
     overflow_ = true;      // a malformed header is unwritable, same verdict as no room
     return false;
   }
-  open_ = put("\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n**%s**\n\n```"
-              SEMANTIC_EPISODE_TAG "\nsource: %s\nat: %s\n",
-              (int)lane, (int)ordinal, (unsigned long)t, (unsigned long)t, title, source, at);
+  open_ = put(EPISODE_HEADER_FMT, (int)lane, (int)ordinal, (unsigned long)t,
+              (unsigned long)t, title, source, at);
   return open_;
 }
 
@@ -328,6 +332,63 @@ size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32
     b.percept(p);
   }
   return b.finish();
+}
+
+size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
+                         const char* title, const char* source, const char* at,
+                         char* out, size_t cap) {
+  if (!out || cap == 0 || !body) return 0;
+  // In place (body inside out): the body must sit at the TAIL, and every write below is
+  // checked against the first byte not yet read. `limit` is that byte's offset in `out`.
+  const bool inplace = body >= out && body < out + cap;
+  if (inplace && body + n != out + cap) return 0;
+  // The header is written before any input is read, so it must fit ahead of the body.
+  if (inplace && title && source && at) {
+    const int hb = snprintf(0, 0, EPISODE_HEADER_FMT, (int)SEMANTIC_EPISODE_LANE,
+                            (int)ordinal, (unsigned long)t, (unsigned long)t, title, source,
+                            at);
+    if (hb < 0 || (size_t)hb + 1 > (size_t)(body - out)) return 0;
+  }
+  EpisodeBuilder b(out, cap);
+  if (!b.begin(ordinal, t, title, source, at)) return 0;
+  // `said: <k> | ` is ≤ 16 B for any k this loop reaches; the whole line must come back
+  // through the glue's SEMANTIC_LINE_MAX reader intact or the laptop is the only reader.
+  const size_t max_text = SEMANTIC_LINE_MAX - 16;
+  char line[SEMANTIC_LINE_MAX];
+  uint32_t k = 0;
+  size_t i = 0;
+  while (i < n) {
+    size_t j = i;
+    while (j < n && body[j] != '\n') ++j;
+    size_t len = j - i;
+    if (len && body[i + len - 1] == '\r') --len;
+    if (len >= 2 && body[i] == '*' && body[i + 1] == '*') {
+      if (len > max_text) { out[0] = '\0'; return 0; }
+      memcpy(line, body + i, len);
+      line[len] = '\0';
+      // `said: <k> | <line>\n` plus put()'s terminator must end before the next unread
+      // byte — or this write would overwrite input still to come. Refuse, never corrupt.
+      if (inplace) {
+        const int pre = snprintf(0, 0, "said: %lu | ", (unsigned long)(k + 1));
+        const size_t next = (size_t)(body - out) + (j < n ? j + 1 : n);
+        if (pre < 0 || b.length() + (size_t)pre + len + 2 > next) { out[0] = '\0'; return 0; }
+      }
+      if (!b.said(++k, line)) { out[0] = '\0'; return 0; }   // `|`, or no room
+    }
+    i = j + 1;
+  }
+  if (k == 0) { out[0] = '\0'; return 0; }                  // nothing said: no episode
+  const size_t m = b.finish();
+  if (!m) out[0] = '\0';
+  return m;
+}
+
+size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,
+                                uint32_t t, const char* title, const char* source,
+                                const char* at) {
+  if (!buf || m == 0 || m >= cap) return 0;
+  memmove(buf + (cap - m), buf, m);
+  return renderSaidEpisode(buf + (cap - m), m, ordinal, t, title, source, at, buf, cap);
 }
 
 CheckpointReader::CheckpointReader(Consolidator& c, int16_t ordinal, int16_t lane)

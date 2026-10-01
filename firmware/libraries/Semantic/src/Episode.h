@@ -231,6 +231,7 @@ class EpisodeBuilder {
   uint16_t percepts() const { return percepts_; }
   uint16_t rejected() const { return rejected_; }
   bool overflowed() const { return overflow_; }
+  size_t length() const { return len_; }               // bytes written so far
 
  private:
   bool put(const char* fmt, ...);
@@ -356,6 +357,44 @@ struct LinkClaim {
 // stamp text (TimeStream's buildStamp today; TTG-0004 §4's `<pulse> ±<bound>` in C4).
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
                          const char* at, char* out, size_t cap);
+
+// ---------------------------------------------------------------------------------------
+// A SAMPLER'S OWN RECORD AS AN EPISODE (the entity tier, 2026-10-01)
+// ---------------------------------------------------------------------------------------
+// Wraps every `**…` line of an already-rendered record body as one `said:` sentence, in
+// order, inside a `ttdb-episode` block. Every other line (the old header, `---`, blanks)
+// is dropped. That is how a tier moves into this lane WITHOUT this library learning its
+// grammar: EntityPercept keeps rendering `**ENTWIN**`/`**ENTITY**`/`**RUN**`/`**CORE**`/
+// `**COVERED**`/`**COVERED-ENTITY**`, and companion.py reads those same lines back out of
+// the `said:` column with the same regexes.
+//
+// ⚠ IT WRITES NO `percept:` LINE, so the episode feeds the consolidator nothing and its
+// fold carries nothing. That is a decision, not an omission: the entity tier's only
+// consumer is the laptop's Jaccard union, and a per-BSSID term would spend the 32-slot
+// TERM table on APs, reclaiming link beliefs to do it. A forgotten entity episode is
+// therefore GONE — exactly as a pruned @LAT96 window was — but by ring, never by refusal.
+// Returns 0 (never a truncated record) when anything does not fit, when a `**` line holds
+// a `|` (it would read back as a different sentence), or when one is too long to come
+// back through the on-device line reader (SEMANTIC_LINE_MAX).
+size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
+                         const char* title, const char* source, const char* at,
+                         char* out, size_t cap);
+// ⚠ THE SAME WRAP IN ONE BUFFER, because two static buffers boot-looped the Cardputer
+// (2026-10-01): +5632 B of .bss starved the BLE scanner's allocations at boot on a board
+// that runs with ~26 KB free. The record (m bytes at buf[0]) is moved to the TAIL and the
+// episode is written forward from the head; every write is checked against the first
+// unread byte, so a record too big to wrap in `cap` is REFUSED (0), never corrupted.
+size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,
+                                uint32_t t, const char* title, const char* source,
+                                const char* at);
+
+// One entity window as an episode. Worst case = EntityPercept's worst record (2322 B, its
+// ENTITYPERCEPT_RECORD_BUF is 2560) + ~11 B of `said: k | ` on each of its ≤ 32 body
+// lines + the episode header. Pinned both ways by test_episode against a REAL maximal
+// EntityPercept record, not an estimate.
+#ifndef SEMANTIC_ENTITY_EPISODE_BUF
+#define SEMANTIC_ENTITY_EPISODE_BUF 3072
+#endif
 
 class CheckpointReader {
  public:

@@ -150,11 +150,31 @@ class Node {
   // this tier; the only refusal left is the whole-file index cap inside appendRecord.
   bool appendLink(const semantic::LinkClaim* claims, int n, const char* at, uint32_t t) {
     if (!db_) return false;
-    static char rec[SEMANTIC_LINK_EPISODE_BUF];      // static: too big for the loop stack
     const int16_t ord = tiers_.nextOrdinal(semantic::TIER_LINK);
-    const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, rec, sizeof(rec));
+    const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, scratch_,
+                                                 sizeof(scratch_));
     if (!m) { ++st_.render_failed; return false; }
-    return appendRendered(rec, m, ord);
+    return appendRendered(scratch_, m, ord);
+  }
+
+  // ⚠ ONE SCRATCH BUFFER for every episode render, and the sampler renders INTO IT. Two
+  // statics here (+5632 B .bss) boot-looped the Cardputer on 2026-10-01: the BLE scanner's
+  // `operator new` failed at boot with ~26 KB free. Everything that touches it runs from
+  // loop(), one call after another, so one buffer is enough. Not reentrant by design.
+  char* scratch() { return scratch_; }
+  static constexpr size_t scratchCap() { return sizeof(scratch_); }
+
+  // A sampler's record, already rendered at scratch()[0..m) (body lines `**…`), becomes one
+  // episode at `ord`, which the caller took from nextOrdinal(tier) BEFORE rendering, so the
+  // record's own citations (EntityPercept's `covered_by:`) can name it. Wrapped in place —
+  // see Episode.h, renderSaidEpisodeInPlace.
+  bool appendSaidScratch(int16_t ord, size_t m, const char* title, const char* source,
+                         const char* at, uint32_t t) {
+    if (!db_) return false;
+    const size_t n = semantic::renderSaidEpisodeInPlace(scratch_, sizeof(scratch_), m, ord, t,
+                                                        title, source, at);
+    if (!n) { ++st_.render_failed; return false; }
+    return appendRendered(scratch_, n, ord);
   }
 
   // Any tier: a record already rendered at `ord` = nextOrdinal(tier). Appends, then feeds
@@ -285,6 +305,9 @@ class Node {
   }
 
   Ttdb* db_ = nullptr;
+  static_assert(SEMANTIC_ENTITY_EPISODE_BUF >= SEMANTIC_LINK_EPISODE_BUF,
+                "the shared scratch must hold the largest episode any tier renders");
+  char scratch_[SEMANTIC_ENTITY_EPISODE_BUF];
   semantic::Consolidator c_;
   semantic::EpisodeTiers tiers_;
   Stats st_;

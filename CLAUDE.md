@@ -66,6 +66,9 @@ firmware/
                         the EPISODE tier (Episode.*: @LAT103 episodes, @LAT104 fold
                         checkpoint = the commit point, so a refused rewrite never double-
                         counts) and EpisodeNode.h, the Arduino glue (Cardputer only so far).
+                        Link AND entity tiers write here. ⚠ ONE scratch buffer
+                        (`EpisodeNode::scratch()`) for every episode render: a second
+                        static boot-looped the Cardputer (+5.6 KB .bss starved BLE).
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
     RobotTeamConfig/    Shared key, channel, node ids
   k10_percept/          arduino-cli sketch + data/ttdb.md — percept leaf, and since

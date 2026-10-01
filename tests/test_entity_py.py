@@ -176,6 +176,99 @@ check(all(w["run"] is None and w["covered_entities"] == []
       "old records carry no run and no covered union — one record IS one window")
 
 # ---------------------------------------------------------------------------
+# ACT-III §C2 (2026-10-01): the Cardputer's entity windows live in @LAT103 now, as
+# ENTITY-band episodes whose `said:` lines are EntityPercept's own lines (the wrap is
+# pinned natively in tests/test_episode.cpp, testEntityEpisode). A node's TTDB carries
+# BOTH containers for the rest of its life, plus other tiers' episodes in the same lane.
+MIXED_LANES = """
+---
+
+@LAT96LON0 | created:1 | updated:1 | relates:observes@LAT0LON0
+
+**ENTWIN** t_ms:1000 stream:0x5ea51de7 wall:1 window_ms:600000 entities:1
+**ENTITY** kind:wifi_ap id:111111111111 n:2 rssi:-60
+
+---
+
+@LAT103LON5 | created:2 | updated:2
+
+**link window**
+
+```ttdb-episode
+source: perceptlearn
+at: 1 +-2 frame:3
+said: 1 | **ENTITY** kind:wifi_ap id:999999999999 n:1 rssi:-1
+percept: 1 | 0x00000200 | link_stable | ble | + | -
+```
+
+---
+
+@LAT103LON8192 | created:3 | updated:3
+
+**entity window**
+
+```ttdb-episode
+source: entitypercept
+at: 1234 +-5 frame:9
+said: 1 | **ENTWIN** t_ms:601000 stream:0x5ea51de7 wall:1 window_ms:600000 entities:2
+said: 2 | **ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:5 rssi:-50
+said: 3 | **ENTITY** kind:wifi_ap id:bbbbbbbbbbbb n:1 rssi:-77
+said: 4 | **RUN** windows_since_last:1 reason:first max_run:6 core_n:3 core_m:5 core_windows:1
+said: 5 | **CORE** entities:0
+```
+
+---
+
+@LAT104LON0 | created:4 | updated:4
+
+**carried through @LAT103LON0**
+
+```ttdb-carried
+through: 0
+```
+
+---
+
+@LAT103LON8193 | created:5 | updated:5
+
+**entity window**
+
+```ttdb-episode
+source: entitypercept
+at: 2234 +-5 frame:9
+said: 1 | **ENTWIN** t_ms:2401000 stream:0x5ea51de7 wall:1 window_ms:600000 entities:1
+said: 2 | **ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:4 rssi:-52
+said: 3 | **RUN** windows_since_last:3 reason:changed max_run:6 core_n:3 core_m:5 core_windows:4
+said: 4 | **CORE** entities:1 ids:aaaaaaaaaaaa
+said: 5 | **COVERED** windows:2 entities:2 window_ms:1200000 first_t_ms:1201000 last_t_ms:1801000 covered_by:@LAT103LON8192
+said: 6 | **COVERED-ENTITY** kind:wifi_ap id:aaaaaaaaaaaa n:9 rssi:-49 windows:2
+said: 7 | **COVERED-ENTITY** kind:wifi_ap id:cccccccccccc n:1 rssi:-90 windows:1
+```
+"""
+mw = c.parse_entity_percepts(MIXED_LANES)
+check(len(mw) == 3, "one @LAT96 record + two ENTITY-band episodes = three windows "
+                    "(the link-band episode and the @LAT104 checkpoint are not windows)")
+check([(w["lat"], w["lane"]) for w in mw] == [(96, 0), (103, 8192), (103, 8193)],
+      "each window says which container it came from; LONs are kept as written")
+check(mw[1]["t_ms"] == 601000 and mw[1]["stream"] is not None and mw[1]["window_ms"] == 600000,
+      "an episode's ENTWIN is read out of its said: line, time fields and all")
+check([e["id"] for e in mw[1]["entities"]] == ["aaaaaaaaaaaa", "bbbbbbbbbbbb"],
+      "an episode's ENTITY lines are its window's set")
+check(mw[1]["run"] == {"windows_since_last": 1, "reason": "first"}
+      and mw[1]["core"] == {"entities": 0, "ids": []},
+      "RUN and CORE come through the said: column unchanged")
+check(mw[2]["covered_windows"] == 2 and
+      [e["id"] for e in mw[2]["covered_entities"]] == ["aaaaaaaaaaaa", "cccccccccccc"],
+      "a run's COVERED union rides in the episode too, still kept apart from the window set")
+check(c._entity_set(mw) == {"111111111111", "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"},
+      "the proximity union spans BOTH containers and nothing else")
+check("999999999999" not in c._entity_set(mw),
+      "an ENTITY-shaped said: line in ANOTHER tier's band is not an entity window")
+check(c.entity_lane_is_folded(mw), "windows_since_last:3 in an episode reads as folded")
+check(not c.entity_lane_is_folded(mw[:2]),
+      "and a measurement-build episode (windows_since_last:1) does not")
+
+# ---------------------------------------------------------------------------
 print()
 if fails:
     print(f"{fails} FAILED")

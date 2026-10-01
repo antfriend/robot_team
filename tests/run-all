@@ -58,7 +58,7 @@ declare -A SRCS=(
   [citation]="$LIB/TTDB/src/TtdbParse.cpp"
   [ttdb_index]="$LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [semantic]="$LIB/Semantic/src/Semantic.cpp"
-  [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp"
   [fleettime]="$LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
 )
 # ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)
