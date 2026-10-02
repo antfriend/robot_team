@@ -326,7 +326,8 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ~47–49 KB left. **V4-A flashed + verified** (episodes written, laptop parses them, 0/5 boot crashes;
    its `@LAT97`/`@LAT96` were 48/48 and `@LAT90` 16/16 — it was recording nothing; released, 126 → 36).
    ✅ **V4-B flashed + verified** the same night (episodes, 0/5 boot crashes, old lanes released 60 → 25).
-   **Next:** flash V4-C, T-Deck, K10 as they are plugged in (bank a pull first; release old lanes
+   ✅ **V4-C flashed + verified** too (its `@LAT97` had been 48/48; released 78 → 22). All three V4s done.
+   **Next:** flash T-Deck, K10 as they are plugged in (bank a pull first; release old lanes
    after verifying) — then C0's deletion is honest fleet-wide.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
