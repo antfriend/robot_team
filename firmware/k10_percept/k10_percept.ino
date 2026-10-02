@@ -28,6 +28,8 @@
 #include <MotionPercept.h>    // SP0 motion tier: the K10's tilt -> @LAT95 still|moving, @LAT93
 #include <AcousticPercept.h>  // SP0 acoustic tier: the K10's mic -> @LAT94 (the fleet's 2nd ear)
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <EpisodeNode.h>     // ACT-III §C2: all four percept tiers -> @LAT103 episodes, @LAT104 folds
+#include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound> frame:<f>` (TTG-RFC-0004 §4.3)
 #include <LaneGenNode.h>     // @LAT100: a prune writes down the boundary it creates
 #include <RobotTeamConfig.h>
 
@@ -177,6 +179,25 @@ uint32_t gSeq = 1;
 // that they are callback-safe scalars refreshed once per loop(), never live reads of
 // an engine the WiFi task must not touch.
 static timestream::Node gTs;
+
+// ACT-III Phase C on the K10 (2026-10-02), the Cardputer's pattern: LINK, ENTITY, MOTION
+// (+ its transitions) and ACOUSTIC windows are @LAT103 episodes in their own LON bands,
+// folded into a @LAT104 checkpoint and cut, so no tier is ever refused for a full lane. No
+// PerceptLearn on this board: link episodes carry RSSI only and the consolidator stays
+// empty. The stream still runs and stamps; only its capped @LAT90 log stops.
+// 0 restores the pre-Phase-C flushes exactly.
+#ifndef PHASEC_EPISODES
+#define PHASEC_EPISODES 1
+#endif
+static episodenode::Node gEpisodes;
+#define LINK_RECORD_CAP 1024   // LinkPercept worst case 847 B (test_episode)
+static_assert(LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
+                  ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  MOTIONPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  MOTIONPERCEPT_TRANSITION_BUF < episodenode::Node::scratchCap() &&
+                  ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  SEMANTIC_LINK_WINDOW_EPISODE_BUF <= episodenode::Node::scratchCap(),
+              "percept records are rendered into the episode scratch and wrapped there");
 #define gStamp         (gTs.stamp())
 #define gStreamWallSec (gTs.wallSec())
 #define gSynced        (gTs.wall())
@@ -1157,7 +1178,14 @@ static void renderStatus(uint32_t now) {
 #endif
   snprintf(buf[5], 48, "stream %08lX %s", (unsigned long)gStamp.stream_id,
            gSynced ? "wall" : "local");
-  snprintf(buf[6], 48, "94:%d 95:%d 96:%d", laneCount(94), laneCount(95), laneCount(96));
+  if (PHASEC_EPISODES)
+    snprintf(buf[6], 48, "ep L%u E%u M%u A%u",
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_LINK).live(),
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).live(),
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live());
+  else
+    snprintf(buf[6], 48, "94:%d 95:%d 96:%d", laneCount(94), laneCount(95), laneCount(96));
   for (int i = 0; i < 7; ++i) txt[i] = buf[i];
 
   for (int i = 0; i < 7; ++i) {
@@ -1255,8 +1283,14 @@ static void renderSenses(uint32_t now) {
 #if USE_MIC
   snprintf(buf[1], 48, gMicOk ? "mic rms %ld" : "mic SILENT (no i2s)",
            (long)gMicLevel);
-  snprintf(buf[2], 48, "@LAT94 %d/%d  trans %ld", laneCount(94),
-           ACOUSTICPERCEPT_MAX_LANE, (long)gAcousticLog.transients());
+  if (PHASEC_EPISODES)
+    snprintf(buf[2], 48, "ep A%u/%u  trans %ld",
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live(),
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).capacity(),
+             (long)gAcousticLog.transients());
+  else
+    snprintf(buf[2], 48, "@LAT94 %d/%d  trans %ld", laneCount(94),
+             ACOUSTICPERCEPT_MAX_LANE, (long)gAcousticLog.transients());
 #else
   snprintf(buf[1], 48, "mic off");
   snprintf(buf[2], 48, "@LAT94 off");
@@ -1264,8 +1298,14 @@ static void renderSenses(uint32_t now) {
 #if USE_TILT
   // The null is on screen because it is the number that decides whether `still` means
   // anything on this board; `x1.000` with a `moving` verdict is the false-positive state.
-  snprintf(buf[3], 48, "@LAT95 %d/%d %s x%.3f", laneCount(95), MOTIONPERCEPT_MAX_LANE,
-           gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
+  if (PHASEC_EPISODES)
+    snprintf(buf[3], 48, "ep M%u/%u %s x%.3f",
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
+             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).capacity(),
+             gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
+  else
+    snprintf(buf[3], 48, "@LAT95 %d/%d %s x%.3f", laneCount(95), MOTIONPERCEPT_MAX_LANE,
+             gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
 #else
   snprintf(buf[3], 48, "@LAT95 off");
 #endif
@@ -2038,6 +2078,41 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
 }
 
 // --- setup / loop -----------------------------------------------------------
+// TTG-0004 §4.3, copied from the Cardputer so every board stamps the same way.
+static void episodeAt(char* at, size_t cap, uint32_t now) {
+#if USE_PULSE
+  semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now), gPulse.msSinceBeacon(now),
+                                        gPulse.playing(), gPulse.conductor(),
+                                        gPulse.chart().downbeat_epoch),
+                     at, cap);
+#else
+  semantic::renderAt(semantic::stampNow((int64_t)now, 0, false, false, 0), at, cap);
+#endif
+}
+
+// One append path for every tier: wrap the record already in the scratch, say where it
+// went, service the ring. false = LOST, and the caller says which tier lost it.
+static bool appendEpisode(int16_t ord, size_t m, const char* title, const char* source,
+                          uint32_t now) {
+  char at[72];
+  episodeAt(at, sizeof(at), now);
+  if (!m || !gEpisodes.appendSaidScratch(ord, m, title, source, at, gStreamWallSec)) {
+    Serial.printf("[episode] %s LOST at @LAT%dLON%d (render fail %lu, append fail %lu)\n",
+                  title, SEMANTIC_EPISODE_LANE, (int)ord,
+                  (unsigned long)gEpisodes.stats().render_failed,
+                  (unsigned long)gEpisodes.stats().append_failed);
+    return false;
+  }
+  const int k = semantic::tierOf(ord);
+  Serial.printf("[episode] %s -> @LAT%dLON%d (tier live %u/%u, TTDB %uB)\n", title,
+                SEMANTIC_EPISODE_LANE, (int)ord,
+                (unsigned)gEpisodes.tiers().ring((uint8_t)k).live(),
+                (unsigned)gEpisodes.tiers().ring((uint8_t)k).capacity(),
+                (unsigned)gDb.fileSize());
+  gEpisodes.service(now, gStreamWallSec);
+  return true;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -2090,6 +2165,15 @@ void setup() {
       Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
+    if (PHASEC_EPISODES) {
+      const uint32_t t0 = millis();
+      gEpisodes.begin(gDb);
+      Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                    "maxalloc %u B\n",
+                    (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                    (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
+      gEpisodes.print(Serial);
+    }
   }
 #if USE_WIFI_SCAN
   // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
@@ -2143,7 +2227,8 @@ void setup() {
   // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
   // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
   // shared timeline is not.
-  gTs.begin(kNodeId, &gDb, millis());
+  // Episode build: no @LAT90 log (capped at 16 and refusing) — see PHASEC_EPISODES.
+  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
 
   // Declare the two new organs at boot, next to the @LAT96 build line, for the same
   // reason that line exists: what a board can actually sense is otherwise invisible from
@@ -2319,7 +2404,24 @@ void loop() {
 #if USE_TILT && USE_K10_HW
   // --- SP0 MOTION TIER: was this node standing still? (@LAT95, and @LAT93 for the edge)
   serviceTilt(millis());
-  if (gMotionLog.due(millis())) {
+  if (gMotionLog.due(millis()) && PHASEC_EPISODES) {
+    const uint32_t mnow = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+    const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF, ord,
+                                            gStreamWallSec, gStamp, mnow, SEMANTIC_EPISODE_LANE);
+    if (gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN)
+      appendEpisode(ord, m, "motion window", "motionpercept", mnow);
+    else if (gMotionLog.lastClose() == motionpercept::CLOSE_COVERED)
+      Serial.printf("[motion] window covered (run %d)\n", gMotionLog.runOffset() + 1);
+    // The transition (TTDB-RFC-0006 §5) is a MOTION-band episode too; its halves cite
+    // @LAT103 windows and ride as `said:` sentences (the wrap keeps indented lines).
+    if (gMotionLog.transitionPending()) {
+      const int16_t tord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+      const size_t tm = gMotionLog.buildTransition(gEpisodes.scratch(),
+                                                   MOTIONPERCEPT_TRANSITION_BUF, tord, kNodeId);
+      appendEpisode(tord, tm, "motion transition", "motionpercept", mnow);
+    }
+  } else if (gMotionLog.due(millis())) {
     const uint32_t mnow = millis();
     int lane = laneCount(95);
     if (lane >= MOTIONPERCEPT_MAX_LANE) {
@@ -2383,7 +2485,13 @@ void loop() {
   // logged here and a transient logged there are the same measurement of the same event
   // only if they were computed the same way.
   serviceMic(millis());
-  if (gAcousticLog.due(millis())) {
+  if (gAcousticLog.due(millis()) && PHASEC_EPISODES) {
+    const uint32_t anow = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ACOUSTIC);
+    const size_t m = gAcousticLog.buildRecord(gEpisodes.scratch(), ACOUSTICPERCEPT_RECORD_BUF,
+                                              ord, gStreamWallSec, gStamp, anow, MIC_RATE);
+    if (m) appendEpisode(ord, m, "acoustic window", "acousticpercept", anow);
+  } else if (gAcousticLog.due(millis())) {
     const uint32_t anow = millis();
     int lane = laneCount(94);
     if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
@@ -2410,7 +2518,21 @@ void loop() {
   // SP0: flush the BLE link-percept window into the @LAT97 lane. Flash write, so it runs
   // from loop() (never the BLE scan task). Lane-capped; pruned by CMD_CLEAR_PERCEPTS
   // --lane 97 like every other tier. The K10's first self-authored proximity evidence.
-  if (gLinkLog.due(millis())) {
+  if (gLinkLog.due(millis()) && PHASEC_EPISODES) {
+    const uint32_t now = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_LINK);
+    const size_t m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, ord,
+                                          gStreamWallSec, gStamp, now);
+    char at[72];
+    episodeAt(at, sizeof(at), now);
+    if (m && gEpisodes.appendLinkWindowScratch(ord, m, nullptr, 0, at, gStreamWallSec)) {
+      Serial.printf("[episode] link window -> @LAT%dLON%d\n", SEMANTIC_EPISODE_LANE, (int)ord);
+      gEpisodes.service(now, gStreamWallSec);
+    } else if (m) {
+      Serial.printf("[episode] link window LOST at @LAT%dLON%d\n", SEMANTIC_EPISODE_LANE,
+                    (int)ord);
+    }
+  } else if (gLinkLog.due(millis())) {
     int lane = laneCount(97);
     if (lane >= LINKPERCEPT_MAX_LANE) {
       gLinkLog.reset(millis());  // lane full: drop the window, keep observing
@@ -2430,7 +2552,18 @@ void loop() {
   // lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane). The K10's
   // first self-authored proximity evidence, and until 2026-08-12 its only one.
   serviceWifiScan();
-  if (gEntityLog.due(millis())) {
+  if (gEntityLog.due(millis()) && PHASEC_EPISODES) {
+    const uint32_t now = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ENTITY);
+    const size_t m = gEntityLog.buildRecord(gEpisodes.scratch(), ENTITYPERCEPT_RECORD_BUF,
+                                            ord, gStreamWallSec, gStamp, now,
+                                            SEMANTIC_EPISODE_LANE);
+    if (gEntityLog.lastClose() == entitypercept::CLOSE_WRITTEN)
+      appendEpisode(ord, m, "entity window", "entitypercept", now);
+    else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED)
+      Serial.printf("[entity] window covered (run %d, core %d)\n",
+                    gEntityLog.runLength(), gEntityLog.coreCount());
+  } else if (gEntityLog.due(millis())) {
     int lane = laneCount(96);
     if (lane >= ENTITYPERCEPT_MAX_LANE) {
       // SAY THIS OUT LOUD -- the same argument @LAT95 got after 2026-08-02, and it

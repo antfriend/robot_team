@@ -97,6 +97,12 @@ LANES = {
     98: ("adopted beliefs (@LAT98)", None, None, None),
     99: ("sync log (@LAT99)", None, None, None),
     100: ("lane gens (@LAT100)", 32, None, None),
+    # ACT-III Phase C (2026-10-02): where a migrated board's evidence lives now. No cap and
+    # no Clear, by design — the ring folds into @LAT104 and cuts itself; a write is never
+    # refused, so there is nothing for an operator to clear.
+    101: ("trace field (@LAT101)", None, None, None),
+    103: ("episodes (@LAT103)", None, None, None),
+    104: ("fold checkpoints (@LAT104)", None, None, None),
 }
 CLEAR_ALL_WARN = (
     "Clear ALL percept lanes (94, 95, 96, 97) on {node}?\n\n"

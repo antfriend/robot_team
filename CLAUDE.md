@@ -185,9 +185,12 @@ powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
 The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **95% of the
-default app partition** (~63–65 KB left as of 2026-08-13) — past the ceiling the T-Deck
-hit, so the next feature added to them almost certainly needs `huge_app` first.
+so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **96% of the
+default app partition** (~47–49 KB left as of 2026-10-02, after the episode tier cost
++14.8 KB) — past the ceiling the T-Deck hit, so the next feature added to them almost
+certainly needs `huge_app` first. ⚠ **`huge_app` MOVES the LittleFS partition** (0x290000 →
+0x310000, as the T-Deck's): pull the TTDB first and re-image it at the new offset, or the
+board boots with an empty store.
 
 ### ⚠ THE MEASUREMENT BUILD — the flag, and the exact command line
 

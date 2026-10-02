@@ -29,6 +29,8 @@
 #include <BleLink.h>      // SP0 near-range tier: BLE advert+scan -> PROTO_BLE percepts
 #include <EntityPercept.h>  // SP0 entity tier: WiFi BSSID sightings -> @LAT96 percepts
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <EpisodeNode.h>   // ACT-III §C2: link + entity windows -> @LAT103 episodes, @LAT104 folds
+#include <FleetTime.h>     // ACT-III §C4: `at: <pulse> ±<bound> frame:<f>` (TTG-RFC-0004 §4.3)
 #include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <RobotTeamConfig.h>
 
@@ -306,6 +308,26 @@ static uint32_t gSeq = 1;
 // that they are callback-safe scalars refreshed once per loop(), never live reads of
 // an engine the WiFi task must not touch.
 static timestream::Node gTs;
+
+// ACT-III Phase C on the spine (2026-10-02), the Cardputer's pattern on a two-tier board:
+// LINK and ENTITY windows are @LAT103 episodes in their own LON bands (Semantic/Episode.h),
+// folded into a @LAT104 checkpoint and cut, so neither tier is ever refused for a full lane
+// — @LAT97/@LAT96 used to drop every window at 48/48. No IMU here, so no PerceptLearn: a
+// link episode carries RSSI as `said:` sentences and no `percept:` line, and this node's
+// consolidator stays empty (a V4 authors no belief, exactly as before). The stream still
+// runs and stamps; only its capped @LAT90 log stops (order is in each episode's `at:`).
+// 0 restores the pre-Phase-C flushes exactly (the A/B the Cardputer's leak was found by).
+#ifndef PHASEC_EPISODES
+#define PHASEC_EPISODES 1
+#endif
+static episodenode::Node gEpisodes;
+// LinkPercept's record is rendered into the episode scratch (no buffer of its own); its
+// worst case (8 maximal peers) is 847 B, pinned by test_episode.
+#define LINK_RECORD_CAP 1024
+static_assert(LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
+                  ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  SEMANTIC_LINK_WINDOW_EPISODE_BUF <= episodenode::Node::scratchCap(),
+              "percept records are rendered into the episode scratch and wrapped there");
 #define gStamp         (gTs.stamp())
 #define gStreamWallSec (gTs.wallSec())
 #define gSynced        (gTs.wall())
@@ -699,6 +721,19 @@ static void renderOled() {
   gOled.sendBuffer();
 }
 
+// TTG-0004 §4.3: an episode's `at: <pulse ms> ±<bound ms> frame:<downbeat>`, copied from the
+// Cardputer so every board stamps the same way. No chart heard = UNBOUNDED, never wrong.
+static void episodeAt(char* at, size_t cap, uint32_t now) {
+#if USE_PULSE
+  semantic::renderAt(semantic::stampNow(gPulse.pulseNow(now), gPulse.msSinceBeacon(now),
+                                        gPulse.playing(), gPulse.conductor(),
+                                        gPulse.chart().downbeat_epoch),
+                     at, cap);
+#else
+  semantic::renderAt(semantic::stampNow((int64_t)now, 0, false, false, 0), at, cap);
+#endif
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -757,6 +792,15 @@ void setup() {
       Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
+    if (PHASEC_EPISODES) {
+      const uint32_t t0 = millis();
+      gEpisodes.begin(gDb);
+      Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                    "maxalloc %u B\n",
+                    (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                    (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
+      gEpisodes.print(Serial);
+    }
   }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — see the Cardputer's copy.
@@ -791,7 +835,8 @@ void setup() {
   // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
   // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
   // shared timeline is not.
-  gTs.begin(kNodeId, &gDb, millis());
+  // Episode build: no @LAT90 log (capped at 16 and refusing) — see PHASEC_EPISODES.
+  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
 
 #if USE_BLE
   // Near-range tier: advertise this node + passively scan peers over BLE, feeding RSSI
@@ -1080,7 +1125,27 @@ void loop() {
 
   // SP0: flush the link-percept window into the @LAT97 lane (flash write from
   // loop(), never the recv callback). Lane-capped until SP1 adds pruning.
-  if (gLinkLog.due(millis())) {
+  if (gLinkLog.due(millis()) && PHASEC_EPISODES) {
+    const uint32_t now = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_LINK);
+    const size_t m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, ord,
+                                          gStreamWallSec, gStamp, now);
+    char at[72];
+    episodeAt(at, sizeof(at), now);
+    if (m && gEpisodes.appendLinkWindowScratch(ord, m, nullptr, 0, at, gStreamWallSec)) {
+      Serial.printf("[link] window -> @LAT%dLON%d (link live %u/%u, TTDB %uB, heap %u)\n",
+                    SEMANTIC_EPISODE_LANE, (int)ord,
+                    (unsigned)gEpisodes.tiers().ring(semantic::TIER_LINK).live(),
+                    (unsigned)gEpisodes.tiers().ring(semantic::TIER_LINK).capacity(),
+                    (unsigned)gDb.fileSize(), (unsigned)ESP.getFreeHeap());
+      gEpisodes.service(now, gStreamWallSec);
+    } else if (m) {
+      Serial.printf("[link] window LOST at @LAT%dLON%d (render fail %lu, append fail %lu, "
+                    "index headroom %d)\n", SEMANTIC_EPISODE_LANE, (int)ord,
+                    (unsigned long)gEpisodes.stats().render_failed,
+                    (unsigned long)gEpisodes.stats().append_failed, gDb.indexHeadroom());
+    }
+  } else if (gLinkLog.due(millis())) {
     int lane = 0;
     for (int i = 0; i < gDb.recordCount(); ++i)
       if (gDb.record(i).lat == 97) ++lane;
@@ -1100,7 +1165,37 @@ void loop() {
   // SP0 entity tier: run the duty-cycled scan, then flush its window into the
   // @LAT96 lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane).
   serviceWifiScan();
-  if (gEntityLog.due(millis())) {
+  if (gEntityLog.due(millis()) && PHASEC_EPISODES) {
+    // The Cardputer's entity flush: EntityPercept decides WHAT (core, run, union); the
+    // ordinal is taken first so `covered_by:` cites the episode that really covers the run.
+    const uint32_t now = millis();
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ENTITY);
+    const size_t m = gEntityLog.buildRecord(gEpisodes.scratch(), ENTITYPERCEPT_RECORD_BUF,
+                                            ord, gStreamWallSec, gStamp, now,
+                                            SEMANTIC_EPISODE_LANE);
+    if (gEntityLog.lastClose() == entitypercept::CLOSE_WRITTEN) {
+      char at[72];
+      episodeAt(at, sizeof(at), now);
+      if (m && gEpisodes.appendSaidScratch(ord, m, "entity window", "entitypercept", at,
+                                           gStreamWallSec)) {
+        Serial.printf("[entity] window -> @LAT%dLON%d (entity live %u/%u, TTDB %uB)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).live(),
+                      (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).capacity(),
+                      (unsigned)gDb.fileSize());
+        gEpisodes.service(now, gStreamWallSec);
+      } else {
+        // The run now cites an ordinal that was never written; the next record takes it.
+        Serial.printf("[entity] window LOST at @LAT%dLON%d (render fail %lu, append fail "
+                      "%lu)\n", SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned long)gEpisodes.stats().render_failed,
+                      (unsigned long)gEpisodes.stats().append_failed);
+      }
+    } else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED) {
+      Serial.printf("[entity] window covered (run %d, core %d)\n",
+                    gEntityLog.runLength(), gEntityLog.coreCount());
+    }
+  } else if (gEntityLog.due(millis())) {
     int lane = 0;
     for (int i = 0; i < gDb.recordCount(); ++i)
       if (gDb.record(i).lat == 96) ++lane;

@@ -320,8 +320,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    `at:` stamps carry the order; stream still runs), `@LAT93` transitions are MOTION-band episodes. It now
    writes only `@LAT101`/`@LAT103`/`@LAT104`. ⚠ New boot fault, **unattributed**: `ipc0` stack canary in
    BLE controller init, 2 of 28 boots on this build vs 0 of 20 on the two before (not significant).
-   **Next:** C0 is honest on the Cardputer but the deletion is fleet-wide — the other five boards need an
-   episode tier first (V4s at 95% flash → `huge_app`), or C0 is scoped per board.
+   ✅ **Episode tier on every sketch** (2026-10-02 night; operator chose "other boards first" over per-board
+   C0): V4-A/B/C, T-Deck (link + entity) and K10 (all four tiers + transitions) build with it, each with
+   the `PHASEC_EPISODES` kill switch and no `@LAT90` write. **The V4s did NOT need `huge_app`** — 96%,
+   ~47–49 KB left. **V4-A flashed + verified** (episodes written, laptop parses them, 0/5 boot crashes;
+   its `@LAT97`/`@LAT96` were 48/48 and `@LAT90` 16/16 — it was recording nothing; released, 126 → 36).
+   **Next:** flash V4-B, V4-C, T-Deck, K10 as they are plugged in (bank a pull first; release old lanes
+   after verifying) — then C0's deletion is honest fleet-wide.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with
