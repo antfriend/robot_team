@@ -335,7 +335,9 @@ If a fact lives in one of these, link to it from here — don't copy it.
    already 192–194 B — ⚠ **reflash the Cardputer** (built, not flashed) before its `t_ms` gains digits.
    ✅ **T-Deck flashed + verified** — **every board is on the episode tier**; none writes `@LAT90`. ⚠ T-Deck
    loop heap 13–14 KB (flat), now the second-tightest board.
-   **Next:** reflash the Cardputer with the said-line fix; then **C0's deletion** — `*_MAX_LANE` caps,
+   ✅ **Cardputer reflashed with the fix** — its first run-closing window after it wrote a 200 B said
+   line, which the old build would have lost. Transitions verified on hardware on both IMU boards.
+   **Next:** **C0's deletion** — `*_MAX_LANE` caps,
    `lanegen::prune*` + the NVS deferred prune, the `clear-percepts`/`clear-timeline` verbs, and the
    `PHASEC_EPISODES 0` legacy paths (the A/B switch has served its purpose once nothing runs it). (bank a pull first; release old lanes
    after verifying) — then C0's deletion is honest fleet-wide.
