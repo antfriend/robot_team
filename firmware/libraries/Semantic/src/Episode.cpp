@@ -376,10 +376,10 @@ size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32
 // refused (a line too long for the on-device reader, a `|`, no room, or — in place — a
 // write that would overrun input not yet read). `out` is zeroed on refusal.
 static int wrapSaid(EpisodeBuilder& b, const char* body, size_t n, char* out, bool inplace) {
-  // `said: <k> | ` is ≤ 16 B for any k this loop reaches; the whole line must come back
-  // through the glue's SEMANTIC_LINE_MAX reader intact or the laptop is the only reader.
-  const size_t max_text = SEMANTIC_LINE_MAX - 16;
-  char line[SEMANTIC_LINE_MAX];
+  // `said: <k> | ` is ≤ 16 B for any k this loop reaches; the whole line (+ its newline)
+  // must come back through the glue's SEMANTIC_SAID_LINE_MAX reader intact.
+  const size_t max_text = SEMANTIC_SAID_LINE_MAX - 17;
+  char line[SEMANTIC_SAID_LINE_MAX];
   uint32_t k = 0;
   size_t i = 0;
   while (i < n) {

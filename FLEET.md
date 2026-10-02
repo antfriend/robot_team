@@ -327,7 +327,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    its `@LAT97`/`@LAT96` were 48/48 and `@LAT90` 16/16 — it was recording nothing; released, 126 → 36).
    ✅ **V4-B flashed + verified** the same night (episodes, 0/5 boot crashes, old lanes released 60 → 25).
    ✅ **V4-C flashed + verified** too (its `@LAT97` had been 48/48; released 78 → 22). All three V4s done.
-   **Next:** flash T-Deck, K10 as they are plugged in (bank a pull first; release old lanes
+   ✅ **K10 flashed + verified** (all four tiers + transitions; `@LAT94`/`95`/`96` had ALL been 48/48 and
+   `@LAT90` 16/16; released 181 → 48). 🐛 **Found + fixed on it:** a run-closing motion window's
+   `**COVERED**` line overran the 184-B said-text limit → window LOST → the transition took its ordinal
+   and cited itself. `said:` lines now have their own budget (`SEMANTIC_SAID_LINE_MAX 320`; worst
+   possible line 278 B), and a transition whose window was lost is WITHHELD. The Cardputer's lines were
+   already 192–194 B — ⚠ **reflash the Cardputer** (built, not flashed) before its `t_ms` gains digits.
+   **Next:** flash the T-Deck (last board) and the Cardputer fix (bank a pull first; release old lanes
    after verifying) — then C0's deletion is honest fleet-wide.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.

@@ -785,10 +785,16 @@ static void testEntityEpisode() {
     const char* none = "\n---\n\n@LAT103LON8192 | x\n\nplain text\n";
     check(renderSaidEpisode(none, strlen(none), 8192, 1, "e", "s", "x", ep, sizeof(ep)) == 0,
           "a body with no `**` line is no episode");
-    std::string longl = "**CORE** ids:" + std::string(SEMANTIC_LINE_MAX, 'a') + "\n";
+    // The said-text budget is SEMANTIC_SAID_LINE_MAX - 17 (≤16 B of `said: k | `, + '\n').
+    const size_t maxt = SEMANTIC_SAID_LINE_MAX - 17;
+    std::string longl = "**CORE** ids:" + std::string(maxt + 1 - 13, 'a') + "\n";
     check(renderSaidEpisode(longl.c_str(), longl.size(), 8192, 1, "e", "s", "x", ep,
                             sizeof(ep)) == 0,
-          "a line too long for the on-device reader refuses the episode");
+          "a line one byte too long for the on-device reader refuses the episode");
+    std::string fits = "**CORE** ids:" + std::string(maxt - 13, 'a') + "\n";
+    check(renderSaidEpisode(fits.c_str(), fits.size(), 8192, 1, "e", "s", "x", ep,
+                            sizeof(ep)) > 0,
+          "and a line exactly at the limit wraps (the budget is SEMANTIC_SAID_LINE_MAX)");
     const char* ok = "**ENTWIN** t_ms:1\n**ENTITY** kind:wifi_ap id:010203040506 n:1 rssi:-50\n";
     char tiny[120];
     check(renderSaidEpisode(ok, strlen(ok), 8192, 1, "e", "s", "x", tiny, sizeof(tiny)) == 0 &&
@@ -1077,6 +1083,52 @@ static void testTransitionEpisode() {
         "the transition renders into the one scratch buffer");
   printf("    transition record %u B -> episode %u B; in place %u match / %u refused\n",
          (unsigned)m, (unsigned)n, (unsigned)match, (unsigned)refused);
+}
+
+// =======================================================================================
+// 6g. a run-closing motion window's COVERED line: longer than a percept line (2026-10-02)
+// =======================================================================================
+// Found on the K10 the night the tier moved: the window that closed a still run carried a
+// `**COVERED**` line past the old 184-byte said-text limit, so the episode was refused,
+// the window LOST, and the transition took its ordinal. The Cardputer's were already at
+// 192–194 B with 7-digit t_ms; a stream a few months old has 10–11 digits.
+static void testLongCoveredLine() {
+  printf("long covered line\n");
+  motionpercept::Log log;
+  uint32_t now = 1000;
+  log.reset(now);
+  static char rec[MOTIONPERCEPT_RECORD_BUF];
+  static char ep[SEMANTIC_ENTITY_EPISODE_BUF];
+  const Band mb = tierBand(TIER_MOTION);
+  int16_t ord = (int16_t)(mb.base + mb.span - 1);   // the widest ordinal in the band
+  const uint64_t T = 999999999999999ULL;            // a 15-digit stream clock
+  size_t m = 0;
+  // still x6 (one written, five covered), then moving: the change closes the run.
+  for (int w = 0; w < 7; ++w) {
+    motionWindow(log, now, w < 6 ? 0 : 900);
+    m = log.buildRecord(rec, sizeof(rec), ord, 1000, entSt(T + (uint64_t)w * 60000), now,
+                        SEMANTIC_EPISODE_LANE);
+    if (log.lastClose() == motionpercept::CLOSE_WRITTEN && w < 6)
+      ord = (int16_t)(mb.base + 100);              // later ordinals: still 5 digits wide
+  }
+  check(log.lastClose() == motionpercept::CLOSE_WRITTEN && m > 0,
+        "the change closes the run with a written record");
+  size_t longest_text = 0;
+  for (const std::string& l : linesOf(std::string(rec, m)))
+    if (l.compare(0, 11, "**COVERED**") == 0 && l.size() > longest_text) longest_text = l.size();
+  check(longest_text > SEMANTIC_LINE_MAX - 16,
+        "its COVERED line is longer than the OLD said-text limit (the K10's case)");
+  const size_t n = renderSaidEpisode(rec, m, ord, 1000, "motion window", "motionpercept",
+                                     "1 +-2 frame:3", ep, sizeof(ep));
+  check(n > 0, "and it now wraps (it was refused under SEMANTIC_LINE_MAX)");
+  size_t longest = 0;
+  for (const std::string& l : linesOf(std::string(ep, n)))
+    if (l.size() > longest) longest = l.size();
+  check(longest + 1 <= SEMANTIC_SAID_LINE_MAX,
+        "every said line fits the on-device reader's SEMANTIC_SAID_LINE_MAX buffer");
+  printf("    COVERED text %u B (old limit %u), longest said line %u of %u\n",
+         (unsigned)longest_text, (unsigned)(SEMANTIC_LINE_MAX - 16), (unsigned)longest,
+         (unsigned)SEMANTIC_SAID_LINE_MAX);
 }
 
 // =======================================================================================
@@ -1373,6 +1425,7 @@ int main() {
   testLinkWindowEpisode();
   testLinkBeliefRows();
   testTransitionEpisode();
+  testLongCoveredLine();
   testAcousticEpisode();
   testBuilder();
   testReader();

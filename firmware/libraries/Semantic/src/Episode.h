@@ -401,6 +401,18 @@ size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32
 // Returns 0 (never a truncated record) when anything does not fit, when a `**` line holds
 // a `|` (it would read back as a different sentence), or when one is too long to come
 // back through the on-device line reader (SEMANTIC_LINE_MAX).
+// ⚠ A `said:` LINE HAS ITS OWN BUDGET (2026-10-02), not SEMANTIC_LINE_MAX. That 200 is the
+// percept-line limit the consolidator parses; `said:` lines are never parsed on the device,
+// only streamed past. Holding them to 200 refused a REAL MotionPercept window on the K10 —
+// its run-closing `**COVERED**` line was over the limit, so the window was LOST and the
+// transition behind it took its ordinal — and the Cardputer's were already 192–194 B, with
+// `t_ms` gaining a digit as the stream ages. The worst line any sampler can render is
+// 278 B (every MotionPercept COVERED field at its type's maximum); 320 covers it with room.
+// The on-device readers (EpisodeNode.h) size their line buffers from this, so a said line
+// that renders also comes back intact.
+#ifndef SEMANTIC_SAID_LINE_MAX
+#define SEMANTIC_SAID_LINE_MAX 320
+#endif
 size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
                          const char* title, const char* source, const char* at,
                          char* out, size_t cap);

@@ -29,6 +29,9 @@ namespace episodenode {
 
 // TtdbCut and semantic::Cut are declared as twins so Semantic never includes <FS.h>.
 static_assert(sizeof(TtdbCut) == sizeof(semantic::Cut), "TtdbCut / semantic::Cut drifted");
+// The readers below hold whole `said:` lines (Episode.h), which are longer than percept lines.
+static_assert(SEMANTIC_SAID_LINE_MAX >= SEMANTIC_LINE_MAX + 56,
+              "a said line that renders must come back through the reader intact");
 
 #ifndef EPISODENODE_CUT_RETRY_MS
 // After a refused rewrite, wait before trying again: with the radios up the refusal is
@@ -54,7 +57,7 @@ inline bool streamRecord(Ttdb& db, int idx, R& r, uint32_t& long_lines) {
   size_t off = 0, len = 0;
   if (!db.recordSpan(idx, off, len)) return false;
   char chunk[256];
-  char line[SEMANTIC_LINE_MAX + 56];
+  char line[SEMANTIC_SAID_LINE_MAX];
   size_t ll = 0;
   bool over = false;
   auto emit = [&]() {
@@ -86,7 +89,7 @@ inline bool streamRecord(Ttdb& db, int idx, R& r, uint32_t& long_lines) {
 // Same, over bytes already in RAM (the record just rendered, so it is not read back).
 template <class R>
 inline void feedBuffer(const char* text, size_t n, R& r) {
-  char line[SEMANTIC_LINE_MAX + 56];
+  char line[SEMANTIC_SAID_LINE_MAX];
   size_t ll = 0;
   for (size_t i = 0; i <= n; ++i) {
     const char c = (i < n) ? text[i] : '\n';

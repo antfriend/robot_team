@@ -4473,7 +4473,15 @@ void loop() {
       // is the datum — the thing a prediction could ever be wrong about. Written only
       // on a verdict change, so a node sitting still on a shelf writes none at all.
       // Must run before the next buildRecord(), which would overwrite the `after` half.
-      if (gMotionLog.transitionPending() && PHASEC_EPISODES) {
+      // ⚠ A transition whose `after` window was LOST is withheld: it would cite that
+      // window's ordinal, which is the one it would take itself (K10, 2026-10-02).
+      const bool window_lost = PHASEC_EPISODES && !wrote &&
+                               gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN;
+      if (gMotionLog.transitionPending() && window_lost) {
+        gMotionLog.buildTransition(gEpisodes.scratch(), MOTIONPERCEPT_TRANSITION_BUF, 0,
+                                   kNodeId);   // consumes the pending flag; discarded
+        Serial.println("[motion] transition WITHHELD: its after-window was lost");
+      } else if (gMotionLog.transitionPending() && PHASEC_EPISODES) {
         // ACT-III §C2 (2026-10-02): a transition is a MOTION-band episode, not a @LAT93
         // record in a lane capped at 32. Its two halves (`  @PERCEPT:before/after …
         // lane:@LAT103LON<n>+<k>`) ride as `said:` sentences — the wrap keeps indented

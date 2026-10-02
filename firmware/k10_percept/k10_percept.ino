@@ -2409,8 +2409,9 @@ void loop() {
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
     const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF, ord,
                                             gStreamWallSec, gStamp, mnow, SEMANTIC_EPISODE_LANE);
+    bool window_lost = false;
     if (gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN)
-      appendEpisode(ord, m, "motion window", "motionpercept", mnow);
+      window_lost = !appendEpisode(ord, m, "motion window", "motionpercept", mnow);
     else if (gMotionLog.lastClose() == motionpercept::CLOSE_COVERED)
       Serial.printf("[motion] window covered (run %d)\n", gMotionLog.runOffset() + 1);
     // The transition (TTDB-RFC-0006 §5) is a MOTION-band episode too; its halves cite
@@ -2419,7 +2420,14 @@ void loop() {
       const int16_t tord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
       const size_t tm = gMotionLog.buildTransition(gEpisodes.scratch(),
                                                    MOTIONPERCEPT_TRANSITION_BUF, tord, kNodeId);
-      appendEpisode(tord, tm, "motion transition", "motionpercept", mnow);
+      // ⚠ WITHHELD if its `after` window was lost: the transition would cite that window's
+      // ordinal, which is the one it takes itself (found on this board, 2026-10-02).
+      // buildTransition() still ran, so the pending flag is consumed either way.
+      if (window_lost)
+        Serial.printf("[motion] transition WITHHELD: its after-window @LAT%dLON%d was lost\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord);
+      else
+        appendEpisode(tord, tm, "motion transition", "motionpercept", mnow);
     }
   } else if (gMotionLog.due(millis())) {
     const uint32_t mnow = millis();
