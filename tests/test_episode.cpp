@@ -920,6 +920,92 @@ static void testLinkWindowEpisode() {
 }
 
 // =======================================================================================
+// 6e. the link beliefs as a node shows them: top-k by EPS, Rule 3 over the window only
+// =======================================================================================
+static void testLinkBeliefRows() {
+  printf("link belief rows\n");
+  Consolidator c; c.begin();
+  static char buf[SEMANTIC_LINK_EPISODE_BUF];
+  // 0x200/espnow: 6 met. 0x10/ble: 3 met 3 violated (contested: high EPS).
+  // 0x100/espnow: 1 met. A non-link term rides along and must not appear.
+  for (int e = 0; e < 6; ++e) {
+    LinkClaim k[3] = {{0x200, "espnow", LINK_MET, -40, -41},
+                      {0x10, "ble", e % 2 ? LINK_VIOLATED : LINK_MET, -60, -70},
+                      {0x100, "espnow", e == 0 ? LINK_MET : LINK_UNOBSERVED, -50, -50}};
+    const size_t n = renderLinkEpisode(k, 3, (int16_t)e, 1, "x", buf, sizeof(buf));
+    EpisodeReader r(c);
+    r.select((int16_t)e, (int16_t)e, Consolidator::KEEPING);
+    feedText(r, std::string(buf, n));
+    r.finish();
+  }
+  c.beginEpisode();
+  c.percept(mk(1, "0x00000300", "moves_with", "0x00000200", POL_PLUS, Q_NONE));
+  c.endEpisode(Consolidator::KEEPING);
+
+  LinkBeliefRow rows[8];
+  size_t total = 99;
+  const size_t n = linkBeliefRows(c, rows, 8, &total);
+  check(n == 3 && total == 3, "three link terms; the non-link term is not a link belief");
+  bool sorted = true;
+  for (size_t i = 1; i < n; ++i) if (rows[i - 1].eps < rows[i].eps) sorted = false;
+  check(sorted, "rows come highest-EPS first");
+  const LinkBeliefRow* a = 0; const LinkBeliefRow* b = 0;
+  for (size_t i = 0; i < n; ++i) {
+    if (rows[i].peer == 0x200) a = &rows[i];
+    if (rows[i].peer == 0x10) b = &rows[i];
+  }
+  check(a && a->met == 6 && a->violated == 0 && a->pol == '+' && !strcmp(a->proto, "espnow"),
+        "met/violated are whole windows (the tally's halves divided out)");
+  check(a && a->r3 == Consolidator::rule3Conf(6, 0) && a->r3 == 140,
+        "Rule 3 rides beside counting: 128 + 2*6 = 140");
+  check(b && b->met == 3 && b->violated == 3 && b->r3 == 86,
+        "three violations cost Rule 3 eight times what three confirmations earn: 128 + 6 - 48 = 86");
+  check(a && b && b->eps > a->eps, "the contested belief draws more attention than the settled one");
+  check(a && !a->carried, "nothing evicted yet: carried is false");
+
+  // k smaller than the term count: the panel gets the top of the list and the total.
+  LinkBeliefRow top[2];
+  const size_t n2 = linkBeliefRows(c, top, 2, &total);
+  check(n2 == 2 && total == 3 && top[0].eps == rows[0].eps && top[1].eps == rows[1].eps,
+        "k=2 returns the same two rows the full list leads with, and total still says 3");
+  check(linkBeliefRows(c, 0, 0, &total) == 0 && total == 3, "k=0 only counts");
+
+  // Equal EPS keeps insertion order, so the panel does not shuffle between equals.
+  Consolidator e; e.begin();
+  for (int p = 0; p < 4; ++p) {
+    LinkClaim k[1] = {{(uint32_t)(0x20 + p), "espnow", LINK_MET, -40, -40}};
+    const size_t m = renderLinkEpisode(k, 1, (int16_t)p, 1, "x", buf, sizeof(buf));
+    EpisodeReader r(e);
+    r.select((int16_t)p, (int16_t)p, Consolidator::KEEPING);
+    feedText(r, std::string(buf, m));
+    r.finish();
+  }
+  LinkBeliefRow eq[4];
+  linkBeliefRows(e, eq, 4, 0);
+  check(eq[0].peer == 0x20 && eq[1].peer == 0x21 && eq[2].peer == 0x22 && eq[3].peer == 0x23,
+        "equal EPS: insertion order");
+
+  // Evict the oldest episode of 0x200's run: the total is unchanged (fold before forget),
+  // but Rule 3 now sees only the window — and `carried` says so.
+  {
+    const size_t m = renderLinkEpisode(0, 0, 0, 1, "x", buf, sizeof(buf));
+    (void)m;
+    LinkClaim k[3] = {{0x200, "espnow", LINK_MET, -40, -41},
+                      {0x10, "ble", LINK_MET, -60, -70},
+                      {0x100, "espnow", LINK_MET, -50, -50}};
+    const size_t m0 = renderLinkEpisode(k, 3, 0, 1, "x", buf, sizeof(buf));
+    EpisodeReader r(c);
+    r.select(0, 0, Consolidator::EVICTING);
+    feedText(r, std::string(buf, m0));
+    r.finish();
+  }
+  linkBeliefRows(c, rows, 8, &total);
+  for (size_t i = 0; i < 3; ++i) if (rows[i].peer == 0x200) a = &rows[i];
+  check(a->met == 6 && a->carried && a->r3 == Consolidator::rule3Conf(5, 0),
+        "after a fold: counting still sees 6, Rule 3 sees the 5 retained, carried is set");
+}
+
+// =======================================================================================
 // 6c. the acoustic tier as episodes — and AcousticPercept's first native test
 // =======================================================================================
 static void testAcousticEpisode() {
@@ -1211,6 +1297,7 @@ int main() {
   testLink();
   testEntityEpisode();
   testLinkWindowEpisode();
+  testLinkBeliefRows();
   testAcousticEpisode();
   testBuilder();
   testReader();

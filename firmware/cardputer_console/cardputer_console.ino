@@ -1374,10 +1374,31 @@ static void appendBeliefRecord() {
 // "the reconciliation was performed by hand, by an outside reader".
 //
 // Runs from loop(), never a callback: it can rewrite the whole TTDB.
+static int gBeliefRev = 0;
+#if PHASEC_EPISODES
+// ACT-III §C3, wired (2026-10-02): the node's link beliefs ARE the episode tier's
+// consolidator — TTG-0003 counting over live + carried evidence, recomputed on every boot
+// from @LAT103/@LAT104 and never written to a lane of their own. So there is no @LAT92 to
+// re-read and no @LAT91 to rewrite: this only notices that the beliefs MOVED, so the belief
+// panel (which repaints on change) and the serial log know. Cheap: ≤ 32 terms, no I/O.
+static uint32_t gBeliefSig = 0;
+static void noteBeliefChange() {
+  const semantic::Consolidator& c = gEpisodes.consolidator();
+  uint32_t h = 2166136261u;                       // FNV-1a over what the panel shows
+  for (size_t i = 0; i < c.termCount(); ++i) {
+    const semantic::Term* tm = c.term(i);
+    const uint32_t v[4] = {c.conf(*tm), tm->totalFor(), tm->totalAgainst(),
+                           (uint32_t)(uint8_t)c.polarity(*tm)};
+    for (int j = 0; j < 4; ++j) { h ^= v[j]; h *= 16777619u; }
+    for (const char* q = tm->subject; *q; ++q) { h ^= (uint8_t)*q; h *= 16777619u; }
+    for (const char* q = tm->object; *q; ++q) { h ^= (uint8_t)*q; h *= 16777619u; }
+  }
+  if (h != gBeliefSig) { gBeliefSig = h; ++gBeliefRev; }
+}
+#else
 static perceptlearn::Reconciler gRecon;
 static int32_t gLastConf[PERCEPTLEARN_MAX_BELIEFS];
 static int gLastConfN = -1;      // -1 = never reconciled this boot
-static int gBeliefRev = 0;
 
 static void reconcileBeliefs() {
   // Timed in three phases because they fail differently and the section profiler cannot
@@ -1477,6 +1498,7 @@ static void reconcileBeliefs() {
                 (unsigned long)bytes_before, (unsigned long)gDb.fileSize(),
                 gDb.recordCount());
 }
+#endif  // PHASEC_EPISODES
 
 // Count existing records in a percept lane (the LON index of the next one).
 static int laneCount(int lat) {
@@ -3384,9 +3406,12 @@ struct BeliefRow {
   char     proto[4];
   int      conf, sal, met, vio;
   bool     contradiction;
+  int      r3;          // Rule 3 over the retained window; -1 = this conf IS Rule 3
+  bool     carried;     // conf counts evidence r3 cannot see (folded out of the window)
 };
 static BeliefRow gBel[PERCEPTLEARN_MAX_BELIEFS];
 static int  gBelN = 0;
+static int  gBelTotal = 0;   // how many beliefs exist; > gBelN means the panel says so
 static int  gBelRevSeen = -1;
 static bool gBelPainted = false;
 
@@ -3402,6 +3427,28 @@ static int belField(const char* s, const char* key, int dflt) {
 // per-frame file I/O that cost 767 ms/repaint in the `edgesAt` defect (FLEET.md §6).
 static void readBeliefs() {
   gBelN = 0;
+#if PHASEC_EPISODES
+  // From RAM: the consolidator's link terms, highest EPS first (Episode.h, THE LINK
+  // BELIEFS). The panel shows 8; gBelTotal says when there are more.
+  semantic::LinkBeliefRow rows[PERCEPTLEARN_MAX_BELIEFS];
+  size_t total = 0;
+  const size_t n = semantic::linkBeliefRows(gEpisodes.consolidator(), rows,
+                                            PERCEPTLEARN_MAX_BELIEFS, &total);
+  for (size_t i = 0; i < n; ++i) {
+    BeliefRow& b = gBel[gBelN++];
+    b.peer = rows[i].peer;
+    snprintf(b.proto, sizeof(b.proto), "%.3s", rows[i].proto);
+    b.conf = rows[i].conf;
+    b.sal = rows[i].sal;
+    b.met = (int)rows[i].met;
+    b.vio = (int)rows[i].violated;
+    b.contradiction = rows[i].pol == '-';   // counting says AGAINST, not "twice running"
+    b.r3 = rows[i].r3;
+    b.carried = rows[i].carried;
+  }
+  gBelTotal = (int)total;
+  return;
+#endif
   static char buf[768];
   for (int i = 0; i < gDb.recordCount() && gBelN < PERCEPTLEARN_MAX_BELIEFS; ++i) {
     if (gDb.record(i).lat != PERCEPTLEARN_BELIEF_LANE) continue;
@@ -3421,9 +3468,12 @@ static void readBeliefs() {
     b.met  = belField(buf, "met:", 0);
     b.vio  = belField(buf, "violated:", 0);
     b.contradiction = belField(buf, "contradiction:", 0) != 0;
+    b.r3 = -1;
+    b.carried = false;
     ++gBelN;
     yield();
   }
+  gBelTotal = gBelN;
 }
 
 static void beliefChrome() {
@@ -3447,21 +3497,35 @@ static void renderBelief(uint32_t now) {
     gTft.fillRect(0, 10, SCR_W, SCR_H - 10, ST77XX_BLACK);
   }
   char l[TEXT_COLS + 2];
-  snprintf(l, sizeof(l), "LINK BELIEFS @LAT91  %d  rev%d", gBelN, gBeliefRev);
+  // ⚠ If the panel shows fewer beliefs than exist it must say so (the record-pane rule):
+  // "8/9" is the K10's belief NOT being on screen, which "8" would hide.
+  if (gBelTotal > gBelN)
+    snprintf(l, sizeof(l), "LINK BELIEFS %s %d/%d rev%d", PHASEC_EPISODES ? "count" : "@LAT91",
+             gBelN, gBelTotal, gBeliefRev);
+  else
+    snprintf(l, sizeof(l), "LINK BELIEFS %s  %d  rev%d", PHASEC_EPISODES ? "count" : "@LAT91",
+             gBelN, gBeliefRev);
   drawWide(0, rgb565(150, 190, 255), l);
 
   if (gBelN == 0) {
     // Say WHY it is empty. A blank panel here would look identical to a broken view, and
     // on a freshly imaged filesystem empty is the correct and expected state.
     drawWide(20, rgb565(240, 200, 90), "no belief yet");
-    drawWide(32, rgb565(150, 150, 150), "the Dream Cycle writes @LAT91 from");
-    drawWide(42, rgb565(150, 150, 150), "@LAT92 testimony; needs a still");
-    drawWide(52, rgb565(150, 150, 150), "window + a peer, then <=3 min.");
+    if (PHASEC_EPISODES) {
+      drawWide(32, rgb565(150, 150, 150), "beliefs are counted from @LAT103");
+      drawWide(42, rgb565(150, 150, 150), "link episodes; needs a still");
+      drawWide(52, rgb565(150, 150, 150), "window + a peer, then 1 window.");
+    } else {
+      drawWide(32, rgb565(150, 150, 150), "the Dream Cycle writes @LAT91 from");
+      drawWide(42, rgb565(150, 150, 150), "@LAT92 testimony; needs a still");
+      drawWide(52, rgb565(150, 150, 150), "window + a peer, then <=3 min.");
+    }
     gBelPainted = true;
     return;
   }
 
-  const int kRowH = 14, kTop = 16, kBarX = 46, kBarW = 96;
+  // Narrower bar on the episode build to make room for Rule 3's number beside counting's.
+  const int kRowH = 14, kTop = 16, kBarX = 46, kBarW = PHASEC_EPISODES ? 64 : 96;
   gTft.setTextSize(1);
   for (int i = 0; i < gBelN; ++i) {
     const int y = kTop + i * kRowH;
@@ -3484,8 +3548,14 @@ static void renderBelief(uint32_t now) {
     if (w < kBarW - 2) gTft.fillRect(kBarX + 1 + w, y, kBarW - 2 - w, 7, ST77XX_BLACK);
 
     gTft.setCursor(kBarX + kBarW + 4, y);
-    snprintf(l, sizeof(l), "%3d %2d/%-2d%s", b.conf, b.met, b.vio,
-             b.contradiction ? "!" : "");
+    // `r<n>` = Rule 3 over the retained window; `*` = conf also counts evidence folded out
+    // of that window, so the two numbers are not over the same evidence (ACT-III §C3).
+    if (b.r3 >= 0)
+      snprintf(l, sizeof(l), "%3d r%-3d %d/%d%s", b.conf, b.r3, b.met, b.vio,
+               b.carried ? "*" : "");
+    else
+      snprintf(l, sizeof(l), "%3d %2d/%-2d%s", b.conf, b.met, b.vio,
+               b.contradiction ? "!" : "");
     gTft.print(l);
   }
   gBelPainted = true;
@@ -4122,6 +4192,12 @@ void loop() {
                         gDb.indexHeadroom());
         gEpisodes.service(now, gStreamWallSec);
       }
+#if PHASEC_EPISODES
+      // ACT-III §C3 (2026-10-02): no @LAT92 outcome. The verdicts are in the episode just
+      // appended, which the consolidator has already counted; a second copy in a lane capped
+      // at 24 was the last refusal this tier could still hit. Just say the beliefs moved.
+      if (scored && episode_written) noteBeliefChange();
+#else
       if (scored) {
         if (!gLearn.outcomePending()) {
           // Run-length: this window's verdicts matched the record before it, so it is
@@ -4151,10 +4227,7 @@ void loop() {
           // real change could be folded away as "unchanged". A record dropped for want
           // of lane space must not also corrupt the run accounting.
           size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
-          if (PHASEC_EPISODES && !episode_written) {
-            // Rendered (the run is adopted) and discarded: it would cite
-            // @LAT103LON<ep_ord>, which was not written.
-          } else if (olane >= PERCEPTLEARN_MAX_LANE) {
+          if (olane >= PERCEPTLEARN_MAX_LANE) {
             Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
                           "still predicting but no longer testifying\n",
                           PERCEPTLEARN_LANE, olane);
@@ -4167,6 +4240,7 @@ void loop() {
           }
         }
       }
+#endif  // PHASEC_EPISODES
     }
   }
 
@@ -4177,8 +4251,12 @@ void loop() {
     static uint32_t last_dream = 0;
     if (now - last_dream >= DREAM_RECONCILE_MS || last_dream == 0) {
       last_dream = now;
+#if PHASEC_EPISODES
+      noteBeliefChange();
+      gEpisodes.print(Serial);     // the node's beliefs: counting, with Rule 3 on the panel
+#else
       reconcileBeliefs();
-      if (PHASEC_EPISODES) gEpisodes.print(Serial);   // the new tier's beliefs, beside Rule 3's, same cadence
+#endif
     }
   }
 

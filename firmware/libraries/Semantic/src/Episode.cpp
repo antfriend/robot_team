@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace semantic {
@@ -326,6 +327,39 @@ static bool linkClaimInto(EpisodeBuilder& b, const LinkClaim& k, uint32_t senten
         : k.verdict == LINK_VIOLATED ? POL_MINUS : POL_HELD;
   p.quant = Q_NONE;
   return b.percept(p);
+}
+
+size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_t* total) {
+  size_t n_link = 0, filled = 0;
+  for (size_t i = 0; i < c.termCount(); ++i) {
+    const Term* tm = c.term(i);
+    if (!tm || strcmp(tm->vec, SEMANTIC_LINK_VECTOR) != 0) continue;
+    ++n_link;
+    if (!out || k == 0) continue;
+    LinkBeliefRow r;
+    memset(&r, 0, sizeof(r));
+    r.peer = (uint32_t)strtoul(tm->subject, 0, 16);
+    snprintf(r.proto, sizeof(r.proto), "%s", tm->object);
+    r.pol = c.polarity(*tm);
+    r.conf = c.conf(*tm);
+    r.sal = c.sal(*tm);
+    r.eps = c.eps(*tm);
+    r.met = tm->totalFor() / 2;
+    r.violated = tm->totalAgainst() / 2;
+    r.r3 = Consolidator::rule3Conf(tm->live_for / 2, tm->live_against / 2);
+    r.carried = tm->carried_for || tm->carried_against;
+    // Insertion into the top-k, highest EPS first. Strictly greater moves a row up, so
+    // equal EPS keeps insertion order (terms arrive in insertion order).
+    size_t pos = filled;
+    while (pos > 0 && out[pos - 1].eps < r.eps) --pos;
+    if (pos >= k) continue;
+    const size_t last = filled < k ? filled : k - 1;
+    for (size_t j = last; j > pos; --j) out[j] = out[j - 1];
+    out[pos] = r;
+    if (filled < k) ++filled;
+  }
+  if (total) *total = n_link;
+  return filled;
 }
 
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,

@@ -2685,6 +2685,175 @@ def episode_tier(lon):
     return None if lon < 0 else lon // EPISODE_TIER_SPAN
 
 
+# --- the node's beliefs, recomputed from a pull (ACT-III §C3, 2026-10-02) ------------------
+# Since C3 was wired, the Cardputer writes NO belief record: its beliefs are TTG-0003 counts
+# over the @LAT103 episodes still on flash plus the carried tallies in the newest @LAT104
+# checkpoint — exactly what the node recomputes on every boot (firmware Semantic/Episode.h).
+# This is the same arithmetic, so a pull reproduces the node's own `[episode]   <subject>
+# belief: …` serial lines byte for byte, with no cable attached when they were formed.
+# Integer halves throughout, as the firmware: a `~` (some) percept weighs 1, anything else 2.
+EPISODE_CARRIED_LANE = 104
+PERCEPT_LINE_RE = re.compile(
+    r"^percept:\s*\d+[a-z]?\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|"
+    r"\s*(\+|-|\?-|\?)\s*\|\s*([~*-])\s*$")
+CARRIED_LINE_RE = re.compile(
+    r"^carried:\s*(\d+(?:\.5)?)\s+(\d+(?:\.5)?)\s+(\d+)(?:\s+(\d+))?\s*\|\s*([^|]*?)\s*\|"
+    r"\s*([^|]*?)\s*\|\s*([^|]*?)\s*$")
+THROUGH_RE = re.compile(r"^through:\s*(\d+)\s*$")
+
+
+def _halves(tok):
+    return int(float(tok) * 2)
+
+
+def _halves_str(h):
+    return f"{h // 2}.5" if h & 1 else f"{h // 2}"
+
+
+def parse_episode_beliefs(text, prior_for=2, prior_against=2):
+    """The node's beliefs from a pulled TTDB: [{subject, vec, object, for_h, against_h,
+    pol, conf, seen, sal, eps, carried_for_h, carried_against_h, live_episodes}] in the
+    node's own term order (checkpoint first, then first appearance in an episode).
+
+    ⚠ ONLY THE NEWEST CHECKPOINT IS READ (the last @LAT104 in file order — appends go to
+    the end), and per tier only episodes AFTER its `through:` are live. Records at or
+    behind a horizon may still be on flash (a refused cut); they are skipped, not counted
+    twice — the property the firmware's commit order exists for."""
+    blocks = []                       # (lat, lon, [lines])
+    cur = None
+    for line in text.splitlines():
+        if line.startswith("@"):
+            hm = EPISODE_HEADER_RE.match(line)
+            cur = None
+            if hm and int(hm.group(1)) in (EPISODE_LANE, EPISODE_CARRIED_LANE):
+                cur = (int(hm.group(1)), int(hm.group(2)), [])
+                blocks.append(cur)
+            continue
+        if cur is not None:
+            cur[2].append(line.strip())
+
+    terms = {}                        # (s, v, o) -> dict, insertion-ordered
+
+    def term(key):
+        if key not in terms:
+            terms[key] = {"live_for": 0, "live_against": 0, "carried_for": 0,
+                          "carried_against": 0, "seen": 0, "carried_seen": 0,
+                          "live_episodes": 0}
+        return terms[key]
+
+    ck = [b for b in blocks if b[0] == EPISODE_CARRIED_LANE]
+    through = {}
+    if ck:
+        for l in ck[-1][2]:
+            m = THROUGH_RE.match(l)
+            if m:
+                v = int(m.group(1))
+                through.setdefault(episode_tier(v), v)   # first wins, as the firmware
+                continue
+            m = CARRIED_LINE_RE.match(l)
+            if m:
+                t = term((m.group(5), m.group(6), m.group(7)))
+                t["carried_for"] = _halves(m.group(1))
+                t["carried_against"] = _halves(m.group(2))
+                t["carried_seen"] = int(m.group(4) or 0)
+
+    eps = [b for b in blocks if b[0] == EPISODE_LANE]
+    newest = {}
+    for _, lon, _l in eps:
+        newest[episode_tier(lon)] = lon               # last in file order = newest
+    span = EPISODE_TIER_SPAN
+
+    def live(lon):
+        k = episode_tier(lon)
+        if k not in through:
+            return True
+        d = (lon - through[k]) % span
+        return 1 <= d <= (newest[k] - through[k]) % span
+
+    for _, lon, lines in eps:
+        if not live(lon):
+            continue
+        plus, minus, seen = {}, {}, {}
+        for l in lines:
+            m = PERCEPT_LINE_RE.match(l)
+            if not m:
+                continue
+            s, v, o, pol, q = m.groups()
+            if s == "-" or v == "-":
+                continue                              # a mention: never a term
+            key = (s, v, o)
+            term(key)
+            seen[key] = seen.get(key, 0) + 1
+            if pol in ("?", "?-") or v == "comention":
+                continue
+            w = 1 if q == "~" else 2
+            d = plus if pol == "+" else minus
+            d[key] = max(d.get(key, 0), w)
+        for key, n in seen.items():
+            t = terms[key]
+            t["seen"] += n
+            t["live_for"] += plus.get(key, 0)
+            t["live_against"] += minus.get(key, 0)
+            if plus.get(key) or minus.get(key):
+                t["live_episodes"] += 1
+
+    out = []
+    for (s, v, o), t in terms.items():
+        F = t["live_for"] + t["carried_for"]
+        A = t["live_against"] + t["carried_against"]
+        pol = "+" if F > A else "-" if A > F else "?"
+        den = F + A + prior_for + prior_against
+        conf = min(255, (2 * 255 * (max(F, A) + prior_for) + den) // (2 * den)) if den else 128
+        sal = min(255, t["seen"] + t["carried_seen"])
+        out.append({"subject": s, "vec": v, "object": o, "for_h": F, "against_h": A,
+                    "pol": pol, "conf": conf, "sal": sal,
+                    "eps": min(255, sal * (255 - conf) // 255),
+                    "carried_for_h": t["carried_for"],
+                    "carried_against_h": t["carried_against"],
+                    "live_episodes": t["live_episodes"]})
+    return out
+
+
+def belief_line(b):
+    """The firmware's `belief:` line (Consolidator::beliefLine), byte for byte."""
+    return (f"belief: {b['vec']} | {b['object']} | {b['pol']} | "
+            f"{_halves_str(b['for_h'])} {_halves_str(b['against_h'])} | {b['conf']}")
+
+
+def beliefs(port, baud, node, save, from_file=None):
+    """Print a node's beliefs, recomputed from its @LAT103 episodes + @LAT104 checkpoint —
+    the lines it prints itself as `[episode]   <subject> belief: …`."""
+    if from_file:
+        with open(from_file, "rb") as f:
+            data = f.read()
+    else:
+        try:
+            import serial
+        except ImportError:
+            sys.exit("pyserial not installed. Run: pip install -r requirements.txt")
+        reader = SerialFrameReader()
+        with serial.Serial(port, baud, timeout=0.1) as ser:
+            time.sleep(2.5)              # port-open resets the S3; wait out boot
+            ser.reset_input_buffer()
+            data = request_ttdb(ser, reader, NODE_IDS[node], 20.0, TTDB_REQ_WHOLE)
+        if data is None:
+            sys.exit("no data received (check port, node id, and the key)")
+        if save:
+            os.makedirs(os.path.dirname(os.path.abspath(save)), exist_ok=True)
+            with open(save, "wb") as f:
+                f.write(data)
+    bs = parse_episode_beliefs(data.decode("utf-8", errors="replace"))
+    label = from_file or node
+    if not bs:
+        print(f"{label}: no beliefs — no @LAT103 episode carries a percept: line yet "
+              f"(a link window needs a `still` motion window + a peer to be scored)")
+        return
+    print(f"{label}: {len(bs)} belief(s), TTG-0003 counting over @LAT103 + newest @LAT104")
+    for b in bs:
+        carried = "yes" if (b["carried_for_h"] or b["carried_against_h"]) else "no"
+        print(f"  {b['subject']} {belief_line(b)} eps:{b['eps']} carried:{carried}")
+
+
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
     {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}],
@@ -5062,6 +5231,17 @@ def main():
                          "this when the node is under measurement: opening its port "
                          "resets it and restarts the 60 s window")
 
+    bp = sub.add_parser(
+        "beliefs",
+        help="a node's beliefs, recomputed from its @LAT103 episodes + newest @LAT104 "
+             "checkpoint (TTG-0003 counting, the lines it prints as [episode])")
+    bp.add_argument("--port", default=None, help="serial port (COM14, direct)")
+    bp.add_argument("--baud", type=int, default=115200)
+    bp.add_argument("--node", default=None, choices=list(NODE_IDS))
+    bp.add_argument("--save", default=None, help="also write the pulled TTDB to this path")
+    bp.add_argument("--file", default=None,
+                    help="read an already-pulled TTDB instead of pulling")
+
     ed = sub.add_parser(
         "entity-drift",
         help="measure consecutive-window Jaccard drift on a known-still node "
@@ -5311,6 +5491,10 @@ def main():
         if not args.file and not (args.port and args.node):
             sys.exit("motion needs either --file, or both --port and --node")
         motion(args.port, args.baud, args.node, args.save, args.file)
+    elif args.cmd == "beliefs":
+        if not args.file and not (args.port and args.node):
+            sys.exit("beliefs needs either --file, or both --port and --node")
+        beliefs(args.port, args.baud, args.node, args.save, args.file)
     elif args.cmd == "entity-drift":
         entity_drift(args.file, args.spacing, args.tol, args.min_pairs, args.force,
                      args.segment)

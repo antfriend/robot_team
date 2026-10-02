@@ -312,9 +312,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ✅ **LINK tier moved** (2026-10-02), the last: one link-band episode per window (RSSI as `said:`, scored
    claims as said/percept), `parse_link_percepts` reads both containers, and **`@LAT92` outcomes flow again**
    citing `@LAT103` (first since `@LAT97` filled; `@LAT91` beliefs 1 → 5). `@LAT97` released: index → 139/288.
-   **Next:** C0 on the Cardputer is now blocked only by `@LAT92` (cap 24, filling again) and `@LAT90` (16/16) —
-   i.e. C3's consolidator replacing Rule 3 on the node, and C4's `follows@` order replacing the stream lane;
-   the other boards still need an episode tier at all (V4s at 95% flash).
+   ✅ **C3 WIRED** (2026-10-02): the node's beliefs ARE the episode consolidator (TTG-0003 counting) —
+   no `@LAT92` written, no `@LAT91` rewritten; FACE_BELIEF reads RAM with Rule 3 beside it (retained window
+   only). `companion.py beliefs` recomputes them from a pull, **9/9 byte-identical** to the node. Heap
+   dividend: `.bss` −6.3 KB, loop heap 9–11 → **16–18 KB**. ⚠ The panel itself is not yet eyeballed.
+   **Next:** C0 on the Cardputer is now blocked only by `@LAT90` (16/16) — C4's `follows@` order replacing
+   the stream lane; the other boards still need an episode tier at all (V4s at 95% flash).
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

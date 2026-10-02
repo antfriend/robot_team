@@ -353,6 +353,31 @@ struct LinkClaim {
   int16_t     observed;
 };
 
+// ---------------------------------------------------------------------------------------
+// THE LINK BELIEFS, AS A NODE SHOWS THEM (2026-10-02, ACT-III §C3 wired)
+// ---------------------------------------------------------------------------------------
+// The node's link beliefs ARE the consolidator's `link_stable` terms — no belief lane is
+// re-read and none is rewritten. This picks the `k` rows worth showing on a panel that
+// cannot show them all: HIGHEST EPS FIRST (the attention key — what is most worth
+// re-checking), ties in insertion order so the panel does not shuffle between equals.
+// `total` is how many link terms exist, so the panel can say what it left out.
+//
+// `r3` is PerceptLearn's Rule 3, kept as the second consolidator ACT-III §C3 asks for, and
+// ⚠ it is computed over the RETAINED WINDOW ONLY (live_for/live_against): a carried tally
+// cannot be replayed through a sequential fold. `carried` says when that matters — when it
+// is set, `conf` and `r3` are NOT over the same evidence and must not be read as rivals.
+struct LinkBeliefRow {
+  uint32_t peer;
+  char     proto[8];
+  char     pol;          // '+', '-' or '?'
+  uint8_t  conf;         // TTG-0003 counting, over ALL evidence (live + carried)
+  uint8_t  sal, eps;
+  uint32_t met, violated;  // whole windows (the tally is in halves; link percepts weigh 2)
+  uint8_t  r3;           // Rule 3 over the retained window only
+  bool     carried;      // some of this term's evidence has been folded out of the window
+};
+size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_t* total);
+
 // Returns record bytes, or 0 if it did not fit (never truncated). `at` is the caller's
 // stamp text (TimeStream's buildStamp today; TTG-0004 §4's `<pulse> ±<bound>` in C4).
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,

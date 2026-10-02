@@ -233,6 +233,8 @@ class Node {
 
   semantic::Consolidator& beliefs() { return c_; }
   const semantic::EpisodeTiers& tiers() const { return tiers_; }
+  // The node's beliefs (ACT-III §C3): live + carried, exactly what a reboot recomputes.
+  const semantic::Consolidator& consolidator() const { return c_; }
   const Stats& stats() const { return st_; }
   uint32_t bootFed() const { return boot_fed_; }
   uint32_t checkpointMalformed() const { return ck_malformed_; }
