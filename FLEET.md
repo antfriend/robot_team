@@ -333,7 +333,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
    and cited itself. `said:` lines now have their own budget (`SEMANTIC_SAID_LINE_MAX 320`; worst
    possible line 278 B), and a transition whose window was lost is WITHHELD. The Cardputer's lines were
    already 192–194 B — ⚠ **reflash the Cardputer** (built, not flashed) before its `t_ms` gains digits.
-   **Next:** flash the T-Deck (last board) and the Cardputer fix (bank a pull first; release old lanes
+   ✅ **T-Deck flashed + verified** — **every board is on the episode tier**; none writes `@LAT90`. ⚠ T-Deck
+   loop heap 13–14 KB (flat), now the second-tightest board.
+   **Next:** reflash the Cardputer with the said-line fix; then **C0's deletion** — `*_MAX_LANE` caps,
+   `lanegen::prune*` + the NVS deferred prune, the `clear-percepts`/`clear-timeline` verbs, and the
+   `PHASEC_EPISODES 0` legacy paths (the A/B switch has served its purpose once nothing runs it). (bank a pull first; release old lanes
    after verifying) — then C0's deletion is honest fleet-wide.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
