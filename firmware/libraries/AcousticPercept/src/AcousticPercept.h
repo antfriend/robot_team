@@ -48,6 +48,17 @@
 #define ACOUSTICPERCEPT_TRANSIENT_FLOOR 900
 #endif
 
+#ifndef ACOUSTICPERCEPT_RECORD_BUF
+// Buffer buildRecord() needs. Here, not in a sketch, because a native test cannot call
+// into a .ino ([[render-buffers-belong-in-libraries]]); pinned by tests/test_episode.cpp
+// against a record rendered with every field at its widest. ⚠ An undersized buffer does
+// not fail the record: buildRecord DROPS the **TRANSIENT** line — the TDoA datum, the
+// tier's whole point — and returns the rest as if nothing happened. Measured widest: 337 B
+// (every counter at full width would add ~35 B more), so the sketch's old `char rec[400]`
+// was adequate; 512 is headroom for a field added later, not a fix.
+#define ACOUSTICPERCEPT_RECORD_BUF 512
+#endif
+
 namespace acousticpercept {
 
 class Log {

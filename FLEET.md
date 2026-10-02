@@ -302,7 +302,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
    episode render now shares **one** scratch buffer (`EpisodeNode::scratch()`), net −768 B vs before.
    ⚠ **With peers on, loop free heap is ~9–11 KB** (measured twice) — that is the margin, so a
    moved tier adds **no** static buffer; diff `.bss` against HEAD before flashing.
-   **Next:** motion/acoustic, then link (+ `fleetmap`); caps, prunes and `clear` verbs go together at the end.
+   ✅ **ACOUSTIC tier moved** too (2026-10-01; no laptop reader existed; `@LAT94` released, index → 208/288).
+   🛑 **The Cardputer aborts on heap in ~1 of 8 boots** (BLE scanner `operator new`, boot burst) —
+   **pre-existing**: `2912c11` crashed 1 of 8 too. It self-recovers by rebooting. Fix candidates untested.
+   **Next:** motion (`@LAT95` is 48/48 — refusing), then link (+ `fleetmap`); caps, prunes and `clear` verbs go together at the end.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

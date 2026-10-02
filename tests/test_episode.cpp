@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "AcousticPercept.h"
 #include "EntityPercept.h"
 #include "Episode.h"
 #include "Semantic.h"
@@ -794,6 +795,60 @@ static void testEntityEpisode() {
   }
 }
 
+// =======================================================================================
+// 6c. the acoustic tier as episodes — and AcousticPercept's first native test
+// =======================================================================================
+static void testAcousticEpisode() {
+  printf("acoustic\n");
+  // Widest record the builder can emit: maximal header numbers, a maximal stamp (twice:
+  // the window's and the transient's), full-scale samples so the levels are as wide as
+  // a 16-bit mic allows, and a transient so the **TRANSIENT** line is present.
+  acousticpercept::Log lg;
+  int16_t quiet[128], loud[128];
+  for (int i = 0; i < 128; ++i) {
+    quiet[i] = (int16_t)((i & 1) ? 120 : -120);
+    loud[i] = (int16_t)((i & 1) ? 32767 : -32768);
+  }
+  const uint64_t big = 18446744073709551000ULL;
+  uint32_t now = 0;
+  for (int b = 0; b < 40; ++b) { lg.addBlock(quiet, 128, big + b, now); now += 16; }
+  lg.addBlock(loud, 128, big + 99, now);
+  now += 16;
+  check(lg.transients() > 0, "a full-scale block after a quiet run counts as a transient");
+  timestream::Stamp st;
+  st.t_ms = big;
+  st.stream_id = 0xffffffffu;
+  st.wall = true;
+  static char rec[ACOUSTICPERCEPT_RECORD_BUF];
+  const size_t m = lg.buildRecord(rec, sizeof(rec), 32767, 4294967295u, st,
+                                  now + ACOUSTICPERCEPT_FLUSH_MS, 4294967295u);
+  const std::string r(rec, m);
+  check(m > 0 && m < ACOUSTICPERCEPT_RECORD_BUF, "the widest acoustic record fits its buffer");
+  check(r.find("**TRANSIENT** ") != std::string::npos,
+        "with its **TRANSIENT** line — the line an undersized buffer silently drops");
+  printf("    widest acoustic record %u B of %u B\n", (unsigned)m,
+         (unsigned)ACOUSTICPERCEPT_RECORD_BUF);
+
+  // Wrapped in place in the episode scratch, at the ACOUSTIC tier's first ordinal.
+  static char sc[SEMANTIC_ENTITY_EPISODE_BUF];
+  const int16_t ord = tierBand(TIER_ACOUSTIC).base;
+  memcpy(sc, rec, m);
+  const size_t n = renderSaidEpisodeInPlace(sc, sizeof(sc), m, ord, 4294967295u,
+                                            "acoustic window", "acousticpercept",
+                                            "1234 +-5 frame:9");
+  check(n > 0 && tierOf(ord) == TIER_ACOUSTIC, "it wraps in place as an acoustic-tier episode");
+  std::vector<std::string> body, said;
+  for (const std::string& l : linesOf(r))
+    if (l.compare(0, 2, "**") == 0) body.push_back(l);
+  bool no_percept = true;
+  for (const std::string& l : linesOf(std::string(sc, n))) {
+    if (l.compare(0, 6, "said: ") == 0) said.push_back(l.substr(l.find(" | ") + 3));
+    if (l.compare(0, 8, "percept:") == 0) no_percept = false;
+  }
+  check(said == body && body.size() == 3 && no_percept,
+        "ACOUSTICWIN, ACOUSTIC and TRANSIENT each become one said: line; no percept: line");
+}
+
 static void testBands() {
   printf("bands\n");
   const Band e = tierBand(TIER_ENTITY);
@@ -1031,6 +1086,7 @@ int main() {
   testOrdinals();
   testLink();
   testEntityEpisode();
+  testAcousticEpisode();
   testBuilder();
   testReader();
   testCheckpoint();

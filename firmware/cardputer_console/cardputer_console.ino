@@ -165,8 +165,9 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 #define PHASEC_EPISODES 1
 #endif
 static episodenode::Node gEpisodes;
-static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
-              "the entity record is rendered into the episode scratch and wrapped there");
+static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
+              "percept records are rendered into the episode scratch and wrapped there");
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
               (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
               (int)perceptlearn::VERDICT_UNOBSERVED == (int)semantic::LINK_UNOBSERVED,
@@ -4378,8 +4379,8 @@ void loop() {
     if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
       gAcousticLog.reset(now);
     } else {
-      char rec[400];
-      size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+      char* rec = gEpisodes.scratch();     // not a stack 400: see ACOUSTICPERCEPT_RECORD_BUF
+      size_t m = gAcousticLog.buildRecord(rec, ACOUSTICPERCEPT_RECORD_BUF, lane, gStreamWallSec,
                                           gStamp, now, I2S_RATE);
       if (m && gDb.appendRecord(rec, m)) {
         // The fleet's only ear, on the record. ⚠ `quorum(CAP_MIC) == 1` is not a

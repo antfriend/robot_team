@@ -29,7 +29,7 @@ ROOT="$PWD"
 ZIG="${ZIG:-/c/tmp/toolchain/zig-windows-x86_64-0.13.0/zig.exe}"
 PY="${PY:-python}"
 LIB=firmware/libraries
-INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src
+INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src -I$LIB/AcousticPercept/src
      -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
      -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/LaneGen/src -I$LIB/Social/src -I$LIB/Semantic/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
@@ -58,7 +58,7 @@ declare -A SRCS=(
   [citation]="$LIB/TTDB/src/TtdbParse.cpp"
   [ttdb_index]="$LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [semantic]="$LIB/Semantic/src/Semantic.cpp"
-  [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp"
+  [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp $LIB/AcousticPercept/src/AcousticPercept.cpp"
   [fleettime]="$LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
 )
 # ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)

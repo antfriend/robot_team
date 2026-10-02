@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/LaneGen/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/LaneGen/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -117,7 +117,7 @@ SEM_SRCS := test_semantic.cpp $(LIB)/Semantic/src/Semantic.cpp
 # FAIL. TtdbParse.cpp is here so the rendered header is indexed by the firmware's own parser.
 EPI_SRCS := test_episode.cpp $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/Semantic.cpp \
         $(LIB)/TTDB/src/TtdbParse.cpp $(LIB)/TimeStream/src/TimeStream.cpp \
-        $(LIB)/EntityPercept/src/EntityPercept.cpp
+        $(LIB)/EntityPercept/src/EntityPercept.cpp $(LIB)/AcousticPercept/src/AcousticPercept.cpp
 # ACT-III Phase C4: TTG-RFC-0004 §4 — bounded pulse stamps, partial order across agents,
 # maximal facts, and the bar view two agents agree on without coordinating (§4.8 items 1-4).
 FT_SRCS := test_fleettime.cpp $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp
