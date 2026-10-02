@@ -945,6 +945,45 @@ int main(void) {
     CHECK(strstr(rec, "@LAT95") == NULL, "and nothing in it names @LAT95");
   }
 
+  // -------------------------------------------------------------------------
+  // The link window in the EPISODE lane too (2026-10-02): the link tier moved last, so
+  // the outcome's `derived_from@`, `observed_in:` and provenance `observable:` all name
+  // the link-band episode that answered — and @LAT97 nowhere.
+  // -------------------------------------------------------------------------
+  {
+    perceptlearn::Loop L;
+    char rec[PERCEPTLEARN_BUF], line[512], buf[128];
+    L.stageBegin(40, 103);
+    L.stage(0x200, ESPNOW, -35);
+    CHECK(L.arm(16390, 0, 103), "armed off a motion episode");
+    L.stageBegin(41, 103);
+    L.stage(0x200, ESPNOW, -36);
+    CHECK(L.score(ST(600000ULL, false), 0) == 1, "scored");
+    const size_t m = L.buildOutcome(rec, sizeof(rec), 0, 0x300);
+    CHECK(m > 0 && m < PERCEPTLEARN_BUF, "the outcome renders and fits (%zu)", m);
+    lineWith(rec, "**OUTCOME**", line, sizeof(line));
+    CHECK(strcmp(field(line, "observed_in", buf, sizeof(buf)), "@LAT103LON41") == 0,
+          "observed_in names the link episode that answered (got '%s')", buf);
+    CHECK(strstr(rec, "derived_from@LAT103LON41,") != NULL,
+          "the derived_from edge resolves to that episode");
+    CHECK(strstr(rec, "observable:@LAT103 ") != NULL, "provenance names the observable's lane");
+    CHECK(strstr(rec, "@LAT97") == NULL, "and nothing in it names @LAT97");
+
+    // The default stays 97, so the V4s/K10 (no episode tier) are byte-for-byte unchanged.
+    perceptlearn::Loop D;
+    D.stageBegin(14);
+    D.stage(0x200, ESPNOW, -35);
+    D.arm(3, 0);
+    D.stageBegin(15);
+    D.stage(0x200, ESPNOW, -36);
+    D.score(ST(600000ULL, false), 0);
+    D.buildOutcome(rec, sizeof(rec), 0, 0x300);
+    CHECK(strstr(rec, "derived_from@LAT97LON15,") != NULL &&
+              strstr(rec, "observed_in:@LAT97LON15 ") != NULL &&
+              strstr(rec, "observable:@LAT97 ") != NULL,
+          "with no lat given, every citation is @LAT97 exactly as before");
+  }
+
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
   return fails ? 1 : 0;
 }

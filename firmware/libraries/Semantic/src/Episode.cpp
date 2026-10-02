@@ -306,51 +306,42 @@ size_t checkpointBytes(const Consolidator& c, const int16_t* throughs, uint8_t n
 // ---------------------------------------------------------------------------------------
 // the link tier
 // ---------------------------------------------------------------------------------------
+// One claim -> `said: <k>` + `percept: <k>`. Shared by the claims-only form and the
+// window form, so the two cannot drift into different grammars for the same claim.
+static bool linkClaimInto(EpisodeBuilder& b, const LinkClaim& k, uint32_t sentence) {
+  const char* proto = k.proto ? k.proto : "?";
+  const char* vname = k.verdict == LINK_MET ? "met"
+                    : k.verdict == LINK_VIOLATED ? "violated" : "unobserved";
+  char said[96];
+  snprintf(said, sizeof(said), "0x%08lx %s %s predicted:%d observed:%d",
+           (unsigned long)k.peer, proto, vname, (int)k.predicted, (int)k.observed);
+  if (!b.said(sentence, said)) return false;
+  Percept p;
+  memset(&p, 0, sizeof(p));
+  p.sentence = sentence;
+  snprintf(p.subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)k.peer);
+  snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s", SEMANTIC_LINK_VECTOR);
+  snprintf(p.object, SEMANTIC_LEMMA_MAX, "%s", proto);
+  p.pol = k.verdict == LINK_MET ? POL_PLUS
+        : k.verdict == LINK_VIOLATED ? POL_MINUS : POL_HELD;
+  p.quant = Q_NONE;
+  return b.percept(p);
+}
+
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
                          const char* at, char* out, size_t cap) {
   if (!out || cap == 0 || (n > 0 && !claims)) return 0;
   EpisodeBuilder b(out, cap);
   if (!b.begin(ordinal, t, "link window", "perceptlearn", at)) return 0;
-  for (int i = 0; i < n; ++i) {
-    const LinkClaim& k = claims[i];
-    const char* proto = k.proto ? k.proto : "?";
-    const char* vname = k.verdict == LINK_MET ? "met"
-                      : k.verdict == LINK_VIOLATED ? "violated" : "unobserved";
-    char said[96];
-    snprintf(said, sizeof(said), "0x%08lx %s %s predicted:%d observed:%d",
-             (unsigned long)k.peer, proto, vname, (int)k.predicted, (int)k.observed);
-    b.said((uint32_t)(i + 1), said);
-    Percept p;
-    memset(&p, 0, sizeof(p));
-    p.sentence = (uint32_t)(i + 1);
-    snprintf(p.subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)k.peer);
-    snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s", SEMANTIC_LINK_VECTOR);
-    snprintf(p.object, SEMANTIC_LEMMA_MAX, "%s", proto);
-    p.pol = k.verdict == LINK_MET ? POL_PLUS
-          : k.verdict == LINK_VIOLATED ? POL_MINUS : POL_HELD;
-    p.quant = Q_NONE;
-    b.percept(p);
-  }
+  for (int i = 0; i < n; ++i) linkClaimInto(b, claims[i], (uint32_t)(i + 1));
   return b.finish();
 }
 
-size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
-                         const char* title, const char* source, const char* at,
-                         char* out, size_t cap) {
-  if (!out || cap == 0 || !body) return 0;
-  // In place (body inside out): the body must sit at the TAIL, and every write below is
-  // checked against the first byte not yet read. `limit` is that byte's offset in `out`.
-  const bool inplace = body >= out && body < out + cap;
-  if (inplace && body + n != out + cap) return 0;
-  // The header is written before any input is read, so it must fit ahead of the body.
-  if (inplace && title && source && at) {
-    const int hb = snprintf(0, 0, EPISODE_HEADER_FMT, (int)SEMANTIC_EPISODE_LANE,
-                            (int)ordinal, (unsigned long)t, (unsigned long)t, title, source,
-                            at);
-    if (hb < 0 || (size_t)hb + 1 > (size_t)(body - out)) return 0;
-  }
-  EpisodeBuilder b(out, cap);
-  if (!b.begin(ordinal, t, title, source, at)) return 0;
+// The body wrap shared by every `said:` form: each `**…` line of body[0..n) becomes one
+// sentence, numbered from 1, in order. Returns the count, or -1 when the wrap must be
+// refused (a line too long for the on-device reader, a `|`, no room, or — in place — a
+// write that would overrun input not yet read). `out` is zeroed on refusal.
+static int wrapSaid(EpisodeBuilder& b, const char* body, size_t n, char* out, bool inplace) {
   // `said: <k> | ` is ≤ 16 B for any k this loop reaches; the whole line must come back
   // through the glue's SEMANTIC_LINE_MAX reader intact or the laptop is the only reader.
   const size_t max_text = SEMANTIC_LINE_MAX - 16;
@@ -363,7 +354,7 @@ size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t
     size_t len = j - i;
     if (len && body[i + len - 1] == '\r') --len;
     if (len >= 2 && body[i] == '*' && body[i + 1] == '*') {
-      if (len > max_text) { out[0] = '\0'; return 0; }
+      if (len > max_text) { out[0] = '\0'; return -1; }
       memcpy(line, body + i, len);
       line[len] = '\0';
       // `said: <k> | <line>\n` plus put()'s terminator must end before the next unread
@@ -371,16 +362,76 @@ size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t
       if (inplace) {
         const int pre = snprintf(0, 0, "said: %lu | ", (unsigned long)(k + 1));
         const size_t next = (size_t)(body - out) + (j < n ? j + 1 : n);
-        if (pre < 0 || b.length() + (size_t)pre + len + 2 > next) { out[0] = '\0'; return 0; }
+        if (pre < 0 || b.length() + (size_t)pre + len + 2 > next) { out[0] = '\0'; return -1; }
       }
-      if (!b.said(++k, line)) { out[0] = '\0'; return 0; }   // `|`, or no room
+      if (!b.said(++k, line)) { out[0] = '\0'; return -1; }   // `|`, or no room
     }
     i = j + 1;
   }
-  if (k == 0) { out[0] = '\0'; return 0; }                  // nothing said: no episode
+  return (int)k;
+}
+
+// In place (body inside out): the body must sit at the TAIL, and the header — written
+// before any input is read — must fit ahead of it.
+static bool inplaceHeaderFits(const char* body, size_t n, char* out, size_t cap,
+                              int16_t ordinal, uint32_t t, const char* title,
+                              const char* source, const char* at) {
+  if (body + n != out + cap) return false;
+  if (!title || !source || !at) return true;          // begin() refuses these itself
+  const int hb = snprintf(0, 0, EPISODE_HEADER_FMT, (int)SEMANTIC_EPISODE_LANE,
+                          (int)ordinal, (unsigned long)t, (unsigned long)t, title, source,
+                          at);
+  return hb >= 0 && (size_t)hb + 1 <= (size_t)(body - out);
+}
+
+size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
+                         const char* title, const char* source, const char* at,
+                         char* out, size_t cap) {
+  if (!out || cap == 0 || !body) return 0;
+  const bool inplace = body >= out && body < out + cap;
+  if (inplace && !inplaceHeaderFits(body, n, out, cap, ordinal, t, title, source, at))
+    return 0;
+  EpisodeBuilder b(out, cap);
+  if (!b.begin(ordinal, t, title, source, at)) return 0;
+  const int k = wrapSaid(b, body, n, out, inplace);
+  if (k <= 0) { out[0] = '\0'; return 0; }                  // refused, or nothing said
   const size_t m = b.finish();
   if (!m) out[0] = '\0';
   return m;
+}
+
+size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
+                               int16_t ordinal, uint32_t t, const char* at, char* out,
+                               size_t cap) {
+  if (!out || cap == 0 || (m > 0 && !body) || (n > 0 && !claims) || n < 0) return 0;
+  const bool inplace = m > 0 && body >= out && body < out + cap;
+  if (inplace && !inplaceHeaderFits(body, m, out, cap, ordinal, t, SEMANTIC_LINK_WINDOW_TITLE,
+                                    SEMANTIC_LINK_WINDOW_SOURCE, at))
+    return 0;
+  EpisodeBuilder b(out, cap);
+  if (!b.begin(ordinal, t, SEMANTIC_LINK_WINDOW_TITLE, SEMANTIC_LINK_WINDOW_SOURCE, at))
+    return 0;
+  const int k = m > 0 ? wrapSaid(b, body, m, out, inplace) : 0;
+  if (k < 0) return 0;
+  if (k == 0 && n == 0) { out[0] = '\0'; return 0; }        // nothing said: no episode
+  // The body has been read in full by now, so the claims may use the whole buffer.
+  // ⚠ A claim that does not fit refuses the WHOLE episode, unlike renderLinkEpisode's
+  // per-claim tolerance: a window episode missing a scored claim would fold a SUBSET of
+  // the verdicts while looking complete — the dropped-belief failure in a new place.
+  for (int i = 0; i < n; ++i)
+    if (!linkClaimInto(b, claims[i], (uint32_t)(k + i + 1))) { out[0] = '\0'; return 0; }
+  const size_t r = b.finish();
+  if (!r) out[0] = '\0';
+  return r;
+}
+
+size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
+                                      const LinkClaim* claims, int n, int16_t ordinal,
+                                      uint32_t t, const char* at) {
+  if (!buf || m >= cap) return 0;
+  if (m == 0) return renderLinkWindowEpisode(0, 0, claims, n, ordinal, t, at, buf, cap);
+  memmove(buf + (cap - m), buf, m);
+  return renderLinkWindowEpisode(buf + (cap - m), m, claims, n, ordinal, t, at, buf, cap);
 }
 
 size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,

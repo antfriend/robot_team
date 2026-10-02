@@ -53,7 +53,7 @@
 #include <EntityPercept.h>   // SP0 entity tier: WiFi BSSID sightings -> @LAT96
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
-#include <EpisodeNode.h>     // ACT-III §C2: one episode per scored window -> @LAT103/@LAT104
+#include <EpisodeNode.h>     // ACT-III §C2: every percept tier -> @LAT103 episodes, @LAT104 folds
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound>` (TTG-RFC-0004 §4.3)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
@@ -158,17 +158,23 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 // Same evidence (each scored window's verdicts), different store: a ring that folds into
 // a carried tally instead of refusing at a cap, and TTG-0003 counting instead of Rule 3.
 // The old path stays until the comparison is made on hardware (ACT-III §C3).
-// Kill-switch for the episode tier AND the @LAT97-full scoring change that feeds it: 0
-// restores the pre-Phase-C link flush exactly. Kept because it is how the 2026-10-01 heap
+// Kill-switch for the episode tier, all four percept tiers' moves into @LAT103 included: 0
+// restores the pre-Phase-C @LAT94-97 flushes exactly. Kept because it is how the 2026-10-01 heap
 // leak was A/B-tested on the same board with the same peers (docs/log/2026-10.md).
 #ifndef PHASEC_EPISODES
 #define PHASEC_EPISODES 1
 #endif
 static episodenode::Node gEpisodes;
+// LinkPercept's record, rendered into the episode scratch before it is wrapped. The worst
+// case (8 maximal peers) is 847 B, pinned by test_episode; LinkPercept drops whole peer
+// lines that do not fit rather than truncating one, so this must stay above it.
+#define LINK_RECORD_CAP 1024
 static uint32_t gBleUpMs = 0;   // when blelink::begin() returned — the advert count's zero
 static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
                   ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
-                  MOTIONPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
+                  MOTIONPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
+                  SEMANTIC_LINK_WINDOW_EPISODE_BUF <= episodenode::Node::scratchCap(),
               "percept records are rendered into the episode scratch and wrapped there");
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
               (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
@@ -4028,25 +4034,25 @@ void loop() {
   // Every flush is a flash write, so it happens here in loop() and never in a callback,
   // and every lane is capped until SP1 pruning takes it (CMD_CLEAR_PERCEPTS).
   if (gLinkLog.due(now)) {
-    int lane = laneCount(97);
-    // ⚠ A FULL @LAT97 NO LONGER STOPS SCORING (ACT-III Phase C, 2026-10-01). It used to
-    // disarm and skip the window, which was right while @LAT92 was the only consumer: no
-    // @LAT97 record means an outcome would cite one that does not exist. But the episode
-    // tier consumes the SAME scored window and cites nothing in @LAT97 — and gating it on
-    // the old lane's cap meant the tier built to never refuse received no evidence at all
-    // (measured on the first boot: @LAT97 was 48/48 a day after a fresh FS flash, and the
-    // tier stayed at `appended 0`). So the window is staged and scored either way; only
-    // the @LAT97 record and the @LAT92 outcome — whose provenance would dangle — are
-    // withheld, and the outcome is still RENDERED so the run accounting stays true.
-    const bool link_lane_full = (lane >= LINKPERCEPT_MAX_LANE);
-    if (!PHASEC_EPISODES && link_lane_full) {
+    // ACT-III §C2 (2026-10-02): the LINK tier, the last one, lives in @LAT103 now. One
+    // link-band episode per window, scored or not: LinkPercept's **LINKWIN**/**LINK** lines
+    // as `said:` sentences, then the scored claims as said/percept pairs (Episode.h, THE
+    // LINK WINDOW AS AN EPISODE). So the window has ONE name, taken FIRST, that both the
+    // laptop's RSSI reader and the @LAT92 outcome's `derived_from@`/`observed_in:` cite,
+    // and it is never refused for a full lane. Before this, a full @LAT97 meant the RSSI
+    // was dropped and the outcome withheld ("[@LAT97 full: episode only]", 10-01 -> 10-02).
+    const int16_t ep_ord = PHASEC_EPISODES ? gEpisodes.nextOrdinal(semantic::TIER_LINK) : 0;
+    const int lane = PHASEC_EPISODES ? (int)ep_ord : laneCount(97);
+    const int link_lat = PHASEC_EPISODES ? SEMANTIC_EPISODE_LANE : 97;
+    const bool link_lane_full = !PHASEC_EPISODES && (lane >= LINKPERCEPT_MAX_LANE);
+    if (link_lane_full) {
       gLearn.disarm();             // the pre-Phase-C behaviour, for the A/B
       gLinkLog.reset(now);
     } else {
       // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
       // double duty: they SCORE the expectation armed last window, and they are the
       // basis for the next one (Rule 1 — re-derived from current state, every window).
-      gLearn.stageBegin(lane);
+      gLearn.stageBegin(lane, link_lat);
       for (int s = 0; s < gLinkLog.peerCount(); ++s) {
         uint32_t pr; uint8_t pt; uint32_t pn; int rmin, rmed, rmax;
         if (gLinkLog.stats(s, pr, pt, pn, rmin, rmed, rmax)) gLearn.stage(pr, pt, rmed);
@@ -4061,12 +4067,16 @@ void loop() {
                       "(PERCEPTLEARN_MAX_CLAIMS %d): they will score as 'unobserved' and "
                       "are NOT missing peers\n",
                       gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
-      if (link_lane_full) {
-        gLinkLog.reset(now);       // what buildRecord would have cleared
+      // The window's own record. With episodes it is rendered into the ONE scratch buffer
+      // (no buffer of its own: the heap margin is ~9–11 KB with peers on) and wrapped
+      // below, after scoring; nothing between here and the append touches the scratch.
+      size_t link_m = 0;
+      if (PHASEC_EPISODES) {
+        link_m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, lane,
+                                      gStreamWallSec, gStamp, now);
       } else {
-        char rec[1024];
-        size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                        gStamp, now);
+        char rec[LINK_RECORD_CAP];
+        size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec, gStamp, now);
         if (m && gDb.appendRecord(rec, m))
           Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
                         (unsigned)gDb.fileSize());
@@ -4076,36 +4086,43 @@ void loop() {
       // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
       // doing it from the live loop is the exact violation Rule 2 names (and the one
       // LOCUS committed).
-      if (gLearn.score(gStamp, gStreamWallSec)) {
-        // ACT-III §C2: EVERY scored window is one episode — folded or not, and even when
-        // @LAT92 is full. That is what TTG-0003 §2 counts and what the comparison measured.
-        if (PHASEC_EPISODES) {
-          semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
-          const int nc = gLearn.scoredCount();
-          for (int i = 0; i < nc; ++i) {
-            const perceptlearn::Claim& k = gLearn.scored(i);
-            lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
-                                        k.predicted, k.observed};
-          }
-          char at[72];                // the pulse stamp, not the time stream: episodeAt()
-          episodeAt(at, sizeof(at), now);
-          if (gEpisodes.appendLink(lc, nc, at, gStreamWallSec))
-            // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
-            // falling maxalloc is fragmentation, and those need opposite fixes.
-            Serial.printf("[episode] window -> @LAT%d (%d claim(s)) live %u present %u "
-                          "heap %u maxalloc %u%s\n",
-                          SEMANTIC_EPISODE_LANE, nc, (unsigned)gEpisodes.tiers().live(),
-                          (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getFreeHeap(),
-                          (unsigned)ESP.getMaxAllocHeap(),
-                          link_lane_full ? "  [@LAT97 full: episode only]" : "");
-          else
-            Serial.printf("[episode] window NOT appended (render fail %lu, append fail %lu, "
-                          "index headroom %d)\n",
-                          (unsigned long)gEpisodes.stats().render_failed,
-                          (unsigned long)gEpisodes.stats().append_failed,
-                          gDb.indexHeadroom());
-          gEpisodes.service(now, gStreamWallSec);
+      const bool scored = gLearn.score(gStamp, gStreamWallSec) > 0;
+      bool episode_written = false;
+      if (PHASEC_EPISODES) {
+        // EVERY window is one episode; a scored one also carries its verdicts, which is
+        // what TTG-0003 §2 counts. An unscored one carries RSSI only and counts nothing.
+        semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
+        const int nc = scored ? gLearn.scoredCount() : 0;
+        for (int i = 0; i < nc; ++i) {
+          const perceptlearn::Claim& k = gLearn.scored(i);
+          lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
+                                      k.predicted, k.observed};
         }
+        char at[72];                  // the pulse stamp, not the time stream: episodeAt()
+        episodeAt(at, sizeof(at), now);
+        episode_written = gEpisodes.appendLinkWindowScratch(ep_ord, link_m, lc, nc, at,
+                                                            gStreamWallSec);
+        if (episode_written)
+          // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
+          // falling maxalloc is fragmentation, and those need opposite fixes.
+          Serial.printf("[link] window -> @LAT%dLON%d (%d claim(s)) live %u present %u "
+                        "heap %u maxalloc %u\n",
+                        SEMANTIC_EPISODE_LANE, (int)ep_ord, nc,
+                        (unsigned)gEpisodes.tiers().live(),
+                        (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getFreeHeap(),
+                        (unsigned)ESP.getMaxAllocHeap());
+        else
+          // ⚠ The outcome below would cite this ordinal, and the NEXT window takes the same
+          // one, so a lost window must also withhold its outcome (see there).
+          Serial.printf("[link] window LOST at @LAT%dLON%d (render fail %lu, append fail "
+                        "%lu, index headroom %d) - its outcome is withheld\n",
+                        SEMANTIC_EPISODE_LANE, (int)ep_ord,
+                        (unsigned long)gEpisodes.stats().render_failed,
+                        (unsigned long)gEpisodes.stats().append_failed,
+                        gDb.indexHeadroom());
+        gEpisodes.service(now, gStreamWallSec);
+      }
+      if (scored) {
         if (!gLearn.outcomePending()) {
           // Run-length: this window's verdicts matched the record before it, so it is
           // FOLDED, not written. Say so — a lane that has gone quiet because nothing is
@@ -4134,9 +4151,9 @@ void loop() {
           // real change could be folded away as "unchanged". A record dropped for want
           // of lane space must not also corrupt the run accounting.
           size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
-          if (link_lane_full) {
-            // Rendered (the run is adopted) and discarded: it would cite @LAT97LON<lane>,
-            // which was not written. The episode above carries this window instead.
+          if (PHASEC_EPISODES && !episode_written) {
+            // Rendered (the run is adopted) and discarded: it would cite
+            // @LAT103LON<ep_ord>, which was not written.
           } else if (olane >= PERCEPTLEARN_MAX_LANE) {
             Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
                           "still predicting but no longer testifying\n",

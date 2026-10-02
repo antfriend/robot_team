@@ -177,6 +177,19 @@ class Node {
     return appendRendered(scratch_, n, ord);
   }
 
+  // One LINK window, scored or not (2026-10-02): LinkPercept's record already rendered at
+  // scratch()[0..m), plus this window's scored claims (n may be 0). `ord` was taken from
+  // nextOrdinal(TIER_LINK) BEFORE rendering, so PerceptLearn's stageBegin() could cite it.
+  // See Episode.h, THE LINK WINDOW AS AN EPISODE.
+  bool appendLinkWindowScratch(int16_t ord, size_t m, const semantic::LinkClaim* claims,
+                               int n, const char* at, uint32_t t) {
+    if (!db_) return false;
+    const size_t r = semantic::renderLinkWindowEpisodeInPlace(scratch_, sizeof(scratch_), m,
+                                                              claims, n, ord, t, at);
+    if (!r) { ++st_.render_failed; return false; }
+    return appendRendered(scratch_, r, ord);
+  }
+
   // Any tier: a record already rendered at `ord` = nextOrdinal(tier). Appends, then feeds
   // it KEEPING from RAM (it is not read back).
   bool appendRendered(const char* rec, size_t m, int16_t ord) {

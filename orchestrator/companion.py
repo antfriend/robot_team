@@ -2341,24 +2341,44 @@ LINK_RE = re.compile(
 
 
 def parse_link_percepts(text):
-    """Parse a TTDB's @LAT97 lane into a list of windows:
-    {lane, t_ms, stream, wall, synced, window_ms,
-     links: [{peer, proto, n, min, med, max}]}."""
+    """Parse a TTDB's link windows into a list of windows:
+    {lat, lane, t_ms, stream, wall, synced, window_ms,
+     links: [{peer, proto, n, min, med, max}]}.
+
+    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-02), the last tier to move, exactly as
+    parse_entity_percepts / parse_motion_percepts: a window is an @LAT97 record (every V4,
+    the K10, the T-Deck, and the Cardputer before Phase C) or a LINK-band @LAT103 episode
+    (the Cardputer since), whose `said:` lines carry the same **LINKWIN** / **LINK** lines.
+    Inside an episode only `said:` lines are read; its claim sentences
+    (`0x… espnow met predicted:…`) match neither regex and are skipped.
+    ⚠ A link episode written BEFORE 2026-10-02 carries claims only — no **LINKWIN** — so it
+    is not a window and is dropped here, rather than counted as an empty one."""
     windows = []
     cur = None
+    in_episode = False
     for line in text.splitlines():
-        if line.startswith("@LAT97LON"):
-            lane = int(re.match(r"@LAT97LON(\d+)", line).group(1))
-            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
-                   "synced": None, "window_ms": None, "links": []}
-            windows.append(cur)
-            continue
-        if line.startswith("@"):     # any other record header ends the window
-            cur = None
+        if line.startswith("@"):
+            hm = EPISODE_HEADER_RE.match(line)
+            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
+            in_episode = (lat == EPISODE_LANE and
+                          episode_tier(lon) == EPISODE_TIER_LINK)
+            if lat == 97 or in_episode:
+                cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None,
+                       "wall": None, "synced": None, "window_ms": None, "links": [],
+                       "_linkwin": lat == 97}
+                windows.append(cur)
+            else:                    # any other record header ends the window
+                cur = None
             continue
         if cur is None:
             continue
+        if in_episode:
+            sm = SAID_RE.match(line)
+            if not sm:
+                continue
+            line = sm.group(1)
         if line.startswith("**LINKWIN**"):
+            cur["_linkwin"] = True
             tf = parse_time_fields(line)
             if tf:
                 cur.update(tf)
@@ -2372,7 +2392,8 @@ def parse_link_percepts(text):
                 "peer": int(m.group(1), 16), "proto": m.group(2),
                 "n": int(m.group(3)), "min": int(m.group(4)),
                 "med": int(m.group(5)), "max": int(m.group(6))})
-    return windows
+    return [{k: v for k, v in w.items() if k != "_linkwin"}
+            for w in windows if w["_linkwin"]]
 
 
 def percepts(port, baud, node, save):
@@ -2398,9 +2419,9 @@ def percepts(port, baud, node, save):
     windows = parse_link_percepts(data.decode("utf-8", errors="replace"))
     nobs = sum(l["n"] for w in windows for l in w["links"])
     print(f"{node}: {len(windows)} link-percept window(s), "
-          f"{nobs} observation(s) (@LAT97 lane)")
+          f"{nobs} observation(s) (@LAT97 + @LAT103 link band)")
     if not windows:
-        print("no @LAT97 records yet — leave the mesh chattering for a window "
+        print("no link windows yet (@LAT97 or @LAT103) — leave the mesh chattering for a window "
               "(default 60 s) and re-run")
         return
     print(f"{'lane':>4}  {'t_ms':>14}  {'stream':>9}  {'win_ms':>7}  "
@@ -2652,6 +2673,7 @@ ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
 # sentence, so the parser below reads both containers with the same line rules.
 EPISODE_LANE = 103
 EPISODE_TIER_SPAN = 8192
+EPISODE_TIER_LINK = 0
 EPISODE_TIER_ENTITY = 1
 EPISODE_TIER_MOTION = 2
 EPISODE_HEADER_RE = re.compile(r"@LAT(\d+)LON(\d+)")

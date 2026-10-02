@@ -388,6 +388,46 @@ size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal
                                 uint32_t t, const char* title, const char* source,
                                 const char* at);
 
+// ---------------------------------------------------------------------------------------
+// THE LINK WINDOW AS AN EPISODE (2026-10-02) — the last tier out of a capped lane
+// ---------------------------------------------------------------------------------------
+// ONE link-band episode per LinkPercept window, scored or not. It is the @LAT97 record and
+// the scored claims of the SAME window in one block, so the window has ONE name that both
+// the laptop (fleetmap's RSSI) and PerceptLearn's outcome (`derived_from@`/`observed_in:`)
+// cite:
+//
+//   said: 1 | **LINKWIN** t_ms:… stream:0x… wall:… window_ms:…   ← LinkPercept's own lines,
+//   said: 2 | **LINK** peer:0x… proto:espnow n:… rssi_min:…        wrapped as renderSaidEpisode
+//   …
+//   said: k+1 | 0x… espnow met predicted:-35 observed:-36          ← each scored claim, exactly
+//   percept: k+1 | 0x… | link_stable | espnow | + | -                 as renderLinkEpisode writes it
+//
+// Why one block and not two: tier bands are a fixed four in an int16 LON, so there is no
+// fifth band for raw RSSI windows — and two records per minute would halve the link tier's
+// retained history for no gain, since both describe one window. An UNSCORED window (no
+// expectation armed — the node was moving, or just booted) still writes its `said:` lines
+// and simply carries no `percept:` line: the consolidator counts nothing for it, exactly as
+// it counted nothing when the window was a @LAT97 record.
+// ⚠ All or nothing: a claim that does not fit refuses the whole episode (see the .cpp).
+// Pre-2026-10-02 link episodes (claims only, title "link window", source perceptlearn) stay
+// readable: the consolidator reads percept: lines alone, and companion.py skips a link
+// episode with no **LINKWIN** sentence as "not a window".
+#define SEMANTIC_LINK_WINDOW_TITLE "link window"
+#define SEMANTIC_LINK_WINDOW_SOURCE "linkpercept"
+// Worst case: LINKPERCEPT_MAX_PEERS maximal **LINK** lines + 8 maximal claims + header —
+// measured 2064 B (2026-10-02) from an 847 B LinkPercept record.
+// Pinned by test_episode against a REAL maximal LinkPercept record, and asserted ≤ the one
+// scratch buffer (SEMANTIC_ENTITY_EPISODE_BUF) the Cardputer renders every tier into.
+#define SEMANTIC_LINK_WINDOW_EPISODE_BUF 2560
+size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
+                               int16_t ordinal, uint32_t t, const char* at, char* out,
+                               size_t cap);
+// The same in ONE buffer: LinkPercept's record (m bytes at buf[0]) is moved to the tail and
+// wrapped forward from the head, as renderSaidEpisodeInPlace. m == 0 = claims only.
+size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
+                                      const LinkClaim* claims, int n, int16_t ordinal,
+                                      uint32_t t, const char* at);
+
 // One entity window as an episode. Worst case = EntityPercept's worst record (2322 B, its
 // ENTITYPERCEPT_RECORD_BUF is 2560) + ~11 B of `said: k | ` on each of its ≤ 32 body
 // lines + the episode header. Pinned both ways by test_episode against a REAL maximal

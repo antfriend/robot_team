@@ -224,7 +224,9 @@ class Loop {
   // Call stageBegin(), then stage() once per (peer, proto), BEFORE the link log is
   // reset by its buildRecord(). These medians do double duty: they SCORE the
   // outstanding expectation and they are the basis for the next one.
-  void stageBegin(int link_lane);
+  // `link_lat`: the lane the link window record is on — 97, or 103 once the link tier
+  // lives in episodes. The outcome's `derived_from@`/`observed_in:` cite it.
+  void stageBegin(int link_lane, int link_lat = 97);
   void stage(uint32_t peer, uint8_t proto, int median);
 
   // Score the armed expectation against what was just staged. Returns the number of
@@ -302,7 +304,8 @@ class Loop {
   Claim staged_[PERCEPTLEARN_MAX_CLAIMS];
   int   staged_n_;
   int   staged_over_;      // dropped for want of a slot this window
-  int   staged_lane_;      // the @LAT97 record the staged medians came from
+  int   staged_lane_;      // the link window record the staged medians came from
+  int   staged_lat_;       // ...and its lane (97 or 103)
 
   Claim claims_[PERCEPTLEARN_MAX_CLAIMS];   // the armed expectation
   int   claims_n_;
@@ -314,7 +317,8 @@ class Loop {
   // scored results, awaiting buildOutcome
   bool  pending_;
   int   met_, violated_, unobserved_;
-  int   scored_lane_;      // the @LAT97 record that answered
+  int   scored_lane_;      // the link window record that answered
+  int   scored_lat_;       // ...and its lane (97 or 103)
   timestream::Stamp scored_stamp_;
   uint32_t scored_wall_sec_;
   int   streak_;

@@ -496,6 +496,74 @@ check(b_stale_cap["entity_capped"] is True and b_stale_cap["dist_est_m"] == 65.0
 check(b_true["entity_capped"] is False and b_true["dist_est_m"] > 65.0,
       "with recency applied to BOTH tiers the pair is free to read as far")
 
+# ---------------------------------------------------------------------------
+# ACT-III §C2 (2026-10-02): the Cardputer's link windows live in @LAT103 now, as LINK-band
+# episodes (tier 0, LON 0..8191) whose `said:` lines are LinkPercept's own, followed by the
+# scored claims. The episode text below is test_episode.cpp's golden, byte for byte, so the
+# firmware's renderer and this reader are pinned to the same bytes. One TTDB carries an old
+# @LAT97 record, a pre-10-02 claims-only link episode, a window episode, and an entity
+# episode holding a LINK-shaped line (it must not be read as a link window).
+MIXED = """
+---
+
+@LAT97LON47 | created:10 | updated:10 | relates:observes@LAT0LON0
+
+**LINKWIN** t_ms:500 stream:0x5ea51de7 wall:1 window_ms:60000
+**LINK** peer:0x00000010 proto:espnow n:9 rssi_min:-60 rssi_med:-55 rssi_max:-50
+
+---
+
+@LAT103LON4 | created:77 | updated:77
+
+**link window**
+
+```ttdb-episode
+source: perceptlearn
+at: t_ms:77 stream:0x00000000 wall:0
+said: 1 | 0x00000200 ble met predicted:-40 observed:-38
+percept: 1 | 0x00000200 | link_stable | ble | + | -
+```
+
+---
+
+@LAT103LON8200 | created:0 | updated:0
+
+**entity window**
+
+```ttdb-episode
+source: entitypercept
+at: x
+said: 1 | **LINKWIN** t_ms:9 stream:0x5ea51de7 wall:1 window_ms:1
+said: 2 | **LINK** peer:0x00000099 proto:espnow n:1 rssi_min:-1 rssi_med:-1 rssi_max:-1
+```
+
+---
+
+@LAT103LON5 | created:77 | updated:77
+
+**link window**
+
+```ttdb-episode
+source: linkpercept
+at: 1234 +-5 frame:9
+said: 1 | **LINKWIN** t_ms:1000 stream:0x5ea51de7 wall:1 window_ms:60000
+said: 2 | **LINK** peer:0x00000200 proto:espnow n:2 rssi_min:-42 rssi_med:-42 rssi_max:-40
+said: 3 | **LINK** peer:0x00000010 proto:ble n:1 rssi_min:-71 rssi_med:-71 rssi_max:-71
+said: 4 | 0x00000200 espnow met predicted:-40 observed:-42
+percept: 4 | 0x00000200 | link_stable | espnow | + | -
+```
+"""
+mw = c.parse_link_percepts(MIXED)
+check([(w["lat"], w["lane"]) for w in mw] == [(97, 47), (103, 5)],
+      "an @LAT97 record + the window episode; the claims-only episode and the entity "
+      "band's LINK-shaped line are not link windows")
+check(mw[1]["t_ms"] == 1000 and mw[1]["window_ms"] == 60000 and mw[1]["wall"] == 1,
+      "an episode's LINKWIN comes through the said: column")
+check([(l["peer"], l["proto"], l["med"]) for l in mw[1]["links"]] ==
+      [(0x200, "espnow", -42), (0x10, "ble", -71)],
+      "its LINK lines do too, and the claim sentence adds no link")
+check(all("_linkwin" not in w for w in mw), "the parser's bookkeeping key does not leak")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

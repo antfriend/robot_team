@@ -309,7 +309,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ✅ **MOTION tier moved** (2026-10-02) — and a full `@LAT95` had been silencing the LINK tier too
    (Rule 1 disarmed → nothing scored → no link episode); both run again, first link fold since.
    Index → 178/288. Boot adverts now printed (`[ble] N advert(s)…`): 101–140 in 5 s, 0/12 crashed.
-   **Next:** link (+ `@LAT92` outcomes, which wait on `@LAT97`, + `fleetmap`); then caps, prunes and `clear` verbs together.
+   ✅ **LINK tier moved** (2026-10-02), the last: one link-band episode per window (RSSI as `said:`, scored
+   claims as said/percept), `parse_link_percepts` reads both containers, and **`@LAT92` outcomes flow again**
+   citing `@LAT103` (first since `@LAT97` filled; `@LAT91` beliefs 1 → 5). `@LAT97` released: index → 139/288.
+   **Next:** C0 on the Cardputer is now blocked only by `@LAT92` (cap 24, filling again) and `@LAT90` (16/16) —
+   i.e. C3's consolidator replacing Rule 3 on the node, and C4's `follows@` order replacing the stream lane;
+   the other boards still need an episode tier at all (V4s at 95% flash).
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

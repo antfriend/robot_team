@@ -28,6 +28,7 @@ const char* protoName(uint8_t p) {
 void Loop::reset() {
   staged_n_ = 0;
   staged_lane_ = -1;
+  staged_lat_ = 97;
   staged_over_ = 0;
   claims_n_ = 0;
   armed_ = false;
@@ -37,6 +38,7 @@ void Loop::reset() {
   pending_ = false;
   met_ = violated_ = unobserved_ = 0;
   scored_lane_ = -1;
+  scored_lat_ = 97;
   scored_stamp_ = timestream::Stamp();
   scored_wall_sec_ = 0;
   streak_ = 0;
@@ -109,10 +111,11 @@ void Loop::foldIntoRun() {
   }
 }
 
-void Loop::stageBegin(int link_lane) {
+void Loop::stageBegin(int link_lane, int link_lat) {
   staged_n_ = 0;
   staged_over_ = 0;
   staged_lane_ = link_lane;
+  staged_lat_ = link_lat;
 }
 
 void Loop::stage(uint32_t peer, uint8_t proto, int median) {
@@ -174,6 +177,7 @@ int Loop::score(const timestream::Stamp& ts, uint32_t wall_sec) {
   armed_ = false;   // one expectation, scored once
   const int n = claims_n_;
   scored_lane_ = staged_lane_;
+  scored_lat_ = staged_lat_;
   scored_stamp_ = ts;
   scored_wall_sec_ = wall_sec;
 
@@ -253,14 +257,15 @@ size_t Loop::renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) 
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
-      "relates:testifies_about@LAT%dLON%d,derived_from@LAT97LON%d,senses@LAT0LON0\n\n"
+      "relates:testifies_about@LAT%dLON%d,derived_from@LAT%dLON%d,senses@LAT0LON0\n\n"
       "**OUTCOME** %s node:0x%lx acting:@LAT%dLON%d+%d "
-      "observed_in:@LAT97LON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n"
+      "observed_in:@LAT%dLON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n"
       "**RUN** windows_since_last:%d reason:%s max_run:%d\n",
       PERCEPTLEARN_LANE, lane_n, t_sec, t_sec,
-      acting_lat_, acting_lane_, scored_lane_,
+      acting_lat_, acting_lane_, scored_lat_, scored_lane_,
       stamp,
-      (unsigned long)node_id, acting_lat_, acting_lane_, acting_offset_, scored_lane_,
+      (unsigned long)node_id, acting_lat_, acting_lane_, acting_offset_, scored_lat_,
+      scored_lane_,
       PERCEPTLEARN_RSSI_BAND, met_, violated_, unobserved_, streak_,
       cov_windows_ + 1, reason_, PERCEPTLEARN_MAX_RUN);
   if (m < 0 || (size_t)m >= cap) return 0;
@@ -330,8 +335,8 @@ size_t Loop::renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) 
   // a pile of numbers nobody can trace back to the claim being tested.
   m = snprintf(out + off, cap - off,
                "**PROVENANCE** rule:LearningFromAction/Rule1 src:@LAT20LON3 "
-               "basis:motion_state:still tier:@LAT%d observable:@LAT97 "
-               "band_src:p90_of_still_windows\n", acting_lat_);
+               "basis:motion_state:still tier:@LAT%d observable:@LAT%d "
+               "band_src:p90_of_still_windows\n", acting_lat_, scored_lat_);
   if (m < 0 || (size_t)m >= cap - off) return 0;
   off += (size_t)m;
   return off;

@@ -28,6 +28,7 @@
 
 #include "AcousticPercept.h"
 #include "EntityPercept.h"
+#include "LinkPercept.h"
 #include "Episode.h"
 #include "Semantic.h"
 #include "TtdbParse.h"
@@ -796,6 +797,129 @@ static void testEntityEpisode() {
 }
 
 // =======================================================================================
+// 6d. the LINK WINDOW as an episode (2026-10-02): LinkPercept's record + the scored claims
+// =======================================================================================
+static void testLinkWindowEpisode() {
+  printf("link window\n");
+  // A small golden first: two peers heard, one claim scored.
+  {
+    linkpercept::Log lg;
+    lg.add(0x200, -40, linkpercept::PROTO_ESPNOW);
+    lg.add(0x200, -42, linkpercept::PROTO_ESPNOW);
+    lg.add(0x10, -71, linkpercept::PROTO_BLE);
+    static char rec[1024], ep[SEMANTIC_ENTITY_EPISODE_BUF];
+    const size_t m = lg.buildRecord(rec, sizeof(rec), 5, 77, entSt(1000), 60000);
+    LinkClaim k[1] = {{0x200, "espnow", LINK_MET, -40, -42}};
+    const size_t n = renderLinkWindowEpisode(rec, m, k, 1, 5, 77, "1234 +-5 frame:9", ep,
+                                             sizeof(ep));
+    checkStr(std::string(ep, n),
+             "\n---\n\n@LAT103LON5 | created:77 | updated:77\n\n**link window**\n\n"
+             "```ttdb-episode\nsource: linkpercept\nat: 1234 +-5 frame:9\n"
+             "said: 1 | **LINKWIN** t_ms:1000 stream:0x5ea51de7 wall:1 window_ms:60000\n"
+             "said: 2 | **LINK** peer:0x00000200 proto:espnow n:2 rssi_min:-42 rssi_med:-42 "
+             "rssi_max:-40\n"
+             "said: 3 | **LINK** peer:0x00000010 proto:ble n:1 rssi_min:-71 rssi_med:-71 "
+             "rssi_max:-71\n"
+             "said: 4 | 0x00000200 espnow met predicted:-40 observed:-42\n"
+             "percept: 4 | 0x00000200 | link_stable | espnow | + | -\n```\n",
+             "a link window = LinkPercept's lines as said:, then each claim numbered after them");
+
+    // The consolidator reads the claim and NOTHING from the RSSI lines.
+    Consolidator c; c.begin();
+    EpisodeReader r(c);
+    r.select(5, 5, Consolidator::KEEPING);
+    feedText(r, std::string(ep, n));
+    r.finish();
+    const Term* met = c.find("0x00000200", "link_stable", "espnow");
+    check(r.fed() == 1 && c.termCount() == 1 && met && met->totalFor() == 2,
+          "one episode, one term, one vote FOR — the **LINK** sentences form no term");
+
+    // Unscored (nothing armed): still a record, still the window's RSSI, no percept line.
+    lg.add(0x200, -40, linkpercept::PROTO_ESPNOW);
+    const size_t m2 = lg.buildRecord(rec, sizeof(rec), 6, 78, entSt(2000), 120000);
+    const size_t n2 = renderLinkWindowEpisode(rec, m2, 0, 0, 6, 78, "x", ep, sizeof(ep));
+    const std::string u(ep, n2);
+    check(n2 > 0 && u.find("said: 2 | **LINK** peer:0x00000200") != std::string::npos &&
+              u.find("percept:") == std::string::npos,
+          "an UNSCORED window is still written, with its RSSI and no percept line");
+    Consolidator c2; c2.begin();
+    EpisodeReader r2(c2);
+    r2.select(6, 6, Consolidator::KEEPING);
+    feedText(r2, u);
+    r2.finish();
+    check(r2.fed() == 1 && c2.termCount() == 0, "and it feeds the consolidator nothing");
+
+    // Claims only (m == 0) is the old episode's content under the new title/source.
+    const size_t n3 = renderLinkWindowEpisode(0, 0, k, 1, 7, 79, "x", ep, sizeof(ep));
+    check(n3 > 0 && std::string(ep, n3).find("said: 1 | 0x00000200 espnow met") !=
+                        std::string::npos,
+          "claims with no window body number from 1");
+    check(renderLinkWindowEpisode(0, 0, 0, 0, 8, 80, "x", ep, sizeof(ep)) == 0,
+          "nothing heard and nothing scored: no episode");
+  }
+
+  // The fleet's worst case: LINKPERCEPT_MAX_PEERS slots of maximal width, plus
+  // PERCEPTLEARN_MAX_CLAIMS (8) maximal claims, at the top of the link band.
+  linkpercept::Log lg;
+  for (int i = 0; i < LINKPERCEPT_MAX_PEERS; ++i)
+    for (int j = 0; j < 100; ++j)
+      lg.add(0xFFFFFFF0u + (uint32_t)i, -100 + (j % 91), linkpercept::PROTO_ESPNOW);
+  static char rec[1024];
+  timestream::Stamp big;
+  big.t_ms = 18446744073709551615ULL;
+  big.stream_id = 0xFFFFFFFFu;
+  big.wall = true;
+  const size_t m = lg.buildRecord(rec, sizeof(rec), 8191, 4294967295u, big, 4294967295u);
+  int links = 0;
+  for (const std::string& l : linesOf(std::string(rec, m)))
+    if (l.compare(0, 8, "**LINK**") == 0) ++links;
+  check(m > 0 && links == LINKPERCEPT_MAX_PEERS, "worst-case LinkPercept record renders every peer");
+  LinkClaim w[8];
+  for (int i = 0; i < 8; ++i)
+    w[i] = LinkClaim{0xFFFFFFF0u + (uint32_t)i, "espnow", LINK_UNOBSERVED, -32768, -32768};
+  static char ep[SEMANTIC_ENTITY_EPISODE_BUF];
+  const char* at = "18446744073709551615 +-4294967295 frame:18446744073709551615";
+  const size_t n = renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep, sizeof(ep));
+  check(n > 0 && n <= SEMANTIC_LINK_WINDOW_EPISODE_BUF,
+        "the worst link window episode fits SEMANTIC_LINK_WINDOW_EPISODE_BUF");
+  check(SEMANTIC_LINK_WINDOW_EPISODE_BUF <= SEMANTIC_ENTITY_EPISODE_BUF,
+        "...which fits the ONE scratch buffer the Cardputer renders into");
+  size_t longest = 0;
+  for (const std::string& l : linesOf(std::string(ep, n)))
+    if (l.size() > longest) longest = l.size();
+  check(longest < SEMANTIC_LINE_MAX, "every line comes back through the on-device reader");
+  printf("    worst LinkPercept record %u B, its window episode %u B (budget %u, scratch %u), "
+         "longest line %u B\n", (unsigned)m, (unsigned)n,
+         (unsigned)SEMANTIC_LINK_WINDOW_EPISODE_BUF, (unsigned)SEMANTIC_ENTITY_EPISODE_BUF,
+         (unsigned)longest);
+
+  // In place: refuse or match, never anything else — swept over every cap.
+  static char sc[SEMANTIC_ENTITY_EPISODE_BUF];
+  size_t match = 0, refused = 0, corrupt = 0, smallest = (size_t)-1;
+  for (size_t cap = m + 1; cap <= sizeof(sc); ++cap) {
+    memcpy(sc, rec, m);
+    const size_t k = renderLinkWindowEpisodeInPlace(sc, cap, m, w, 8, 8191, 4294967295u, at);
+    if (k == 0) { ++refused; continue; }
+    if (k != n || memcmp(sc, ep, n) != 0) ++corrupt;
+    else { ++match; if (cap < smallest) smallest = cap; }
+  }
+  check(corrupt == 0, "in place: every cap REFUSES or matches byte-for-byte");
+  check(refused > 0 && match > 0, "and the sweep exercised both outcomes");
+  memcpy(sc, rec, m);
+  check(renderLinkWindowEpisodeInPlace(sc, sizeof(sc), m, w, 8, 8191, 4294967295u, at) == n,
+        "at the real scratch size the worst case wraps in place");
+  printf("    in place: %u match, %u refused, smallest cap that wrapped %u B\n",
+         (unsigned)match, (unsigned)refused, (unsigned)smallest);
+
+  // All or nothing: a buffer that fits the body but not every claim refuses the episode.
+  const size_t body_only = renderLinkWindowEpisode(rec, m, 0, 0, 8191, 4294967295u, at, ep,
+                                                   sizeof(ep));
+  check(body_only > 0 && renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep,
+                                                 body_only + 40) == 0,
+        "a claim that does not fit refuses the WHOLE episode, never a subset of verdicts");
+}
+
+// =======================================================================================
 // 6c. the acoustic tier as episodes — and AcousticPercept's first native test
 // =======================================================================================
 static void testAcousticEpisode() {
@@ -1086,6 +1210,7 @@ int main() {
   testOrdinals();
   testLink();
   testEntityEpisode();
+  testLinkWindowEpisode();
   testAcousticEpisode();
   testBuilder();
   testReader();
