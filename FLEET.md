@@ -316,8 +316,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    no `@LAT92` written, no `@LAT91` rewritten; FACE_BELIEF reads RAM with Rule 3 beside it (retained window
    only). `companion.py beliefs` recomputes them from a pull, **9/9 byte-identical** to the node. Heap
    dividend: `.bss` −6.3 KB, loop heap 9–11 → **16–18 KB**. ⚠ The panel itself is not yet eyeballed.
-   **Next:** C0 on the Cardputer is now blocked only by `@LAT90` (16/16) — C4's `follows@` order replacing
-   the stream lane; the other boards still need an episode tier at all (V4s at 95% flash).
+   ✅ **No capped lane left on the Cardputer** (2026-10-02 evening): `@LAT90` no longer written (episode
+   `at:` stamps carry the order; stream still runs), `@LAT93` transitions are MOTION-band episodes. It now
+   writes only `@LAT101`/`@LAT103`/`@LAT104`. ⚠ New boot fault, **unattributed**: `ipc0` stack canary in
+   BLE controller init, 2 of 28 boots on this build vs 0 of 20 on the two before (not significant).
+   **Next:** C0 is honest on the Cardputer but the deletion is fleet-wide — the other five boards need an
+   episode tier first (V4s at 95% flash → `huge_app`), or C0 is scoped per board.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

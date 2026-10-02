@@ -29,6 +29,7 @@
 #include "AcousticPercept.h"
 #include "EntityPercept.h"
 #include "LinkPercept.h"
+#include "MotionPercept.h"
 #include "Episode.h"
 #include "Semantic.h"
 #include "TtdbParse.h"
@@ -1006,6 +1007,79 @@ static void testLinkBeliefRows() {
 }
 
 // =======================================================================================
+// 6f. a motion TRANSITION as a motion-band episode (2026-10-02): the last @LAT93 writer
+// =======================================================================================
+static void motionWindow(motionpercept::Log& log, uint32_t& now, int mg) {
+  const int samples = 60;
+  const uint32_t step = MOTIONPERCEPT_FLUSH_MS / (uint32_t)samples;
+  for (int i = 0; i < samples; ++i) {
+    now += step;
+    log.add(0, 0, 1000 + ((i & 1) ? mg : -mg), now);
+  }
+  now += step;
+}
+
+static void testTransitionEpisode() {
+  printf("motion transition\n");
+  motionpercept::Log log;
+  uint32_t now = 1000;
+  log.reset(now);
+  static char rec[MOTIONPERCEPT_RECORD_BUF], tr[MOTIONPERCEPT_TRANSITION_BUF];
+  static char ep[SEMANTIC_ENTITY_EPISODE_BUF];
+  const Band mb = tierBand(TIER_MOTION);
+  int16_t ord = mb.base;
+  // still, then moving: the change writes a window AND arms a transition.
+  motionWindow(log, now, 0);
+  if (log.buildRecord(rec, sizeof(rec), ord, 1000, entSt(1000000ULL), now,
+                      SEMANTIC_EPISODE_LANE)) ord = bandAdd(ord, 1, mb);
+  motionWindow(log, now, 400);
+  if (log.buildRecord(rec, sizeof(rec), ord, 1060, entSt(1060000ULL), now,
+                      SEMANTIC_EPISODE_LANE)) ord = bandAdd(ord, 1, mb);
+  check(log.transitionPending(), "still -> moving arms a transition");
+  const size_t m = log.buildTransition(tr, sizeof(tr), ord, 0x300);
+  check(m > 0, "the transition renders");
+  const std::string r(tr, m);
+  const size_t n = renderSaidEpisode(tr, m, ord, 1060, "motion transition", "motionpercept",
+                                     "1 +-2 frame:3", ep, sizeof(ep));
+  check(n > 0, "and wraps as an episode");
+  // Every non-blank BODY line of the record is one said: sentence, indent stripped, in
+  // order — the indented @PERCEPT halves included, because they carry the citations.
+  std::vector<std::string> body, said;
+  bool past_header = false;
+  for (const std::string& l : linesOf(r)) {
+    if (l.compare(0, 4, "@LAT") == 0) { past_header = true; continue; }
+    if (!past_header || l.empty() || l == "---") continue;
+    size_t ws = l.find_first_not_of(" \t");
+    body.push_back(l.substr(ws));
+  }
+  for (const std::string& l : linesOf(std::string(ep, n)))
+    if (l.compare(0, 6, "said: ") == 0) said.push_back(l.substr(l.find(" | ") + 3));
+  check(said == body && said.size() == 4,
+        "TRANSITION, @PERCEPT:before, @PERCEPT:after, DELTA — four sentences, in order");
+  check(said.size() == 4 && said[1].find("lane:@LAT103LON") != std::string::npos &&
+            said[2].find("lane:@LAT103LON") != std::string::npos,
+        "both halves' citations survive the wrap and name @LAT103");
+  check(std::string(ep, n).find("percept:") == std::string::npos,
+        "no percept: line — a transition feeds the consolidator nothing");
+
+  // In place: refuse or match.
+  static char sc[SEMANTIC_ENTITY_EPISODE_BUF];
+  size_t match = 0, refused = 0, corrupt = 0;
+  for (size_t cap = m + 1; cap <= sizeof(sc); ++cap) {
+    memcpy(sc, tr, m);
+    const size_t k = renderSaidEpisodeInPlace(sc, cap, m, ord, 1060, "motion transition",
+                                              "motionpercept", "1 +-2 frame:3");
+    if (k == 0) { ++refused; continue; }
+    if (k != n || memcmp(sc, ep, n) != 0) ++corrupt; else ++match;
+  }
+  check(corrupt == 0 && match > 0 && refused > 0, "in place: refuse or match, never corrupt");
+  check(MOTIONPERCEPT_TRANSITION_BUF < SEMANTIC_ENTITY_EPISODE_BUF,
+        "the transition renders into the one scratch buffer");
+  printf("    transition record %u B -> episode %u B; in place %u match / %u refused\n",
+         (unsigned)m, (unsigned)n, (unsigned)match, (unsigned)refused);
+}
+
+// =======================================================================================
 // 6c. the acoustic tier as episodes — and AcousticPercept's first native test
 // =======================================================================================
 static void testAcousticEpisode() {
@@ -1298,6 +1372,7 @@ int main() {
   testEntityEpisode();
   testLinkWindowEpisode();
   testLinkBeliefRows();
+  testTransitionEpisode();
   testAcousticEpisode();
   testBuilder();
   testReader();

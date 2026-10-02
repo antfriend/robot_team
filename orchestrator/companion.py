@@ -2475,7 +2475,12 @@ def parse_motion_percepts(text):
     MOTION-band @LAT103 episode, whose `said:` lines carry the same **MOTIONWIN** /
     **MOTION** / **RUN** / **COVERED** lines. Inside an episode only `said:` lines are
     read. A run never spans the two (the log is RAM; a reflash breaks it), so
-    motion_totals' arithmetic holds per container without change."""
+    motion_totals' arithmetic holds per container without change.
+
+    ⚠ A motion-band episode with no **MOTIONWIN** sentence is NOT a window (2026-10-02):
+    since @LAT93 moved into the band, a still<->moving TRANSITION is an episode there too,
+    and counting it would add a phantom window to motion_totals. Dropped here; read
+    transitions with parse_motion_transitions."""
     recs = []
     cur = None
     in_episode = False
@@ -2494,7 +2499,8 @@ def parse_motion_percepts(text):
                    "moving_ms": None,
                    # A record with no **RUN** line predates run-length and stands for
                    # exactly one window.
-                   "windows_since_last": 1, "reason": "legacy", "covered": None}
+                   "windows_since_last": 1, "reason": "legacy", "covered": None,
+                   "_win": lat == 95}
             recs.append(cur)
             continue
         if cur is None:
@@ -2505,6 +2511,7 @@ def parse_motion_percepts(text):
                 continue
             line = sm.group(1)
         if line.startswith("**MOTIONWIN**"):
+            cur["_win"] = True
             tf = parse_time_fields(line)
             if tf:
                 cur.update(tf)
@@ -2533,7 +2540,45 @@ def parse_motion_percepts(text):
                 "window_ms": int(m.group(4)), "moving_permille": int(m.group(5)),
                 "dev_mean_mg": int(m.group(6)), "dev_max_mg": int(m.group(7)),
                 "moving_ms": int(m.group(8))}
-    return recs
+    return [{k: v for k, v in r.items() if k != "_win"} for r in recs if r["_win"]]
+
+
+
+def parse_motion_transitions(text):
+    """still<->moving TRANSITION records from both containers: @LAT93 (every IMU node, and
+    the Cardputer before 2026-10-02) and MOTION-band @LAT103 episodes (the Cardputer since).
+    [{lat, lane, t_ms, stream, from, to, before, after}] where before/after are the
+    `lane:` citations of the two halves (`@LAT<lat>LON<n>+<k>`)."""
+    out, cur, in_ep = [], None, False
+    for line in text.splitlines():
+        if line.startswith("@LAT"):
+            hm = EPISODE_HEADER_RE.match(line)
+            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
+            in_ep = lat == EPISODE_LANE and episode_tier(lon) == EPISODE_TIER_MOTION
+            cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "from": None,
+                   "to": None, "before": None, "after": None} if (lat == 93 or in_ep) else None
+            continue
+        if cur is None:
+            continue
+        if in_ep:
+            sm = SAID_RE.match(line)
+            if not sm:
+                continue
+            line = sm.group(1)
+        line = line.strip()
+        if line.startswith("**TRANSITION**"):
+            tf = parse_time_fields(line)
+            if tf:
+                cur.update({k: tf[k] for k in ("t_ms", "stream") if k in tf})
+            m = re.search(r"\bfrom:(\w+)\s+to:(\w+)", line)
+            if m:
+                cur["from"], cur["to"] = m.group(1), m.group(2)
+            out.append(cur)
+        elif line.startswith("@PERCEPT:before") or line.startswith("@PERCEPT:after"):
+            m = re.search(r"\blane:(@LAT\d+LON\d+\+\d+)", line)
+            if m:
+                cur["before" if "before" in line[:16] else "after"] = m.group(1)
+    return out
 
 
 def motion_totals(recs):

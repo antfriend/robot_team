@@ -224,6 +224,48 @@ check(mt["unaccounted"] == 0, "and the episode run's arithmetic closes (nothing 
 check(all(r["state"] != "moving" or r["lat"] == 103 and r["lane"] == 16385 for r in mr),
       "the MOTION-shaped line in the ACOUSTIC band was not read as a motion window")
 
+# 8) 2026-10-02: @LAT93 transitions moved into the MOTION band too. A transition episode
+# must not count as a window, and parse_motion_transitions reads both containers. The
+# episode text is what renderSaidEpisode makes of a real buildTransition record
+# (test_episode.cpp pins that wrap: indented @PERCEPT halves become sentences).
+TRANS = MIXED + """
+---
+
+@LAT93LON0 | created:0 | updated:0 | relates:senses@LAT0LON0,derived_from@LAT95LON27,derived_from@LAT95LON28
+
+**TRANSITION** t_ms:7812748 stream:0xdcd3edce wall:0 node:0x300 from:still to:moving dt_ms:60000 dt_across_merge:0
+  @PERCEPT:before state:still t_ms:7752748 window_ms:60000 n:998 moving_permille:0 dev_mean_mg:12 dev_max_mg:20 moving_ms:0 lane:@LAT95LON27+9
+  @PERCEPT:after state:moving t_ms:7812748 window_ms:60000 n:998 moving_permille:161 dev_mean_mg:60 dev_max_mg:5563 moving_ms:9664 lane:@LAT95LON28+0
+**DELTA** edge:became d_permille:161 d_dev_mean_mg:48 d_dev_max_mg:5543
+
+---
+
+@LAT103LON16386 | created:0 | updated:0
+
+**motion transition**
+
+```ttdb-episode
+source: motionpercept
+at: 1 +-2 frame:3
+said: 1 | **TRANSITION** t_ms:301000 stream:0x5ea51de7 wall:0 node:0x300 from:still to:moving dt_ms:60000 dt_across_merge:0
+said: 2 | @PERCEPT:before state:still t_ms:241000 window_ms:60000 n:1200 moving_permille:0 dev_mean_mg:2 dev_max_mg:9 moving_ms:0 lane:@LAT103LON16384+3
+said: 3 | @PERCEPT:after state:moving t_ms:301000 window_ms:60000 n:1200 moving_permille:400 dev_mean_mg:120 dev_max_mg:600 moving_ms:24000 lane:@LAT103LON16385+0
+said: 4 | **DELTA** edge:became d_permille:400 d_dev_mean_mg:118 d_dev_max_mg:591
+```
+"""
+tr_recs = c.parse_motion_percepts(TRANS)
+check([(r["lat"], r["lane"]) for r in tr_recs] == [(r["lat"], r["lane"]) for r in mr],
+      "a transition episode adds NO motion window (it has no MOTIONWIN)")
+check(c.motion_totals(tr_recs)["windows"] == 6, "and motion_totals is unchanged at 6")
+tt = c.parse_motion_transitions(TRANS)
+check([(t["lat"], t["lane"], t["from"], t["to"]) for t in tt] ==
+      [(93, 0, "still", "moving"), (103, 16386, "still", "moving")],
+      "parse_motion_transitions reads @LAT93 and the motion band")
+check(tt[1]["before"] == "@LAT103LON16384+3" and tt[1]["after"] == "@LAT103LON16385+0",
+      "an episode transition's halves cite the windows it joins")
+check(tt[0]["t_ms"] == 7812748 and tt[1]["stream"] == 0x5ea51de7,
+      "and carry their stamps")
+
 # ---------------------------------------------------------------------------
 print()
 if fails:

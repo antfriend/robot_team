@@ -57,7 +57,7 @@
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound>` (TTG-RFC-0004 §4.3)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
-#include <TimeStreamNode.h>  // the team time stream: a timeline the fleet owns -> @LAT90
+#include <TimeStreamNode.h>  // the team time stream (its @LAT90 log: legacy build only)
 #include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <SocialNode.h>      // the default network: who is here and what can they do
 #include <RobotTeamConfig.h>
@@ -174,6 +174,7 @@ static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
                   ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
                   MOTIONPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
                   LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
+                  MOTIONPERCEPT_TRANSITION_BUF < episodenode::Node::scratchCap() &&
                   SEMANTIC_LINK_WINDOW_EPISODE_BUF <= episodenode::Node::scratchCap(),
               "percept records are rendered into the episode scratch and wrapped there");
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
@@ -3951,7 +3952,15 @@ void setup() {
   // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is
   // free and forking one costs a merge. Independent of USE_PULSE — the band is
   // optional, a shared timeline is not.
-  gTs.begin(kNodeId, &gDb, millis());
+  //
+  // ACT-III §C2/§C4 (2026-10-02): on the episode build the stream writes NO @LAT90 log.
+  // That lane is capped at 16, was refusing writes at 16/16, and its job, ordering, is now
+  // done by every episode's own `at: <pulse> ±<bound> frame:<downbeat>` stamp (TTG-0004
+  // §4.3), so nothing it would write is needed to order anything. The stream itself
+  // still runs and still stamps (`stream:` in each sampler's lines, HELLO anchors), because
+  // the un-migrated boards compare with this one on that clock. Transitions still print.
+  // Nothing on the laptop reads @LAT90's REMAP lines (checked 2026-10-02).
+  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
 
   // The default network starts with DECLARATIONS ONLY, then promotes what the boot
   // sequence has actually proven. ⚠ `gCodecOk` and `gImuOk` are exactly the right gates
@@ -4464,7 +4473,33 @@ void loop() {
       // is the datum — the thing a prediction could ever be wrong about. Written only
       // on a verdict change, so a node sitting still on a shelf writes none at all.
       // Must run before the next buildRecord(), which would overwrite the `after` half.
-      if (gMotionLog.transitionPending()) {
+      if (gMotionLog.transitionPending() && PHASEC_EPISODES) {
+        // ACT-III §C2 (2026-10-02): a transition is a MOTION-band episode, not a @LAT93
+        // record in a lane capped at 32. Its two halves (`  @PERCEPT:before/after …
+        // lane:@LAT103LON<n>+<k>`) ride as `said:` sentences — the wrap keeps indented
+        // lines for exactly this — so its citations survive; the old header's `relates:`
+        // edges do not, as no episode carries any. It is evicted with its own band, i.e.
+        // roughly with the windows it cites.
+        const int16_t tord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+        const size_t tm = gMotionLog.buildTransition(gEpisodes.scratch(),
+                                                     MOTIONPERCEPT_TRANSITION_BUF, tord,
+                                                     kNodeId);
+        char at[72];
+        episodeAt(at, sizeof(at), now);
+        if (tm && gEpisodes.appendSaidScratch(tord, tm, "motion transition", "motionpercept",
+                                              at, gStreamWallSec)) {
+          Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d\n",
+                        gMotionLog.pendingBefore().moving ? "moving" : "still",
+                        gMotionLog.lastWindow().moving ? "moving" : "still",
+                        SEMANTIC_EPISODE_LANE, (int)tord);
+          gEpisodes.service(now, gStreamWallSec);
+        } else {
+          Serial.printf("[motion] transition LOST at @LAT%dLON%d (render fail %lu, append "
+                        "fail %lu)\n", SEMANTIC_EPISODE_LANE, (int)tord,
+                        (unsigned long)gEpisodes.stats().render_failed,
+                        (unsigned long)gEpisodes.stats().append_failed);
+        }
+      } else if (gMotionLog.transitionPending()) {
         int tlane = laneCount(MOTIONPERCEPT_TRANSITION_LANE);
         if (tlane >= MOTIONPERCEPT_MAX_TRANSITION_LANE) {
           // Lane full. Say so out loud: silently dropping transitions would look

@@ -118,7 +118,7 @@ SEM_SRCS := test_semantic.cpp $(LIB)/Semantic/src/Semantic.cpp
 EPI_SRCS := test_episode.cpp $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/Semantic.cpp \
         $(LIB)/TTDB/src/TtdbParse.cpp $(LIB)/TimeStream/src/TimeStream.cpp \
         $(LIB)/EntityPercept/src/EntityPercept.cpp $(LIB)/AcousticPercept/src/AcousticPercept.cpp \
-        $(LIB)/LinkPercept/src/LinkPercept.cpp
+        $(LIB)/LinkPercept/src/LinkPercept.cpp $(LIB)/MotionPercept/src/MotionPercept.cpp
 # ACT-III Phase C4: TTG-RFC-0004 §4 — bounded pulse stamps, partial order across agents,
 # maximal facts, and the bar view two agents agree on without coordinating (§4.8 items 1-4).
 FT_SRCS := test_fleettime.cpp $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp

@@ -387,10 +387,21 @@ static int wrapSaid(EpisodeBuilder& b, const char* body, size_t n, char* out, bo
     while (j < n && body[j] != '\n') ++j;
     size_t len = j - i;
     if (len && body[i + len - 1] == '\r') --len;
-    if (len >= 2 && body[i] == '*' && body[i + 1] == '*') {
-      if (len > max_text) { out[0] = '\0'; return -1; }
-      memcpy(line, body + i, len);
-      line[len] = '\0';
+    // A sentence is a `**` line, or an INDENTED line (2026-10-02, the transition tier):
+    // a TTDB-RFC-0006 §5 transition carries its two halves as `  @PERCEPT:before …` /
+    // `  @PERCEPT:after …`, and those halves are where its citations live. Indented lines
+    // are taken with the indent stripped. No other sampler emits one (checked when this
+    // was added: only MotionPercept::buildTransition does), so their episodes are unchanged.
+    size_t ws = 0;
+    while (ws < len && (body[i + ws] == ' ' || body[i + ws] == '\t')) ++ws;
+    const bool starred = ws == 0 && len >= 2 && body[i] == '*' && body[i + 1] == '*';
+    const bool indented = ws > 0 && ws < len;
+    if (starred || indented) {
+      const size_t tlen = len - ws;
+      if (tlen > max_text) { out[0] = '\0'; return -1; }
+      memcpy(line, body + i + ws, tlen);
+      line[tlen] = '\0';
+      len = tlen;
       // `said: <k> | <line>\n` plus put()'s terminator must end before the next unread
       // byte — or this write would overwrite input still to come. Refuse, never corrupt.
       if (inplace) {
