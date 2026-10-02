@@ -249,7 +249,9 @@ class Loop {
   // Re-derives entirely from what was staged this pass. Storing a per-peer "usual
   // RSSI" learned once and predicting THAT would be the precomputed route Rule 1
   // forbids; this deliberately reads the world again every window.
-  bool arm(int motion_lane, int motion_offset = 0);
+  // `motion_lat`: the lane the acting motion record is on — 95, or 103 once the
+  // motion tier lives in episodes. The outcome cites it, so it must be the real one.
+  bool arm(int motion_lane, int motion_offset = 0, int motion_lat = 95);
 
   // The node did not claim to be anchored (a `moving` window), or the window was
   // discarded. Any outstanding expectation is dropped UNSCORED — scoring it would
@@ -307,6 +309,7 @@ class Loop {
   bool  armed_;
   int   acting_lane_;      // the @LAT95 record whose `still` claim armed this
   int   acting_offset_;    // ...and which window of that record's run it was
+  int   acting_lat_;       // ...and the lane that record is on (95 or 103)
 
   // scored results, awaiting buildOutcome
   bool  pending_;

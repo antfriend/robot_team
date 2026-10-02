@@ -2444,16 +2444,30 @@ COVERED_RE = re.compile(
 
 def parse_motion_percepts(text):
     """Parse a TTDB's @LAT95 lane into a list of records:
-    {lane, t_ms, stream, wall, synced, window_ms, n, state, moving_permille,
+    {lat, lane, t_ms, stream, wall, synced, window_ms, n, state, moving_permille,
      dev_mean_mg, dev_max_mg, moving_ms, windows_since_last, reason, covered}
     where `covered` is None or the aggregate of the windows this record's
-    predecessor spoke for but never itemised."""
+    predecessor spoke for but never itemised.
+
+    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-02), exactly as parse_entity_percepts: a
+    record is an @LAT95 record (every IMU node, and the Cardputer before Phase C) or a
+    MOTION-band @LAT103 episode, whose `said:` lines carry the same **MOTIONWIN** /
+    **MOTION** / **RUN** / **COVERED** lines. Inside an episode only `said:` lines are
+    read. A run never spans the two (the log is RAM; a reflash breaks it), so
+    motion_totals' arithmetic holds per container without change."""
     recs = []
     cur = None
+    in_episode = False
     for line in text.splitlines():
-        if line.startswith("@LAT95LON"):
-            lane = int(re.match(r"@LAT95LON(\d+)", line).group(1))
-            cur = {"lane": lane, "t_ms": None, "stream": None, "wall": None,
+        if line.startswith("@"):
+            hm = EPISODE_HEADER_RE.match(line)
+            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
+            in_episode = (lat == EPISODE_LANE and
+                          episode_tier(lon) == EPISODE_TIER_MOTION)
+            if lat != 95 and not in_episode:
+                cur = None          # any other record header ends this one
+                continue
+            cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "wall": None,
                    "synced": None, "window_ms": None, "n": None, "state": None,
                    "moving_permille": None, "dev_mean_mg": None, "dev_max_mg": None,
                    "moving_ms": None,
@@ -2462,11 +2476,13 @@ def parse_motion_percepts(text):
                    "windows_since_last": 1, "reason": "legacy", "covered": None}
             recs.append(cur)
             continue
-        if line.startswith("@"):     # any other record header ends this one
-            cur = None
-            continue
         if cur is None:
             continue
+        if in_episode:
+            sm = SAID_RE.match(line)
+            if not sm:
+                continue
+            line = sm.group(1)
         if line.startswith("**MOTIONWIN**"):
             tf = parse_time_fields(line)
             if tf:
@@ -2568,12 +2584,12 @@ def motion(port, baud, node, save, from_file=None):
     recs = parse_motion_percepts(data.decode("utf-8", errors="replace"))
     t = motion_totals(recs)
     label = from_file or node
-    print(f"{label}: {t['records']} @LAT95 record(s) accounting for "
+    print(f"{label}: {t['records']} motion record(s) (@LAT95 + @LAT103 motion band) accounting for "
           f"{t['windows']} window(s) — {t['still_windows']} still / "
           f"{t['moving_windows']} moving, {t['samples']} sample(s), "
           f"{t['window_ms'] / 60000.0:.1f} minute(s) observed")
     if not recs:
-        print("no @LAT95 records yet — the node needs an IMU and a flush window "
+        print("no motion records yet (@LAT95 or @LAT103) — the node needs an IMU and a flush window "
               "(default 60 s)")
         return
     if t["unaccounted"]:
@@ -2637,6 +2653,7 @@ ENTITY_BOUND_LOOSE_M = 100.0   # a single shared AP
 EPISODE_LANE = 103
 EPISODE_TIER_SPAN = 8192
 EPISODE_TIER_ENTITY = 1
+EPISODE_TIER_MOTION = 2
 EPISODE_HEADER_RE = re.compile(r"@LAT(\d+)LON(\d+)")
 SAID_RE = re.compile(r"^said:\s*\d+\s*\|\s?(.*)$")
 

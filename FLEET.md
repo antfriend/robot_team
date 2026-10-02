@@ -303,9 +303,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ⚠ **With peers on, loop free heap is ~9–11 KB** (measured twice) — that is the margin, so a
    moved tier adds **no** static buffer; diff `.bss` against HEAD before flashing.
    ✅ **ACOUSTIC tier moved** too (2026-10-01; no laptop reader existed; `@LAT94` released, index → 208/288).
-   🛑 **The Cardputer aborts on heap in ~1 of 8 boots** (BLE scanner `operator new`, boot burst) —
-   **pre-existing**: `2912c11` crashed 1 of 8 too. It self-recovers by rebooting. Fix candidates untested.
-   **Next:** motion (`@LAT95` is 48/48 — refusing), then link (+ `fleetmap`); caps, prunes and `clear` verbs go together at the end.
+   ⚠ **The Cardputer's boot abort is intermittent** (BLE scanner `operator new`, boot burst; pre-existing —
+   `2912c11` too): 4/19 boots on 10-01, **0/36 on 10-02**. Not the battery (it crashed at the HIGHER
+   reading); cause of the change untested (room BLE traffic is the lead). Boot-count after every flash.
+   ✅ **MOTION tier moved** (2026-10-02) — and a full `@LAT95` had been silencing the LINK tier too
+   (Rule 1 disarmed → nothing scored → no link episode); both run again, first link fold since.
+   Index → 178/288. Boot adverts now printed (`[ble] N advert(s)…`): 101–140 in 5 s, 0/12 crashed.
+   **Next:** link (+ `@LAT92` outcomes, which wait on `@LAT97`, + `fleetmap`); then caps, prunes and `clear` verbs together.
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

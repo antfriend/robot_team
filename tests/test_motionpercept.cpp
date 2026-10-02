@@ -554,6 +554,57 @@ int main(void) {
           "claiming only itself — the lost windows are a gap, not absorbed (got '%s')", buf);
   }
 
+  // --- the motion tier in the EPISODE lane (2026-10-02) ------------------------------
+  // `lane_lat` names the lane on the record, on `covered_by:`, and on BOTH transition
+  // citations — per window, so a pair that straddles the two lanes cites each half where
+  // it really is. Ordinals are the motion band's widest (5 digits), so the buffers are
+  // checked against the longest citation the episode lane can produce.
+  {
+    motionpercept::Log log;
+    char rec[MOTIONPERCEPT_RECORD_BUF], tr[MOTIONPERCEPT_TRANSITION_BUF];
+    char line[512], buf[128];
+    uint32_t now = 0;
+    const int E = 103, O = 24570;     // tier 2 (motion) band, near its top
+
+    feedWindow(log, now, 0, 60);      // still, written at @LAT95 (the old container)
+    CHECK(log.buildRecord(rec, sizeof(rec), 7, 2000, ST(2000000ULL, true), now) > 0,
+          "window 0 written to @LAT95");
+    feedWindow(log, now, 0, 60);      // still, covered by @LAT95LON7
+    log.buildRecord(rec, sizeof(rec), 8, 2060, ST(2060000ULL, true), now);
+    feedWindow(log, now, 400, 60);    // moving: the change, written to the EPISODE lane
+    size_t m = log.buildRecord(rec, sizeof(rec), O, 2120, ST(2120000ULL, true), now, E);
+    CHECK(m > 0 && strncmp(rec, "\n---\n\n@LAT103LON24570 | ", 23) == 0,
+          "with lane_lat 103 the record header names @LAT103");
+    CHECK(log.coveringLane() == O && log.coveringLat() == E,
+          "and the window's citation is (@LAT103, its ordinal)");
+    CHECK(log.transitionPending(), "still -> moving across the two lanes is a transition");
+    m = log.buildTransition(tr, sizeof(tr), 31, 0x300);
+    CHECK(m > 0 && m < MOTIONPERCEPT_TRANSITION_BUF,
+          "the straddling pair renders and fits (%zu / %d)", m, MOTIONPERCEPT_TRANSITION_BUF);
+    lineWith(tr, "  @PERCEPT:before", line, sizeof(line));
+    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT95LON7+1") == 0,
+          "the before half cites the OLD lane it lives in (got '%s')", buf);
+    lineWith(tr, "  @PERCEPT:after", line, sizeof(line));
+    CHECK(strcmp(field(line, "lane", buf, sizeof(buf)), "@LAT103LON24570+0") == 0,
+          "the after half cites the episode lane (got '%s')", buf);
+    CHECK(strstr(tr, "derived_from@LAT95LON7,derived_from@LAT103LON24570") != NULL,
+          "and each edge resolves to the lane its record is really on");
+
+    // A run that lives entirely in the episode lane: its COVERED block cites @LAT103.
+    feedWindow(log, now, 400, 60);    // moving, covered by @LAT103LON24570
+    log.buildRecord(rec, sizeof(rec), O + 1, 2180, ST(2180000ULL, true), now, E);
+    CHECK(log.lastClose() == motionpercept::CLOSE_COVERED && log.coveringLat() == E &&
+              log.runOffset() == 1,
+          "a covered window in an episode run is cited (@LAT103LON24570, +1)");
+    feedWindow(log, now, 0, 60);      // still: the change closes the run
+    m = log.buildRecord(rec, sizeof(rec), O + 1, 2240, ST(2240000ULL, true), now, E);
+    CHECK(m > 0 && m < MOTIONPERCEPT_RECORD_BUF, "the closing record fits (%zu / %d)", m,
+          MOTIONPERCEPT_RECORD_BUF);
+    CHECK(strstr(rec, "covered_by:@LAT103LON24570") != NULL,
+          "its COVERED block cites the episode that opened the run, on @LAT103");
+    CHECK(strstr(rec, "@LAT95") == NULL, "and names @LAT95 nowhere");
+  }
+
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
   return fails ? 1 : 0;
 }

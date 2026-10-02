@@ -248,6 +248,10 @@ struct Window {
   // into that record's run it sat. `run_offset == 0` is the record's own window.
   // Citing `lane` alone would attribute this window to a record describing another one.
   int16_t  lane;          // the @LAT95 lane whose run covers this window
+  // ...and the LANE it is on: 95, or SEMANTIC_EPISODE_LANE (103) once the Cardputer's
+  // motion tier lives in episodes (2026-10-02). Per WINDOW, not per log: a transition's
+  // `before` half can sit in an old @LAT95 run while its `after` half is an episode.
+  int16_t  lat = 95;
   int16_t  run_offset;    // windows into that run (0 = the covering record's own)
   int32_t  n;             // samples
   int32_t  permille;
@@ -314,13 +318,15 @@ class Log {
   // Also closes the transition chain: the window just closed becomes the candidate
   // `after` half, and if the window BEFORE it carried the opposite verdict a paired
   // record is now pending (see transitionPending()).
+  // `lane_lat`: the lane the record (and every citation of a window it covers) names.
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                     const timestream::Stamp& ts, uint32_t now_ms);
+                     const timestream::Stamp& ts, uint32_t now_ms, int lane_lat = 95);
 
   // What the last buildRecord() call did, and the (record, offset) pair naming the
   // window it closed — the citation any downstream claim about that window must carry.
   Close lastClose() const { return close_; }
   int   coveringLane() const { return cover_lane_; }
+  int   coveringLat() const { return cover_lat_; }    // the lane coveringLane() is on
   int   runOffset() const { return run_offset_; }
   // Windows in the run in progress, including the covering record's own. 0 = no run.
   int   runLength() const { return run_open_ ? run_len_ : 0; }
@@ -376,6 +382,7 @@ class Log {
   bool   run_open_;       // a record has been written and speaks for a run
   bool   run_state_;      // that run's verdict; a window disagreeing with it writes
   int    run_lane_;       // the @LAT95 lane of the record covering the run
+  int    run_lat_;        // ...and the lane it is on (95 or 103)
   int    run_len_;        // windows in it so far, including the covering record's own
 
   // The suppressed windows, reduced to the same statistics one window carries. Summed
@@ -394,6 +401,7 @@ class Log {
   // --- what the last close did ---
   Close  close_;
   int    cover_lane_;
+  int    cover_lat_;
   int    run_offset_;
 };
 

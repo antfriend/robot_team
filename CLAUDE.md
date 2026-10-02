@@ -66,7 +66,7 @@ firmware/
                         the EPISODE tier (Episode.*: @LAT103 episodes, @LAT104 fold
                         checkpoint = the commit point, so a refused rewrite never double-
                         counts) and EpisodeNode.h, the Arduino glue (Cardputer only so far).
-                        Link, entity and acoustic tiers write here. ⚠ ONE scratch buffer
+                        Link, entity, acoustic and motion tiers write here. ⚠ ONE scratch buffer
                         (`EpisodeNode::scratch()`) for every episode render: a second
                         static boot-looped the Cardputer (+5.6 KB .bss starved BLE).
     Es8311/             Cardputer ADV audio-codec bring-up (speaker AND mic)
@@ -468,7 +468,8 @@ cost a gate check to learn: *if a view can show less than all of a record, it mu
 on screen.*
 
 **`FACE_BELIEF` is Cardputer-only, structurally.** The `@LAT91` belief lane is written by
-`PerceptLearn`, whose Rule 1 arms only off a **`still` `@LAT95` motion window** — and only
+`PerceptLearn`, whose Rule 1 arms only off a **`still` motion window** (`@LAT95`, or the
+`@LAT103` motion band on the Cardputer since 2026-10-02) — and only
 the Cardputer has an IMU, so no other node can author a belief. The globes cannot show these
 lanes either: `isNodeRecord()` bounds navigation to `lat > -90 && lat < 90`, which excludes
 90–93 along with the percept/belief/sync lanes it was written for. Showing them on the T-Deck

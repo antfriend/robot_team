@@ -15,6 +15,7 @@ namespace blelink {
 static ObserveFn gCb = nullptr;
 static const uint8_t* gKey = nullptr;
 static size_t gKeyLen = 0;
+static volatile uint32_t gAdverts = 0;   // every scan result, fleet or foreign
 
 // Scan-result handler. Runs in the BLE host task for EVERY advertisement in range
 // (phones, watches, beacons, …), so it must be allocation-free: we register with
@@ -26,6 +27,7 @@ static size_t gKeyLen = 0;
 // no String, no vector, no heap churn.
 class ScanCB : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice dev) override {
+    gAdverts = gAdverts + 1;                   // one task writes; loop() only reads
     if (!gCb) return;
     const uint8_t* p = dev.getPayload();
     size_t n = dev.getPayloadLength();
@@ -121,5 +123,7 @@ void loop() {
   scan->start(0, nullptr, false);
 #endif
 }
+
+uint32_t advertsSeen() { return gAdverts; }
 
 }  // namespace blelink

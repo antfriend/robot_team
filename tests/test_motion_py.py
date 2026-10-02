@@ -156,6 +156,74 @@ check(lt["unaccounted"] == 0, "with nothing left unaccounted for")
 check(c.parse_motion_percepts("# nothing\n") == [], "no @LAT95 -> empty list")
 check(c.motion_totals([])["windows"] == 0, "and no windows")
 
+# 7) ACT-III §C2 (2026-10-02): the Cardputer's motion windows live in @LAT103 now, as
+# MOTION-band episodes (tier 2, LON 16384+) whose `said:` lines are MotionPercept's own.
+# One TTDB carries an old @LAT95 record, a motion episode run, and other tiers' episodes.
+MIXED = """
+---
+
+@LAT95LON47 | created:0 | updated:0 | relates:senses@LAT0LON0
+
+**MOTIONWIN** t_ms:1000 stream:0x5ea51de7 wall:0 window_ms:60000 n:1200
+**MOTION** state:still moving_permille:0 dev_mean_mg:3 dev_max_mg:9 moving_ms:0
+**RUN** windows_since_last:1 reason:first max_run:30
+
+---
+
+@LAT103LON24576 | created:0 | updated:0
+
+**acoustic window**
+
+```ttdb-episode
+source: acousticpercept
+at: 1 +-2 frame:3
+said: 1 | **MOTION** state:moving moving_permille:999 dev_mean_mg:900 dev_max_mg:999 moving_ms:60000
+```
+
+---
+
+@LAT103LON16384 | created:0 | updated:0
+
+**motion window**
+
+```ttdb-episode
+source: motionpercept
+at: 1 +-2 frame:3
+said: 1 | **MOTIONWIN** t_ms:61000 stream:0x5ea51de7 wall:0 window_ms:60000 n:1200
+said: 2 | **MOTION** state:still moving_permille:0 dev_mean_mg:2 dev_max_mg:8 moving_ms:0
+said: 3 | **RUN** windows_since_last:1 reason:first max_run:30
+```
+
+---
+
+@LAT103LON16385 | created:0 | updated:0
+
+**motion window**
+
+```ttdb-episode
+source: motionpercept
+at: 1 +-2 frame:3
+said: 1 | **MOTIONWIN** t_ms:301000 stream:0x5ea51de7 wall:0 window_ms:60000 n:1200
+said: 2 | **MOTION** state:moving moving_permille:400 dev_mean_mg:120 dev_max_mg:600 moving_ms:24000
+said: 3 | **RUN** windows_since_last:4 reason:changed max_run:30
+said: 4 | **COVERED** state:still windows:3 n:3600 window_ms:180000 moving_permille:0 dev_mean_mg:2 dev_max_mg:9 moving_ms:0 first_t_ms:121000 last_t_ms:241000 covered_by:@LAT103LON16384
+```
+"""
+mr = c.parse_motion_percepts(MIXED)
+check([(r["lat"], r["lane"]) for r in mr] == [(95, 47), (103, 16384), (103, 16385)],
+      "one @LAT95 record + two motion-band episodes; the acoustic episode is not motion")
+check(mr[1]["t_ms"] == 61000 and mr[1]["state"] == "still" and mr[1]["window_ms"] == 60000,
+      "an episode's MOTIONWIN/MOTION come through the said: column")
+check(mr[2]["windows_since_last"] == 4 and mr[2]["covered"]["windows"] == 3 and
+      mr[2]["covered"]["state"] == "still",
+      "RUN and COVERED ride in the episode too")
+mt = c.motion_totals(mr)
+check(mt["windows"] == 6 and mt["still_windows"] == 5 and mt["moving_windows"] == 1,
+      "motion_totals counts windows across both containers: 3 records + 3 covered = 6")
+check(mt["unaccounted"] == 0, "and the episode run's arithmetic closes (nothing unaccounted)")
+check(all(r["state"] != "moving" or r["lat"] == 103 and r["lane"] == 16385 for r in mr),
+      "the MOTION-shaped line in the ACOUSTIC band was not read as a motion window")
+
 # ---------------------------------------------------------------------------
 print()
 if fails:

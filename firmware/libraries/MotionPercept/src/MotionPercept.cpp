@@ -56,6 +56,7 @@ void Log::breakRun() {
   run_open_ = false;
   run_state_ = false;
   run_lane_ = -1;
+  run_lat_ = 95;
   run_len_ = 0;
   cov_windows_ = 0;
   cov_n_ = 0;
@@ -68,6 +69,7 @@ void Log::breakRun() {
   cov_last_t_ms_ = 0;
   close_ = CLOSE_EMPTY;
   cover_lane_ = -1;
+  cover_lat_ = 95;
   run_offset_ = 0;
 }
 
@@ -113,7 +115,7 @@ bool Log::moving(uint32_t now_ms, uint32_t recent_ms) const {
 }
 
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
-                        const timestream::Stamp& ts, uint32_t now_ms) {
+                        const timestream::Stamp& ts, uint32_t now_ms, int lane_lat) {
   if (n_ == 0) {
     reset(now_ms);
     close_ = CLOSE_EMPTY;
@@ -164,13 +166,13 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     const int since = run_open_ ? run_len_ : 1;
     const char* reason = first ? "first" : (changed ? "changed" : "heartbeat");
     int m = snprintf(out, cap,
-                     "\n---\n\n@LAT95LON%d | created:%lu | updated:%lu | "
+                     "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
                      "relates:senses@LAT0LON0\n\n"
                      "**MOTIONWIN** %s window_ms:%lu n:%ld\n"
                      "**MOTION** state:%s moving_permille:%d dev_mean_mg:%d "
                      "dev_max_mg:%ld moving_ms:%lu\n"
                      "**RUN** windows_since_last:%d reason:%s max_run:%d\n",
-                     lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
+                     lane_lat, lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
                      stamp,
                      (unsigned long)window_ms, (long)n_,
                      moving_now ? "moving" : "still", permille,
@@ -195,12 +197,12 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
       m = snprintf(out + wrote, cap - wrote,
                    "**COVERED** state:%s windows:%ld n:%ld window_ms:%lu "
                    "moving_permille:%d dev_mean_mg:%d dev_max_mg:%ld moving_ms:%lu "
-                   "first_t_ms:%llu last_t_ms:%llu covered_by:@LAT95LON%d\n",
+                   "first_t_ms:%llu last_t_ms:%llu covered_by:@LAT%dLON%d\n",
                    run_state_ ? "moving" : "still", (long)cov_windows_, (long)cov_n_,
                    (unsigned long)cov_window_ms_, cov_permille, cov_dev_mean,
                    (long)cov_dev_max_mg_, (unsigned long)cov_moving_ms_,
                    (unsigned long long)cov_first_t_ms_,
-                   (unsigned long long)cov_last_t_ms_, run_lane_);
+                   (unsigned long long)cov_last_t_ms_, run_lat_, run_lane_);
       // A record missing its COVERED block would silently claim `windows_since_last:N`
       // with no accounting for the N-1, which is exactly the dishonesty the block was
       // added to prevent. Write nothing rather than the head alone.
@@ -212,9 +214,11 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
       wrote += (size_t)m;
     }
     cur.lane = (int16_t)lane_n;   // this record speaks for its own window
+    cur.lat = (int16_t)lane_lat;
     cur.run_offset = 0;
   } else {
     cur.lane = (int16_t)run_lane_;      // the open run's record speaks for it
+    cur.lat = (int16_t)run_lat_;
     cur.run_offset = (int16_t)run_len_;
   }
 
@@ -237,6 +241,7 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
   const bool     s_open  = run_open_;
   const bool     s_state = run_state_;
   const int      s_lane  = run_lane_;
+  const int      s_lat   = run_lat_;
   const int      s_len   = run_len_;
   const int32_t  s_cw    = cov_windows_;
   const int32_t  s_cn    = cov_n_;
@@ -264,11 +269,13 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
     run_open_ = true;
     run_state_ = moving_now;
     run_lane_ = lane_n;
+    run_lat_ = lane_lat;
     run_len_ = 1;
   } else {
     run_open_ = s_open;
     run_state_ = s_state;
     run_lane_ = s_lane;
+    run_lat_ = s_lat;
     run_len_ = s_len + 1;
     cov_windows_ = s_cw + 1;
     cov_n_ = s_cn + cur.n;
@@ -283,6 +290,7 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
 
   close_ = write ? CLOSE_WRITTEN : CLOSE_COVERED;
   cover_lane_ = cur.lane;
+  cover_lat_ = cur.lat;
   run_offset_ = cur.run_offset;
   return wrote;
 }
@@ -324,26 +332,27 @@ size_t Log::buildTransition(char* out, size_t cap, int lane_n, uint32_t node_id)
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
-      "relates:senses@LAT0LON0,derived_from@LAT95LON%d,derived_from@LAT95LON%d\n\n"
+      "relates:senses@LAT0LON0,derived_from@LAT%dLON%d,derived_from@LAT%dLON%d\n\n"
       "**TRANSITION** %s node:0x%lx from:%s to:%s dt_ms:%llu dt_across_merge:%d\n"
       "  @PERCEPT:before state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
-      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d+%d\n"
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT%dLON%d+%d\n"
       "  @PERCEPT:after state:%s t_ms:%llu window_ms:%lu n:%ld moving_permille:%ld "
-      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT95LON%d+%d\n"
+      "dev_mean_mg:%ld dev_max_mg:%ld moving_ms:%lu lane:@LAT%dLON%d+%d\n"
       "**DELTA** edge:became d_permille:%ld d_dev_mean_mg:%ld d_dev_max_mg:%ld\n",
       MOTIONPERCEPT_TRANSITION_LANE, lane_n,
-      (unsigned long)a.t_sec, (unsigned long)a.t_sec, (int)b.lane, (int)a.lane,
+      (unsigned long)a.t_sec, (unsigned long)a.t_sec, (int)b.lat, (int)b.lane, (int)a.lat,
+      (int)a.lane,
       stamp, (unsigned long)node_id,
       b.moving ? "moving" : "still", a.moving ? "moving" : "still",
       (unsigned long long)dt_ms, across_merge ? 1 : 0,
       b.moving ? "moving" : "still", (unsigned long long)bt,
       (unsigned long)b.window_ms, (long)b.n, (long)b.permille,
       (long)b.dev_mean_mg, (long)b.dev_max_mg, (unsigned long)b.moving_ms,
-      (int)b.lane, (int)b.run_offset,
+      (int)b.lat, (int)b.lane, (int)b.run_offset,
       a.moving ? "moving" : "still", (unsigned long long)at,
       (unsigned long)a.window_ms, (long)a.n, (long)a.permille,
       (long)a.dev_mean_mg, (long)a.dev_max_mg, (unsigned long)a.moving_ms,
-      (int)a.lane, (int)a.run_offset,
+      (int)a.lat, (int)a.lane, (int)a.run_offset,
       (long)(a.permille - b.permille), (long)(a.dev_mean_mg - b.dev_mean_mg),
       (long)(a.dev_max_mg - b.dev_max_mg));
 

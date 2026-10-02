@@ -165,8 +165,10 @@ static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
 #define PHASEC_EPISODES 1
 #endif
 static episodenode::Node gEpisodes;
+static uint32_t gBleUpMs = 0;   // when blelink::begin() returned — the advert count's zero
 static_assert(ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
-                  ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
+                  ACOUSTICPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
+                  MOTIONPERCEPT_RECORD_BUF < episodenode::Node::scratchCap(),
               "percept records are rendered into the episode scratch and wrapped there");
 static_assert((int)perceptlearn::VERDICT_MET == (int)semantic::LINK_MET &&
               (int)perceptlearn::VERDICT_VIOLATED == (int)semantic::LINK_VIOLATED &&
@@ -3909,6 +3911,7 @@ void setup() {
 
 #if USE_BLE
   blelink::begin(kNodeId, ROBOT_TEAM_KEY, ROBOT_TEAM_KEY_LEN, onBleObserve);
+  gBleUpMs = millis();
   Serial.println("BLE near-range tier up (advert + passive scan)");
 #endif
 
@@ -3956,6 +3959,20 @@ void loop() {
   sectMark();                       // [0] top of the pass
 #if USE_BLE
   blelink::loop();                  // no-op unless BLELINK_RESTART_MS > 0 (the BLE leak)
+  // HOW BUSY IS THE ROOM — the reading the 2026-10-01/02 boot-abort counts lacked (4/19
+  // one day, 0/36 the next, same build). 5 s is the boot burst the aborts happened in;
+  // 30 s gives a steady rate. Free heap beside it, because the two are the hypothesis.
+  {
+    static uint8_t said = 0;
+    const uint32_t up = now - gBleUpMs;
+    if ((said == 0 && up >= 5000) || (said == 1 && up >= 30000)) {
+      Serial.printf("[ble] %lu advert(s) handled in the first %lu s of scanning | heap %u "
+                    "maxalloc %u\n", (unsigned long)blelink::advertsSeen(),
+                    (unsigned long)(up / 1000), (unsigned)ESP.getFreeHeap(),
+                    (unsigned)ESP.getMaxAllocHeap());
+      ++said;
+    }
+  }
 #endif
 
   // FIRST, before anything reads a clock: settle which timeline this node is on and
@@ -4250,8 +4267,13 @@ void loop() {
 #if USE_IMU
   serviceImu(now);
   if (gMotionLog.due(now)) {
-    int lane = laneCount(95);
-    if (lane >= MOTIONPERCEPT_MAX_LANE) {
+    // ACT-III §C2 (2026-10-02): with the episode tier on, motion lives in @LAT103 (tier 2,
+    // quota 24) and is never refused for a full lane. That matters beyond motion: Rule 1
+    // arms ONLY off a written-or-covered `still` window, and the link episode is appended
+    // only when an armed expectation is scored — so a full @LAT95 silenced the LINK tier
+    // too (L46/48 frozen on 10-01 while acoustic grew).
+    int lane = PHASEC_EPISODES ? 0 : laneCount(95);
+    if (!PHASEC_EPISODES && lane >= MOTIONPERCEPT_MAX_LANE) {
       // ⚠ SAY THIS OUT LOUD. This path used to be silent, and a silent full lane looks
       // exactly like a healthy node: percept windows keep flushing on the other tiers
       // while the learning loop is disarmed every single window and testifies nothing.
@@ -4273,17 +4295,44 @@ void loop() {
       gMotionLog.reset(now);
       gLearn.disarm();   // no acting record to cite; make no claim
     } else {
-      char rec[MOTIONPERCEPT_RECORD_BUF];
-      size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                        gStamp, now);
-      if (m && gDb.appendRecord(rec, m)) {
+      bool wrote = false;
+      if (PHASEC_EPISODES) {
+        // Into the episode scratch, wrapped in place — no buffer of its own (the heap
+        // margin is ~9–11 KB with peers on). The ordinal is taken first so the record's
+        // `covered_by:`, the @LAT93 transition and the @LAT92 outcome all cite it.
+        const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+        const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF,
+                                                ord, gStreamWallSec, gStamp, now,
+                                                SEMANTIC_EPISODE_LANE);
+        if (gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN) {
+          char at[72];
+          episodeAt(at, sizeof(at), now);
+          wrote = m && gEpisodes.appendSaidScratch(ord, m, "motion window", "motionpercept",
+                                                   at, gStreamWallSec);
+          if (wrote)
+            gEpisodes.service(now, gStreamWallSec);
+          else
+            Serial.printf("[motion] window LOST: episode render/append failed at @LAT%dLON%d "
+                          "(render_failed %lu append_failed %lu) - Rule 1 will cite it anyway\n",
+                          SEMANTIC_EPISODE_LANE, (int)ord,
+                          (unsigned long)gEpisodes.stats().render_failed,
+                          (unsigned long)gEpisodes.stats().append_failed);
+        }
+      } else {
+        char rec[MOTIONPERCEPT_RECORD_BUF];
+        size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
+                                          gStamp, now);
+        wrote = m && gDb.appendRecord(rec, m);
+      }
+      if (wrote) {
         // ⚠ This is the fleet's ONLY stillness witness reporting for duty. Rule 1 arms
         // solely off a `still` @LAT95 window, so until this line runs once, no node in the
         // fleet can author a belief at all — which is why the capability is worth stating
         // as exercised rather than assumed from an IMU that merely answered on I2C.
         gSocial.table().exercise(social::CAP_IMU);
-        Serial.printf("[motion] percept window -> @LAT95LON%d covers:%d (TTDB %uB)\n",
-                      lane, gMotionLog.runOffset() + 1, (unsigned)gDb.fileSize());
+        Serial.printf("[motion] percept window -> @LAT%dLON%d (TTDB %uB)\n",
+                      gMotionLog.coveringLat(), gMotionLog.coveringLane(),
+                      (unsigned)gDb.fileSize());
       }
 
       // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
@@ -4307,10 +4356,12 @@ void loop() {
         gLearn.disarm();
       } else if (gMotionLog.lastWindow().moving) {
         gLearn.disarm();
-      } else if (gLearn.arm(gMotionLog.coveringLane(), gMotionLog.runOffset())) {
-        Serial.printf("[learn] expectation armed from @LAT95LON%d+%d (still): peers "
-                      "hold within +/-%d dBm\n", gMotionLog.coveringLane(),
-                      gMotionLog.runOffset(), PERCEPTLEARN_RSSI_BAND);
+      } else if (gLearn.arm(gMotionLog.coveringLane(), gMotionLog.runOffset(),
+                            gMotionLog.coveringLat())) {
+        Serial.printf("[learn] expectation armed from @LAT%dLON%d+%d (still): peers "
+                      "hold within +/-%d dBm\n", gMotionLog.coveringLat(),
+                      gMotionLog.coveringLane(), gMotionLog.runOffset(),
+                      PERCEPTLEARN_RSSI_BAND);
       }
 
       // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is

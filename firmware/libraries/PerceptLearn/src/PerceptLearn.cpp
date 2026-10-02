@@ -33,6 +33,7 @@ void Loop::reset() {
   armed_ = false;
   acting_lane_ = -1;
   acting_offset_ = 0;
+  acting_lat_ = 95;
   pending_ = false;
   met_ = violated_ = unobserved_ = 0;
   scored_lane_ = -1;
@@ -201,7 +202,7 @@ int Loop::score(const timestream::Stamp& ts, uint32_t wall_sec) {
   return n;
 }
 
-bool Loop::arm(int motion_lane, int motion_offset) {
+bool Loop::arm(int motion_lane, int motion_offset, int motion_lat) {
   if (staged_n_ == 0) return false;   // nothing heard: nothing to predict about
   for (int i = 0; i < staged_n_; ++i) {
     claims_[i] = staged_[i];
@@ -210,6 +211,7 @@ bool Loop::arm(int motion_lane, int motion_offset) {
   claims_n_ = staged_n_;
   acting_lane_ = motion_lane;
   acting_offset_ = motion_offset;
+  acting_lat_ = motion_lat;
   armed_ = true;
   // CONSUME the staging. The sketch stages during the link flush and arms during the
   // motion flush later in the SAME loop pass; if the link tier does not flush that
@@ -251,14 +253,14 @@ size_t Loop::renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) 
   int m = snprintf(
       out, cap,
       "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu | "
-      "relates:testifies_about@LAT95LON%d,derived_from@LAT97LON%d,senses@LAT0LON0\n\n"
-      "**OUTCOME** %s node:0x%lx acting:@LAT95LON%d+%d "
+      "relates:testifies_about@LAT%dLON%d,derived_from@LAT97LON%d,senses@LAT0LON0\n\n"
+      "**OUTCOME** %s node:0x%lx acting:@LAT%dLON%d+%d "
       "observed_in:@LAT97LON%d band_dbm:%d met:%d violated:%d unobserved:%d streak:%d\n"
       "**RUN** windows_since_last:%d reason:%s max_run:%d\n",
       PERCEPTLEARN_LANE, lane_n, t_sec, t_sec,
-      acting_lane_, scored_lane_,
+      acting_lat_, acting_lane_, scored_lane_,
       stamp,
-      (unsigned long)node_id, acting_lane_, acting_offset_, scored_lane_,
+      (unsigned long)node_id, acting_lat_, acting_lane_, acting_offset_, scored_lane_,
       PERCEPTLEARN_RSSI_BAND, met_, violated_, unobserved_, streak_,
       cov_windows_ + 1, reason_, PERCEPTLEARN_MAX_RUN);
   if (m < 0 || (size_t)m >= cap) return 0;
@@ -328,8 +330,8 @@ size_t Loop::renderOutcome(char* out, size_t cap, int lane_n, uint32_t node_id) 
   // a pile of numbers nobody can trace back to the claim being tested.
   m = snprintf(out + off, cap - off,
                "**PROVENANCE** rule:LearningFromAction/Rule1 src:@LAT20LON3 "
-               "basis:motion_state:still tier:@LAT95 observable:@LAT97 "
-               "band_src:p90_of_still_windows\n");
+               "basis:motion_state:still tier:@LAT%d observable:@LAT97 "
+               "band_src:p90_of_still_windows\n", acting_lat_);
   if (m < 0 || (size_t)m >= cap - off) return 0;
   off += (size_t)m;
   return off;

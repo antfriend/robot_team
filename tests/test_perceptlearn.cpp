@@ -920,6 +920,31 @@ int main(void) {
     CHECK(sid_none == 0, "and clears the reported id rather than leaving a stale one");
   }
 
+  // -------------------------------------------------------------------------
+  // The acting window in the EPISODE lane (2026-10-02): once the Cardputer's motion tier
+  // lives in @LAT103, an expectation armed off it must cite @LAT103 everywhere the
+  // outcome names it — the body, the edge, and the provenance's tier.
+  // -------------------------------------------------------------------------
+  {
+    perceptlearn::Loop L;
+    char rec[PERCEPTLEARN_BUF], line[512], buf[128];
+    L.stageBegin(14);
+    L.stage(0x200, ESPNOW, -35);
+    CHECK(L.arm(24570, 3, 103), "arm() takes the acting window's lane");
+    L.stageBegin(15);
+    L.stage(0x200, ESPNOW, -36);
+    CHECK(L.score(ST(600000ULL, false), 0) == 1, "scored");
+    const size_t m = L.buildOutcome(rec, sizeof(rec), 0, 0x300);
+    CHECK(m > 0 && m < PERCEPTLEARN_BUF, "the outcome renders and fits (%zu)", m);
+    lineWith(rec, "**OUTCOME**", line, sizeof(line));
+    CHECK(strcmp(field(line, "acting", buf, sizeof(buf)), "@LAT103LON24570+3") == 0,
+          "acting names the episode and its offset (got '%s')", buf);
+    CHECK(strstr(rec, "testifies_about@LAT103LON24570,") != NULL,
+          "the edge resolves to the episode, on @LAT103");
+    CHECK(strstr(rec, "tier:@LAT103 ") != NULL, "provenance names the tier's real lane");
+    CHECK(strstr(rec, "@LAT95") == NULL, "and nothing in it names @LAT95");
+  }
+
   printf("%s: %d checks failed\n", fails ? "RESULT FAIL" : "RESULT OK", fails);
   return fails ? 1 : 0;
 }
