@@ -343,8 +343,9 @@ If a fact lives in one of these, link to it from here — don't copy it.
    `Ttdb::removePerceptLanes`, `TimeStreamNode`'s `@LAT90` writer and the `PHASEC_EPISODES`
    switch + legacy flushes on all six sketches. Suite and all six builds green
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
-   ✅ **Cardputer, T-Deck and K10 flashed with it** (5/5 clean boots each, episodes still written).
-   **Next:** **reflash V4-A, V4-B and V4-C with the C0 build** (no pull needed first — nothing on
+   ✅ **Cardputer, T-Deck, K10, V4-A and V4-B flashed with it** (episodes still written; V4-A had
+   one empty, unattributed boot capture in 8 — see the log).
+   **Next:** **reflash V4-C with the C0 build** (no pull needed first — nothing on
    flash changes, the new build only stops *offering* a prune; read the boot line back with
    `scratchpad/catchboot.py`). Then Phase C's remainder: C4's `follows@` edges arrive with
    episode delivery between nodes (TTN-RFC-0007), and B2 (`companion.py` → `fleet.py`).
