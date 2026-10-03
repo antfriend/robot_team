@@ -2315,55 +2315,34 @@ def parse_link_percepts(text):
     {lat, lane, t_ms, stream, wall, synced, window_ms,
      links: [{peer, proto, n, min, med, max}]}.
 
-    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-02), the last tier to move, exactly as
-    parse_entity_percepts / parse_motion_percepts: a window is an @LAT97 record (every V4,
-    the K10, the T-Deck, and the Cardputer before Phase C) or a LINK-band @LAT103 episode
-    (the Cardputer since), whose `said:` lines carry the same **LINKWIN** / **LINK** lines.
-    Inside an episode only `said:` lines are read; its claim sentences
-    (`0x… espnow met predicted:…`) match neither regex and are skipped.
+    Both containers (@LAT97 and the LINK band of @LAT103) via tier_records. An episode's
+    claim sentences (`0x… espnow met predicted:…`) match neither regex and are skipped.
     ⚠ A link episode written BEFORE 2026-10-02 carries claims only — no **LINKWIN** — so it
     is not a window and is dropped here, rather than counted as an empty one."""
     windows = []
-    cur = None
-    in_episode = False
-    for line in text.splitlines():
-        if line.startswith("@"):
-            hm = EPISODE_HEADER_RE.match(line)
-            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
-            in_episode = (lat == EPISODE_LANE and
-                          episode_tier(lon) == EPISODE_TIER_LINK)
-            if lat == 97 or in_episode:
-                cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None,
-                       "wall": None, "synced": None, "window_ms": None, "links": [],
-                       "_linkwin": lat == 97}
-                windows.append(cur)
-            else:                    # any other record header ends the window
-                cur = None
-            continue
-        if cur is None:
-            continue
-        if in_episode:
-            sm = SAID_RE.match(line)
-            if not sm:
+    for lat, lon, lines in tier_records(text, EPISODE_TIER_LINK):
+        w = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "wall": None,
+             "synced": None, "window_ms": None, "links": []}
+        is_window = lat != EPISODE_LANE
+        for line in lines:
+            if line.startswith("**LINKWIN**"):
+                is_window = True
+                tf = parse_time_fields(line)
+                if tf:
+                    w.update(tf)
+                m = LINKWIN_WINDOW_RE.search(line)
+                if m:
+                    w["window_ms"] = int(m.group(1))
                 continue
-            line = sm.group(1)
-        if line.startswith("**LINKWIN**"):
-            cur["_linkwin"] = True
-            tf = parse_time_fields(line)
-            if tf:
-                cur.update(tf)
-            m = LINKWIN_WINDOW_RE.search(line)
+            m = LINK_RE.search(line)
             if m:
-                cur["window_ms"] = int(m.group(1))
-            continue
-        m = LINK_RE.search(line)
-        if m:
-            cur["links"].append({
-                "peer": int(m.group(1), 16), "proto": m.group(2),
-                "n": int(m.group(3)), "min": int(m.group(4)),
-                "med": int(m.group(5)), "max": int(m.group(6))})
-    return [{k: v for k, v in w.items() if k != "_linkwin"}
-            for w in windows if w["_linkwin"]]
+                w["links"].append({
+                    "peer": int(m.group(1), 16), "proto": m.group(2),
+                    "n": int(m.group(3)), "min": int(m.group(4)),
+                    "med": int(m.group(5)), "max": int(m.group(6))})
+        if is_window:
+            windows.append(w)
+    return windows
 
 
 def percepts(port, baud, node, save):
@@ -2440,77 +2419,58 @@ def parse_motion_percepts(text):
     where `covered` is None or the aggregate of the windows this record's
     predecessor spoke for but never itemised.
 
-    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-02), exactly as parse_entity_percepts: a
-    record is an @LAT95 record (every IMU node, and the Cardputer before Phase C) or a
-    MOTION-band @LAT103 episode, whose `said:` lines carry the same **MOTIONWIN** /
-    **MOTION** / **RUN** / **COVERED** lines. Inside an episode only `said:` lines are
-    read. A run never spans the two (the log is RAM; a reflash breaks it), so
-    motion_totals' arithmetic holds per container without change.
+    Both containers (@LAT95 and the MOTION band of @LAT103) via tier_records. A run never
+    spans the two (the log is RAM; a reflash breaks it), so motion_totals' arithmetic
+    holds per container without change.
 
     ⚠ A motion-band episode with no **MOTIONWIN** sentence is NOT a window (2026-10-02):
     since @LAT93 moved into the band, a still<->moving TRANSITION is an episode there too,
     and counting it would add a phantom window to motion_totals. Dropped here; read
     transitions with parse_motion_transitions."""
     recs = []
-    cur = None
-    in_episode = False
-    for line in text.splitlines():
-        if line.startswith("@"):
-            hm = EPISODE_HEADER_RE.match(line)
-            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
-            in_episode = (lat == EPISODE_LANE and
-                          episode_tier(lon) == EPISODE_TIER_MOTION)
-            if lat != 95 and not in_episode:
-                cur = None          # any other record header ends this one
+    for lat, lon, lines in tier_records(text, EPISODE_TIER_MOTION):
+        r = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "wall": None,
+             "synced": None, "window_ms": None, "n": None, "state": None,
+             "moving_permille": None, "dev_mean_mg": None, "dev_max_mg": None,
+             "moving_ms": None,
+             # A record with no **RUN** line predates run-length and stands for
+             # exactly one window.
+             "windows_since_last": 1, "reason": "legacy", "covered": None}
+        is_window = lat != EPISODE_LANE
+        for line in lines:
+            if line.startswith("**MOTIONWIN**"):
+                is_window = True
+                tf = parse_time_fields(line)
+                if tf:
+                    r.update(tf)
+                m = MOTIONWIN_RE.search(line)
+                if m:
+                    r["window_ms"] = int(m.group(1))
+                    r["n"] = int(m.group(2))
                 continue
-            cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "wall": None,
-                   "synced": None, "window_ms": None, "n": None, "state": None,
-                   "moving_permille": None, "dev_mean_mg": None, "dev_max_mg": None,
-                   "moving_ms": None,
-                   # A record with no **RUN** line predates run-length and stands for
-                   # exactly one window.
-                   "windows_since_last": 1, "reason": "legacy", "covered": None,
-                   "_win": lat == 95}
-            recs.append(cur)
-            continue
-        if cur is None:
-            continue
-        if in_episode:
-            sm = SAID_RE.match(line)
-            if not sm:
-                continue
-            line = sm.group(1)
-        if line.startswith("**MOTIONWIN**"):
-            cur["_win"] = True
-            tf = parse_time_fields(line)
-            if tf:
-                cur.update(tf)
-            m = MOTIONWIN_RE.search(line)
+            m = MOTION_RE.search(line)
             if m:
-                cur["window_ms"] = int(m.group(1))
-                cur["n"] = int(m.group(2))
-            continue
-        m = MOTION_RE.search(line)
-        if m:
-            cur["state"] = m.group(1)
-            cur["moving_permille"] = int(m.group(2))
-            cur["dev_mean_mg"] = int(m.group(3))
-            cur["dev_max_mg"] = int(m.group(4))
-            cur["moving_ms"] = int(m.group(5))
-            continue
-        m = RUN_RE.search(line)
-        if m:
-            cur["windows_since_last"] = int(m.group(1))
-            cur["reason"] = m.group(2)
-            continue
-        m = COVERED_RE.search(line)
-        if m:
-            cur["covered"] = {
-                "state": m.group(1), "windows": int(m.group(2)), "n": int(m.group(3)),
-                "window_ms": int(m.group(4)), "moving_permille": int(m.group(5)),
-                "dev_mean_mg": int(m.group(6)), "dev_max_mg": int(m.group(7)),
-                "moving_ms": int(m.group(8))}
-    return [{k: v for k, v in r.items() if k != "_win"} for r in recs if r["_win"]]
+                r["state"] = m.group(1)
+                r["moving_permille"] = int(m.group(2))
+                r["dev_mean_mg"] = int(m.group(3))
+                r["dev_max_mg"] = int(m.group(4))
+                r["moving_ms"] = int(m.group(5))
+                continue
+            m = RUN_RE.search(line)
+            if m:
+                r["windows_since_last"] = int(m.group(1))
+                r["reason"] = m.group(2)
+                continue
+            m = COVERED_RE.search(line)
+            if m:
+                r["covered"] = {
+                    "state": m.group(1), "windows": int(m.group(2)), "n": int(m.group(3)),
+                    "window_ms": int(m.group(4)), "moving_permille": int(m.group(5)),
+                    "dev_mean_mg": int(m.group(6)), "dev_max_mg": int(m.group(7)),
+                    "moving_ms": int(m.group(8))}
+        if is_window:
+            recs.append(r)
+    return recs
 
 
 
@@ -2519,35 +2479,24 @@ def parse_motion_transitions(text):
     the Cardputer before 2026-10-02) and MOTION-band @LAT103 episodes (the Cardputer since).
     [{lat, lane, t_ms, stream, from, to, before, after}] where before/after are the
     `lane:` citations of the two halves (`@LAT<lat>LON<n>+<k>`)."""
-    out, cur, in_ep = [], None, False
-    for line in text.splitlines():
-        if line.startswith("@LAT"):
-            hm = EPISODE_HEADER_RE.match(line)
-            lat, lon = (int(hm.group(1)), int(hm.group(2))) if hm else (None, None)
-            in_ep = lat == EPISODE_LANE and episode_tier(lon) == EPISODE_TIER_MOTION
-            cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "from": None,
-                   "to": None, "before": None, "after": None} if (lat == 93 or in_ep) else None
-            continue
-        if cur is None:
-            continue
-        if in_ep:
-            sm = SAID_RE.match(line)
-            if not sm:
-                continue
-            line = sm.group(1)
-        line = line.strip()
-        if line.startswith("**TRANSITION**"):
-            tf = parse_time_fields(line)
-            if tf:
-                cur.update({k: tf[k] for k in ("t_ms", "stream") if k in tf})
-            m = re.search(r"\bfrom:(\w+)\s+to:(\w+)", line)
-            if m:
-                cur["from"], cur["to"] = m.group(1), m.group(2)
-            out.append(cur)
-        elif line.startswith("@PERCEPT:before") or line.startswith("@PERCEPT:after"):
-            m = re.search(r"\blane:(@LAT\d+LON\d+\+\d+)", line)
-            if m:
-                cur["before" if "before" in line[:16] else "after"] = m.group(1)
+    out = []
+    for lat, lon, lines in tier_records(text, EPISODE_TIER_MOTION, legacy_lat=93):
+        cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None, "from": None,
+               "to": None, "before": None, "after": None}
+        for line in lines:
+            line = line.strip()
+            if line.startswith("**TRANSITION**"):
+                tf = parse_time_fields(line)
+                if tf:
+                    cur.update({k: tf[k] for k in ("t_ms", "stream") if k in tf})
+                m = re.search(r"\bfrom:(\w+)\s+to:(\w+)", line)
+                if m:
+                    cur["from"], cur["to"] = m.group(1), m.group(2)
+                out.append(cur)
+            elif line.startswith("@PERCEPT:before") or line.startswith("@PERCEPT:after"):
+                m = re.search(r"\blane:(@LAT\d+LON\d+\+\d+)", line)
+                if m:
+                    cur["before" if "before" in line[:16] else "after"] = m.group(1)
     return out
 
 
@@ -2700,6 +2649,54 @@ def episode_tier(lon):
     return None if lon < 0 else lon // EPISODE_TIER_SPAN
 
 
+def lane_records(text, keep):
+    """-> [(lat, lon, [body line, ...])] for every `@LAT<lat>LON<lon>` record for which
+    keep(lat, lon) is true, in file order. Any column-0 `@` line is a header and ends the
+    record before it; body lines (including the indented `  @PERCEPT:` halves of a
+    transition) are passed through unstripped."""
+    out, cur = [], None
+    for line in text.splitlines():
+        if line.startswith("@"):
+            cur = None
+            hm = EPISODE_HEADER_RE.match(line)
+            if hm:
+                lat, lon = int(hm.group(1)), int(hm.group(2))
+                if keep(lat, lon):
+                    cur = (lat, lon, [])
+                    out.append(cur)
+            continue
+        if cur is not None:
+            cur[2].append(line)
+    return out
+
+
+# Legacy percept lane per episode tier: where each tier's windows lived before Phase C.
+TIER_LEGACY_LANE = {EPISODE_TIER_LINK: 97, EPISODE_TIER_ENTITY: 96, EPISODE_TIER_MOTION: 95}
+
+
+def tier_records(text, tier, legacy_lat=None):
+    """THE ONE CONTAINER WALK every percept reader shares (ACT-III C5, 2026-10-03).
+
+    A tier's records live in two containers with one grammar: its legacy lane (@LAT97
+    link, @LAT96 entity, @LAT95 motion, @LAT93 transitions — written by every board until
+    ACT-III C0, and still on flash as history) and its band of the @LAT103 episode lane
+    (firmware Semantic/Episode.h: tier k = LONs [k*8192, (k+1)*8192)). An episode carries
+    the sampler's own record lines as `said: <k> | <line>` sentences; ONLY those are
+    returned for an episode, unwrapped — its `source:`/`at:`/`percept:` lines are the
+    episode's words, not the sampler's, and no reader may see them as a window's.
+    -> [(lat, lon, [line, ...])] in file order; `lat` says which container."""
+    if legacy_lat is None:
+        legacy_lat = TIER_LEGACY_LANE.get(tier)
+    recs = lane_records(text, lambda lat, lon: lat == legacy_lat or (
+        lat == EPISODE_LANE and episode_tier(lon) == tier))
+    out = []
+    for lat, lon, lines in recs:
+        if lat == EPISODE_LANE:
+            lines = [m.group(1) for m in map(SAID_RE.match, lines) if m]
+        out.append((lat, lon, lines))
+    return out
+
+
 # --- the node's beliefs, recomputed from a pull (ACT-III §C3, 2026-10-02) ------------------
 # Since C3 was wired, the Cardputer writes NO belief record: its beliefs are TTG-0003 counts
 # over the @LAT103 episodes still on flash plus the carried tallies in the newest @LAT104
@@ -2734,18 +2731,8 @@ def parse_episode_beliefs(text, prior_for=2, prior_against=2):
     the end), and per tier only episodes AFTER its `through:` are live. Records at or
     behind a horizon may still be on flash (a refused cut); they are skipped, not counted
     twice — the property the firmware's commit order exists for."""
-    blocks = []                       # (lat, lon, [lines])
-    cur = None
-    for line in text.splitlines():
-        if line.startswith("@"):
-            hm = EPISODE_HEADER_RE.match(line)
-            cur = None
-            if hm and int(hm.group(1)) in (EPISODE_LANE, EPISODE_CARRIED_LANE):
-                cur = (int(hm.group(1)), int(hm.group(2)), [])
-                blocks.append(cur)
-            continue
-        if cur is not None:
-            cur[2].append(line.strip())
+    blocks = [(lat, lon, [l.strip() for l in lines]) for lat, lon, lines in lane_records(
+        text, lambda lat, lon: lat in (EPISODE_LANE, EPISODE_CARRIED_LANE))]
 
     terms = {}                        # (s, v, o) -> dict, insertion-ordered
 
@@ -2884,74 +2871,53 @@ def parse_entity_percepts(text):
     this record's run suppressed. Keep them apart: the union is what proximity reads,
     the per-window set is what drift reads, and mixing them corrupts one or the other.
 
-    ⚠ TWO CONTAINERS, ONE GRAMMAR (2026-10-01). A window is either an @LAT96 record (every
-    V4, the K10, and the Cardputer before Phase C) or an ENTITY-band @LAT103 episode (the
-    Cardputer since), whose `said:` lines carry the same `**ENTWIN**`/`**ENTITY**`/... lines.
-    Inside an episode ONLY `said:` lines are read: the episode's `source:`/`at:` lines and
-    any `percept:` line are the episode's own words, not the sampler's. Other tiers'
-    @LAT103 episodes (link, motion, acoustic) are not entity windows and are skipped.
-    `lat` says which container a window came from; `lane` is its LON, unique within it."""
+    Both containers (@LAT96 and the ENTITY band of @LAT103) via tier_records; unlike the
+    link and motion readers every record in either container is a window. `lat` says
+    which container a window came from; `lane` is its LON, unique within it."""
     windows = []
-    cur = None
-    in_episode = False
-    for line in text.splitlines():
-        if line.startswith("@"):
-            m = EPISODE_HEADER_RE.match(line)
-            lat, lon = (int(m.group(1)), int(m.group(2))) if m else (None, None)
-            in_episode = (lat == EPISODE_LANE and
-                          episode_tier(lon) == EPISODE_TIER_ENTITY)
-            if lat == 96 or in_episode:
-                cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None,
-                       "wall": None, "synced": None, "window_ms": None, "entities": [],
-                       "covered_entities": [], "covered_windows": 0,
-                       "run": None, "core": None}
-                windows.append(cur)
-            else:                    # any other record header ends the window
-                cur = None
-            continue
-        if cur is None:
-            continue
-        if in_episode:
-            m = SAID_RE.match(line)
-            if not m:
+    for lat, lon, lines in tier_records(text, EPISODE_TIER_ENTITY):
+        cur = {"lat": lat, "lane": lon, "t_ms": None, "stream": None,
+               "wall": None, "synced": None, "window_ms": None, "entities": [],
+               "covered_entities": [], "covered_windows": 0,
+               "run": None, "core": None}
+        windows.append(cur)
+        for line in lines:
+            if line.startswith("**ENTWIN**"):
+                tf = parse_time_fields(line)
+                if tf:
+                    cur.update(tf)
+                m = ENTWIN_WINDOW_RE.search(line)
+                if m:
+                    cur["window_ms"] = int(m.group(1))
                 continue
-            line = m.group(1)
-        if line.startswith("**ENTWIN**"):
-            tf = parse_time_fields(line)
-            if tf:
-                cur.update(tf)
-            m = ENTWIN_WINDOW_RE.search(line)
+            m = ENTITY_RUN_RE.search(line)
             if m:
-                cur["window_ms"] = int(m.group(1))
-            continue
-        m = ENTITY_RUN_RE.search(line)
-        if m:
-            cur["run"] = {"windows_since_last": int(m.group(1)), "reason": m.group(2)}
-            continue
-        m = ENTITY_CORE_RE.search(line)
-        if m:
-            ids = [i.lower() for i in (m.group(2) or "").split(",") if i]
-            cur["core"] = {"entities": int(m.group(1)), "ids": ids}
-            continue
-        m = ENTITY_COVERED_RE.search(line)
-        if m:
-            cur["covered_windows"] = int(m.group(1))
-            continue
-        # ⚠ COVERED-ENTITY BEFORE ENTITY. Both `.search()` the line, and while the
-        # regexes do not collide today, ordering the specific needle first is what
-        # keeps that true if either is ever loosened.
-        m = COVERED_ENTITY_RE.search(line)
-        if m:
-            cur["covered_entities"].append({
-                "kind": m.group(1), "id": m.group(2).lower(),
-                "n": int(m.group(3)), "rssi": int(m.group(4)),
-                "windows": int(m.group(5))})
-            continue
-        m = ENTITY_RE.search(line)
-        if m:
-            cur["entities"].append({
-                "kind": m.group(1), "id": m.group(2).lower(),
-                "n": int(m.group(3)), "rssi": int(m.group(4))})
+                cur["run"] = {"windows_since_last": int(m.group(1)), "reason": m.group(2)}
+                continue
+            m = ENTITY_CORE_RE.search(line)
+            if m:
+                ids = [i.lower() for i in (m.group(2) or "").split(",") if i]
+                cur["core"] = {"entities": int(m.group(1)), "ids": ids}
+                continue
+            m = ENTITY_COVERED_RE.search(line)
+            if m:
+                cur["covered_windows"] = int(m.group(1))
+                continue
+            # ⚠ COVERED-ENTITY BEFORE ENTITY. Both `.search()` the line, and while the
+            # regexes do not collide today, ordering the specific needle first is what
+            # keeps that true if either is ever loosened.
+            m = COVERED_ENTITY_RE.search(line)
+            if m:
+                cur["covered_entities"].append({
+                    "kind": m.group(1), "id": m.group(2).lower(),
+                    "n": int(m.group(3)), "rssi": int(m.group(4)),
+                    "windows": int(m.group(5))})
+                continue
+            m = ENTITY_RE.search(line)
+            if m:
+                cur["entities"].append({
+                    "kind": m.group(1), "id": m.group(2).lower(),
+                    "n": int(m.group(3)), "rssi": int(m.group(4))})
     return windows
 
 

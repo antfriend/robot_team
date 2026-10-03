@@ -63,10 +63,10 @@ Python suite: **7 files, all passing** (run each `tests/test_*_py.py` directly).
 ### A.0 Why this is first, and why it is not merely an audit
 
 `companion.py proximity --last N` is documented as "use only each node's newest N windows —
-the recency filter" ([companion.py:2244](../../orchestrator/companion.py#L2244)). It is
+the recency filter" ([companion.py:2244](../../orchestrator/fleet.py#L2244)). It is
 implemented as a **slice**: `wins = wins[-last:]`
-([companion.py:2257](../../orchestrator/companion.py#L2257)) and
-`windows = windows[-last:]` ([companion.py:1944](../../orchestrator/companion.py#L1944)).
+([companion.py:2257](../../orchestrator/fleet.py#L2257)) and
+`windows = windows[-last:]` ([companion.py:1944](../../orchestrator/fleet.py#L1944)).
 
 Under periodic logging, N records ≈ N minutes, so the slice is a passable proxy for time.
 **Under change-triggered logging it is not**, and the error is not random: a node that sat
@@ -82,7 +82,7 @@ team time stream pays for, and it is a small change.
 ### A.1 ⚠ FINDING — `--last` is silently NOT applied to the entity tier
 
 `consolidate_entity_jaccard(windows_by_node, last=None)` takes a `last` parameter
-([companion.py:1962](../../orchestrator/companion.py#L1962)) and passes it to `_entity_set`.
+([companion.py:1962](../../orchestrator/fleet.py#L1962)) and passes it to `_entity_set`.
 **Its only call site does not supply one:**
 
 ```python

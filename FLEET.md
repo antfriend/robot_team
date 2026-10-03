@@ -345,8 +345,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    ✅ **ALL SIX BOARDS FLASHED WITH IT** (2026-10-02 night) — every one still writes episodes;
    V4-A had one empty, unattributed boot capture in 8 (see the log), the rest 5/5 clean.
+   ✅ **B2 + C5's reader collapse DONE** (2026-10-03): the laptop tool is
+   **`orchestrator/fleet.py`** (same verbs; `fleet.py ui` opens the window), and every percept
+   reader walks both containers through one `tier_records()` — old vs new parsers identical on
+   all 141 pulls in `master/` ([docs/log/2026-10.md](docs/log/2026-10.md)).
    **Next:** Phase C's remainder: C4's `follows@` edges arrive with
-   episode delivery between nodes (TTN-RFC-0007), and B2 (`companion.py` → `fleet.py`).
+   episode delivery between nodes (TTN-RFC-0007).
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

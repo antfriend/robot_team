@@ -436,7 +436,7 @@ Low risk, no firmware, and it pays for itself at every subsequent session start.
 > | step | state |
 > |---|---|
 > | B1 `FLEET.md` + log split | ✅ 7,122 → **715 lines**; §6 6,524 → **62**. 197 entries → `docs/log/{2026-06,07,08}.md`, dated by `git blame`. **Losslessness proven: 6,391 non-blank lines in, 6,391 out, 0 missing, 0 extra.** §1/§4/§5 reframed for the new hypothesis |
-> | B2 `companion.py` → `fleet.py` | ⏳ deliberately deferred to Phase C, as planned |
+> | B2 `companion.py` → `fleet.py` | ✅ **2026-10-03**, in Phase C as planned: `git mv` (history follows), importers + living docs updated, `docs/log/`/handoffs/`replicate/RFCs/` keep the old name as history. Sub-decisions: verb names kept; `fleet_ui.py` stays its own file, reached as **`fleet.py ui`** |
 > | B3 `docs/` | ✅ root is **6 files** (was 17). 47 files' references rewritten; **0 broken links across 179 markdown files** |
 > | B4 `replicate/` pointer | ✅ prose points upstream, `RFCs/` stays local as a build input; all links resolve |
 > | B5 one test entry point | ✅ **`tests/run-all`**: 16 native + 16 laptop suites + the Makefile guard, **33/33 green** (was 11 targets). Exit codes negative-controlled |
@@ -855,6 +855,8 @@ a file is a stale beacon."* And the recv callback must still never touch the
 engine.
 
 ### C5. The compaction dividend, and what gets deleted
+
+> ✅ **Readers collapsed 2026-10-03.** Five hand-rolled container walks (link, motion, transitions, entity, and the belief block scan) are now one: `lane_records()` + `tier_records()` in `fleet.py`, so each reader is only its grammar. **Proven equal, not argued:** the old and new parsers return identical output on all **141** pulls in `master/` (9,186 items; every reader hit both containers except episode-band transitions, which `test_motion_py.py` covers). Bytes, measured: 5,534 (5,543 with B2's `ui` alias) → **5,509** lines. That is the honest size of it: the grammars did not merge, because the sampler lines inside `said:` are still four grammars. The dividend is fewer *kinds of walk*, as this section predicted, not fewer bytes.
 
 Expected, to be measured not assumed: four record grammars → one; four prune paths
 → zero; `companion.py`'s per-lane readers → one episode parser. The honest
