@@ -349,10 +349,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    **`orchestrator/fleet.py`** (same verbs; `fleet.py ui` opens the window), and every percept
    reader walks both containers through one `tier_records()` — old vs new parsers identical on
    all 141 pulls in `master/` ([docs/log/2026-10.md](docs/log/2026-10.md)).
-   **Next:** Phase C's remainder: C4's `follows@` edges arrive with
-   episode delivery between nodes (TTN-RFC-0007).
-   ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
-   serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
+   **Next:** Phase C's remainder, C4's `follows` edges. **Designed 2026-10-03, not built:
+   [docs/design/episode-order.md](docs/design/episode-order.md)**. A per-agent `seq` +
+   a vector carried by a new `EPISODE` toot (type 14) gives order **without** episode
+   delivery; delivery becomes stage 2. Edges cite `(agent, seq)`, which neither wraps nor
+   collides, not an ordinal; a sid becomes stage 2's integrity check. ⚠ First build step
+   is a fix: `FleetTime::order()` treats `seq 0` as known by everyone. Three operator
+   decisions are open in its §8.
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
