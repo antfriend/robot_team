@@ -330,6 +330,25 @@ Both handhelds on the stage-2 build, side by side, ≥ 40 min (four bars), then 
   the same view, i.e. the view is not a function of the episodes, and the bar mechanism is
   wrong, not delivery.
 
+> ◐ **Run 2026-10-03 (handhelds, 50 min, bars 43–51): passed on 2 of 4 bars.**
+> - **(g):** bars 48 and 49 hold identical (author, seq) sets on both boards, 20 each. The
+>   seqs are dense: T-Deck 108–127, Cardputer link seqs 860–898.
+> - **(f):** `fleet.py bar` reproduces every printed digest still on flash: T-Deck 48 and 49,
+>   Cardputer 49 and 50.
+> - **(e):** the one bar with captured prints from both boards, 49, agrees (`0x0938c1d3`).
+> - The falsifier did not fire.
+> Three flaws in the gate as written:
+> 1. **Retention vs span:** the 32-copy ring is ~3.2 bars of one peer's link episodes, so a
+>    pull after four bars can recompute only the last ~3. Bars 46–47 were cut after they
+>    printed.
+> 2. **Prints are serial-only:** a board's `[bar]` line exists only if a cable was listening
+>    at that moment. The Cardputer's prints of bars 46–48 were never captured.
+> 3. **The comparison is one-sided:** the T-Deck has no IMU, hence no PerceptLearn and no
+>    `percept:` lines, so its episodes contribute 0 terms. The digest compares the
+>    Cardputer's content on both boards; the T-Deck's side rests on (g) alone.
+> Fix for the re-run: write each bar's digest as a record (a cable-free capability, and it
+> fixes flaw 2), and score only bars still retained.
+
 ### 7.7 Unchanged from the sketch
 
 - **Not `@LAT102`.** That lane was reserved for *attributed testimony as tallies*, one
@@ -424,6 +443,11 @@ builds on it.
 > ✅ **Step 5 done the same day: all six boards** (T-Deck, K10, V4-B, V4-C added; each 5/5
 > clean boots, +1.2–1.3 KB flash / +360–368 B RAM). V4-C's episodes follow all five others.
 > Stage 1 is complete. **Next: stage 2 (§7), an operator decision.**
+>
+> ◐ **Stage 2, 2026-10-03:** built (portable core + 70+ native checks + `fleet.py bar`), then
+> revised on hardware with **resume** (WANT.off, DONE.total; §7.2), because ~half of the
+> handhelds' broadcasts are lost. Both handhelds run it. The gate passed on 2 of 4 bars;
+> see §7.6 for the three flaws and the fix. V4s and K10: later (V4 flash at 95%).
 
 1. The `order()` guard for `seq = 0` (test 8 first, red), then `EpisodeOrder.*`
    portable core + native tests 1–7 (no hardware).

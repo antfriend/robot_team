@@ -363,8 +363,15 @@ If a fact lives in one of these, link to it from here — don't copy it.
    (≥ 95 % required), **0 clock contradictions**; reboots resume `seq` (gate d). The fleet now
    orders its own episodes across nodes without a cable. ✅ **All six boards on it**
    (2026-10-03; each 5/5 clean boots; V4-C's episodes follow all five others).
-   **Next:** stage 2, episode delivery into `@LAT105` (design §7). It is what the bar view
-   and RFC-0004 §4.8 item 4 need, and it is its own decision (V4 flash is at 95%).
+   ◐ **Stage 2 (delivery into `@LAT105` + the bar view) runs on both handhelds** (2026-10-03).
+   Its gate passed on **2 of the 4 pre-registered bars**: bars 48–49 hold **identical
+   episode sets** on both boards (20 each, dense seqs), and the digests agree, as printed and
+   as recomputed by `fleet.py bar`. It is not a clean pass: the 32-copy held ring cut bars
+   46–47 before the pull, only bar 49 has captured prints from both boards, and the T-Deck's
+   episodes carry no `percept:` terms. So the digest tests the Cardputer's content only.
+   Delivery needed a resume (half the handhelds' broadcasts are lost).
+   **Next:** write each bar's digest to flash so the gate needs no cable to read, then
+   re-run the gate over bars that are still retained ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
