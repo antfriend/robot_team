@@ -169,7 +169,10 @@ enum Tier : uint8_t { TIER_LINK = 0, TIER_ENTITY = 1, TIER_MOTION = 2, TIER_ACOU
 #endif
 
 // Rendered episode buffer for one link window: header + said/percept pair per claim.
-#define SEMANTIC_LINK_EPISODE_BUF 1280   // worst case (8 maximal claims) measured 1194 B by test_episode
+// Worst case (8 maximal claims) measured 1194 B by test_episode; with a maximal `seq:`/
+// `follows:` block (EPISODEORDER_BLOCK_MAX) ~1375 B, so 1408 (2026-10-03). No firmware
+// allocates this: every render goes into the shared SEMANTIC_ENTITY_EPISODE_BUF scratch.
+#define SEMANTIC_LINK_EPISODE_BUF 1408
 
 // One ordinal range on one lane: the portable twin of TTDB.h's TtdbCut (same fields, same
 // order), so the glue converts with a field copy and Semantic never includes <FS.h>.
@@ -222,8 +225,12 @@ bool bandInRun(int16_t x, int16_t from, int16_t through, Band b);
 class EpisodeBuilder {
  public:
   EpisodeBuilder(char* buf, size_t cap);
+  // `order`: the optional `seq:`/`follows:` lines (EpisodeOrder.h), written right after
+  // `at:`. Null or "" writes none: every episode before C4's order, and every caller that
+  // does not pass one. A block that is not exactly such lines refuses the episode.
   bool begin(int16_t ordinal, uint32_t t, const char* title, const char* source,
-             const char* at, int16_t lane = SEMANTIC_EPISODE_LANE);
+             const char* at, int16_t lane = SEMANTIC_EPISODE_LANE,
+             const char* order = nullptr);
   bool said(uint32_t sentence, const char* text);
   bool percept(const Percept& p);
   size_t finish();
@@ -381,7 +388,7 @@ size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_
 // Returns record bytes, or 0 if it did not fit (never truncated). `at` is the caller's
 // stamp text (TimeStream's buildStamp today; TTG-0004 §4's `<pulse> ±<bound>` in C4).
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
-                         const char* at, char* out, size_t cap);
+                         const char* at, char* out, size_t cap, const char* order = nullptr);
 
 // ---------------------------------------------------------------------------------------
 // A SAMPLER'S OWN RECORD AS AN EPISODE (the entity tier, 2026-10-01)
@@ -415,7 +422,7 @@ size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32
 #endif
 size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
                          const char* title, const char* source, const char* at,
-                         char* out, size_t cap);
+                         char* out, size_t cap, const char* order = nullptr);
 // ⚠ THE SAME WRAP IN ONE BUFFER, because two static buffers boot-looped the Cardputer
 // (2026-10-01): +5632 B of .bss starved the BLE scanner's allocations at boot on a board
 // that runs with ~26 KB free. The record (m bytes at buf[0]) is moved to the TAIL and the
@@ -423,7 +430,7 @@ size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t
 // unread byte, so a record too big to wrap in `cap` is REFUSED (0), never corrupted.
 size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,
                                 uint32_t t, const char* title, const char* source,
-                                const char* at);
+                                const char* at, const char* order = nullptr);
 
 // ---------------------------------------------------------------------------------------
 // THE LINK WINDOW AS AN EPISODE (2026-10-02) — the last tier out of a capped lane
@@ -458,12 +465,12 @@ size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal
 #define SEMANTIC_LINK_WINDOW_EPISODE_BUF 2560
 size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
                                int16_t ordinal, uint32_t t, const char* at, char* out,
-                               size_t cap);
+                               size_t cap, const char* order = nullptr);
 // The same in ONE buffer: LinkPercept's record (m bytes at buf[0]) is moved to the tail and
 // wrapped forward from the head, as renderSaidEpisodeInPlace. m == 0 = claims only.
 size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
                                       const LinkClaim* claims, int n, int16_t ordinal,
-                                      uint32_t t, const char* at);
+                                      uint32_t t, const char* at, const char* order = nullptr);
 
 // One entity window as an episode. Worst case = EntityPercept's worst record (2322 B, its
 // ENTITYPERCEPT_RECORD_BUF is 2560) + ~11 B of `said: k | ` on each of its ≤ 32 body

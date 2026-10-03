@@ -48,6 +48,8 @@ enum Type : uint8_t {
   TIME_RESP = 11, // node -> companion: current epoch (ms)
   TTDB_PUT = 12,  // companion -> node: one slice of a pushed belief (TTN-RFC-0009)
   PULSE = 13,     // conductor -> fleet: band chart + time-base beacon (TTN-RFC-0010)
+  EPISODE = 14,   // node -> fleet: episode ORDER (byte 0 sub-op: 0 VECTOR; 1 WANT / 2 DATA
+                  // reserved for delivery) — Semantic/EpisodeOrder.h, docs/design/episode-order.md
 };
 
 enum Flags : uint8_t {

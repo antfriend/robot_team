@@ -92,6 +92,20 @@ static bool cleanField(const char* s) {
   return true;
 }
 
+// The optional order block: zero or more complete lines, each `seq: ...` or `follows: ...`,
+// carrying nothing that could read back as a different sentence or close the fence early.
+static bool validOrderBlock(const char* s) {
+  if (!s || !*s) return true;
+  bool at_line_start = true;
+  for (const char* p = s; *p; ++p) {
+    if (at_line_start && strncmp(p, "seq: ", 5) != 0 && strncmp(p, "follows: ", 9) != 0)
+      return false;
+    if (*p == '|' || *p == '`' || *p == '\r') return false;
+    at_line_start = *p == '\n';
+  }
+  return at_line_start;                  // must end with a newline
+}
+
 // ---------------------------------------------------------------------------------------
 // EpisodeBuilder
 // ---------------------------------------------------------------------------------------
@@ -119,19 +133,21 @@ bool EpisodeBuilder::put(const char* fmt, ...) {
 // One format for the header, so the in-place wrap can size it BEFORE writing it.
 #define EPISODE_HEADER_FMT                                                                \
   "\n---\n\n@LAT%dLON%d | created:%lu | updated:%lu\n\n**%s**\n\n```" SEMANTIC_EPISODE_TAG \
-  "\nsource: %s\nat: %s\n"
+  "\nsource: %s\nat: %s\n%s"
 
 bool EpisodeBuilder::begin(int16_t ordinal, uint32_t t, const char* title,
-                           const char* source, const char* at, int16_t lane) {
+                           const char* source, const char* at, int16_t lane,
+                           const char* order) {
   len_ = 0; percepts_ = 0; rejected_ = 0; overflow_ = false; open_ = false;
   if (buf_ && cap_) buf_[0] = '\0';
   if (!title || !source || !at || ordinal < 0 ||
-      !cleanField(title) || !cleanField(source) || !cleanField(at)) {
+      !cleanField(title) || !cleanField(source) || !cleanField(at) ||
+      !validOrderBlock(order)) {
     overflow_ = true;      // a malformed header is unwritable, same verdict as no room
     return false;
   }
   open_ = put(EPISODE_HEADER_FMT, (int)lane, (int)ordinal, (unsigned long)t,
-              (unsigned long)t, title, source, at);
+              (unsigned long)t, title, source, at, order ? order : "");
   return open_;
 }
 
@@ -363,10 +379,11 @@ size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_
 }
 
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
-                         const char* at, char* out, size_t cap) {
+                         const char* at, char* out, size_t cap, const char* order) {
   if (!out || cap == 0 || (n > 0 && !claims)) return 0;
   EpisodeBuilder b(out, cap);
-  if (!b.begin(ordinal, t, "link window", "perceptlearn", at)) return 0;
+  if (!b.begin(ordinal, t, "link window", "perceptlearn", at, SEMANTIC_EPISODE_LANE, order))
+    return 0;
   for (int i = 0; i < n; ++i) linkClaimInto(b, claims[i], (uint32_t)(i + 1));
   return b.finish();
 }
@@ -420,24 +437,25 @@ static int wrapSaid(EpisodeBuilder& b, const char* body, size_t n, char* out, bo
 // before any input is read — must fit ahead of it.
 static bool inplaceHeaderFits(const char* body, size_t n, char* out, size_t cap,
                               int16_t ordinal, uint32_t t, const char* title,
-                              const char* source, const char* at) {
+                              const char* source, const char* at, const char* order) {
   if (body + n != out + cap) return false;
   if (!title || !source || !at) return true;          // begin() refuses these itself
   const int hb = snprintf(0, 0, EPISODE_HEADER_FMT, (int)SEMANTIC_EPISODE_LANE,
                           (int)ordinal, (unsigned long)t, (unsigned long)t, title, source,
-                          at);
+                          at, order ? order : "");
   return hb >= 0 && (size_t)hb + 1 <= (size_t)(body - out);
 }
 
 size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t,
                          const char* title, const char* source, const char* at,
-                         char* out, size_t cap) {
+                         char* out, size_t cap, const char* order) {
   if (!out || cap == 0 || !body) return 0;
   const bool inplace = body >= out && body < out + cap;
-  if (inplace && !inplaceHeaderFits(body, n, out, cap, ordinal, t, title, source, at))
+  if (inplace &&
+      !inplaceHeaderFits(body, n, out, cap, ordinal, t, title, source, at, order))
     return 0;
   EpisodeBuilder b(out, cap);
-  if (!b.begin(ordinal, t, title, source, at)) return 0;
+  if (!b.begin(ordinal, t, title, source, at, SEMANTIC_EPISODE_LANE, order)) return 0;
   const int k = wrapSaid(b, body, n, out, inplace);
   if (k <= 0) { out[0] = '\0'; return 0; }                  // refused, or nothing said
   const size_t m = b.finish();
@@ -447,14 +465,15 @@ size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t
 
 size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
                                int16_t ordinal, uint32_t t, const char* at, char* out,
-                               size_t cap) {
+                               size_t cap, const char* order) {
   if (!out || cap == 0 || (m > 0 && !body) || (n > 0 && !claims) || n < 0) return 0;
   const bool inplace = m > 0 && body >= out && body < out + cap;
   if (inplace && !inplaceHeaderFits(body, m, out, cap, ordinal, t, SEMANTIC_LINK_WINDOW_TITLE,
-                                    SEMANTIC_LINK_WINDOW_SOURCE, at))
+                                    SEMANTIC_LINK_WINDOW_SOURCE, at, order))
     return 0;
   EpisodeBuilder b(out, cap);
-  if (!b.begin(ordinal, t, SEMANTIC_LINK_WINDOW_TITLE, SEMANTIC_LINK_WINDOW_SOURCE, at))
+  if (!b.begin(ordinal, t, SEMANTIC_LINK_WINDOW_TITLE, SEMANTIC_LINK_WINDOW_SOURCE, at,
+               SEMANTIC_EPISODE_LANE, order))
     return 0;
   const int k = m > 0 ? wrapSaid(b, body, m, out, inplace) : 0;
   if (k < 0) return 0;
@@ -472,19 +491,22 @@ size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* clai
 
 size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
                                       const LinkClaim* claims, int n, int16_t ordinal,
-                                      uint32_t t, const char* at) {
+                                      uint32_t t, const char* at, const char* order) {
   if (!buf || m >= cap) return 0;
-  if (m == 0) return renderLinkWindowEpisode(0, 0, claims, n, ordinal, t, at, buf, cap);
+  if (m == 0)
+    return renderLinkWindowEpisode(0, 0, claims, n, ordinal, t, at, buf, cap, order);
   memmove(buf + (cap - m), buf, m);
-  return renderLinkWindowEpisode(buf + (cap - m), m, claims, n, ordinal, t, at, buf, cap);
+  return renderLinkWindowEpisode(buf + (cap - m), m, claims, n, ordinal, t, at, buf, cap,
+                                 order);
 }
 
 size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,
                                 uint32_t t, const char* title, const char* source,
-                                const char* at) {
+                                const char* at, const char* order) {
   if (!buf || m == 0 || m >= cap) return 0;
   memmove(buf + (cap - m), buf, m);
-  return renderSaidEpisode(buf + (cap - m), m, ordinal, t, title, source, at, buf, cap);
+  return renderSaidEpisode(buf + (cap - m), m, ordinal, t, title, source, at, buf, cap,
+                           order);
 }
 
 CheckpointReader::CheckpointReader(Consolidator& c, int16_t ordinal, int16_t lane)

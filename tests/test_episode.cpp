@@ -31,6 +31,7 @@
 #include "LinkPercept.h"
 #include "MotionPercept.h"
 #include "Episode.h"
+#include "EpisodeOrder.h"
 #include "Semantic.h"
 #include "TtdbParse.h"
 
@@ -749,6 +750,10 @@ static void testEntityEpisode() {
   check(longest < SEMANTIC_LINE_MAX,
         "every `said:` line comes back through the on-device line reader intact");
   check(worst_ep <= SEMANTIC_ENTITY_EPISODE_BUF, "worst entity episode FITS its buffer");
+  // C4 (2026-10-03): every episode also carries a `seq:`/`follows:` block, which adds exactly
+  // its own bytes (test_episode_order pins that). The worst entity episode must still fit.
+  check(worst_ep + (EPISODEORDER_BLOCK_MAX - 1) <= SEMANTIC_ENTITY_EPISODE_BUF,
+        "worst entity episode + a maximal seq/follows block still fits the one scratch");
   check(worst_ep > ENTITYPERCEPT_RECORD_BUF,
         "and does NOT fit ENTITYPERCEPT_RECORD_BUF: the wrap costs real bytes, so reusing "
         "the record's own buffer would drop exactly the union-carrying windows");
@@ -891,6 +896,21 @@ static void testLinkWindowEpisode() {
         "the worst link window episode fits SEMANTIC_LINK_WINDOW_EPISODE_BUF");
   check(SEMANTIC_LINK_WINDOW_EPISODE_BUF <= SEMANTIC_ENTITY_EPISODE_BUF,
         "...which fits the ONE scratch buffer the Cardputer renders into");
+  {
+    // The same worst window WITH a maximal seq/follows block (C4, 2026-10-03), rendered.
+    std::string blk = "seq: 4294967295\nfollows:";
+    for (int i = 0; i < EPISODEORDER_OTHERS; ++i) {
+      char e[32];
+      snprintf(e, sizeof(e), " 0x%08x:4294967295", 0xFFFFFFF0u + (unsigned)i);
+      blk += e;
+    }
+    blk += "\n";
+    static char ep2[SEMANTIC_ENTITY_EPISODE_BUF];
+    const size_t n2 = renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep2,
+                                              sizeof(ep2), blk.c_str());
+    check(n2 == n + blk.size() && n2 <= SEMANTIC_LINK_WINDOW_EPISODE_BUF,
+          "...and still fits its budget carrying a maximal seq/follows block");
+  }
   size_t longest = 0;
   for (const std::string& l : linesOf(std::string(ep, n)))
     if (l.size() > longest) longest = l.size();

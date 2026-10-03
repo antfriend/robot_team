@@ -72,6 +72,7 @@ TIME_SYNC = 9
 TIME_REQ = 10
 TIME_RESP = 11
 TTDB_PUT = 12
+EPISODE = 14         # episode order vector (Semantic/EpisodeOrder.h); nodes only, for now
 TTDB_REQ_WHOLE = 0    # entire live TTDB
 TTDB_REQ_RANGE = 1    # bytes [start,end) of the live TTDB (selective re-request)
 TTDB_REQ_BELIEF = 2   # entire stored belief object (/belief.md, TTN-RFC-0009 §3)
@@ -2856,6 +2857,194 @@ def beliefs(port, baud, node, save, from_file=None):
         print(f"  {b['subject']} {belief_line(b)} eps:{b['eps']} carried:{carried}")
 
 
+# --- episode order across the fleet (ACT-III §C4, docs/design/episode-order.md) ----------
+# Every episode written since C4 stage 1 carries `seq: <n>` (per-agent, dense) and
+# `follows: 0x<agent>:<seq> …` (the vector clock: what this node had heard of every other
+# when it wrote this). A Python port of firmware Semantic/src/FleetTime.cpp's parseAt /
+# order / maximal, held to the C++ by tests/test_episode_order_py.py on shared fixtures.
+SEQ_LINE_RE = re.compile(r"^seq: (\d+)\s*$")
+FOLLOWS_TOKEN_RE = re.compile(r"0[xX]([0-9a-fA-F]+):(\d+)$")
+U32_MAX = 0xFFFFFFFF
+ORDER_CONCURRENT, ORDER_BEFORE, ORDER_AFTER, ORDER_SAME = "concurrent", "before", "after", "same"
+
+
+def parse_at(text):
+    """FleetTime::parseAt. -> {t_ms, bound_ms, bounded, frame, has_frame}. Never fails: an
+    unreadable stamp is one that orders nothing (unbounded)."""
+    a = {"t_ms": 0, "bound_ms": 0, "bounded": False, "frame": 0, "has_frame": False}
+    s = (text or "").lstrip(" \t")
+    if s.startswith("at:"):
+        s = s[3:].lstrip(" \t")
+    m = re.match(r"(-?\d+)", s)
+    if m:
+        a["t_ms"] = int(m.group(1))
+        m2 = re.match(r"[ \t]*±(-?\d+)", s[m.end():])
+        if m2 and 0 <= int(m2.group(1)) <= U32_MAX:
+            r = s[m.end() + m2.end():].lstrip(" \t")
+            frame, has_frame, ok = 0, False, True
+            if r.startswith("frame:"):
+                mf = re.match(r"frame:(\d+)", r)
+                if not mf:
+                    ok = False
+                else:
+                    frame, has_frame = int(mf.group(1)) % (1 << 64), True
+                    r = r[mf.end():].lstrip(" \t")
+            if ok and r in ("", "\r", "\n"):
+                a.update(bound_ms=int(m2.group(1)), bounded=True, frame=frame,
+                         has_frame=has_frame)
+        return a
+    m = re.search(r"t_ms:(-?\d+)", s)       # pre-C4 stamp: kept, but unbounded
+    if m:
+        a["t_ms"] = int(m.group(1))
+    return a
+
+
+def parse_follows_line(line):
+    """`follows: 0x<hex>:<u32> …` -> ([(agent, seq)], ok). A malformed token stops the
+    parse; ok=False tells the caller not to trust the line (firmware OrderRecovery)."""
+    if not line.startswith("follows:"):
+        return [], False
+    out = []
+    for tok in line[8:].split():
+        m = FOLLOWS_TOKEN_RE.match(tok)
+        if not m or int(m.group(1), 16) > U32_MAX or int(m.group(2)) > U32_MAX:
+            return out, False
+        out.append((int(m.group(1), 16), int(m.group(2))))
+    return out, True
+
+
+def parse_episode_order(text, agent):
+    """Every @LAT103 episode of one node's pull -> [{agent, lon, tier, seq, at, follows}].
+    seq 0 = unsequenced (written before C4 stage 1): beliefs still count it, order() lets
+    no edge reach it. A malformed follows line is dropped whole (an under-claim)."""
+    out = []
+    for lat, lon, lines in lane_records(text, lambda lat, lon: lat == EPISODE_LANE):
+        e = {"agent": agent, "lon": lon, "tier": episode_tier(lon), "seq": 0,
+             "at": parse_at(""), "follows": {}}
+        for l in lines:
+            l = l.strip()
+            if l.startswith("at:"):
+                e["at"] = parse_at(l)
+            elif SEQ_LINE_RE.match(l):
+                v = int(SEQ_LINE_RE.match(l).group(1))
+                e["seq"] = v if 0 < v <= U32_MAX else 0
+            elif l.startswith("follows:"):
+                f, ok = parse_follows_line(l)
+                e["follows"] = dict(f) if ok else {}
+        out.append(e)
+    return out
+
+
+def _knows(later, earlier):
+    if earlier["seq"] == 0:
+        return False
+    return later["follows"].get(earlier["agent"], 0) >= earlier["seq"]
+
+
+def _stamp_before(a, b):
+    if not (a["bounded"] and b["bounded"] and a["has_frame"] and b["has_frame"]
+            and a["frame"] == b["frame"]):
+        return False
+    return a["t_ms"] + a["bound_ms"] < b["t_ms"] - b["bound_ms"]
+
+
+def episode_order(a, b):
+    """FleetTime::order. -> (relation, how, clock_contradiction) with how one of
+    'agent' | 'edge' | 'stamps' | None."""
+    if a["agent"] == b["agent"] and a["seq"] and b["seq"]:
+        if a["seq"] == b["seq"]:
+            return ORDER_SAME, "agent", False
+        return (ORDER_BEFORE if a["seq"] < b["seq"] else ORDER_AFTER), "agent", False
+    a_then_b, b_then_a = _knows(b, a), _knows(a, b)
+    if a_then_b and not b_then_a:
+        return ORDER_BEFORE, "edge", _stamp_before(b["at"], a["at"])
+    if b_then_a and not a_then_b:
+        return ORDER_AFTER, "edge", _stamp_before(a["at"], b["at"])
+    if _stamp_before(a["at"], b["at"]):
+        return ORDER_BEFORE, "stamps", False
+    if _stamp_before(b["at"], a["at"]):
+        return ORDER_AFTER, "stamps", False
+    return ORDER_CONCURRENT, None, False
+
+
+def episode_maximal(cands):
+    """FleetTime::maximal: indices of the candidates no other is after."""
+    return [i for i, c in enumerate(cands)
+            if not any(j != i and episode_order(c, d)[0] == ORDER_BEFORE
+                       for j, d in enumerate(cands))]
+
+
+ORDER_GATE_SEPARATION_MS = 20000    # design §9 (b): pairs farther apart than two heartbeats
+
+
+def order_report(eps_by_agent, gate_ms=ORDER_GATE_SEPARATION_MS):
+    """The instrument behind `fleet.py order`. -> {agents: {agent: {...}}, pairs: {...}}."""
+    agents = {}
+    for ag, eps in eps_by_agent.items():
+        seqd = sorted((e for e in eps if e["seq"]), key=lambda e: e["seq"])
+        seqs = [e["seq"] for e in seqd]
+        backward = sum(1 for x, y in zip(seqd, seqd[1:]) if _stamp_before(y["at"], x["at"]))
+        agents[ag] = {
+            "episodes": len(eps), "sequenced": len(seqd),
+            "seq_lo": seqs[0] if seqs else None, "seq_hi": seqs[-1] if seqs else None,
+            "gaps": (seqs[-1] - seqs[0] + 1 - len(set(seqs))) if seqs else 0,
+            "duplicates": len(seqs) - len(set(seqs)),
+            "with_follows": sum(1 for e in seqd if e["follows"]),
+            "backward": backward}
+    pairs = {"total": 0, "edge": 0, "stamps": 0, "concurrent": 0, "contradictions": 0,
+             "gate_pairs": 0, "gate_edge": 0}
+    names = sorted(eps_by_agent)
+    for i, x in enumerate(names):
+        for y in names[i + 1:]:
+            for a in (e for e in eps_by_agent[x] if e["seq"]):
+                for b in (e for e in eps_by_agent[y] if e["seq"]):
+                    rel, how, contra = episode_order(a, b)
+                    pairs["total"] += 1
+                    pairs["edge" if how == "edge" else "stamps" if how == "stamps"
+                          else "concurrent"] += 1
+                    pairs["contradictions"] += int(contra)
+                    aa, bb = a["at"], b["at"]
+                    if (aa["bounded"] and bb["bounded"] and aa["has_frame"] and bb["has_frame"]
+                            and aa["frame"] == bb["frame"]
+                            and abs(aa["t_ms"] - bb["t_ms"]) > gate_ms):
+                        pairs["gate_pairs"] += 1
+                        pairs["gate_edge"] += int(how == "edge")
+    return {"agents": agents, "pairs": pairs}
+
+
+def order_cmd(specs, gate_ms=ORDER_GATE_SEPARATION_MS):
+    """`fleet.py order node=pull.md …`: how far the fleet's episodes order across agents."""
+    eps_by_agent = {}
+    for spec in specs:
+        name, sep, path = spec.partition("=")
+        if not sep or name not in NODE_IDS:
+            sys.exit(f"order: expected <node>=<pulled ttdb>, node one of {list(NODE_IDS)}; "
+                     f"got {spec!r}")
+        with open(path, encoding="utf-8", errors="replace") as f:
+            eps_by_agent[NODE_IDS[name]] = parse_episode_order(f.read(), NODE_IDS[name])
+    rep = order_report(eps_by_agent, gate_ms)
+    for ag, s in sorted(rep["agents"].items()):
+        rng = f"{s['seq_lo']}..{s['seq_hi']}" if s["sequenced"] else "-"
+        print(f"0x{ag:08x}: {s['episodes']} episode(s), {s['sequenced']} sequenced "
+              f"(seq {rng}, {s['gaps']} gap(s), {s['duplicates']} duplicate(s)), "
+              f"{s['with_follows']} with follows, {s['backward']} backward vs at:")
+    p = rep["pairs"]
+    if not p["total"]:
+        print("no cross-agent pairs of sequenced episodes - need >= 2 nodes on the C4 build")
+        return rep
+    print(f"cross-agent pairs: {p['total']} - by edge {p['edge']}, by stamps only "
+          f"{p['stamps']}, concurrent {p['concurrent']}; clock contradictions "
+          f"{p['contradictions']}")
+    if p["gate_pairs"]:
+        pct = 100.0 * p["gate_edge"] / p["gate_pairs"]
+        print(f"gate (b): {p['gate_edge']}/{p['gate_pairs']} pairs > {gate_ms / 1000:.0f} s apart "
+              f"ordered by an edge = {pct:.1f}% (pre-registered: >= 95%) -> "
+              f"{'PASS' if pct >= 95.0 else 'FAIL'}")
+    if p["contradictions"]:
+        print("  ! a contradiction is a finding about ±bound (too tight), not about edges")
+    return rep
+
+
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
     {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}],
@@ -5192,6 +5381,14 @@ def main():
     bp.add_argument("--file", default=None,
                     help="read an already-pulled TTDB instead of pulling")
 
+    op = sub.add_parser(
+        "order",
+        help="order episodes across nodes from their pulls (C4: seq + follows); "
+             "e.g. order cardputer_1=a.md v4a_bridge=b.md")
+    op.add_argument("pulls", nargs="+", help="<node>=<pulled ttdb>")
+    op.add_argument("--gate-s", type=float, default=ORDER_GATE_SEPARATION_MS / 1000,
+                    help="separation for the pre-registered edge-coverage gate")
+
     ed = sub.add_parser(
         "entity-drift",
         help="measure consecutive-window Jaccard drift on a known-still node "
@@ -5447,6 +5644,8 @@ def main():
         if not args.file and not (args.port and args.node):
             sys.exit("motion needs either --file, or both --port and --node")
         motion(args.port, args.baud, args.node, args.save, args.file)
+    elif args.cmd == "order":
+        order_cmd(args.pulls, int(args.gate_s * 1000))
     elif args.cmd == "beliefs":
         if not args.file and not (args.port and args.node):
             sys.exit("beliefs needs either --file, or both --port and --node")

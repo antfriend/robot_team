@@ -1,6 +1,7 @@
 # Episode order across the fleet — `seq`, `follows`, and the vector that carries them
 
-*Draft 2026-10-03. Not built. ACT-III §5 C4's last open item. Implements TTG-RFC-0004 §4.4
+*Draft 2026-10-03; §8's three decisions taken by the operator the same day (all as
+recommended). Not built. ACT-III §5 C4's last open item. Implements TTG-RFC-0004 §4.4
 rule 2 (and with it §4.8 items 1–3 on hardware data); stage 2 (§7) is the
 path to item 4.*
 
@@ -128,9 +129,10 @@ would need a forged or corrupt entry, and every toot is HMAC-signed.
 already replayed. Without this, a reboot would only lose order, not correctness, but
 recovering it is free.
 
-**Table size:** `FLEETTIME_MAX_AGENTS` = 8 slots, six boards today. When a ninth agent
-appears, the slot with the lowest `seq` relative to its last update is evicted. That
-under-claims, which is safe.
+**Table size:** `FLEETTIME_MAX_AGENTS` = 8, so 7 other agents (six boards today). A full
+table **drops the newcomer** and counts it (`overflow()`). Different agents' `seq`s are not
+comparable, so "evict the lowest" would be arbitrary; dropping is deterministic, and either
+way the result only under-claims.
 
 ### 3.3 Where it runs
 
@@ -175,13 +177,14 @@ upstream, alongside C2d's divergence note, not invented here.
 
 ### 4.2 The buffer
 
-The worst link episode today measures **1194 B** against `SEMANTIC_LINK_EPISODE_BUF`
-**1280**. `seq:` adds ≤ 16 B and a full `follows:` (7 other agents × `0x%08lx:%lu` ≤ 22 B)
-adds ≤ 165 B, for about **1375 B**. So the buffer goes to **1408**, and the test pins
-both directions (a fixed buffer is pinned in its library): a maximal episode with
-a full vector **fits 1408** and **does not fit 1280**. The cost is **+128 B of `.bss`**
-in the one shared scratch buffer. Following the Cardputer rule ("diff `.bss` against
-HEAD before flashing"), measure it, don't assume it.
+✅ **Measured 2026-10-03, and the draft's estimate was wrong in the cheap direction.** A
+maximal block is **179 B** (`EPISODEORDER_BLOCK_MAX` 184). The worst link episode becomes
+**1373 B**, so `SEMANTIC_LINK_EPISODE_BUF` went 1280 → **1408**, pinned both ways (fits
+1408, would not have fitted 1280). But **no firmware allocates that constant**: every
+render goes into the one shared scratch, `SEMANTIC_ENTITY_EPISODE_BUF` = **3072 B**, and the
+worst episode any tier writes still fits it with a maximal block: entity 2727 + 179 = 2906,
+link window 2064 + 179 = 2243 against its 2560 budget (both pinned in `test_episode`). **So
+the order lines cost 0 B of `.bss`**, not the +128 B the draft said.
 
 ---
 
@@ -208,7 +211,7 @@ the fleet reads them itself.
 | | flash | RAM |
 |---|---|---|
 | `EpisodeOrder` + glue | ~2–3 KB | vector 8 × 8 = 64 B, ring 4 × 66 ≈ 270 B, counters |
-| render buffer | — | +128 B `.bss` (shared scratch) |
+| render buffer | — | **0 B** (fits the existing 3072 B scratch, §4.2) |
 | airtime | — | ≤ 66 B frame, ~0.1–1 /s per node |
 
 The V4s have ~47–49 KB free, so **stage 1 does not need `huge_app`**. Stage 2 probably
@@ -245,7 +248,7 @@ episodes* compute the *same view as of bar N*.
 
 ---
 
-## 8. Decisions for the operator
+## 8. Decisions — ✅ all three taken 2026-10-03, as recommended
 
 1. **Ordering from a received number, not from held content.** RFC-0004 §4.4 says
    *"the latest episode it **holds** from each other agent"*. This design reads "holds" as
@@ -304,6 +307,14 @@ builds on it.
 ---
 
 ## 10. Order of work
+
+> ✅ **Steps 1–2 done 2026-10-03** (no hardware): the `seq 0` guard in `order()` (test 8,
+> red first: 4 of 4 failed, then green); `Semantic/src/EpisodeOrder.*` (VectorClock,
+> VectorInbox, block render/parse, OrderRecovery) + `tests/test_episode_order.cpp`
+> (**66 checks**); the optional `order` block threaded through every episode renderer
+> (default off, so existing output is byte-identical); `fleet.py order` + its Python port,
+> mirrored case-for-case in `tests/test_episode_order_py.py`. Toot type 14 reserved.
+> The Cardputer builds at 42% / 40% (nothing calls the new code yet). **Next: step 3.**
 
 1. The `order()` guard for `seq = 0` (test 8 first, red), then `EpisodeOrder.*`
    portable core + native tests 1–7 (no hardware).

@@ -353,9 +353,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
    [docs/design/episode-order.md](docs/design/episode-order.md)**. A per-agent `seq` +
    a vector carried by a new `EPISODE` toot (type 14) gives order **without** episode
    delivery; delivery becomes stage 2. Edges cite `(agent, seq)`, which neither wraps nor
-   collides, not an ordinal; a sid becomes stage 2's integrity check. ⚠ First build step
-   is a fix: `FleetTime::order()` treats `seq 0` as known by everyone. Three operator
-   decisions are open in its §8.
+   collides, not an ordinal; a sid becomes stage 2's integrity check. Its three §8
+   decisions were taken as recommended. ✅ **Steps 1–2 built 2026-10-03** (no hardware):
+   the `seq 0` fix in `order()`, `Semantic/src/EpisodeOrder.*` (66 native checks), and
+   `fleet.py order`. **Next: step 3**, the Cardputer glue (its episodes start carrying
+   `seq:`), then one V4 and the pre-registered hardware gate.
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257

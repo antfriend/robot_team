@@ -145,6 +145,21 @@ static void testOrder() {
   fleet.n_follows = 1;
   check(order(edge, fleet) == BEFORE,
         "...but a `follows` edge still orders across frames: knowledge is not a clock");
+
+  // seq 0 = UNSEQUENCED (docs/design/episode-order.md §2): every episode written before
+  // per-agent seq existed parses this way. `follows.seq >= 0` is always true, so without
+  // a guard every such episode would read as known by anyone who names its agent.
+  EpisodeRef old0 = ep(0x300, 0, 1000, 600), nows = ep(0x10, 5, 1100, 600);
+  nows.follows[0] = Follows{0x300, 7};
+  nows.n_follows = 1;
+  check(order(old0, nows) == CONCURRENT,
+        "no follows edge reaches an unsequenced (seq 0) episode");
+  check(order(ep(0x300, 0, 1000, 600), ep(0x300, 0, 1100, 600)) == CONCURRENT,
+        "two unsequenced episodes of one agent are NOT the same episode");
+  check(order(ep(0x300, 0, 1000, 5), ep(0x300, 0, 9000, 5)) == BEFORE,
+        "...they fall through to the stamp rule");
+  check(order(ep(0x300, 0, 9000, 5), ep(0x300, 4, 1000, 5)) == AFTER,
+        "one unsequenced: still the stamps, not the sequence");
 }
 
 // ---------------------------------------------------------------------------------------

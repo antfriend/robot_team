@@ -116,6 +116,11 @@ EPI_SRCS := test_episode.cpp $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src
 # ACT-III Phase C4: TTG-RFC-0004 §4 — bounded pulse stamps, partial order across agents,
 # maximal facts, and the bar view two agents agree on without coordinating (§4.8 items 1-4).
 FT_SRCS := test_fleettime.cpp $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp
+# C4 stage 1 (docs/design/episode-order.md): per-agent seq, the vector clock and its wire
+# form, the seq:/follows: block in a rendered episode, and order() over re-parsed text.
+EO_SRCS := test_episode_order.cpp $(LIB)/Semantic/src/EpisodeOrder.cpp \
+        $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/FleetTime.cpp \
+        $(LIB)/Semantic/src/Semantic.cpp
 
 test: build
 	./test_toot
@@ -136,8 +141,9 @@ test: build
 	./test_semantic
 	./test_episode
 	./test_fleettime
+	./test_episode_order
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -156,6 +162,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SEM_SRCS) -o test_semantic
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EPI_SRCS) -o test_episode
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(FT_SRCS) -o test_fleettime
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EO_SRCS) -o test_episode_order
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -172,6 +179,7 @@ clean:
 	      test_citation test_citation.exe \
 	      test_ttdb_index test_ttdb_index.exe \
 	      test_semantic test_semantic.exe \
-	      test_episode test_episode.exe test_fleettime test_fleettime.exe
+	      test_episode test_episode.exe test_fleettime test_fleettime.exe \
+	      test_episode_order test_episode_order.exe
 
 .PHONY: test build clean

@@ -128,7 +128,10 @@ At parseAt(const char* s) {
 // order
 // ---------------------------------------------------------------------------------------
 // Does `later` say it was written already knowing `earlier`?
+// ⚠ seq 0 is UNSEQUENCED (every episode written before per-agent seq): no edge reaches it,
+// because `follows.seq >= 0` would otherwise make it known by anyone naming its agent.
 static bool knows(const EpisodeRef& later, const EpisodeRef& earlier) {
+  if (earlier.seq == 0) return false;
   for (uint8_t i = 0; i < later.n_follows && i < FLEETTIME_MAX_AGENTS; ++i)
     if (later.follows[i].agent == earlier.agent && later.follows[i].seq >= earlier.seq)
       return true;
@@ -145,7 +148,7 @@ static bool stampBefore(const At& a, const At& b) {
 
 Order order(const EpisodeRef& a, const EpisodeRef& b, bool* contradiction) {
   if (contradiction) *contradiction = false;
-  if (a.agent == b.agent) {
+  if (a.agent == b.agent && a.seq != 0 && b.seq != 0) {
     if (a.seq == b.seq) return SAME;
     return a.seq < b.seq ? BEFORE : AFTER;       // §4.4 (1): the agent's own order
   }
