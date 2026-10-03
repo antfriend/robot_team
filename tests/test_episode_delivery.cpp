@@ -73,15 +73,24 @@ static void testWire() {
   printf("1. wire\n");
   uint8_t b[208];
   Want w{0x300, 0x300, 41, 57, TIER_LINK}, w2;
-  check(encodeWant(w, b, sizeof(b)) == EPISODEDELIVERY_WANT_LEN && decodeWant(b, 18, w2) &&
-            w2.to == 0x300 && w2.from_seq == 41 && w2.to_seq == 57 && w2.tier == TIER_LINK,
-        "WANT round-trips");
+  check(encodeWant(w, b, sizeof(b)) == 20 && decodeWant(b, 20, w2) &&
+            w2.to == 0x300 && w2.from_seq == 41 && w2.to_seq == 57 && w2.tier == TIER_LINK &&
+            w2.off == 0,
+        "WANT round-trips (20 B, off 0 = a fresh fetch)");
+  check(!decodeWant(b, 19, w2), "a short WANT is refused");
+  Want r{0x300, 0x300, 41, 41, TIER_LINK, 382};
+  check(encodeWant(r, b, sizeof(b)) == 20 && decodeWant(b, 20, w2) && w2.off == 382 &&
+            w2.from_seq == 41 && w2.to_seq == 41,
+        "a RESUME round-trips: one seq, from byte 382");
+  r.to_seq = 42;
+  encodeWant(r, b, sizeof(b));
+  check(!decodeWant(b, 20, w2), "a resume naming a range of seqs is refused");
   w.from_seq = 0;
   encodeWant(w, b, sizeof(b));
-  check(!decodeWant(b, 18, w2), "WANT from seq 0 is refused (seq 0 is no episode)");
+  check(!decodeWant(b, 20, w2), "WANT from seq 0 is refused (seq 0 is no episode)");
   w = Want{1, 1, 9, 3, 0};
   encodeWant(w, b, sizeof(b));
-  check(!decodeWant(b, 18, w2), "WANT with to < from is refused");
+  check(!decodeWant(b, 20, w2), "WANT with to < from is refused");
 
   const uint8_t payload[5] = {'a', 'b', 'c', 'd', 'e'};
   DataHdr h{0x200, 0x300, 77, 900, 191}, h2;
@@ -99,12 +108,13 @@ static void testWire() {
   n = encodeData(over, payload, 5, b, sizeof(b));
   check(!decodeData(b, n, h2, &got, &gn), "a slice past its declared total is refused");
 
-  Done d{0x200, 0x300, 77}, d2;
-  check(encodeDone(d, b, sizeof(b)) == 13 && decodeDone(b, 13, d2) && d2.through == 77,
-        "DONE round-trips");
-  check(!decodeDone(b, 12, d2), "a short DONE is refused");
+  Done d{0x200, 0x300, 77, 640}, d2;
+  check(encodeDone(d, b, sizeof(b)) == 15 && decodeDone(b, 15, d2) && d2.through == 77 &&
+            d2.total == 640,
+        "DONE round-trips (15 B, with the episode's total)");
+  check(!decodeDone(b, 14, d2), "a short DONE is refused");
   b[0] = EPISODEORDER_SUBOP_VECTOR;
-  check(!decodeDone(b, 13, d2) && !decodeWant(b, 18, w2), "sub-ops do not cross-decode");
+  check(!decodeDone(b, 15, d2) && !decodeWant(b, 20, w2), "sub-ops do not cross-decode");
 }
 
 // ---------------------------------------------------------------------------------------
@@ -129,34 +139,82 @@ static void testInflight() {
   check(in.state() == Inflight::WAITING, "armed: waiting for DONE");
   slices(in, 0x200, 0x300, 12, ep);
   check(in.state() == Inflight::WAITING, "all slices in, no DONE yet: still waiting");
-  in.onDone(Done{0x200, 0x300, 12});
+  in.onDone(Done{0x200, 0x300, 12, 1000});
   check(in.state() == Inflight::COMPLETE && in.length() == 1000 && in.seq() == 12,
         "slices + DONE: complete");
 
+  // A lost slice (2026-10-03: ~half of broadcasts are lost on the handhelds): the prefix is
+  // kept, everything past the gap is ignored, and the transfer ends PARTIAL, not BROKEN.
+  std::string mixed;
+  for (int i = 0; i < 1000; ++i) mixed += (char)('a' + i % 26);
   in.arm(0x200, 0x300, buf, sizeof(buf));
-  slices(in, 0x200, 0x300, 13, ep, 2);
-  in.onDone(Done{0x200, 0x300, 13});
-  check(in.state() == Inflight::BROKEN, "a lost slice: BROKEN (the cursor will retry)");
+  slices(in, 0x200, 0x300, 13, mixed, 2);
+  in.onDone(Done{0x200, 0x300, 13, 1000});
+  check(in.state() == Inflight::PARTIAL && in.length() == 2 * EPISODEDELIVERY_SLICE &&
+            in.seq() == 13,
+        "a lost slice: PARTIAL, holding the contiguous prefix");
+  in.resume();
+  check(in.state() == Inflight::WAITING && in.length() == 2 * EPISODEDELIVERY_SLICE,
+        "resume: waiting again, prefix kept");
+  for (size_t off = 2 * EPISODEDELIVERY_SLICE; off < mixed.size(); off += EPISODEDELIVERY_SLICE) {
+    const size_t n = mixed.size() - off < EPISODEDELIVERY_SLICE ? mixed.size() - off
+                                                                : EPISODEDELIVERY_SLICE;
+    in.onData(DataHdr{0x200, 0x300, 13, 1000, (uint16_t)off}, (const uint8_t*)mixed.data() + off, n);
+  }
+  in.onDone(Done{0x200, 0x300, 13, 1000});
+  check(in.state() == Inflight::COMPLETE && in.length() == 1000 &&
+            memcmp(in.bytes(), mixed.data(), 1000) == 0,
+        "the resumed rest completes it, byte-exact");
 
   in.arm(0x200, 0x300, buf, sizeof(buf));
-  in.onDone(Done{0x200, 0x300, 40});
+  slices(in, 0x200, 0x300, 14, mixed, 0);
+  in.onDone(Done{0x200, 0x300, 14, 1000});
+  check(in.state() == Inflight::PARTIAL && in.length() == 0 && in.seq() == 14,
+        "a lost FIRST slice: later slices still name the episode; resume from 0");
+
+  in.arm(0x200, 0x300, buf, sizeof(buf));
+  in.onDone(Done{0x200, 0x300, 15, 1000});
+  check(in.state() == Inflight::PARTIAL && in.seq() == 15 && in.length() == 0,
+        "EVERY slice lost: the DONE's total says data was sent, so resume, never skip");
+
+  in.arm(0x200, 0x300, buf, sizeof(buf));
+  slices(in, 0x200, 0x300, 16, mixed, 3);
+  in.onDone(Done{0x200, 0x300, 16, 1000});
+  in.resume();
+  in.onDone(Done{0x200, 0x300, 16, 0});
+  check(in.state() == Inflight::EMPTY && in.through() == 16,
+        "a resume answered 'gone' (folded meanwhile): EMPTY, the cursor moves past it");
+
+  in.arm(0x200, 0x300, buf, sizeof(buf));
+  slices(in, 0x200, 0x300, 17, mixed, 3);
+  in.onDone(Done{0x200, 0x300, 17, 1000});
+  in.resume();
+  in.onData(DataHdr{0x200, 0x300, 9, 1000, (uint16_t)(3 * EPISODEDELIVERY_SLICE)},
+            (const uint8_t*)mixed.data(), 10);
+  in.onData(DataHdr{0x200, 0x300, 17, 999, (uint16_t)(3 * EPISODEDELIVERY_SLICE)},
+            (const uint8_t*)mixed.data(), 10);
+  check(in.length() == 3 * EPISODEDELIVERY_SLICE,
+        "a late slice of another seq or another total is ignored, not appended");
+
+  in.arm(0x200, 0x300, buf, sizeof(buf));
+  in.onDone(Done{0x200, 0x300, 40, 0});
   check(in.state() == Inflight::EMPTY && in.through() == 40,
-        "DONE alone: nothing in range, move the cursor");
+        "DONE alone with total 0: nothing in range, move the cursor");
 
   in.arm(0x200, 0x300, buf, sizeof(buf));
   slices(in, 0x999, 0x300, 14, ep);           // to someone else
   slices(in, 0x200, 0x100, 14, ep);           // from another agent
-  in.onDone(Done{0x200, 0x100, 14});
+  in.onDone(Done{0x200, 0x100, 14, 1000});
   check(in.state() == Inflight::WAITING, "frames for another receiver or agent are ignored");
 
   in.arm(0x200, 0x300, buf, 500);
   slices(in, 0x200, 0x300, 15, ep);
-  in.onDone(Done{0x200, 0x300, 15});
+  in.onDone(Done{0x200, 0x300, 15, 1000});
   check(in.state() == Inflight::BROKEN, "an episode larger than the buffer is refused");
 
   in.arm(0x200, 0x300, buf, sizeof(buf));
   slices(in, 0x200, 0x300, 16, ep);
-  in.onDone(Done{0x200, 0x300, 17});
+  in.onDone(Done{0x200, 0x300, 17, 1000});
   check(in.state() == Inflight::BROKEN, "DONE naming another seq than the slices: BROKEN");
   in.disarm();
   check(in.state() == Inflight::IDLE, "disarm");
@@ -182,8 +240,19 @@ static void testFetcher() {
   vc.mergeEntry(0x300, 103);
   check(f.next(vc, 20, w) && w.from_seq == 101 && w.to_seq == 103, "a new seq: want it");
   f.unanswered(0x300, 30);
-  check(!f.next(vc, 31, w), "unanswered: backed off");
-  check(f.next(vc, 30 + EPISODEDELIVERY_BACKOFF_MS, w), "...until the back-off passes");
+  check(!f.next(vc, 31, w) && f.next(vc, 30 + EPISODEDELIVERY_RETRY_MS, w),
+        "ONE unanswered WANT (a lost frame is ordinary): retried after RETRY_MS");
+  uint32_t t = 30;
+  for (int i = 1; i < EPISODEDELIVERY_MISSES_BEFORE_BACKOFF; ++i) {
+    t += EPISODEDELIVERY_RETRY_MS;
+    f.unanswered(0x300, t);
+  }
+  check(!f.next(vc, t + EPISODEDELIVERY_RETRY_MS, w),
+        "MISSES_BEFORE_BACKOFF in a row: backed off (a peer without stage 2)");
+  check(f.next(vc, t + EPISODEDELIVERY_BACKOFF_MS, w), "...until the back-off passes");
+  f.answered(0x300, 100, t);
+  f.unanswered(0x300, t + 1);
+  check(f.next(vc, t + 1 + EPISODEDELIVERY_RETRY_MS, w), "an answer resets the miss count");
   f.retry(0x300, 100);
   check(!f.next(vc, 101, w) && f.next(vc, 100 + EPISODEDELIVERY_RETRY_MS, w),
         "broken: retried after RETRY_MS");

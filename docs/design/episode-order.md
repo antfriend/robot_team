@@ -237,9 +237,9 @@ tier. Other tiers can be added later without changing the wire.
 ### 7.2 Wire: three more `EPISODE` sub-ops, pull-from-author, one episode per round trip
 
 ```
-WANT  (1)  to u32 | agent u32 | from_seq u32 | to_seq u32 | tier u8        → 18 B
-DATA  (2)  to u32 | agent u32 | seq u32 | total u16 | off u16 | bytes…     → 17 B + ≤ 191
-DONE  (3)  to u32 | agent u32 | through u32                                 → 13 B
+WANT  (1)  to u32 | agent u32 | from_seq u32 | to_seq u32 | tier u8 | off u16   → 20 B
+DATA  (2)  to u32 | agent u32 | seq u32 | total u16 | off u16 | bytes…           → 17 B + ≤ 191
+DONE  (3)  to u32 | agent u32 | through u32 | total u16                         → 15 B
 ```
 
 - The receiver asks the **author** (`agent`) for `from_seq = cursor[a] + 1 .. to_seq = V[a]`.
@@ -252,11 +252,25 @@ DONE  (3)  to u32 | agent u32 | through u32                                 → 
   recv callbacks (no chunked consumer), and a link window episode can reach ~2.3 KB, past
   the 1664 B reassembly cap. DATA carries its own `off/total`, like TTDB_DATA, and slices go
   out from `loop()`, paced (the ESP-NOW burst-pacing rule).
-- 🔄 **No `want_ack`; the cursor is the retry.** A slice lost mid-episode leaves the
-  reassembly short at DONE, so the receiver does NOT advance and asks again. This is the
-  duet lesson again: re-asking idempotent state beats acknowledging each frame.
+- 🔄 **No `want_ack`; the cursor is the retry.** This is the duet lesson again: re-asking
+  idempotent state beats acknowledging each frame.
+- 🔄 **RESUME, revised 2026-10-03 on hardware.** The first build discarded a whole episode on
+  one lost slice. The handhelds lose **about half** of their ESP-NOW broadcasts: the
+  Cardputer's own link window heard V4-A's 2 s HELLO 16 times a minute. So a 4-slice
+  episode plus its DONE got through about 4% of the time, and the Cardputer logged
+  **0 fetched, 5 broken** from the T-Deck. Now:
+  - The receiver keeps the contiguous prefix and ignores slices past a gap. It ends
+    **PARTIAL** and re-asks for the same seq with `off` = the first byte it lacks
+    (`from_seq == to_seq`). The author serves from there.
+  - **`DONE.total`** separates "nothing to send" (0) from "data was sent". Without it, a
+    DONE whose slices were *all* lost read as empty, and the cursor **skipped the episode
+    silently**: a hole in exactly what the gate compares.
+  - A resume answered `total 0` means the episode was folded in the meantime, so skip it.
+  - Four resumes in a row with no progress abandon the attempt (the cursor is unmoved).
+  - A timeout after some data has arrived resumes too.
 - An author that never answers (not on the stage-2 build, out of range, asleep) is backed
-  off: one WANT per 5 s while answered, 60 s after an unanswered one. The V4s and the K10
+  off: retried in 5 s after one unanswered WANT (a lost WANT or DONE is ordinary at this
+  loss), 60 s after **three in a row**. The V4s and the K10
   are exactly this until they get the build, and that is harmless: **a node no one can
   fetch from is missing from every view equally.**
 - Gossip (any holder answers) is left for later. Keyed on `(agent, seq)`, it needs no

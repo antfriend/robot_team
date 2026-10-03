@@ -36,7 +36,7 @@ typedef void (*SendFn)(const uint8_t* body, uint8_t n);
 
 struct Stats {
   uint32_t wants_sent = 0, fetched = 0, duplicate = 0, refused = 0, broken = 0,
-           unanswered = 0, empty = 0, append_failed = 0, nomem = 0;
+           unanswered = 0, empty = 0, append_failed = 0, nomem = 0, resumed = 0;
   uint32_t wants_heard = 0, served = 0, served_empty = 0, cuts = 0, cut_failed = 0;
 };
 
@@ -102,12 +102,13 @@ class Node {
   }
 
   void print(Print& out) const {
-    out.printf("[deliver] held %u | fetched %lu dup %lu refused %lu broken %lu unanswered %lu "
-               "empty %lu nomem %lu appendfail %lu | served %lu (empty %lu) of %lu want(s) | "
+    out.printf("[deliver] held %u | fetched %lu dup %lu refused %lu broken %lu resumed %lu "
+               "unanswered %lu empty %lu nomem %lu appendfail %lu | served %lu (empty %lu) of %lu want(s) | "
                "own link map %u | cuts %lu (fail %lu)\n",
                (unsigned)held_.count(), (unsigned long)st_.fetched,
                (unsigned long)st_.duplicate, (unsigned long)st_.refused,
-               (unsigned long)st_.broken, (unsigned long)st_.unanswered,
+               (unsigned long)st_.broken, (unsigned long)st_.resumed,
+               (unsigned long)st_.unanswered,
                (unsigned long)st_.empty, (unsigned long)st_.nomem,
                (unsigned long)st_.append_failed, (unsigned long)st_.served,
                (unsigned long)st_.served_empty, (unsigned long)st_.wants_heard,
@@ -148,7 +149,7 @@ class Node {
         return;
       }
       uint8_t b[EPISODEDELIVERY_DONE_LEN];
-      sendWire(b, semantic::encodeDone(semantic::Done{to_, self_, seq_}, b, sizeof(b)));
+      sendWire(b, semantic::encodeDone(semantic::Done{to_, self_, seq_, (uint16_t)total_}, b, sizeof(b)));
       ++st_.served;
       serving_ = false;
       return;
@@ -165,6 +166,7 @@ class Node {
       uint32_t seq;
       int16_t lon;
       if (!seqs_.firstInRange(from, w.to_seq, &seq, &lon)) break;
+      if (w.off && seq != w.from_seq) break;            // the resumed episode is gone
       const int i = findRecord(SEMANTIC_EPISODE_LANE, lon);
       size_t off = 0, len = 0;
       if (i < 0 || !db_->recordSpan(i, off, len) || len == 0 || len > 0xFFFF) {
@@ -177,7 +179,7 @@ class Node {
       seq_ = seq;
       span_off_ = off;
       total_ = len;
-      sent_ = 0;
+      sent_ = w.off < len ? w.off : 0;                  // a resume starts mid-episode
       last_tx_ = now - EPISODEDELIVERY_SLICE_GAP_MS;    // first slice on the next pass
       return;
     }
@@ -205,9 +207,17 @@ class Node {
     }
     if (s == semantic::Inflight::WAITING) {
       if (now - want_at_ < EPISODEDELIVERY_TIMEOUT_MS) return;
+      if (in_.started()) {                              // data came, the DONE did not
+        resume(now);
+        return;
+      }
       ++st_.unanswered;
       fetch_.unanswered(in_.agent(), now);
       release();
+      return;
+    }
+    if (s == semantic::Inflight::PARTIAL) {
+      resume(now);
       return;
     }
     const uint32_t agent = in_.agent();
@@ -242,7 +252,31 @@ class Node {
     release();
   }
 
+  // Ask the author for the rest of the episode in flight, from the first missing byte.
+  // Abandoned (cursor unmoved, retried later from scratch) after STALLED_RESUMES in a row
+  // that brought nothing new.
+  void resume(uint32_t now) {
+    if (in_.length() > resume_got_) stalled_ = 0;
+    else if (++stalled_ > EPISODEDELIVERY_STALLED_RESUMES) {
+      ++st_.broken;
+      fetch_.retry(in_.agent(), now);
+      release();
+      return;
+    }
+    resume_got_ = in_.length();
+    const uint32_t agent = in_.agent(), seq = in_.seq();
+    in_.resume();
+    semantic::Want w{agent, agent, seq, seq, semantic::TIER_LINK, (uint16_t)resume_got_};
+    uint8_t b[EPISODEDELIVERY_WANT_LEN];
+    sendWire(b, semantic::encodeWant(w, b, sizeof(b)));
+    want_at_ = now;
+    ++st_.wants_sent;
+    ++st_.resumed;
+  }
+
   void release() {
+    stalled_ = 0;
+    resume_got_ = 0;
     in_.disarm();
     free(buf_);
     buf_ = nullptr;
@@ -305,9 +339,11 @@ class Node {
   semantic::Inflight in_;
   uint8_t* buf_ = nullptr;
   uint32_t want_at_ = 0;
+  size_t resume_got_ = 0;
+  uint8_t stalled_ = 0;
 
   volatile bool want_pending_ = false;
-  semantic::Want want_ = {0, 0, 0, 0, 0};
+  semantic::Want want_ = {0, 0, 0, 0, 0, 0};
   uint32_t want_src_ = 0;
 
   bool serving_ = false;

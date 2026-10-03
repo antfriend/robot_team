@@ -49,10 +49,10 @@ namespace semantic {
   (SEMANTIC_LINK_WINDOW_EPISODE_BUF + EPISODEORDER_BLOCK_MAX + 64)
 
 // Wire sizes. DATA's slice keeps the whole toot body inside toot::MAX_BODY (208).
-#define EPISODEDELIVERY_WANT_LEN 18
+#define EPISODEDELIVERY_WANT_LEN 20
 #define EPISODEDELIVERY_DATA_HDR 17
 #define EPISODEDELIVERY_SLICE (208 - EPISODEDELIVERY_DATA_HDR)       // 191
-#define EPISODEDELIVERY_DONE_LEN 13
+#define EPISODEDELIVERY_DONE_LEN 15
 
 // A first fetch from a newly heard agent starts this many seqs back, not at seq 1: the
 // author holds at most its link quota, and the held ring is smaller still.
@@ -66,6 +66,15 @@ namespace semantic {
 #endif
 #ifndef EPISODEDELIVERY_BACKOFF_MS
 #define EPISODEDELIVERY_BACKOFF_MS 60000
+#endif
+// Consecutive unanswered WANTs to one agent before it is backed off (a single lost WANT or
+// DONE is ordinary at the loss these radios see, ~half of broadcasts; 2026-10-03).
+#ifndef EPISODEDELIVERY_MISSES_BEFORE_BACKOFF
+#define EPISODEDELIVERY_MISSES_BEFORE_BACKOFF 3
+#endif
+// Resumes of one episode that make no progress before it is abandoned (cursor unmoved).
+#ifndef EPISODEDELIVERY_STALLED_RESUMES
+#define EPISODEDELIVERY_STALLED_RESUMES 4
 #endif
 #ifndef EPISODEDELIVERY_TIMEOUT_MS
 #define EPISODEDELIVERY_TIMEOUT_MS 4000
@@ -86,6 +95,7 @@ namespace semantic {
 struct Want {
   uint32_t to, agent, from_seq, to_seq;
   uint8_t  tier;
+  uint16_t off;        // > 0: a RESUME of exactly from_seq, starting at this byte
 };
 struct DataHdr {
   uint32_t to, agent, seq;
@@ -93,6 +103,7 @@ struct DataHdr {
 };
 struct Done {
   uint32_t to, agent, through;
+  uint16_t total;      // 0: nothing was served; else the episode's length (data was sent)
 };
 size_t encodeWant(const Want& w, uint8_t* p, size_t cap);
 bool decodeWant(const uint8_t* p, size_t len, Want& w);
@@ -107,10 +118,15 @@ bool decodeDone(const uint8_t* p, size_t len, Done& d);
 // arm()/disarm()/state() from loop(); onData()/onDone() from the recv callback, which only
 // copies into the buffer loop() armed (the buffer outlives the transfer: loop frees it after
 // it has read a final state). `done_` is written last, so loop never reads a half transfer.
+// A lost slice does not break the transfer: the receiver keeps the contiguous prefix,
+// ignores what follows the gap, ends PARTIAL, and resume() asks for the rest (WANT.off).
 class Inflight {
  public:
-  enum State : uint8_t { IDLE, WAITING, COMPLETE, EMPTY, BROKEN };
+  enum State : uint8_t { IDLE, WAITING, COMPLETE, EMPTY, PARTIAL, BROKEN };
   void arm(uint32_t self, uint32_t agent, uint8_t* buf, size_t cap);
+  void resume();                     // PARTIAL (or a timed-out started one) -> WAITING
+  bool started() const { return started_; }
+  size_t total() const { return total_; }
   void disarm();
   void onData(const DataHdr& h, const uint8_t* b, size_t n);
   void onDone(const Done& d);
@@ -127,6 +143,7 @@ class Inflight {
   uint32_t self_ = 0, agent_ = 0;
   volatile uint32_t seq_ = 0, through_ = 0;
   volatile uint32_t total_ = 0, got_ = 0;
+  volatile uint16_t done_total_ = 0;
   volatile bool armed_ = false, started_ = false, broken_ = false, done_ = false;
 };
 
@@ -137,12 +154,12 @@ class Fetcher {
   void seed(uint32_t agent, uint32_t cursor);                  // boot: max held seq
   bool next(const VectorClock& vc, uint32_t now_ms, Want& w);  // a WANT that is due
   void answered(uint32_t agent, uint32_t through, uint32_t now_ms);
-  void unanswered(uint32_t agent, uint32_t now_ms);            // back off
+  void unanswered(uint32_t agent, uint32_t now_ms);  // retry soon; back off after MISSES
   void retry(uint32_t agent, uint32_t now_ms);                 // broken: ask again soon
   uint32_t cursor(uint32_t agent) const;
 
  private:
-  struct E { uint32_t agent, cursor, next_ms; bool known; };
+  struct E { uint32_t agent, cursor, next_ms; uint8_t misses; bool known; };
   E* find(uint32_t agent, bool add);
   E   e_[EPISODEORDER_OTHERS];
   uint8_t n_ = 0, rr_ = 0;

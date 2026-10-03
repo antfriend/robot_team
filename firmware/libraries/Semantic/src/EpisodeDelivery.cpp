@@ -89,13 +89,15 @@ size_t encodeWant(const Want& w, uint8_t* p, size_t cap) {
   p[0] = EPISODEORDER_SUBOP_WANT;
   putU32(p + 1, w.to); putU32(p + 5, w.agent); putU32(p + 9, w.from_seq); putU32(p + 13, w.to_seq);
   p[17] = w.tier;
+  putU16(p + 18, w.off);
   return EPISODEDELIVERY_WANT_LEN;
 }
 
 bool decodeWant(const uint8_t* p, size_t len, Want& w) {
   if (!p || len < EPISODEDELIVERY_WANT_LEN || p[0] != EPISODEORDER_SUBOP_WANT) return false;
   w.to = getU32(p + 1); w.agent = getU32(p + 5); w.from_seq = getU32(p + 9);
-  w.to_seq = getU32(p + 13); w.tier = p[17];
+  w.to_seq = getU32(p + 13); w.tier = p[17]; w.off = getU16(p + 18);
+  if (w.off && w.to_seq != w.from_seq) return false;   // a resume names exactly one seq
   return w.from_seq != 0 && (w.to_seq == 0 || w.to_seq >= w.from_seq);
 }
 
@@ -124,12 +126,14 @@ size_t encodeDone(const Done& d, uint8_t* p, size_t cap) {
   if (!p || cap < EPISODEDELIVERY_DONE_LEN) return 0;
   p[0] = EPISODEDELIVERY_SUBOP_DONE;
   putU32(p + 1, d.to); putU32(p + 5, d.agent); putU32(p + 9, d.through);
+  putU16(p + 13, d.total);
   return EPISODEDELIVERY_DONE_LEN;
 }
 
 bool decodeDone(const uint8_t* p, size_t len, Done& d) {
   if (!p || len < EPISODEDELIVERY_DONE_LEN || p[0] != EPISODEDELIVERY_SUBOP_DONE) return false;
   d.to = getU32(p + 1); d.agent = getU32(p + 5); d.through = getU32(p + 9);
+  d.total = getU16(p + 13);
   return true;
 }
 
@@ -140,8 +144,14 @@ void Inflight::arm(uint32_t self, uint32_t agent, uint8_t* buf, size_t cap) {
   armed_ = false;                    // the callback ignores everything while we rewrite
   buf_ = buf; cap_ = cap; self_ = self; agent_ = agent;
   seq_ = 0; through_ = 0; total_ = 0; got_ = 0;
-  started_ = false; broken_ = false; done_ = false;
+  started_ = false; broken_ = false; done_ = false; done_total_ = 0;
   armed_ = buf != nullptr && cap > 0;
+}
+
+void Inflight::resume() {
+  armed_ = false;
+  through_ = 0; done_total_ = 0; done_ = false;      // keep seq_, total_, got_ and the bytes
+  armed_ = buf_ != nullptr && cap_ > 0;
 }
 
 void Inflight::disarm() {
@@ -151,31 +161,37 @@ void Inflight::disarm() {
 }
 
 void Inflight::onData(const DataHdr& h, const uint8_t* b, size_t n) {
-  if (!armed_ || done_ || h.to != self_ || h.agent != agent_) return;
-  if (h.off == 0 && !started_) {
+  if (!armed_ || done_ || broken_ || h.to != self_ || h.agent != agent_) return;
+  if (!started_) {                   // any slice names the episode, not only the first
     if (h.total == 0 || h.total > cap_) { broken_ = true; return; }
     seq_ = h.seq; total_ = h.total; got_ = 0; started_ = true;
   }
-  if (!started_ || h.seq != seq_ || h.off != got_ || got_ + n > total_) {
-    broken_ = true;                  // a lost or reordered slice: the cursor will retry
-    return;
-  }
+  if (h.seq != seq_ || h.total != total_) return;   // another episode's late slice
+  if (h.off != got_ || got_ + n > total_) return;   // past a gap (or a repeat): stall here
   memcpy(buf_ + got_, b, n);
   got_ += (uint32_t)n;
 }
 
 void Inflight::onDone(const Done& d) {
   if (!armed_ || done_ || d.to != self_ || d.agent != agent_) return;
+  if (!started_ && d.total) {        // data was sent and every slice was lost: resume at 0
+    if (d.total > cap_) broken_ = true;
+    else { seq_ = d.through; total_ = d.total; got_ = 0; started_ = true; }
+  }
   through_ = d.through;
+  done_total_ = d.total;
   done_ = true;                      // last: loop reads nothing until this is set
 }
 
 Inflight::State Inflight::state() const {
   if (!armed_) return IDLE;
   if (!done_) return WAITING;
-  if (!started_ && !broken_) return EMPTY;
-  if (broken_ || got_ != total_ || seq_ != through_) return BROKEN;
-  return COMPLETE;
+  if (broken_) return BROKEN;
+  if (!started_) return EMPTY;
+  if (seq_ != through_) return BROKEN;
+  if (done_total_ == 0) return EMPTY;                // the resumed seq is gone (folded)
+  if (done_total_ != total_) return BROKEN;
+  return got_ == total_ ? COMPLETE : PARTIAL;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -191,7 +207,7 @@ Fetcher::E* Fetcher::find(uint32_t agent, bool add) {
   for (uint8_t i = 0; i < n_; ++i)
     if (e_[i].agent == agent) return &e_[i];
   if (!add || n_ >= EPISODEORDER_OTHERS) return nullptr;
-  e_[n_] = E{agent, 0, 0, false};
+  e_[n_] = E{agent, 0, 0, 0, false};
   return &e_[n_++];
 }
 
@@ -227,12 +243,16 @@ void Fetcher::answered(uint32_t agent, uint32_t through, uint32_t now_ms) {
   if (!e) return;
   if (through > e->cursor) e->cursor = through;
   e->known = true;
+  e->misses = 0;
   e->next_ms = now_ms;               // more may be waiting: ask again at once
 }
 
 void Fetcher::unanswered(uint32_t agent, uint32_t now_ms) {
   E* e = find(agent, true);
-  if (e) e->next_ms = now_ms + EPISODEDELIVERY_BACKOFF_MS;
+  if (!e) return;
+  if (e->misses < 255) ++e->misses;
+  e->next_ms = now_ms + (e->misses >= EPISODEDELIVERY_MISSES_BEFORE_BACKOFF
+                             ? EPISODEDELIVERY_BACKOFF_MS : EPISODEDELIVERY_RETRY_MS);
 }
 
 void Fetcher::retry(uint32_t agent, uint32_t now_ms) {
