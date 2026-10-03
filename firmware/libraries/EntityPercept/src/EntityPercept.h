@@ -30,11 +30,6 @@
 // Entities change slowly; a longer window than LinkPercept's. Bring-up: 1 min.
 #define ENTITYPERCEPT_FLUSH_MS 60000
 #endif
-#ifndef ENTITYPERCEPT_MAX_LANE
-// Cap the @LAT96 lane like LinkPercept caps @LAT97: the TTDB index + flash must
-// not fill before SP1 consolidation/pruning. Stats keep cycling; append skips.
-#define ENTITYPERCEPT_MAX_LANE 48
-#endif
 
 // ---------------------------------------------------------------------------
 // CHANGE-TRIGGERED WITH RUN-LENGTH (Part 2, 2026-08-10) — and why the trigger is

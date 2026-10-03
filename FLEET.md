@@ -337,10 +337,17 @@ If a fact lives in one of these, link to it from here — don't copy it.
    loop heap 13–14 KB (flat), now the second-tightest board.
    ✅ **Cardputer reflashed with the fix** — its first run-closing window after it wrote a 200 B said
    line, which the old build would have lost. Transitions verified on hardware on both IMU boards.
-   **Next:** **C0's deletion** — `*_MAX_LANE` caps,
-   `lanegen::prune*` + the NVS deferred prune, the `clear-percepts`/`clear-timeline` verbs, and the
-   `PHASEC_EPISODES 0` legacy paths (the A/B switch has served its purpose once nothing runs it). (bank a pull first; release old lanes
-   after verifying) — then C0's deletion is honest fleet-wide.
+   ✅ **C0's deletion is DONE IN SOURCE** (2026-10-02, late night): no `clear` verb in
+   `orchestrator/` and nothing replacing it — the gate as ACT-III §5 C0 wrote it. Gone with it:
+   op 8 (retired, number reserved), `LaneGen/`, every `*_MAX_LANE`, the NVS deferred prune,
+   `Ttdb::removePerceptLanes`, `TimeStreamNode`'s `@LAT90` writer and the `PHASEC_EPISODES`
+   switch + legacy flushes on all six sketches. Suite and all six builds green
+   ([docs/log/2026-10.md](docs/log/2026-10.md)).
+   ✅ **Cardputer, T-Deck and K10 flashed with it** (5/5 clean boots each, episodes still written).
+   **Next:** **reflash V4-A, V4-B and V4-C with the C0 build** (no pull needed first — nothing on
+   flash changes, the new build only stops *offering* a prune; read the boot line back with
+   `scratchpad/catchboot.py`). Then Phase C's remainder: C4's `follows@` edges arrive with
+   episode delivery between nodes (TTN-RFC-0007), and B2 (`companion.py` → `fleet.py`).
    ⚠ C4's `follows@` edges must cite a **sid**, not a bare ordinal: episode ordinals are
    serial numbers inside an 8192-wide tier band and wrap in ~5.7 days at link's rate.
    📌 Reproduce the consolidator comparison any time with

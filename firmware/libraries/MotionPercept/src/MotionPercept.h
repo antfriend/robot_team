@@ -121,16 +121,15 @@
 // link-percept window (60 s) — one @LAT95 record per @LAT97 record, pairable by time.
 #define MOTIONPERCEPT_FLUSH_MS 60000
 #endif
-#ifndef MOTIONPERCEPT_MAX_LANE
-#define MOTIONPERCEPT_MAX_LANE 48       // lane cap, like @LAT96/@LAT97
-#endif
 #ifndef MOTIONPERCEPT_MAX_RUN
 // The heartbeat: how many consecutive windows of one verdict may be folded into a run
 // before a record is written anyway. This is NOT a threshold on data and is not
 // measured — it is a budget, and the arithmetic is the justification:
 //
-//   lane life at rest  = MOTIONPERCEPT_MAX_LANE x MAX_RUN windows
-//                      = 48 x 30 x 60 s = 24 HOURS of uptime (was 48 minutes)
+//   lane life at rest  = 48 records x 30 x 60 s = 24 HOURS of uptime (was 48 minutes),
+//                        when @LAT95 had a 48 cap. Since ACT-III C0 there is no cap: the
+//                        episode quota bounds the tier, and MAX_RUN sets how much of the
+//                        tier's 24 slots a still node spends per hour (2, not 60).
 //   worst-case loss    = MAX_RUN - 1 = 29 windows of unchanged history, if the node
 //                        loses power with a run open
 //   worst-case latency = 0 for a CHANGE (always written immediately); 29 windows
@@ -210,18 +209,9 @@
 #define MOTIONPERCEPT_MOVING_MG 60
 #endif
 #ifndef MOTIONPERCEPT_TRANSITION_LANE
-// The transition lane. Deliberately OUTSIDE the 94..97 percept block that
-// CMD_CLEAR_PERCEPTS drops (TTDB.h TTDB_PERCEPT_LANE_LO/HI): a percept window is
-// raw evidence and cheap to re-gather, whereas a transition is the thing this node
-// learns from and there are far fewer of them. Widen the prune range deliberately
-// if you ever want them dropped — do not let it happen by adjacency.
+// The legacy transition lane. Since ACT-III Phase C every sketch writes transitions as
+// MOTION-band episodes in @LAT103 instead; 93 stays named so old records parse.
 #define MOTIONPERCEPT_TRANSITION_LANE 93
-#endif
-#ifndef MOTIONPERCEPT_MAX_TRANSITION_LANE
-// Own cap, own budget. A transition only exists on a verdict CHANGE, so at one 60 s
-// window per minute this is bounded by how often the node actually starts and stops
-// moving, not by uptime — a still node on a shelf writes none at all.
-#define MOTIONPERCEPT_MAX_TRANSITION_LANE 32
 #endif
 #ifndef MOTIONPERCEPT_TRANSITION_BUF
 // Buffer buildTransition() needs: two state blocks plus the header. A measured pair is

@@ -22,9 +22,9 @@ Panels
           it hears, its clock. Double-click a row to start/stop polling it.
   MAP     the same fleet as a picture, laid out from master/positions.md if that
           belief exists (SP2), otherwise a ring.
-  LANES   the selected node's TTDB lanes with their caps, and the Clear button — the
-          one control here that destroys something, so it asks first and quotes what
-          the destruction costs.
+  LANES   the selected node's TTDB lanes: which are LIVE (still written) and which are
+          HISTORY. There is no Clear button: since ACT-III C0 (2026-10-02) no lane has a
+          cap and nothing is ever cleared — the episode tier forgets on its own.
   LOG     what actually went over the wire.
 """
 
@@ -66,56 +66,26 @@ ALL_NODES = list(C.NODE_IDS)
 ID_TO_NAME = {i: n for n, i in C.NODE_IDS.items()}
 
 # --- Lanes -------------------------------------------------------------------
-# lat -> (label, cap, clear_lane, warning). `clear_lane` is the byte CMD_CLEAR_PERCEPTS
-# takes; None means the firmware refuses to prune it by any path (LaneGenNode.h keeps
-# that guard narrow on purpose, so this table must not invent a way around it).
-# Caps are the firmware constants, not guesses:
-#   TIMESTREAM_MAX_LANE 16 · PERCEPTLEARN_MAX_CLAIMS 8 · PERCEPTLEARN_MAX_LANE 24
-#   MOTIONPERCEPT_MAX_TRANSITION_LANE 32 · {ACOUSTIC,MOTION,ENTITY,LINK}PERCEPT_MAX_LANE 48
-#   LANEGEN_MAX_LANE 32
+# lat -> (label, live). `live` = this fleet's current firmware still writes the lane. The
+# rest are HISTORY: records earlier builds wrote, still on flash and still readable, which
+# no current build appends to. There are no caps to show — ACT-III Phase C0 (2026-10-02)
+# deleted every *_MAX_LANE and every prune path, so nothing here can be cleared either.
 LANES = {
-    90: ("timeline (@LAT90)", 16, 90,
-         "Pruning the TIMELINE lane is the named path lanegen::pruneTimeline — the\n"
-         "stream ids it explained ride forward into the @LAT100 boundary, so records\n"
-         "stamped with a stream that later lost stay interpretable.\n\nPrune it?"),
-    91: ("beliefs (@LAT91)", 8, None, None),
-    92: ("outcomes (@LAT92)", 24, 92,
-         "⚠ THIS IS DESTRUCTIVE BEYOND ITS OWN LANE.\n\n"
-         "Reconciler is a PURE FUNCTION of @LAT92, so emptying the outcome lane\n"
-         "returns EVERY @LAT91 belief to baseline on the next Dream Cycle. That is\n"
-         "the design — a belief is only as strong as the evidence retained — but it\n"
-         "is not the routine cleanup that 94..97 is. The @LAT100 boundary record\n"
-         "(**OUTCOMES-CARRIED** + one **BELIEF-AT-BOUNDARY** line per belief) is the\n"
-         "only thing that will say what was here.\n\nPrune it?"),
-    93: ("transitions (@LAT93)", 32, None, None),
-    94: ("acoustic (@LAT94)", 48, 94, None),
-    95: ("motion (@LAT95)", 48, 95, None),
-    96: ("entity (@LAT96)", 48, 96,
-         "@LAT96 carries the Jaccard baseline that semantic positioning Part 2\n"
-         "measures its drift threshold against.\n\nPrune it?"),
-    97: ("link rssi (@LAT97)", 48, 97, None),
-    98: ("adopted beliefs (@LAT98)", None, None, None),
-    99: ("sync log (@LAT99)", None, None, None),
-    100: ("lane gens (@LAT100)", 32, None, None),
-    # ACT-III Phase C (2026-10-02): where a migrated board's evidence lives now. No cap and
-    # no Clear, by design — the ring folds into @LAT104 and cuts itself; a write is never
-    # refused, so there is nothing for an operator to clear.
-    101: ("trace field (@LAT101)", None, None, None),
-    103: ("episodes (@LAT103)", None, None, None),
-    104: ("fold checkpoints (@LAT104)", None, None, None),
+    90: ("timeline (@LAT90)", False),
+    91: ("beliefs (@LAT91)", False),
+    92: ("outcomes (@LAT92)", False),
+    93: ("transitions (@LAT93)", False),
+    94: ("acoustic (@LAT94)", False),
+    95: ("motion (@LAT95)", False),
+    96: ("entity (@LAT96)", False),
+    97: ("link rssi (@LAT97)", False),
+    98: ("adopted beliefs (@LAT98)", True),
+    99: ("sync log (@LAT99)", True),
+    100: ("lane gens (@LAT100)", False),
+    101: ("trace field (@LAT101)", True),
+    103: ("episodes (@LAT103)", True),
+    104: ("fold checkpoints (@LAT104)", True),
 }
-CLEAR_ALL_WARN = (
-    "Clear ALL percept lanes (94, 95, 96, 97) on {node}?\n\n"
-    "⚠ This includes @LAT96, whose Jaccard baseline semantic positioning Part 2\n"
-    "needs. If you only meant the link lane, name it: pick @LAT97 and Clear.\n\n"
-    "@LAT100 records the boundary, so ordinal citations into the pruned lanes stay\n"
-    "readable as history."
-)
-
-# A clear rewrites flash, and a node busy rewriting flash can miss the ACK window —
-# that is a false negative, not a failed command ([[band-play-ack-false-negative]]),
-# so give it more attempts than the CLI default of 4 before believing it.
-CLEAR_ATTEMPTS = 8
 
 RECORD_RE = re.compile(r"^@LAT(-?\d+)LON(\d+)\b")
 
@@ -455,32 +425,6 @@ def job_pull(node_name, out_path, via_bridge_warn):
     return run
 
 
-def job_clear(node_name, lane):
-    """CMD_CLEAR_PERCEPTS with an explicit lane byte, then re-pull so the lane counts
-    on screen are read back off flash rather than assumed."""
-    target = C.NODE_IDS[node_name]
-    label = f"lane {lane}" if lane else "ALL percept lanes (94-97)"
-
-    def run(ser, reader, post):
-        log = lambda s: post("log", s)  # noqa: E731
-        payload = (bytes([C.CMD_CLEAR_PERCEPTS]) + struct.pack("<I", target)
-                   + bytes([lane]))
-        seq = int(time.time() * 1000) & 0x7FFFFFFF
-        frame = C.encode_toot(C.CMD, C.ORCHESTRATOR_ID, seq, payload,
-                              flags=C.FLAG_WANT_ACK)
-        log(f"clear-percepts {label} -> {node_name} (0x{target:08X})")
-        acked = send_reliable_quiet(ser, reader, frame, target, seq, log,
-                                    rto0=0.6, attempts=CLEAR_ATTEMPTS)
-        if acked:
-            log(f"  ACK on attempt {acked} — pruned. Re-pull to see the new counts and "
-                f"the @LAT100 boundary record.")
-        else:
-            log("  no ACK — a prune REWRITES FLASH and can be busy through its own ACK "
-                "window, so this is unconfirmed, NOT proof it did nothing. Re-pull.")
-        post("cmd_done", node_name, "clear-percepts", bool(acked))
-    return run
-
-
 # --- The window ---------------------------------------------------------------
 
 class FleetUI(tk.Tk):
@@ -660,29 +604,20 @@ class FleetUI(tk.Tk):
         ttk.Button(top, text="Open file…", command=self._load_lane_file).pack(
             side="left")
 
-        cols = ("lane", "what", "n", "cap", "use", "bytes")
+        cols = ("lane", "what", "n", "kind", "bytes")
         self.lanes_tree = ttk.Treeview(f, columns=cols, show="headings", height=9,
                                        selectmode="browse")
         for c, w, h, a in (("lane", 48, "lane", "center"), ("what", 150, "what", "w"),
-                           ("n", 46, "recs", "center"), ("cap", 46, "cap", "center"),
-                           ("use", 128, "fill", "w"), ("bytes", 66, "bytes", "e")):
+                           ("n", 46, "recs", "center"), ("kind", 70, "kind", "center"),
+                           ("bytes", 66, "bytes", "e")):
             self.lanes_tree.heading(c, text=h)
-            self.lanes_tree.column(c, width=w, anchor=a, stretch=(c == "use"))
-        self.lanes_tree.tag_configure("full", background="#fde8e8")
-        self.lanes_tree.tag_configure("high", background="#fdf6e3")
-        self.lanes_tree.tag_configure("locked", foreground="#909090")
+            self.lanes_tree.column(c, width=w, anchor=a, stretch=(c == "what"))
+        self.lanes_tree.tag_configure("history", foreground="#909090")
         self.lanes_tree.pack(fill="both", expand=True, pady=4)
 
-        row = ttk.Frame(f)
-        row.pack(fill="x")
-        self.clear_btn = ttk.Button(row, text="Clear selected lane",
-                                    command=self._do_clear_selected)
-        self.clear_btn.pack(side="left")
-        ttk.Button(row, text="Clear ALL 94–97",
-                   command=lambda: self._do_clear(0)).pack(side="left", padx=4)
         self.lane_note = ttk.Label(f, foreground="#555",
-                                   text="98/99 are unreachable by any path; 91/93/100 "
-                                        "have no prune path in firmware")
+                                   text="nothing is cleared: episodes fold and cut "
+                                        "themselves; grey lanes are history")
         self.lane_note.pack(anchor="w")
         return f
 
@@ -918,67 +853,19 @@ class FleetUI(tk.Tk):
         self.lane_head.configure(
             text=f"{node}: {nbytes} B, {sum(v['n'] for v in inv.values())} records, "
                  f"read {fmt_ago(when)}")
-        # Every lane the firmware knows about, whether or not it has records yet — an
-        # empty percept lane is a fact about the node, not an absence of information.
+        # Every LIVE lane, whether or not it has records yet — an empty live lane is a
+        # fact about the node, not an absence of information. History only where held.
         lats = sorted(set(LANES) | set(inv))
         for lat in lats:
-            label, cap, clear, _ = LANES.get(lat, ("records (identity/beliefs)",
-                                                   None, None, None))
+            label, live = LANES.get(lat, ("node records", True))
             n = inv.get(lat, {}).get("n", 0)
             b = inv.get(lat, {}).get("bytes", 0)
-            if lat < 90 and lat not in LANES:
-                label = "node records"
-            tags = []
-            if cap:
-                frac = n / cap
-                fill = "█" * int(round(frac * 12)) + "·" * (12 - int(round(frac * 12)))
-                use = f"{fill} {n * 100 // cap}%"
-                if n >= cap:
-                    tags.append("full")
-                elif frac >= 0.75:
-                    tags.append("high")
-            else:
-                use = ""
-            if clear is None:
-                tags.append("locked")
-                # Say so only for lanes the firmware HAS an opinion about — the
-                # identity/belief records below @LAT90 were never prunable material.
-                if lat in LANES:
-                    label += "  (no prune path)"
+            if lat in LANES and not live and n == 0:
+                continue            # history this node never wrote: nothing to show
             self.lanes_tree.insert("", "end", iid=str(lat),
-                                   values=(lat, label, n, cap or "-", use, b),
-                                   tags=tuple(tags))
-
-    def _do_clear_selected(self):
-        sel = self.lanes_tree.selection()
-        if not sel:
-            return messagebox.showinfo("clear", "Pick a lane row first, or use "
-                                                "'Clear ALL 94–97'.")
-        lat = int(sel[0])
-        entry = LANES.get(lat)
-        if not entry or entry[2] is None:
-            return messagebox.showwarning(
-                "clear", f"@LAT{lat} has no prune path in firmware.\n\n"
-                         "LaneGenNode.h keeps that guard narrow deliberately — 98/99 "
-                         "stay unreachable by any path, and 91/93/100 are written as "
-                         "consequences of other lanes rather than pruned directly.")
-        self._do_clear(entry[2])
-
-    def _do_clear(self, lane):
-        node = self.sel_node()
-        if lane == 0:
-            msg = CLEAR_ALL_WARN.format(node=node)
-        else:
-            label, _, _, warn = LANES[lane]
-            msg = f"Clear {label} on {node}?\n\n" + (warn or
-                  "@LAT100 records the boundary this prune creates, so the ordinal "
-                  "citations into the pruned lane stay readable as history.")
-        if not messagebox.askyesno("confirm prune", msg, icon="warning"):
-            return
-        link, _ = self.link_for(node, self.pull_via.get())
-        if link is None:
-            return messagebox.showwarning("no link", "Connect a link first.")
-        link.submit(f"clear {lane} {node}", job_clear(node, lane))
+                                   values=(lat, label, n, "live" if live else "history",
+                                           b),
+                                   tags=() if live else ("history",))
 
     # ---- fleet table + map ----
     def _row_values(self, name):

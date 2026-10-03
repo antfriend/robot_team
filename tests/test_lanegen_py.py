@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """test_lanegen_py.py — the laptop half of lane generations (@LAT100).
 
-The firmware half is tests/test_lanegen.cpp. This covers what companion.py has to
-get right for the boundary to be worth writing: reading the marker, and deciding
-which citations it invalidated WITHOUT flagging the ones written after it.
+The firmware half (LaneGen + tests/test_lanegen.cpp) was deleted in ACT-III C0
+(2026-10-02) with every prune path, so no board writes @LAT100 any more — but the
+markers already on flash (and in master/) are history that must still read correctly.
+This covers that reader: reading the marker, and deciding which citations it
+invalidated WITHOUT flagging the ones written after it.
 
 Run: python tests/test_lanegen_py.py
 """

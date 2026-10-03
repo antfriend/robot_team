@@ -244,9 +244,9 @@ int main() {
     Ttdb db;
     db.begin(gFs, kPath);
 
-    // A refused lane names itself as bad args and — the load-bearing half — does NOT
-    // touch the file. The guard that keeps a prune off @LAT98/@LAT99 is the reason.
-    CHECK(!db.removePerceptLanes(99), "removePerceptLanes(99) is refused");
+    // A refused rewrite names itself as bad args and — the load-bearing half — does NOT
+    // touch the file. (Was removePerceptLanes(99); that call left with ACT-III C0.)
+    CHECK(!db.removeLaneRange(99, 98), "a reversed range is refused");
     CHECK(db.lastRewriteErr() == TTDB_RW_BAD_ARGS,
           "and names the step 'bad-args' (got '%s')", db.lastRewriteErrName());
     CHECK(countHeaders(slurp()) == 6, "the refusal wrote nothing (got %d headers)",
@@ -300,7 +300,7 @@ int main() {
     writeFixture(lanes);
     Ttdb db;
     db.begin(gFs, kPath);
-    CHECK(!db.removePerceptLanes(99), "a refused lane records bad-args");
+    CHECK(!db.removeLaneRange(99, 98), "a refused rewrite records bad-args");
     CHECK(db.lastRewriteErr() == TTDB_RW_BAD_ARGS, "…as expected");
     db.clearRewriteErr();
     CHECK(db.lastRewriteErr() == TTDB_RW_OK,

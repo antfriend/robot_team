@@ -106,7 +106,8 @@ CMD_BEEP = 4
 CMD_SET_INTERVAL = 5
 CMD_PLAY = 6         # start the node's melody/part (K10 song); nodes boot with it off
 CMD_STOP = 7         # stop the node's melody/part
-CMD_CLEAR_PERCEPTS = 8  # drop the @LAT97 link-percept lane (SP1 prune, no args)
+# 8 was CMD_CLEAR_PERCEPTS, the lane prune — RETIRED in ACT-III C0 (2026-10-02), when no
+# lane had a cap left to clear. The number is never reused (Toot.h says the same).
 CMD_GET_GPS = 9      # GPS-bearing node replies a GPS PERCEPT (SP2 roaming anchor)
 CMD_SET_SCENE = 10   # args: scene_id u16 LE — move the band to a scene of the song.
                      # Only the CONDUCTOR owns the chart, so only it applies + ACKs;
@@ -136,7 +137,7 @@ VIEW_NEXT = 0xFF
 CMD_OPS = {"ping": CMD_PING, "set-led": CMD_SET_LED, "clear-led": CMD_CLEAR_LED,
            "beep": CMD_BEEP, "set-interval": CMD_SET_INTERVAL,
            "play": CMD_PLAY, "stop": CMD_STOP,
-           "clear-percepts": CMD_CLEAR_PERCEPTS, "set-scene": CMD_SET_SCENE,
+           "set-scene": CMD_SET_SCENE,
            "set-view": CMD_SET_VIEW}
 
 # STATUS payload (Toot.h): cursor_lat i16 | cursor_lon i16 | temp_x100 i16 |
@@ -649,7 +650,7 @@ def reltest(port, baud, node, size, settle, rto0, attempts):
 
 
 def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
-             settle, rto0, attempts, scene=None, lane=0, view=None):
+             settle, rto0, attempts, scene=None, view=None):
     """Send an orchestrator CMD (FLEET.md §4b) addressed to one node and confirm
     it via the want_ack ACK. Ops: ping, set-led RRGGBB, clear-led, beep, set-interval,
     set-scene, set-view. `node` may be "broadcast" for the band-wide ops
@@ -703,35 +704,6 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
         v = VIEW_NEXT if view is None else (view & 0xFF)
         args = struct.pack("<B", v)
         detail = " next view" if v == VIEW_NEXT else f" view {v}"
-    elif opcode == CMD_CLEAR_PERCEPTS:
-        # Optional lane byte: 0 = every percept lane (the default, and what an older
-        # sender that omits the byte gets). A node refuses anything outside 94..97,
-        # so this can never reach the identity / belief / sync lanes. Check it here
-        # too — a doomed CMD would otherwise cost 4 attempts to learn nothing.
-        # 90, the TIMELINE lane (2026-08-03) and 92, the OUTCOME lane (2026-08-04) are
-        # the two additions, and each takes its OWN named path on the node —
-        # lanegen::pruneTimeline / lanegen::pruneOutcomes — because each carries
-        # something forward that a bare rewrite would orphan: the stream ids @LAT90
-        # explained, and the tally @LAT92's beliefs were folded from. 98/99 stay
-        # unreachable by any path.
-        #
-        # ⚠ `--lane 92` IS DESTRUCTIVE BEYOND ITS OWN LANE. Reconciler is a pure function
-        # of @LAT92, so emptying it returns every @LAT91 belief to baseline on the next
-        # Dream Cycle. That is the design (a belief is as strong as the evidence
-        # retained), which is why it is allowed at all — but it is not the routine
-        # cleanup that 94..97 is, and the boundary record is the only thing that will
-        # say what was there.
-        if lane not in (0, TIMESTREAM_LANE, OUTCOME_LANE) and not (94 <= lane <= 97):
-            sys.exit(f"--lane must be 0 (all), {TIMESTREAM_LANE} (timeline), "
-                     f"{OUTCOME_LANE} (outcomes) or 94..97, got {lane}")
-        args = bytes([lane])
-        note = ""
-        if lane == TIMESTREAM_LANE:
-            note = " [TIMELINE — its stream ids ride into the boundary]"
-        elif lane == OUTCOME_LANE:
-            note = (" [OUTCOMES — its tally rides into the boundary; @LAT91 beliefs "
-                    "return to baseline]")
-        detail = f" lane {lane if lane else 'ALL (94-97)'}{note}"
 
     payload = bytes([opcode]) + struct.pack("<I", target) + args
     seq = int(time.time()) & 0x7FFFFFFF
@@ -748,14 +720,10 @@ def send_cmd(port, baud, node, op, rgb, freq, dur_ms, interval_ms,
                               rto0=rto0, attempts=attempts, status_out=ack_status)
 
     if acked and ack_status and ack_status[0] == ACK_DEFERRED:
-        # The node accepted the command and could NOT do it now — it is queued in NVS and
-        # runs at the node's next boot, before its radios take the heap. Saying APPLIED
-        # here would be the same lie, one layer up.
+        # The node accepted the command and SCHEDULED it rather than doing it. No current
+        # op does this (the lane prune, the only one that did, was retired in ACT-III C0),
+        # but the status is still on the wire, and saying APPLIED for it would be a lie.
         print(f"ACK from {node} on attempt {acked} — DEFERRED, not yet applied.")
-        print("  The node could not rewrite its TTDB with its radios up and has SCHEDULED"
-              " this for its next boot.")
-        print("  Any command that resets the board triggers it — a `pull` will. Then"
-              " verify by re-pull, never by the ACK.")
     elif acked:
         print(f"ACK from {node} on attempt {acked} — APPLIED")
     else:
@@ -1878,10 +1846,12 @@ def fmt_stream(w):
 # resets the count and every pre-existing citation silently starts resolving to a
 # different record with the same index — a live pointer to the wrong thing, not
 # an honest dangle. @LAT100 records the boundary so those citations read as
-# "generation N, pruned" instead. See firmware/libraries/LaneGen.
+# "generation N, pruned" instead. The firmware that wrote them (LaneGen) was deleted in
+# ACT-III C0 (2026-10-02) with every prune path; the markers already on flash are history
+# that still has to read correctly, so this reader stays.
 PRUNE_LANE = 100
-TIMESTREAM_LANE = 90    # the timeline lane; prunable only via lanegen::pruneTimeline
-OUTCOME_LANE = 92       # the outcome lane; prunable only via lanegen::pruneOutcomes
+TIMESTREAM_LANE = 90    # the timeline lane (no longer written; old records still parse)
+OUTCOME_LANE = 92       # the outcome lane (no longer written since C3)
 PRUNE_RE = re.compile(
     r"\*\*LANE-PRUNED\*\*\s+lane:(\d+)\s+gen:(\d+)\s+removed:(\d+)\s+"
     r"last_lon:(-?\d+)")
@@ -4036,8 +4006,7 @@ def consolidate_proximity(windows_by_node, calib=None, last=None,
 
 
 def proximity(port, baud, nodes, out, do_pull, settle,
-              calib_path=DEFAULT_CALIBRATION, last=None, clear=False,
-              since_ms=None):
+              calib_path=DEFAULT_CALIBRATION, last=None, since_ms=None):
     """SP1: pull each node's TTDB, fuse the @LAT97 lanes into @BELIEF:PROXIMITY
     records (master/proximity.md), and print the pair table."""
     calib = load_calibration(calib_path)
@@ -4183,30 +4152,7 @@ def proximity(port, baud, nodes, out, do_pull, settle,
         print(f"\nwrote {out}  (uncalibrated model — distances are order-of-"
               f"magnitude until the calibration walk)")
 
-    # The Dream-Cycle prune (SP1): the consumed raw percepts are consolidated
-    # into beliefs above, so tell each node to drop them (also un-wedges a node
-    # that hit LINKPERCEPT_MAX_LANE). Fresh serial session; want_ack so an
-    # unacked clear is loud, not silent.
-    # Lane 0 = ALL percept lanes. This consolidation consumes @LAT96 entity
-    # co-occurrence as well as @LAT97 link windows, so clearing only 97 left the
-    # lane that actually grew a TTDB past what its own bridged pull can carry.
-    if clear and port:
-        import serial
-        print("clearing consumed percept lanes 94-97 (CMD clear-percepts)...")
-        reader = SerialFrameReader()
-        with serial.Serial(port, baud, timeout=0.1) as ser:
-            time.sleep(settle)
-            ser.reset_input_buffer()
-            for n in nodes:
-                target = NODE_IDS[n]
-                payload = (bytes([CMD_CLEAR_PERCEPTS])
-                           + struct.pack("<I", target) + bytes([0]))
-                seq = int(time.time() * 1000) & 0x7FFFFFFF
-                frame = encode_toot(CMD, ORCHESTRATOR_ID, seq, payload,
-                                    flags=FLAG_WANT_ACK)
-                acked = send_reliable(ser, reader, frame, target, seq)
-                print(f"  {n}: " + (f"cleared (ACK attempt {acked})" if acked
-                                    else "NO ACK — lane NOT cleared"))
+    # No prune follows (ACT-III C0): the episode tier forgets on its own, by folding.
 
 
 # --- position embedding (semantic positioning SP2) ---------------------------
@@ -5238,13 +5184,6 @@ def main():
                     help="agent sense/act cadence ms (set-interval)")
     cm.add_argument("--scene", type=int, default=None,
                     help="scene id for set-scene (only the conductor applies it)")
-    cm.add_argument("--lane", type=int, default=0,
-                    help="clear-percepts: lane to drop (94 acoustic, 95 motion, "
-                         "96 entity, 97 link); 0 = ALL of them (default). 90 (TIMELINE) "
-                         "and 92 (OUTCOMES) each take a separate named path that "
-                         "carries forward what a bare rewrite would orphan — 90's "
-                         "stream ids, 92's tally. ⚠ 92 also returns every @LAT91 "
-                         "belief to baseline. 98/99 are refused")
     cm.add_argument("--view", type=int, default=None,
                     help="set-view: which face the node shows. The id is NODE-LOCAL "
                          "(K10: 0 eye, 1 status, 2 senses); omit it for VIEW_NEXT, "
@@ -5387,9 +5326,6 @@ def main():
                     help="older count-based recency filter: each node's newest "
                          "N windows. Honest only while every lane logs one "
                          "record per window - prefer --since")
-    px.add_argument("--clear", action="store_true",
-                    help="after consolidating, CMD each node to drop its "
-                         "@LAT97 lane (the Dream-Cycle prune; needs --port)")
 
     ca = sub.add_parser(
         "calibrate",
@@ -5527,7 +5463,7 @@ def main():
     elif args.cmd == "cmd":
         send_cmd(args.port, args.baud, args.node, args.op, args.rgb, args.freq,
                  args.dur_ms, args.interval_ms, args.settle, args.rto0, args.attempts,
-                 scene=args.scene, lane=args.lane, view=args.view)
+                 scene=args.scene, view=args.view)
     elif args.cmd == "percepts":
         percepts(args.port, args.baud, args.node, args.save)
     elif args.cmd == "prunes":
@@ -5567,7 +5503,7 @@ def main():
             sys.exit(str(e))
         proximity(args.port, args.baud, [s for s in args.nodes.split(",") if s],
                   args.out, do_pull, args.settle, args.calibration, args.last,
-                  args.clear, since_ms)
+                  since_ms)
     elif args.cmd == "calibrate":
         calibrate(args.proto, args.station, args.out, args.note)
     elif args.cmd == "positions":

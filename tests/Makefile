@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/LaneGen/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -64,12 +64,6 @@ SYM_SRCS := test_symmetric_edges.cpp \
 # suite's own report of "12/12" was therefore true of three binaries nobody had built.
 TSTREAM_SRCS := test_timestream.cpp \
         $(LIB)/TimeStream/src/TimeStream.cpp
-# ⚠ LaneGen needs $(TS) for the same reason every percept tier does — it stamps boundary
-# records through timestream::buildStamp. Defining LG_SRCS without it linked NOTHING and
-# `make test` re-ran the stale test_lanegen.exe, which passed. Two defects of the same
-# shape, stacked: the missing variable hid the missing dependency.
-LG_SRCS := test_lanegen.cpp \
-        $(LIB)/LaneGen/src/LaneGen.cpp $(TS)
 TF_SRCS := test_tracefield.cpp \
         $(LIB)/TraceField/src/TraceField.cpp
 # The default network, stage 1 (docs/design/default-network.md §6): capability advertisement, the
@@ -134,7 +128,6 @@ test: build
 	./test_nmea
 	./test_pulse
 	./test_timestream
-	./test_lanegen
 	./test_tracefield
 	./test_social
 	./test_sid
@@ -144,7 +137,7 @@ test: build
 	./test_episode
 	./test_fleettime
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(LG_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -155,7 +148,6 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(NMEA_SRCS) -o test_nmea
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PULSE_SRCS) -o test_pulse
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(TSTREAM_SRCS) -o test_timestream
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LG_SRCS) -o test_lanegen
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(TF_SRCS) -o test_tracefield
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SOC_SRCS) -o test_social
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SID_SRCS) -o test_sid
@@ -173,7 +165,7 @@ clean:
 	      test_rfc_ttdb test_rfc_ttdb.exe test_nmea test_nmea.exe \
 	      test_symmetric_edges test_symmetric_edges.exe \
 	      test_pulse test_pulse.exe \
-	      test_timestream test_timestream.exe test_lanegen test_lanegen.exe \
+	      test_timestream test_timestream.exe \
 	      test_tracefield test_tracefield.exe \
 	      test_social test_social.exe \
 	      test_sid test_sid.exe \

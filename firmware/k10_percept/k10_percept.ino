@@ -30,7 +30,6 @@
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <EpisodeNode.h>     // ACT-III §C2: all four percept tiers -> @LAT103 episodes, @LAT104 folds
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound> frame:<f>` (TTG-RFC-0004 §4.3)
-#include <LaneGenNode.h>     // @LAT100: a prune writes down the boundary it creates
 #include <RobotTeamConfig.h>
 
 // The three faces this node can show (CMD_SET_VIEW). Declared UP HERE, far from the
@@ -184,11 +183,7 @@ static timestream::Node gTs;
 // (+ its transitions) and ACOUSTIC windows are @LAT103 episodes in their own LON bands,
 // folded into a @LAT104 checkpoint and cut, so no tier is ever refused for a full lane. No
 // PerceptLearn on this board: link episodes carry RSSI only and the consolidator stays
-// empty. The stream still runs and stamps; only its capped @LAT90 log stops.
-// 0 restores the pre-Phase-C flushes exactly.
-#ifndef PHASEC_EPISODES
-#define PHASEC_EPISODES 1
-#endif
+// empty. The stream still runs and stamps; its capped @LAT90 log is gone.
 static episodenode::Node gEpisodes;
 #define LINK_RECORD_CAP 1024   // LinkPercept worst case 847 B (test_episode)
 static_assert(LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
@@ -400,32 +395,24 @@ static inline uint32_t pulseHumanize() {  // small bounded jitter, cheap LCG
 //
 // --- THE INDEX BUDGET, BECAUSE THIS NODE JUST WENT FROM ONE GROWING LANE TO FOUR -----
 //
-// `TTDB_MAX_RECORDS` (288) is a WHOLE-FILE budget every lane shares, and the per-lane caps
-// deliberately over-subscribe it. Overflowing it is not a graceful degradation: records
-// past the cap are invisible to every reader, and a lane prune walks the INDEX. So the
-// arithmetic belongs here, next to the lanes that changed it, rather than in a commit
-// message:
+// `TTDB_MAX_RECORDS` (288) is a WHOLE-FILE budget every lane shares. Overflowing it is not
+// a graceful degradation: records past the cap are invisible to every reader, and a lane
+// rewrite walks the INDEX. So the arithmetic belongs here. Since ACT-III Phase C0
+// (2026-10-02) no lane has a cap and nothing prunes; what bounds this node is the episode
+// tier's per-tier quotas, reclaimed by the fold-and-cut, never by an operator:
 //
 //   identity            2   (@LAT0LON0, @LAT10LON0 — fixed)
-//   @LAT90  timeline   16   TIMESTREAM_MAX_LANE     (a stream change, not a period)
-//   @LAT93  transition 32   MOTIONPERCEPT_MAX_TRANSITION_LANE  (only on a verdict flip)
-//   @LAT94  acoustic   48   ACOUSTICPERCEPT_MAX_LANE  <- FILLS FIRST, in ~48 MINUTES:
-//                           unlike @LAT95/@LAT96 it is NOT change-triggered, so every
-//                           60 s window writes a record whether or not anything happened
-//   @LAT95  motion     48   MOTIONPERCEPT_MAX_LANE  (change-triggered: ~24 h on a shelf)
-//   @LAT96  entity     48   ENTITYPERCEPT_MAX_LANE  (change-triggered, 10-min scans)
-//   @LAT97  link       48   LINKPERCEPT_MAX_LANE — UNREACHABLE on this board: its only
-//                           feeder is BLE and USE_BLE is 0 (the 2.x core cannot run
-//                           BLE + WiFi). Counted as 0, and that is a fact about THIS
-//                           build, not about the cap.
-//   @LAT100 lanegen    32   LANEGEN_MAX_LANE (one marker per prune, an operator action)
+//   @LAT103 episodes  144   SEMANTIC_QUOTA_{LINK 48, ENTITY 48, MOTION 24, ACOUSTIC 24}
+//                       +8  SEMANTIC_EVICT_BATCH (a ring overshoots by one batch before its cut)
+//   @LAT104 checkpoint  1   (superseded checkpoints are cut with the episodes)
+//   @LAT90-97, @LAT100 history only: written by earlier builds, never by this one
 //   @LAT98/@LAT99      uncapped, but they only grow when the laptop pushes or syncs
 //                        --------
-//   reachable total    226 of 288, ~62 slots of margin for the sync/belief lanes.
+//   live total        ~155 + history, of 288. (Released to 48 records on 2026-10-02.)
 //
 // It fits, and the boot banner prints the live headroom + a saturation warning either
 // way, because arithmetic done once at design time is not a substitute for the node
-// saying what it actually holds. If a lane cap is ever raised here, redo this sum first:
+// saying what it actually holds. If a quota is ever raised, redo this sum first:
 // the whole point of the 2026-08-09 defect is that the per-lane check passes while the
 // file-wide one is what silently deletes records.
 
@@ -690,15 +677,6 @@ static inline void indicatorClear() {
 #if USE_K10_HW
   k10.rgb->write(-1, 0x000000);
 #endif
-}
-
-// How many records this TTDB holds in `lat`. Used by every lane cap and by the senses
-// view; walks the in-RAM index, never the file.
-static int laneCount(int16_t lat) {
-  int n = 0;
-  for (int i = 0; i < gDb.recordCount(); ++i)
-    if (gDb.record(i).lat == lat) ++n;
-  return n;
 }
 
 // Is this node's own voice sounding a part right now? Reported as the STATE that would
@@ -1178,14 +1156,11 @@ static void renderStatus(uint32_t now) {
 #endif
   snprintf(buf[5], 48, "stream %08lX %s", (unsigned long)gStamp.stream_id,
            gSynced ? "wall" : "local");
-  if (PHASEC_EPISODES)
-    snprintf(buf[6], 48, "ep L%u E%u M%u A%u",
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_LINK).live(),
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).live(),
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live());
-  else
-    snprintf(buf[6], 48, "94:%d 95:%d 96:%d", laneCount(94), laneCount(95), laneCount(96));
+  snprintf(buf[6], 48, "ep L%u E%u M%u A%u",
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_LINK).live(),
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_ENTITY).live(),
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live());
   for (int i = 0; i < 7; ++i) txt[i] = buf[i];
 
   for (int i = 0; i < 7; ++i) {
@@ -1283,14 +1258,10 @@ static void renderSenses(uint32_t now) {
 #if USE_MIC
   snprintf(buf[1], 48, gMicOk ? "mic rms %ld" : "mic SILENT (no i2s)",
            (long)gMicLevel);
-  if (PHASEC_EPISODES)
-    snprintf(buf[2], 48, "ep A%u/%u  trans %ld",
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live(),
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).capacity(),
-             (long)gAcousticLog.transients());
-  else
-    snprintf(buf[2], 48, "@LAT94 %d/%d  trans %ld", laneCount(94),
-             ACOUSTICPERCEPT_MAX_LANE, (long)gAcousticLog.transients());
+  snprintf(buf[2], 48, "ep A%u/%u  trans %ld",
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live(),
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).capacity(),
+           (long)gAcousticLog.transients());
 #else
   snprintf(buf[1], 48, "mic off");
   snprintf(buf[2], 48, "@LAT94 off");
@@ -1298,14 +1269,10 @@ static void renderSenses(uint32_t now) {
 #if USE_TILT
   // The null is on screen because it is the number that decides whether `still` means
   // anything on this board; `x1.000` with a `moving` verdict is the false-positive state.
-  if (PHASEC_EPISODES)
-    snprintf(buf[3], 48, "ep M%u/%u %s x%.3f",
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
-             (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).capacity(),
-             gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
-  else
-    snprintf(buf[3], 48, "@LAT95 %d/%d %s x%.3f", laneCount(95), MOTIONPERCEPT_MAX_LANE,
-             gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
+  snprintf(buf[3], 48, "ep M%u/%u %s x%.3f",
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).live(),
+           (unsigned)gEpisodes.tiers().ring(semantic::TIER_MOTION).capacity(),
+           gMotionLog.moving(millis()) ? "MOVING" : "still", gRestScale);
 #else
   snprintf(buf[3], 48, "@LAT95 off");
 #endif
@@ -1802,8 +1769,7 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
       }
       if (toot::cmdTarget(t) == kNodeId) {
         // An addressed CMD is ACKed unless a handler says otherwise. Most ops cannot
-        // fail; the two that can — a duet with a malformed payload and a prune with no
-        // room for its boundary marker — must NOT be ACKed, or the operator is told a
+        // fail; the one that can — a duet with a malformed payload — must NOT be ACKed, or the operator is told a
         // thing happened that did not. Hence a flag rather than the flat `accepted =
         // true` this used to end with.
         bool cmd_ok = true;
@@ -1844,35 +1810,6 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
             // runs here rather than being deferred.
             setView(toot::cmdView(t));
             break;
-          case toot::CMD_CLEAR_PERCEPTS: {
-            // SP1 prune, and the reason it finally exists on this board: until 2026-08-12
-            // the K10 authored ONE percept lane and had no way to clear it ("reflash to
-            // reset"). It now authors three, so a node with no prune path would fill
-            // @LAT94/@LAT95/@LAT96 and go quietly blind — the exact failure the fleet has
-            // already hit twice.
-            //
-            // Flash rewrite, so this reaches here only from loop(): the radio path defers
-            // it (see onEspNowRecv) and the serial path already runs in loop(). ACK only
-            // on success, so a failed prune is loud rather than silent.
-            uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
-            cmd_ok = (lane == TIMESTREAM_LANE)
-                         ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
-                         : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
-            if (cmd_ok)
-              Serial.printf("[prune] percept lane %s cleared (TTDB now %uB, %dr)\n",
-                            lane ? String(lane).c_str() : "ALL",
-                            (unsigned)gDb.fileSize(), gDb.recordCount());
-            else
-              // ⚠ DO NOT GUESS THE CAUSE HERE. This line used to name two ("bad lane, or
-              // no room for the @LAT100 boundary marker") and on 2026-08-13 a @LAT90
-              // prune refused with NEITHER of them true — markers were 2/32 — while
-              // lanegen printed the real step one line above. A plausible-sounding wrong
-              // cause is worse than none: it sends the reader to check the thing that is
-              // already fine. lanegen owns the explanation; this only says who asked.
-              Serial.println("[prune] REFUSED — see the [lanegen] line above for which "
-                             "step failed and why");
-            break;
-          }
           case toot::CMD_BEEP: {
             int freq = 880, dur = 200;            // defaults
             if (t.payload_len >= 9) {             // op + target(4) + freq(2) + dur(2)
@@ -2038,12 +1975,6 @@ static toot::Toot gPendingReq;
 static volatile bool gPutPending = false;
 static toot::Toot gPendingPut;
 
-// CMD_CLEAR_PERCEPTS rewrites the whole TTDB file and re-indexes it, so it gets the same
-// treatment: stashed here by the recv callback and run from loop(). The serial path
-// already runs in loop() and does not need this.
-static volatile bool gClearPending = false;
-static toot::Toot gPendingClear;
-
 static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (len <= 0) return;
   toot::Toot t;
@@ -2069,10 +2000,6 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
   } else if (t.type == toot::TTDB_PUT) {
     if (!gPutPending) { gPendingPut = t; gPutPending = true; }  // flash write -> loop()
-  } else if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId &&
-             toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
-    if (!gClearPending) { gPendingClear = t; gClearPending = true; }  // flash -> loop()
-  } else {
     handleToot(t, sendEspNow, nullptr);                         // cheap, no burst
   }
 }
@@ -2155,7 +2082,7 @@ void setup() {
     // The index is a whole-FILE budget shared by every lane, so a lane with room in
     // its own cap can still be refused - and until 2026-08-11 nothing said so.
     // Saturation is worse than a refusal: records past the cap are invisible to every
-    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // reader, and a lane rewrite walks the INDEX, so before the tail-carry fix the next
     // rewrite deleted them outright. That is how five @LAT101 records died once.
     if (gDb.indexSaturated())
       Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
@@ -2165,15 +2092,13 @@ void setup() {
       Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
-    if (PHASEC_EPISODES) {
-      const uint32_t t0 = millis();
-      gEpisodes.begin(gDb);
-      Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
-                    "maxalloc %u B\n",
-                    (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
-                    (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
-      gEpisodes.print(Serial);
-    }
+    const uint32_t t0 = millis();
+    gEpisodes.begin(gDb);
+    Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                  "maxalloc %u B\n",
+                  (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                  (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
+    gEpisodes.print(Serial);
   }
 #if USE_WIFI_SCAN
   // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
@@ -2227,8 +2152,7 @@ void setup() {
   // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
   // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
   // shared timeline is not.
-  // Episode build: no @LAT90 log (capped at 16 and refusing) — see PHASEC_EPISODES.
-  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
+  gTs.begin(kNodeId, millis());
 
   // Declare the two new organs at boot, next to the @LAT96 build line, for the same
   // reason that line exists: what a board can actually sense is otherwise invisible from
@@ -2393,18 +2317,10 @@ void loop() {
     handleToot(gPendingPut, sendEspNow, nullptr);
   }
 
-  // Serve an ESP-NOW CMD_CLEAR_PERCEPTS deferred from the recv callback: a prune is a
-  // whole-file rewrite plus a re-index plus the @LAT100 boundary append, none of which
-  // may run on the WiFi task.
-  if (gClearPending) {
-    gClearPending = false;
-    handleToot(gPendingClear, sendEspNow, nullptr);
-  }
-
 #if USE_TILT && USE_K10_HW
   // --- SP0 MOTION TIER: was this node standing still? (@LAT95, and @LAT93 for the edge)
   serviceTilt(millis());
-  if (gMotionLog.due(millis()) && PHASEC_EPISODES) {
+  if (gMotionLog.due(millis())) {
     const uint32_t mnow = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
     const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF, ord,
@@ -2429,60 +2345,6 @@ void loop() {
       else
         appendEpisode(tord, tm, "motion transition", "motionpercept", mnow);
     }
-  } else if (gMotionLog.due(millis())) {
-    const uint32_t mnow = millis();
-    int lane = laneCount(95);
-    if (lane >= MOTIONPERCEPT_MAX_LANE) {
-      // SAY THIS OUT LOUD. A full motion lane looks exactly like a healthy node: the
-      // other tiers keep flushing and the windows are dropped in silence. On this board
-      // it should take ~24 h of uptime to reach the cap (the lane is change-triggered
-      // with run-length); if it fills fast, the frame is being knocked or is flapping at
-      // the threshold, which is itself the finding.
-      static uint32_t last_mot_full_log = 0;
-      if (mnow - last_mot_full_log > 300000 || last_mot_full_log == 0) {
-        last_mot_full_log = mnow;
-        Serial.printf("[motion] @LAT95 lane FULL (%d/%d) - windows are being DISCARDED. "
-                      "Prune with `companion.py cmd --op clear-percepts --lane 95`. "
-                      "(threshold %d mg)\n",
-                      lane, MOTIONPERCEPT_MAX_LANE, MOTIONPERCEPT_MOVING_MG);
-      }
-      gMotionLog.reset(mnow);
-    } else {
-      char rec[MOTIONPERCEPT_RECORD_BUF];
-      size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                        gStamp, mnow);
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[motion] percept window -> @LAT95LON%d covers:%d (TTDB %uB)\n",
-                      lane, gMotionLog.runOffset() + 1, (unsigned)gDb.fileSize());
-      else if (gMotionLog.lastClose() == motionpercept::CLOSE_COVERED)
-        // ⚠ Under run-length "wrote nothing" is the NORMAL case for a picture frame on a
-        // shelf — which is what this node is, nearly always. Branch on lastClose(), never
-        // on the byte count, and say the run length out loud so a working fold can be
-        // told from a dead tier.
-        Serial.printf("[motion] window covered (run %d)\n", gMotionLog.runOffset() + 1);
-
-      // The TRANSITION form (TTDB-RFC-0006 §5): the window above is a STATE, this is the
-      // DIFFERENCE between it and the one before — and per §5.2 the difference is the
-      // datum. Written only on a verdict change, so a frame that has not been touched
-      // writes none at all. Must run before the next buildRecord(), which would overwrite
-      // the `after` half.
-      if (gMotionLog.transitionPending()) {
-        int tlane = laneCount(MOTIONPERCEPT_TRANSITION_LANE);
-        if (tlane >= MOTIONPERCEPT_MAX_TRANSITION_LANE) {
-          Serial.printf("[motion] transition DROPPED — @LAT%d lane full (%d)\n",
-                        MOTIONPERCEPT_TRANSITION_LANE, tlane);
-        } else {
-          char trec[MOTIONPERCEPT_TRANSITION_BUF];
-          size_t tm = gMotionLog.buildTransition(trec, sizeof(trec), tlane, kNodeId);
-          if (tm && gDb.appendRecord(trec, tm))
-            Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d (%uB, TTDB %uB)\n",
-                          gMotionLog.pendingBefore().moving ? "moving" : "still",
-                          gMotionLog.lastWindow().moving ? "moving" : "still",
-                          MOTIONPERCEPT_TRANSITION_LANE, tlane, (unsigned)tm,
-                          (unsigned)gDb.fileSize());
-        }
-      }
-    }
   }
 #endif
 
@@ -2493,40 +2355,19 @@ void loop() {
   // logged here and a transient logged there are the same measurement of the same event
   // only if they were computed the same way.
   serviceMic(millis());
-  if (gAcousticLog.due(millis()) && PHASEC_EPISODES) {
+  if (gAcousticLog.due(millis())) {
     const uint32_t anow = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ACOUSTIC);
     const size_t m = gAcousticLog.buildRecord(gEpisodes.scratch(), ACOUSTICPERCEPT_RECORD_BUF,
                                               ord, gStreamWallSec, gStamp, anow, MIC_RATE);
     if (m) appendEpisode(ord, m, "acoustic window", "acousticpercept", anow);
-  } else if (gAcousticLog.due(millis())) {
-    const uint32_t anow = millis();
-    int lane = laneCount(94);
-    if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
-      static uint32_t last_ac_full_log = 0;
-      if (anow - last_ac_full_log > 300000 || last_ac_full_log == 0) {
-        last_ac_full_log = anow;
-        Serial.printf("[acoustic] @LAT94 lane FULL (%d/%d) - windows are being "
-                      "DISCARDED. Prune with `companion.py cmd --op clear-percepts "
-                      "--lane 94`.\n", lane, ACOUSTICPERCEPT_MAX_LANE);
-      }
-      gAcousticLog.reset(anow);
-    } else {
-      char rec[400];
-      size_t m = gAcousticLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                          gStamp, anow, MIC_RATE);
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[acoustic] percept window -> @LAT94LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-    }
   }
 #endif
 
 #if USE_BLE
-  // SP0: flush the BLE link-percept window into the @LAT97 lane. Flash write, so it runs
-  // from loop() (never the BLE scan task). Lane-capped; pruned by CMD_CLEAR_PERCEPTS
-  // --lane 97 like every other tier. The K10's first self-authored proximity evidence.
-  if (gLinkLog.due(millis()) && PHASEC_EPISODES) {
+  // SP0: flush the BLE link-percept window as a @LAT103 link-band episode. Flash write, so
+  // it runs from loop() (never the BLE scan task).
+  if (gLinkLog.due(millis())) {
     const uint32_t now = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_LINK);
     const size_t m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, ord,
@@ -2540,27 +2381,15 @@ void loop() {
       Serial.printf("[episode] link window LOST at @LAT%dLON%d\n", SEMANTIC_EPISODE_LANE,
                     (int)ord);
     }
-  } else if (gLinkLog.due(millis())) {
-    int lane = laneCount(97);
-    if (lane >= LINKPERCEPT_MAX_LANE) {
-      gLinkLog.reset(millis());  // lane full: drop the window, keep observing
-    } else {
-      char rec[1024];
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                      gStamp, millis());
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-    }
   }
 #endif
 
 #if USE_WIFI_SCAN
-  // SP0 entity tier: run the duty-cycled scan, then flush its window into the @LAT96
-  // lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane). The K10's
-  // first self-authored proximity evidence, and until 2026-08-12 its only one.
+  // SP0 entity tier: run the duty-cycled scan, then flush its window as a @LAT103
+  // entity-band episode (deferred to loop()). The K10's first self-authored proximity
+  // evidence, and until 2026-08-12 its only one.
   serviceWifiScan();
-  if (gEntityLog.due(millis()) && PHASEC_EPISODES) {
+  if (gEntityLog.due(millis())) {
     const uint32_t now = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ENTITY);
     const size_t m = gEntityLog.buildRecord(gEpisodes.scratch(), ENTITYPERCEPT_RECORD_BUF,
@@ -2571,43 +2400,6 @@ void loop() {
     else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED)
       Serial.printf("[entity] window covered (run %d, core %d)\n",
                     gEntityLog.runLength(), gEntityLog.coreCount());
-  } else if (gEntityLog.due(millis())) {
-    int lane = laneCount(96);
-    if (lane >= ENTITYPERCEPT_MAX_LANE) {
-      // SAY THIS OUT LOUD -- the same argument @LAT95 got after 2026-08-02, and it
-      // cost a live debugging session on 2026-08-10 to notice @LAT96 never got it.
-      // A full entity lane looks EXACTLY like a healthy node: the scan still runs and
-      // prints, the other tiers still flush, and the window is dropped in silence.
-      // Rate-limited to one line per 5 min so it informs without flooding.
-      static uint32_t last_ent_full_log = 0;
-      uint32_t nowf = millis();
-      if (nowf - last_ent_full_log > 300000 || last_ent_full_log == 0) {
-        last_ent_full_log = nowf;
-        Serial.printf("[entity] @LAT96 lane FULL (%d/%d) - windows are being "
-                      "DISCARDED. Prune with `companion.py cmd --op clear-percepts "
-                      "--lane 96`.\n", lane, ENTITYPERCEPT_MAX_LANE);
-      }
-      gEntityLog.reset(nowf);      // lane full: drop the window, keep observing
-    } else {
-      // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
-      // record can carry a **CORE** list and the run's **COVERED** union (worst
-      // case 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the
-      // old 1024 nor the loop task's stack, and buildRecord writes NOTHING rather
-      // than truncating -- so an undersized buffer here loses windows silently.
-      static char rec[ENTITYPERCEPT_RECORD_BUF];
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                      gStamp, millis());
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-      else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED)
-        // SAY THIS OUT LOUD. Under run-length "wrote nothing" is the NORMAL case
-        // for a node in a stable environment, and a lane that silently does nothing
-        // is this corpus's least favourite failure mode. The run length and core
-        // size are how an operator tells a working fold from a dead tier.
-        Serial.printf("[entity] window covered (run %d, core %d)\n",
-                      gEntityLog.runLength(), gEntityLog.coreCount());
-    }
   }
 #endif
 

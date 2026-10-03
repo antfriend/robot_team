@@ -1,6 +1,6 @@
 // TraceFieldNode.h — the Arduino glue for a TraceField. ONE copy, both handhelds.
 //
-// Same shape as TimeStreamNode.h and LaneGenNode.h, and for the same reason: the portable
+// Same shape as TimeStreamNode.h, and for the same reason: the portable
 // arithmetic lives in TraceField.cpp where a native test can reach it, and everything that
 // needs `Serial` or a radio callback lives here.
 //

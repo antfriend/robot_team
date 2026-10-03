@@ -651,9 +651,6 @@ int main(void) {
           "the second says heartbeat (got '%s')", buf);
     CHECK(PERCEPTLEARN_MAX_RUN >= 2,
           "MAX_RUN must exceed 1, or run-length is a no-op with extra fields");
-    CHECK((long)PERCEPTLEARN_MAX_LANE * PERCEPTLEARN_MAX_RUN * 60 >= 12L * 3600,
-          "lane life with nothing changing is at least 12 h of uptime — it was ~24 "
-          "minutes, which is what made this lane a treadmill too");
   }
 
   // 8c. ⚠ THE CLAIM THAT MAKES THIS ACCEPTABLE ON A TALLY, TESTED RATHER THAN ARGUED.

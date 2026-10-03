@@ -28,12 +28,6 @@
 // for margin), so the warning fires while a whole lane could still be written.
 #define TTDB_INDEX_WARN_SLOTS 16
 
-// The percept lanes — semantic-positioning evidence a node writes about its own
-// umwelt, and the only records CMD_CLEAR_PERCEPTS may drop: @LAT94 acoustic,
-// @LAT95 motion, @LAT96 entity (WiFi BSSIDs), @LAT97 link (per-peer RSSI).
-#define TTDB_PERCEPT_LANE_LO 94
-#define TTDB_PERCEPT_LANE_HI 97
-
 // ⚠ WHY A LANE REWRITE NOW SAYS WHICH STEP FAILED (2026-08-13).
 // `removeLaneRange` returned a bare `false` from SEVEN places, and on 2026-08-13 the
 // Cardputer started failing it on every lane — @LAT96 from an operator prune and @LAT101
@@ -113,7 +107,7 @@ class Ttdb {
   bool begin(fs::FS& fs, const char* path);
 
   // Which step of the last lane rewrite failed. Only meaningful after removeLane /
-  // removeLaneRange / removePerceptLanes returned false; a success sets it to
+  // removeLaneRange / removeCuts returned false; a success sets it to
   // TTDB_RW_OK. ⚠ `TTDB_RW_RENAME` is the one an operator must act on immediately —
   // the live TTDB is in `<path>.tmp` and the node will boot empty.
   TtdbRewriteErr lastRewriteErr() const { return rewrite_err_; }
@@ -178,18 +172,12 @@ class Ttdb {
   // under a concurrent reader (the stitched-pull hazard, FLEET.md §6).
   bool removeLaneRange(int16_t lo, int16_t hi);
 
-  // CMD_CLEAR_PERCEPTS backing call. `lane` is the wire byte: 0 = every percept
-  // lane, else exactly that one. Returns false for any lane outside the percept
-  // range, so a malformed or hostile CMD can never drop @LAT0 identity, @LAT98
-  // belief attestations or @LAT99 sync logs — the prune is not a general delete.
-  bool removePerceptLanes(uint8_t lane);
-
   // Drop every record matching ANY cut — `lat` exact, `lon` in [lon_lo, lon_hi] — in ONE
   // rewrite. This is the episode ring's delete (ACT-III §C2c): it drops the oldest
   // ordinals of a lane and superseded checkpoints together, without touching the rest of
   // either lane. Same failure reporting and idempotence as removeLaneRange (no match ->
-  // true, no rewrite). Deliberately NOT range-guarded like removePerceptLanes: its only
-  // caller is library code naming its own lane, never a wire byte.
+  // true, no rewrite). Not range-guarded: its only caller is library code naming its own
+  // lane, never a wire byte (and since ACT-III C0 no wire op deletes anything).
   bool removeCuts(const TtdbCut* cuts, uint8_t n);
 
   // Byte span of record `index` (header line through just before the next

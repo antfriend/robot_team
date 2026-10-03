@@ -26,12 +26,6 @@
 #ifndef LINKPERCEPT_FLUSH_MS
 #define LINKPERCEPT_FLUSH_MS 60000   // bring-up: 1-min windows; raise for the field
 #endif
-#ifndef LINKPERCEPT_MAX_LANE
-// Stop appending once the @LAT97 lane holds this many records: the TTDB index
-// (TTDB_MAX_RECORDS) and flash must not fill before SP1 consolidation+pruning
-// exists. Stats keep accumulating/clearing; only the append is skipped.
-#define LINKPERCEPT_MAX_LANE 48
-#endif
 
 namespace linkpercept {
 

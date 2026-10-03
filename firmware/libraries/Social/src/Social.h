@@ -173,8 +173,8 @@ inline uint16_t shortId(uint32_t node) { return (uint16_t)(node & 0xFFFFu); }
 // ⚠ THE LANE HAS NO PRUNE PATH, AND THAT IS THE STAGE-3 FALSIFIER (RFC-0010 §8.1).
 // Reclamation is §5.3's reclaim-lowest, in RAM, when the table is full; a reclamation
 // writes NO @LAT100 boundary because under KEY naming there is nothing to re-point.
-// `lanegen::prune` already refuses anything outside 94-97, so no guard was widened to
-// make this true. If operating this lane ever requires adding a `--lane 101` clear op,
+// Since ACT-III C0 (2026-10-02) no lane has a prune path at all — this lane's falsifier
+// generalised to the whole store, and passed. If operating this lane ever requires adding a `--lane 101` clear op,
 // the RFC says to abandon it: the treadmill was not the cost that mattered.
 //
 // ⚠ Its identity kind is KEY (§4.2.7: every FIELD lane necessarily is — a trace renamed

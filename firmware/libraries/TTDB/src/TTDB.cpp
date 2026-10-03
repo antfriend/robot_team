@@ -183,19 +183,6 @@ static bool copyRange(File& in, File& out, size_t off, size_t len, TtdbRewriteEr
 
 bool Ttdb::removeLane(int16_t lat) { return removeLaneRange(lat, lat); }
 
-bool Ttdb::removePerceptLanes(uint8_t lane) {
-  if (lane == 0)
-    return removeLaneRange(TTDB_PERCEPT_LANE_LO, TTDB_PERCEPT_LANE_HI);
-  // Refuse anything outside the percept range rather than clamping: a caller
-  // asking for @LAT99 has a bug or bad intent, and silently pruning a different
-  // lane than the one requested would be worse than saying no.
-  if (lane < TTDB_PERCEPT_LANE_LO || lane > TTDB_PERCEPT_LANE_HI) {
-    rewrite_err_ = TTDB_RW_BAD_ARGS;
-    return false;
-  }
-  return removeLane((int16_t)lane);
-}
-
 bool Ttdb::removeLaneRange(int16_t lo, int16_t hi) {
   rewrite_err_ = TTDB_RW_OK;
   if (!fs_ || lo > hi) { rewrite_err_ = TTDB_RW_BAD_ARGS; return false; }

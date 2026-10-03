@@ -42,16 +42,14 @@ firmware/
                         (makes "the observer held still" checkable, not assumed)
     AcousticPercept/    SP0 acoustic tier: mic windows -> @LAT94, incl. the fleet-clock
                         timestamp of the loudest transient (Phase 3 TDoA groundwork)
-    LaneGen/            Lane generations (@LAT100): a prune writes down the boundary it
-                        creates, so the ordinal citations into the pruned lane
-                        (`derived_from@LAT97LON1`) stay readable as history instead of
-                        silently resolving into the generation that followed.
-                        LaneGenNode.h is the Arduino glue (one copy, five sketches).
+    (LaneGen/)          DELETED 2026-10-02 (ACT-III C0) with every prune path. The
+                        @LAT100 boundaries it wrote stay on flash as history, and
+                        companion.py still reads them (tests/test_lanegen_py.py).
     TimeStream/         The team time stream: a fleet-owned timeline that survives the
                         laptop's absence. `stream:<id>` + `wall:<0|1>` replacing the old
-                        single `synced` bit; anchors ride on HELLO; @LAT90 logs timeline
-                        CHANGES. TimeStreamNode.h is the Arduino glue (one copy, six
-                        sketches).
+                        single `synced` bit; anchors ride on HELLO. TimeStreamNode.h is
+                        the Arduino glue (one copy, six sketches); since ACT-III C0 it
+                        no longer writes the @LAT90 log (episodes carry their own order).
     Social/             The default network (docs/design/default-network.md): capability advertisement
                         with a THREE-level status (declared/verified/exercised), riding as a
                         third HELLO block after the anchor and the trace digest. Not an
@@ -185,9 +183,9 @@ powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
 The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
 `Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
 (not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **96% of the
-default app partition** (~47–49 KB left as of 2026-10-02, after the episode tier cost
-+14.8 KB) — past the ceiling the T-Deck hit, so the next feature added to them almost
+so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **95% of the
+default app partition** (~56–58 KB left as of 2026-10-02, after the episode tier cost
++14.8 KB and ACT-III C0's deletion gave ~10 KB back) — past the ceiling the T-Deck hit, so the next feature added to them almost
 certainly needs `huge_app` first. ⚠ **`huge_app` MOVES the LittleFS partition** (0x290000 →
 0x310000, as the T-Deck's): pull the TTDB first and re-image it at the new offset, or the
 board boots with an empty store.
@@ -566,7 +564,14 @@ Three facts worth knowing before touching it:
   callback and mutates only from `service()`, called first in `loop()`. Callback-built
   STATUS/GPS/TIME_RESP replies read `clockOffsetMs()`, a plain scalar.
 
-New **`@LAT90`** lane logs timeline CHANGES. ⚠ **ALL FOUR EMITTED VERBS CARRY THE
+📎 **HISTORY SINCE 2026-10-02 (ACT-III C0): no build writes `@LAT90`.** It was capped at
+16 and had reached it, refusing writes, on four boards; every `@LAT103` episode now
+carries its own order (`at: <pulse> ±<bound> frame:<downbeat>`). `TimeStreamNode` lost the
+writer, its origin hold, its dedup and `TIMESTREAM_MAX_LANE`, and prints transitions on
+serial instead. The record format and its reader stay in `TimeStream.h` because the
+records already on flash must still parse — the three paragraphs below describe them.
+
+The **`@LAT90`** lane logged timeline CHANGES. ⚠ **ALL FOUR EMITTED VERBS CARRY THE
 `STREAM-` PREFIX** — `**STREAM-ORIGIN**`, `**STREAM-ADOPTED**`, `**STREAM-RECONCILED**`,
 `**STREAM-ANCHORED**` (`buildStreamRecord`, TimeStream.cpp:348-351). Until 2026-09-30
 this list read `ORIGIN`/`ADOPTED`/`RECONCILED`/`ANCHORED`, so a needle written from
@@ -606,9 +611,8 @@ write none.** `pulse::Engine` gets this right (`now_ms - boot_ms_`); copy that s
 any future listen/settle window on these boards. Native tests could not catch it — each
 record was individually correct — only a serial trace showed the pair firing every boot.
 
-`TIMESTREAM_MAX_LANE 16`'s refusal-on-full policy is still unexamined: a full lane means
-the next stream's records carry an id nothing explains. Don't raise the cap; decide the
-policy against the post-fix accumulation rate.
+`TIMESTREAM_MAX_LANE 16`'s refusal-on-full policy was never decided — it was **dissolved**:
+ACT-III C0 removed the lane's writer, so there is no cap to have a policy about.
 
 Cost, measured against a HEAD worktree: **V4 +3728 B flash (+0.28%), +416 B RAM**, so
 the three V4s sit at **94% with ~74.5 KB left**. Cardputer 41%, T-Deck 40%, K10 20%.
@@ -670,20 +674,15 @@ truncating, so an undersized buffer loses data silently. Cost, measured against 
 worktree on the Cardputer (the only node with an IMU, hence the only one carrying these
 tiers): **+2700 B flash (+0.086%), +2920 B RAM**; it sits at 41%.
 
-**Pruning `@LAT92` (`cmd --op clear-percepts --lane 92`, 2026-08-04).** The outcome lane
-reached its cap of 24, and `removePerceptLanes` refuses anything outside 94–97, so it got
-its own named call — `lanegen::pruneOutcomes`, exactly as `@LAT90` got `pruneTimeline`.
-**98/99 stay unreachable by any path; the guard was not widened.**
-⚠ **This prune is destructive beyond its own lane.** `Reconciler` is a *pure function* of
-`@LAT92`, so emptying it returns every `@LAT91` belief to baseline on the next Dream Cycle.
-That is the design, not a fault — but it is why the boundary carries `**OUTCOMES-CARRIED**`
-(the tally) and one `**BELIEF-AT-BOUNDARY**` line per belief (the conclusions). Both
-`records:` and `windows_max:` are stated because a record is no longer a window.
-⚠ **The boundary must never contain `**OBSERVED** peer:0x` or `**COVERED** peer:0x`** —
-`Reconciler::foldRecord`'s needles. A boundary carrying either gets folded as testimony
-next time the lane is read: the node re-learns from its own gravestone.
-⚠ **`--lane 0` drops 94–97 including `@LAT96`**, whose Jaccard baseline Part 2 needs. Name
-the lane you mean.
+**Pruning is gone (ACT-III C0, 2026-10-02).** `cmd --op clear-percepts` / `--lane N`, op 8
+(`CMD_CLEAR_PERCEPTS`, number retired, never reused), `lanegen::prune*`, the NVS deferred
+prune, `Ttdb::removePerceptLanes` and every `*_MAX_LANE` were deleted together: every tier
+is a `@LAT103` episode bounded by its `SEMANTIC_QUOTA_*` and reclaimed by the fold-and-cut,
+so nothing is ever refused and no operator clears anything. Old `@LAT100` boundaries
+(`**OUTCOMES-CARRIED**`, `**BELIEF-AT-BOUNDARY**`, `**STREAMS-EXPLAINED**`) remain on flash
+as history; their format is in [docs/log/2026-08.md](docs/log/2026-08.md). ⚠ They must
+still never contain `**OBSERVED** peer:0x` / `**COVERED** peer:0x` — those are
+`Reconciler::foldRecord`'s needles, and `companion.py beliefs` still folds old lanes.
 
 ## TTDB on the filesystem, shared over the network
 

@@ -117,15 +117,10 @@ enum CmdOp : uint8_t {
   CMD_SET_INTERVAL = 5,  // args: interval_ms u16 LE — agent sense/act cadence
   CMD_PLAY = 6,          // no args — start the node's melody/part (K10 song); boots off
   CMD_STOP = 7,          // no args — stop the node's melody/part
-  CMD_CLEAR_PERCEPTS = 8,  // args: lane u8 (optional; 0 or absent = ALL percept lanes
-                           // 94..97, else that one lat). Drops consumed percept
-                           // records from the live TTDB (SP1 prune after
-                           // consolidation; flash rewrite, so radio callers MUST
-                           // defer it to loop()). An older sender omits the byte and
-                           // gets the all-lanes prune, which is the safe default: the
-                           // @LAT96 entity lane had no way to be cleared at all, and
-                           // it is what grew a TTDB past the size its own bridged
-                           // pull can carry (FLEET.md §6, 2026-07-31).
+  // 8 was CMD_CLEAR_PERCEPTS (lane prune), RETIRED 2026-10-02 by ACT-III Phase C0: no lane
+  // has a cap any more, so nothing needs clearing. The number is NEVER reused — a laptop
+  // or console built before the retirement may still send it, and a node must not read
+  // that as some newer op. A current node treats it as unknown (no ACK).
   CMD_GET_GPS = 9,         // no args — GPS-bearing node (T-Deck Plus) replies a GPS
                            // PERCEPT (semantic positioning SP2: the roaming
                            // ground-truth anchor/verifier). Cheap (no flash): the
@@ -346,7 +341,7 @@ enum AckStatus : uint8_t {
   ACK_REASSEMBLY_PENDING = 1,  // chunk stored, awaiting siblings
   ACK_DROPPED_NO_RESRC = 2,    // no reassembly slot / evicted
   // ⚠ ACCEPTED BUT NOT YET DONE — the node has DURABLY SCHEDULED the work and will do it
-  // at its next boot (2026-08-13, `CMD_CLEAR_PERCEPTS` on a heap-starved node). Without
+  // at its next boot (2026-08-13, the since-retired lane prune on a heap-starved node). Without
   // this the node had only two honest answers and neither was true: ACCEPTED claims work
   // that has not happened, and silence reads as "nothing will happen" when something
   // certainly will. Additive to the wire — a node that never defers never emits it, and
@@ -392,11 +387,6 @@ inline uint8_t cmdOp(const Toot& t) {
 }
 inline uint32_t cmdTarget(const Toot& t) {
   return t.payload_len >= 5 ? get_u32(t.payload + 1) : 0;
-}
-// CMD_CLEAR_PERCEPTS lane selector: 0 = every percept lane. Absent means 0, so a
-// sender built before the argument existed still gets the all-lanes prune.
-inline uint8_t cmdClearLane(const Toot& t) {
-  return t.payload_len >= 6 ? t.payload[5] : 0;
 }
 // CMD_SET_VIEW selector. A sender that omits the byte means VIEW_NEXT, not view 0:
 // "step it" is the request that is meaningful without knowing the receiver's table,
@@ -526,7 +516,7 @@ bool parseBleAdvert(const uint8_t* data, size_t len, const uint8_t* key, size_t 
 //
 // 🛑 THE BUG THIS EXISTS FOR (2026-08-13). The dedup re-ACK used to answer every duplicate
 // with `ACK_ACCEPTED` unconditionally. That is right for an op that ACKs unconditionally,
-// and it MANUFACTURES SUCCESS for one that does not: `CMD_CLEAR_PERCEPTS` deliberately
+// and it MANUFACTURES SUCCESS for one that does not: `CMD_CLEAR_PERCEPTS` (retired) deliberately
 // ACKs only when the prune worked ("so a failed prune is loud and the laptop retries").
 // On the Cardputer the first attempt ran, failed, and correctly stayed silent — and
 // attempts 2..4, carrying the same (src,seq), were re-ACKed by this path. The laptop

@@ -1,7 +1,7 @@
 // EpisodeNode.h — the Arduino-side glue for the EPISODE tier (ACT-III §C2). The portable
 // half (Episode.h) owns the record grammar, the reader and the ring's bookkeeping; this
 // half owns the order of operations against a real Ttdb — the same split as
-// LaneGen/LaneGenNode and TimeStream/TimeStreamNode.
+// TimeStream/TimeStreamNode and TraceField/TraceFieldNode.
 //
 // ⚠ Header-only and NOT part of the native test build: it includes <Arduino.h> and
 // TTDB.h. Everything here that could be wrong in a way a test could catch lives in

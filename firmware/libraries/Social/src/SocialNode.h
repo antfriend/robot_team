@@ -1,5 +1,5 @@
 // SocialNode.h — the Arduino glue for the default network's capability table.
-// ONE copy, both handhelds — same shape as TimeStreamNode.h, LaneGenNode.h and
+// ONE copy, both handhelds — same shape as TimeStreamNode.h and
 // TraceFieldNode.h, and for the same reason: the portable logic lives in Social.cpp where
 // a native test can reach it, and everything needing `Serial` or a radio callback is here.
 //

@@ -33,9 +33,6 @@
 #ifndef ACOUSTICPERCEPT_FLUSH_MS
 #define ACOUSTICPERCEPT_FLUSH_MS 60000   // one window per link-percept window
 #endif
-#ifndef ACOUSTICPERCEPT_MAX_LANE
-#define ACOUSTICPERCEPT_MAX_LANE 48      // lane cap, like the sibling tiers
-#endif
 #ifndef ACOUSTICPERCEPT_TRANSIENT_MULT
 // A block counts as a transient when its RMS exceeds this multiple (in eighths) of
 // the running ambient RMS — 24/8 = 3x. Relative, not absolute, so it adapts to a

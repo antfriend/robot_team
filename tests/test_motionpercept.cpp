@@ -483,10 +483,6 @@ int main(void) {
     // The arithmetic the constant was chosen on, asserted so it cannot drift silently.
     CHECK(MOTIONPERCEPT_MAX_RUN >= 2,
           "MAX_RUN must exceed 1, or run-length is a no-op with extra fields");
-    CHECK((long)MOTIONPERCEPT_MAX_LANE * MOTIONPERCEPT_MAX_RUN *
-              (MOTIONPERCEPT_FLUSH_MS / 1000) >= 24L * 3600,
-          "lane life at rest is at least 24 h of uptime — the treadmill fix this "
-          "section exists for (was 48 minutes)");
   }
 
   // 7c. A discarded window breaks the RUN too, for the same reason it breaks the

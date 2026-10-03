@@ -31,7 +31,6 @@
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
 #include <EpisodeNode.h>   // ACT-III §C2: link + entity windows -> @LAT103 episodes, @LAT104 folds
 #include <FleetTime.h>     // ACT-III §C4: `at: <pulse> ±<bound> frame:<f>` (TTG-RFC-0004 §4.3)
-#include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <RobotTeamConfig.h>
 
 // --- I2S speaker (MAX98357A) — the LoRa spine's voice -----------------------
@@ -315,11 +314,7 @@ static timestream::Node gTs;
 // — @LAT97/@LAT96 used to drop every window at 48/48. No IMU here, so no PerceptLearn: a
 // link episode carries RSSI as `said:` sentences and no `percept:` line, and this node's
 // consolidator stays empty (a V4 authors no belief, exactly as before). The stream still
-// runs and stamps; only its capped @LAT90 log stops (order is in each episode's `at:`).
-// 0 restores the pre-Phase-C flushes exactly (the A/B the Cardputer's leak was found by).
-#ifndef PHASEC_EPISODES
-#define PHASEC_EPISODES 1
-#endif
+// runs and stamps; its capped @LAT90 log is gone (order is in each episode's `at:`).
 static episodenode::Node gEpisodes;
 // LinkPercept's record is rendered into the episode scratch (no buffer of its own); its
 // worst case (8 maximal peers) is 847 B, pinned by test_episode.
@@ -782,7 +777,7 @@ void setup() {
     // The index is a whole-FILE budget shared by every lane, so a lane with room in
     // its own cap can still be refused - and until 2026-08-11 nothing said so.
     // Saturation is worse than a refusal: records past the cap are invisible to every
-    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // reader, and a lane rewrite walks the INDEX, so before the tail-carry fix the next
     // rewrite deleted them outright. That is how five @LAT101 records died once.
     if (gDb.indexSaturated())
       Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
@@ -792,15 +787,13 @@ void setup() {
       Serial.printf("!! TTDB INDEX NEARLY FULL: %d slot(s) left; at 0 EVERY lane\n"
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
-    if (PHASEC_EPISODES) {
-      const uint32_t t0 = millis();
-      gEpisodes.begin(gDb);
-      Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
-                    "maxalloc %u B\n",
-                    (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
-                    (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
-      gEpisodes.print(Serial);
-    }
+    const uint32_t t0 = millis();
+    gEpisodes.begin(gDb);
+    Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                  "maxalloc %u B\n",
+                  (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                  (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
+    gEpisodes.print(Serial);
   }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — see the Cardputer's copy.
@@ -835,8 +828,7 @@ void setup() {
   // TIMESTREAM_LISTEN_MS first (gTs.service), because joining an older stream is free
   // and forking one costs a merge. Independent of USE_PULSE — the band is optional, a
   // shared timeline is not.
-  // Episode build: no @LAT90 log (capped at 16 and refusing) — see PHASEC_EPISODES.
-  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
+  gTs.begin(kNodeId, millis());
 
 #if USE_BLE
   // Near-range tier: advertise this node + passively scan peers over BLE, feeding RSSI
@@ -935,17 +927,6 @@ void loop() {
           emitSerial(toot::PERCEPT, body, ilen);
         } else if (toot::cmdOp(t) == toot::CMD_DUET) {
           ok = applyDuetCmd(t);
-        } else if (toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
-          // SP1 prune. Serial CMDs already run in loop(), so the TTDB rewrite
-          // is safe here. ACK only on success (a failed prune must be loud).
-          uint8_t lane = toot::cmdClearLane(t);   // 0 = every percept lane
-          ok = (lane == TIMESTREAM_LANE)
-                 ? lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec)
-                 : lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
-          if (ok)
-            Serial.printf("[link] percept lane %s cleared (TTDB now %uB, %dr)\n",
-                          lane ? String(lane).c_str() : "ALL",
-                          (unsigned)gDb.fileSize(), gDb.recordCount());
         }
 #if USE_SPEAKER
         else if (toot::cmdOp(t) == toot::CMD_BEEP) {
@@ -1124,8 +1105,8 @@ void loop() {
 #endif
 
   // SP0: flush the link-percept window into the @LAT97 lane (flash write from
-  // loop(), never the recv callback). Lane-capped until SP1 adds pruning.
-  if (gLinkLog.due(millis()) && PHASEC_EPISODES) {
+  // loop(), never the recv callback) — as a @LAT103 link-band episode.
+  if (gLinkLog.due(millis())) {
     const uint32_t now = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_LINK);
     const size_t m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, ord,
@@ -1145,27 +1126,13 @@ void loop() {
                     (unsigned long)gEpisodes.stats().render_failed,
                     (unsigned long)gEpisodes.stats().append_failed, gDb.indexHeadroom());
     }
-  } else if (gLinkLog.due(millis())) {
-    int lane = 0;
-    for (int i = 0; i < gDb.recordCount(); ++i)
-      if (gDb.record(i).lat == 97) ++lane;
-    if (lane >= LINKPERCEPT_MAX_LANE) {
-      gLinkLog.reset(millis());  // lane full: drop the window, keep observing
-    } else {
-      char rec[1024];
-      size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                      gStamp, millis());
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-    }
   }
 
 #if USE_WIFI_SCAN
-  // SP0 entity tier: run the duty-cycled scan, then flush its window into the
-  // @LAT96 lane (same defer-to-loop + lane-cap discipline as the @LAT97 link lane).
+  // SP0 entity tier: run the duty-cycled scan, then flush its window as a @LAT103
+  // entity-band episode (deferred to loop(), like the link window).
   serviceWifiScan();
-  if (gEntityLog.due(millis()) && PHASEC_EPISODES) {
+  if (gEntityLog.due(millis())) {
     // The Cardputer's entity flush: EntityPercept decides WHAT (core, run, union); the
     // ordinal is taken first so `covered_by:` cites the episode that really covers the run.
     const uint32_t now = millis();
@@ -1194,45 +1161,6 @@ void loop() {
     } else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED) {
       Serial.printf("[entity] window covered (run %d, core %d)\n",
                     gEntityLog.runLength(), gEntityLog.coreCount());
-    }
-  } else if (gEntityLog.due(millis())) {
-    int lane = 0;
-    for (int i = 0; i < gDb.recordCount(); ++i)
-      if (gDb.record(i).lat == 96) ++lane;
-    if (lane >= ENTITYPERCEPT_MAX_LANE) {
-      // SAY THIS OUT LOUD -- the same argument @LAT95 got after 2026-08-02, and it
-      // cost a live debugging session on 2026-08-10 to notice @LAT96 never got it.
-      // A full entity lane looks EXACTLY like a healthy node: the scan still runs and
-      // prints, the other tiers still flush, and the window is dropped in silence.
-      // Rate-limited to one line per 5 min so it informs without flooding.
-      static uint32_t last_ent_full_log = 0;
-      uint32_t nowf = millis();
-      if (nowf - last_ent_full_log > 300000 || last_ent_full_log == 0) {
-        last_ent_full_log = nowf;
-        Serial.printf("[entity] @LAT96 lane FULL (%d/%d) - windows are being "
-                      "DISCARDED. Prune with `companion.py cmd --op clear-percepts "
-                      "--lane 96`.\n", lane, ENTITYPERCEPT_MAX_LANE);
-      }
-      gEntityLog.reset(nowf);      // lane full: drop the window, keep observing
-    } else {
-      // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
-      // record can carry a **CORE** list and the run's **COVERED** union (worst
-      // case 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the
-      // old 1024 nor the loop task's stack, and buildRecord writes NOTHING rather
-      // than truncating -- so an undersized buffer here loses windows silently.
-      static char rec[ENTITYPERCEPT_RECORD_BUF];
-      size_t m = gEntityLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                      gStamp, millis());
-      if (m && gDb.appendRecord(rec, m))
-        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-      else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED)
-        // SAY THIS OUT LOUD. Under run-length "wrote nothing" is the NORMAL case
-        // for a node in a stable environment, and a lane that silently does nothing
-        // is this corpus's least favourite failure mode. The run length and core
-        // size are how an operator tells a working fold from a dead tier.
-        Serial.printf("[entity] window covered (run %d, core %d)\n",
-                      gEntityLog.runLength(), gEntityLog.coreCount());
     }
   }
 #endif

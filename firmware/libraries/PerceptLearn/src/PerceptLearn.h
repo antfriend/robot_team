@@ -79,7 +79,7 @@
 // @LAT95 became change-triggered because a periodic lane fills with uptime rather than
 // with events (docs/handoffs/part-b-handoff.md Part 1). This lane has the same disease and a worse
 // prognosis — an outcome is 573-1595 B against a percept window's ~200 B, and
-// PERCEPTLEARN_MAX_LANE is 24, so it fills in 24 minutes.
+// its cap was 24 (until ACT-III C0), so it filled in 24 minutes.
 //
 // ⚠ BUT THIS LANE IS A TALLY, AND A TALLY CANNOT BE COMPRESSED THE WAY A STATE SERIES
 // CAN. A state series survives keeping only its transitions: the value between two
@@ -133,34 +133,14 @@
 // testimony, and Rule 2's whole point is that it is kept apart from the live loop.
 #define PERCEPTLEARN_LANE 92
 #endif
-#ifndef PERCEPTLEARN_MAX_LANE
-// ⚠ This lane is EXPENSIVE and needs its cap chosen with the arithmetic in front of
-// you, not by copying the percept lanes' 48. An outcome carries two lines per claim,
-// so it is far bigger than a percept window: **573 B at 1 claim, 719 B at 2 (the
-// realistic fleet case: one peer over espnow + ble), 1595 B at the 8-claim ceiling**
-// — and it is written once per LINK window, ~1/minute, which is much faster than
-// @LAT93 transitions arrive.
-//
-// At 48 that is 34 KB typical / 76 KB worst case, on a node whose whole TTDB was
-// 41 KB. CLAUDE.md already records unpruned percept lanes growing V4-B's TTDB to
-// 54 KB and breaking the bridged pull. So: **24**, which is ~17 KB typical / 38 KB
-// worst, and ~24 minutes of continuous testimony — long enough to exercise Rule 3
-// (whose 1/9 break-even needs tens of windows to show), short enough to survive.
-// Prune and re-run rather than raising this.
-//
-// 📎 Since run-length landed (2026-08-04) this cap is spent on CHANGES rather than on
-// minutes: an anchored fleet with nothing moving now writes one record per
-// PERCEPTLEARN_MAX_RUN windows instead of one per window, so 24 records is ~12 hours of
-// testimony instead of ~24 minutes. The 34 KB / 76 KB arithmetic above is unchanged —
-// it is the same 24 records — it just takes 30x longer to spend.
-#define PERCEPTLEARN_MAX_LANE 24
-#endif
 #ifndef PERCEPTLEARN_MAX_RUN
 // The heartbeat, in scored windows. Matched to MOTIONPERCEPT_MAX_RUN on purpose: the
 // two lanes are written from the same 60 s cadence and a reader lining an outcome up
 // against the motion window that armed it should not have to reconcile two budgets.
 //
-//   lane life, nothing changing = PERCEPTLEARN_MAX_LANE x MAX_RUN = 24 x 30 = 12 hours
+//   lane life, nothing changing = 24 records x 30 = 12 hours, when @LAT92 had its cap of
+//                                 24 (gone in ACT-III C0, with the lane itself: no
+//                                 sketch writes @LAT92 since C3)
 //   worst-case loss on power cut = MAX_RUN - 1 = 29 windows of unchanged testimony
 //
 // ⚠ That loss is REAL and it is not symmetric with @LAT95's: a lost percept window is

@@ -31,14 +31,14 @@ PY="${PY:-python}"
 LIB=firmware/libraries
 INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src -I$LIB/AcousticPercept/src
      -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
-     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/LaneGen/src -I$LIB/Social/src -I$LIB/Semantic/src"
+     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/Social/src -I$LIB/Semantic/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
 TS="$LIB/TimeStream/src/TimeStream.cpp"
 
 # name : extra sources (tests/test_<name>.cpp is implied). Keep in sync with tests/Makefile;
 # `python tests/check_makefile.py` guards the Makefile's copy of the same information.
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
-                  symmetric_edges nmea pulse timestream lanegen
+                  symmetric_edges nmea pulse timestream
                   tracefield social sid citation ttdb_index semantic episode fleettime)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
@@ -51,7 +51,6 @@ declare -A SRCS=(
   [nmea]="$LIB/Gps/src/Nmea.cpp"
   [pulse]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/Pulse/src/Pulse.cpp"
   [timestream]="$TS"
-  [lanegen]="$TS $LIB/LaneGen/src/LaneGen.cpp"
   [tracefield]="$LIB/TraceField/src/TraceField.cpp"
   [social]="$LIB/Social/src/Social.cpp $LIB/TraceField/src/TraceField.cpp $TS $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [sid]="$LIB/TTDB/src/Sid.cpp"

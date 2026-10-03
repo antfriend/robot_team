@@ -58,7 +58,6 @@
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream (its @LAT90 log: legacy build only)
-#include <LaneGenNode.h>   // lane generations: a prune writes down its own boundary -> @LAT100
 #include <SocialNode.h>      // the default network: who is here and what can they do
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
@@ -151,19 +150,15 @@ static bool gScanRunning = false;
 #endif
 #if USE_IMU
 static motionpercept::Log gMotionLog;    // @LAT95 was-this-node-still
-// The percept-learning loop. Armed by a `still` @LAT95 window, scored by the next
-// @LAT97 window, testified to @LAT92. It never edits anything (Rule 2).
-static perceptlearn::Loop gLearn;        // @LAT92 outcome side log
-// ACT-III Phase C: the EPISODE tier, running BESIDE @LAT92/@LAT91 during the transition.
-// Same evidence (each scored window's verdicts), different store: a ring that folds into
-// a carried tally instead of refusing at a cap, and TTG-0003 counting instead of Rule 3.
-// The old path stays until the comparison is made on hardware (ACT-III §C3).
-// Kill-switch for the episode tier, all four percept tiers' moves into @LAT103 included: 0
-// restores the pre-Phase-C @LAT94-97 flushes exactly. Kept because it is how the 2026-10-01 heap
-// leak was A/B-tested on the same board with the same peers (docs/log/2026-10.md).
-#ifndef PHASEC_EPISODES
-#define PHASEC_EPISODES 1
-#endif
+// The percept-learning loop. Armed by a `still` motion window, scored by the next link
+// window; its verdicts ride in that link episode (no @LAT92 outcome since C3). It never
+// edits anything (Rule 2).
+static perceptlearn::Loop gLearn;
+// ACT-III Phase C: the EPISODE tier — every percept window, all four tiers, is a @LAT103
+// episode in its tier's band: a ring that folds into a carried tally (@LAT104) instead of
+// refusing at a cap, counted by TTG-0003 instead of Rule 3. It replaced @LAT92/@LAT91 and
+// @LAT94-97 outright; the PHASEC_EPISODES kill switch that kept the old path for the A/B
+// was deleted with the caps in Phase C0 (2026-10-02).
 static episodenode::Node gEpisodes;
 // LinkPercept's record, rendered into the episode scratch before it is wrapped. The worst
 // case (8 maximal peers) is 847 B, pinned by test_episode; LinkPercept drops whole peer
@@ -899,126 +894,13 @@ static void serveTtdbReq(const toot::Toot& req, TtdbShare::SendFn send, void* ct
 static void toneI2S(float freq, uint32_t ms, float amp);
 #endif
 
-// Prune consumed percept lanes. This node carries all four tiers, so it had been
-// compacting them with four sequential removeLane() calls — four whole-file rewrites,
-// and four separate windows in which the file moved under any concurrent reader (the
-// stitched-pull hazard, FLEET.md §6). removePerceptLanes() does it in ONE rewrite.
-// `lane` is the wire byte: 0 = every percept lane, else exactly that one.
-// The outcome lane's boundary block: what the generation about to be destroyed had
-// accumulated, and what it concluded. Built here because it is the only place that can
-// fold @LAT92 — LaneGen must not depend on PerceptLearn.
-//
-// ⚠ THIS RUNS BEFORE THE PRUNE AND FROM THE LANE ITSELF, not from `gRecon`'s current
-// contents. gRecon is whatever the last Dream Cycle left, which may be minutes stale and
-// may have been folded from a lane that has grown since. The boundary has to describe
-// the records actually being dropped.
-//
-// ⚠ The line tokens are deliberately NOT `**OBSERVED**`/`**COVERED**`. Those are
-// Reconciler::foldRecord's needles, and a boundary carrying them would be folded as
-// testimony the next time the lane was read — the node would re-learn from its own
-// gravestone. Same needle-collision family as `prev_stream:` in @LAT90 and the bare ids
-// in **STREAMS-EXPLAINED**.
-// One record's worth of @LAT92, read off flash. SHARED by the two places that fold the
-// outcome lane (the Dream Cycle and the prune boundary) because they are never
-// concurrent and PERCEPTLEARN_BUF is 2624 B — two copies would cost more RAM than the
-// whole feature. ⚠ Do not make it a local: it is far too big for the loop stack.
-static uint8_t gLaneReadBuf[PERCEPTLEARN_BUF];
-
-static size_t buildOutcomeCarried(char* out, size_t cap) {
-  perceptlearn::Reconciler R;
-  R.begin();
-  int records = 0;
-  for (int i = 0; i < gDb.recordCount(); ++i) {
-    if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
-    ++records;
-    size_t start = gDb.record(i).file_offset;
-    size_t end = (i + 1 < gDb.recordCount()) ? gDb.record(i + 1).file_offset
-                                             : gDb.fileSize();
-    size_t len = end - start;
-    if (len > sizeof(gLaneReadBuf)) len = sizeof(gLaneReadBuf);
-    size_t got = gDb.readBytes(start, gLaneReadBuf, len);
-    if (got) R.foldRecord((const char*)gLaneReadBuf, got);
-    yield();
-  }
-  // The RENDERING lives in the library (Reconciler::buildBoundary), not here. It was
-  // here for one afternoon, sized by eye, and came out 71 B over its buffer — which the
-  // prune correctly refused, on hardware, after the measurement window had been spent.
-  // A native test cannot call into a .ino, so nothing could have caught it. Everything
-  // this function still does is I/O the library must not do.
-  return R.buildBoundary(out, cap, records);
-}
-
-// `may_defer` is false when this IS the scheduled boot attempt. ⚠ Without it the boot
-// path re-arms the very flag it just consumed, so a prune that cannot succeed retries on
-// every boot forever — and the "Not rescheduled" message printed by the caller would be a
-// straight lie. One attempt per schedule, as takePendingPrune's clear-before-attempt
-// already intends.
-static lanegen::PruneResult clearPerceptLanes(uint8_t lane, bool may_defer = true) {
-  // LaneGen names @LAT92 itself so it need not include PerceptLearn. If the two ever
-  // disagree the prune would empty a lane nobody asked for, so fail the BUILD.
-  static_assert(LANEGEN_OUTCOME_LANE == PERCEPTLEARN_LANE,
-                "LANEGEN_OUTCOME_LANE must be PERCEPTLEARN_LANE");
-  // Clear first so TTDB_RW_OK below means "no rewrite was ever attempted" — a prune
-  // refused by a full @LAT100 never reaches one, and must not be rescheduled.
-  gDb.clearRewriteErr();
-  bool ok;
-  if (lane == TIMESTREAM_LANE) {
-    ok = lanegen::pruneTimeline(gDb, gStamp, kNodeId, gStreamWallSec);
-  } else if (lane == PERCEPTLEARN_LANE) {
-    static char carried[PERCEPTLEARN_BOUNDARY_BUF];
-    const size_t cm = buildOutcomeCarried(carried, sizeof(carried));
-    if (!cm) {
-      Serial.printf("[percept] @LAT%d NOT pruned — its boundary tally would not fit "
-                    "PERCEPTLEARN_BOUNDARY_BUF (%d). Pruning without it would drop every "
-                    "belief back to baseline with nothing saying why.\n",
-                    PERCEPTLEARN_LANE, PERCEPTLEARN_BOUNDARY_BUF);
-      return lanegen::PRUNE_FAILED;
-    }
-    ok = lanegen::pruneOutcomes(gDb, gStamp, kNodeId, gStreamWallSec, carried);
-    if (ok) {
-      // The beliefs are now folded from an empty lane, so they will read baseline on the
-      // next Dream Cycle. Say it out loud: a silent fall from 106 to 128 is
-      // indistinguishable from a node that never learned anything.
-      Serial.printf("[percept] @LAT%d pruned — @LAT%d beliefs will return to baseline "
-                    "%d on the next Dream Cycle. That is the design (a belief is as "
-                    "strong as the evidence retained), not a fault.\n",
-                    PERCEPTLEARN_LANE, PERCEPTLEARN_BELIEF_LANE,
-                    PERCEPTLEARN_BASELINE_CONF);
-      gLearn.reset();   // no lane to testify into means no run to be mid-way through
-    }
-  } else {
-    ok = lanegen::prune(gDb, lane, gStamp, kNodeId, gStreamWallSec);
-  }
-  if (ok) {
-    Serial.printf("[percept] lane %s cleared (TTDB now %uB, %dr)\n",
-                  lane ? String(lane).c_str() : "ALL (94-97)",
-                  (unsigned)gDb.fileSize(), gDb.recordCount());
-    return lanegen::PRUNE_OK;
-  }
-  // ⚠ RESOURCE FAILURE, NOT A REFUSAL — SCHEDULE IT FOR BOOT. The rewrite needs the
-  // filesystem to allocate, and this node's radios have taken the heap; the identical
-  // call succeeds during setup() at ~147 KB. Only the I/O steps qualify: a lane the guard
-  // forbids, or a rewrite that already moved the file, are not retryable at any heap.
-  if (may_defer && ttdbRewriteRetryable(gDb.lastRewriteErr())) {
-    lanegen::setPendingPrune(lane);
-    Serial.printf("[percept] lane %s prune SCHEDULED for the next boot (rewrite failed at "
-                  "step '%s', maxalloc %u B). It will run in setup() before the radios "
-                  "take the heap. Any command that resets this board — a `pull` will — "
-                  "is enough to trigger it.\n",
-                  lane ? String(lane).c_str() : "ALL (94-97)",
-                  gDb.lastRewriteErrName(), (unsigned)ESP.getMaxAllocHeap());
-    return lanegen::PRUNE_DEFERRED;
-  }
-  return lanegen::PRUNE_FAILED;
-}
-
 // Dispatch a decoded, authenticated toot on any transport. `reply` is the transport to
 // answer on. Dedup is radio-only (applied in onEspNowRecv before this), so the trusted
 // USB link stays un-deduped and the laptop can retry.
 static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) {
   bool accepted = false;
-  // Which ACK an accepted toot earns. ACCEPTED for everything except a prune the node
-  // has durably SCHEDULED rather than performed (see clearPerceptLanes).
+  // Which ACK an accepted toot earns. Always ACCEPTED since the lane prune (the only op
+  // that could durably SCHEDULE its work, ACK_DEFERRED) was retired in ACT-III C0.
   uint8_t ack_status = toot::ACK_ACCEPTED;
   switch (t.type) {
     case toot::TTDB_REQ:
@@ -1135,15 +1017,6 @@ static void handleToot(const toot::Toot& t, TtdbShare::SendFn reply, void* ctx) 
               ok = false;
             }
             break;
-          case toot::CMD_CLEAR_PERCEPTS: {
-            // Flash rewrite: reaches here only from loop() (the radio path defers).
-            // ACK only on success, so a failed prune is loud and the laptop retries —
-            // and a prune SCHEDULED for boot ACKs `DEFERRED`, which is neither.
-            const lanegen::PruneResult r = clearPerceptLanes(toot::cmdClearLane(t));
-            ok = (r != lanegen::PRUNE_FAILED);
-            if (r == lanegen::PRUNE_DEFERRED) ack_status = toot::ACK_DEFERRED;
-            break;
-          }
           case toot::CMD_PING:
             // A ping otherwise does nothing but ACK, which is exactly what makes it the
             // right thing to overload as a FIELD MARKER. During a walk experiment the
@@ -1269,8 +1142,6 @@ static volatile bool gReqPending = false;
 static toot::Toot gPendingReq;
 static volatile bool gPutPending = false;
 static toot::Toot gPendingPut;
-static volatile bool gClearPending = false;
-static toot::Toot gPendingClear;
 
 static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   if (len <= 0) return;
@@ -1302,11 +1173,6 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   }
   if (t.type == toot::TTDB_PUT) {
     if (!gPutPending) { gPendingPut = t; gPutPending = true; }   // defer flash
-    return;
-  }
-  if (t.type == toot::CMD && toot::cmdTarget(t) == kNodeId &&
-      toot::cmdOp(t) == toot::CMD_CLEAR_PERCEPTS) {
-    if (!gClearPending) { gPendingClear = t; gClearPending = true; }
     return;
   }
   handleToot(t, sendEspNow, nullptr);       // cheap toots (TIME_*, CMD, PERCEPT, PULSE)
@@ -1376,7 +1242,6 @@ static void appendBeliefRecord() {
 //
 // Runs from loop(), never a callback: it can rewrite the whole TTDB.
 static int gBeliefRev = 0;
-#if PHASEC_EPISODES
 // ACT-III §C3, wired (2026-10-02): the node's link beliefs ARE the episode tier's
 // consolidator — TTG-0003 counting over live + carried evidence, recomputed on every boot
 // from @LAT103/@LAT104 and never written to a lane of their own. So there is no @LAT92 to
@@ -1395,118 +1260,6 @@ static void noteBeliefChange() {
     for (const char* q = tm->object; *q; ++q) { h ^= (uint8_t)*q; h *= 16777619u; }
   }
   if (h != gBeliefSig) { gBeliefSig = h; ++gBeliefRev; }
-}
-#else
-static perceptlearn::Reconciler gRecon;
-static int32_t gLastConf[PERCEPTLEARN_MAX_BELIEFS];
-static int gLastConfN = -1;      // -1 = never reconciled this boot
-
-static void reconcileBeliefs() {
-  // Timed in three phases because they fail differently and the section profiler cannot
-  // tell them apart (the whole Dream Cycle sits inside "linkperc"). `fold` re-reads the
-  // outcome lane off flash EVERY cycle even when nothing changed — that cost is paid
-  // forever, so it is worth its own number. `rewrite` is the removeLane whole-TTDB
-  // rewrite the handoff flagged as a plausible new source of a multi-second stall.
-  const uint32_t t_enter = millis();
-  gRecon.begin();
-  // Fold the outcome lane in record order — order matters, because the +2 saturates and
-  // the -16 floors, and a clamp does not commute with a sum.
-  for (int i = 0; i < gDb.recordCount(); ++i) {
-    if (gDb.record(i).lat != PERCEPTLEARN_LANE) continue;
-    size_t start = gDb.record(i).file_offset;
-    size_t end = (i + 1 < gDb.recordCount()) ? gDb.record(i + 1).file_offset
-                                             : gDb.fileSize();
-    size_t len = end - start;
-    if (len > sizeof(gLaneReadBuf)) len = sizeof(gLaneReadBuf);
-    size_t got = gDb.readBytes(start, gLaneReadBuf, len);
-    if (got) gRecon.foldRecord((const char*)gLaneReadBuf, got);
-    yield();
-  }
-
-  const uint32_t t_fold = millis();
-  const int n = gRecon.beliefCount();
-  // A dropped claim biases conf from a subset of the lane while looking like a complete
-  // fold, so it is reported before anything else this cycle prints.
-  if (gRecon.claimsDropped())
-    Serial.printf("[dream] ⚠ %d claim(s) DROPPED - belief slots full "
-                  "(PERCEPTLEARN_MAX_BELIEFS %d): conf below is folded from a SUBSET "
-                  "of @LAT%d\n",
-                  gRecon.claimsDropped(), PERCEPTLEARN_MAX_BELIEFS, PERCEPTLEARN_LANE);
-  if (n == 0) return;
-
-  // Skip the rewrite when nothing moved. Re-running the reconciliation is supposed to be
-  // a no-op, and a lane rewrite is a whole-TTDB flash operation — doing it every cycle
-  // regardless would burn flash to write identical bytes.
-  bool changed = (gLastConfN != n);
-  if (!changed)
-    for (int i = 0; i < n; ++i)
-      if (gLastConf[i] != gRecon.belief(i).conf) { changed = true; break; }
-  if (!changed) {
-    Serial.printf("[dream] reconciled %d outcome record(s) -> no change (conf steady) "
-                  "| fold %lums (TTDB %uB)\n",
-                  gRecon.recordsFolded(), (unsigned long)(t_fold - t_enter),
-                  (unsigned)gDb.fileSize());
-    return;
-  }
-
-  ++gBeliefRev;
-  const uint32_t bytes_before = (unsigned)gDb.fileSize();
-  const uint32_t t_rm0 = millis();
-  if (!gDb.removeLane(PERCEPTLEARN_BELIEF_LANE)) {
-    Serial.printf("[dream] belief lane rewrite FAILED (removeLane) at step '%s' — "
-                  "maxalloc %u B. Beliefs stay at the previous revision.\n",
-                  gDb.lastRewriteErrName(), (unsigned)ESP.getMaxAllocHeap());
-    return;
-  }
-  const uint32_t t_rm = millis();
-  // `touched:` (Unix seconds, TTDB-RFC-0005) and the **TOUCHED** stream stamp are the
-  // same instant in two frames. The second is the one that works with no laptop, which
-  // is the whole reason the belief can now decay at all.
-  static char brec[PERCEPTLEARN_BUF];
-  for (int i = 0; i < n; ++i) {
-    // `bsid` is this belief's STABLE id (TTDB-RFC-0010 stage 2, the fleet's first lane to
-    // carry one). Logged because a lane that silently started naming its records would be
-    // indistinguishable from one that had not — the same argument as `[field] armed:`.
-    // ⚠ Watch it across Dream Cycles: it MUST NOT change for the same (peer, proto) even
-    // as conf, rev and the ordinal all move. If it ever does, every citation into this lane
-    // is re-pointing, which is the failure @LAT100 exists to make visible.
-    uint32_t bsid = 0;
-    size_t m = gRecon.buildBelief(brec, sizeof(brec), i, i, gStreamWallSec, kNodeId,
-                                  gBeliefRev, gStamp, &bsid);
-    if (m && gDb.appendRecord(brec, m)) {
-      const perceptlearn::Belief& b = gRecon.belief(i);
-      Serial.printf("[dream] @LAT%dLON%d sid:%08lx peer:0x%lx %s conf:%ld sal:%ld "
-                    "(met:%ld violated:%ld%s) rev:%d\n",
-                    PERCEPTLEARN_BELIEF_LANE, i, (unsigned long)bsid,
-                    (unsigned long)b.peer,
-                    b.proto == 0 ? "espnow" : (b.proto == 1 ? "lora" : "ble"),
-                    (long)b.conf, (long)b.sal, (long)b.met, (long)b.violated,
-                    b.contradiction ? " CONTRADICTION" : "", gBeliefRev);
-    }
-    gLastConf[i] = gRecon.belief(i).conf;
-    yield();
-  }
-  gLastConfN = n;
-  const uint32_t t_end = millis();
-  Serial.printf("[dream] reconciled %d outcome record(s) -> %d belief(s), TTDB %uB\n",
-                gRecon.recordsFolded(), n, (unsigned)gDb.fileSize());
-  // The number FLEET.md owes the handoff. Printed on the CHANGING path only, which
-  // is the path that had never been observed. "It seemed fine" is not a result.
-  Serial.printf("[dream] TIMING fold %lums rewrite %lums append %lums TOTAL %lums "
-                "(%luB -> %luB, %d records)\n",
-                (unsigned long)(t_fold - t_enter), (unsigned long)(t_rm - t_rm0),
-                (unsigned long)(t_end - t_rm), (unsigned long)(t_end - t_enter),
-                (unsigned long)bytes_before, (unsigned long)gDb.fileSize(),
-                gDb.recordCount());
-}
-#endif  // PHASEC_EPISODES
-
-// Count existing records in a percept lane (the LON index of the next one).
-static int laneCount(int lat) {
-  int n = 0;
-  for (int i = 0; i < gDb.recordCount(); ++i)
-    if (gDb.record(i).lat == lat) ++n;
-  return n;
 }
 
 // ACT-III §C4 / TTG-0004 §4.3: an episode's `at: <pulse ms> ±<bound ms> frame:<f>`, not the
@@ -3428,7 +3181,6 @@ static int belField(const char* s, const char* key, int dflt) {
 // per-frame file I/O that cost 767 ms/repaint in the `edgesAt` defect (FLEET.md §6).
 static void readBeliefs() {
   gBelN = 0;
-#if PHASEC_EPISODES
   // From RAM: the consolidator's link terms, highest EPS first (Episode.h, THE LINK
   // BELIEFS). The panel shows 8; gBelTotal says when there are more.
   semantic::LinkBeliefRow rows[PERCEPTLEARN_MAX_BELIEFS];
@@ -3449,7 +3201,6 @@ static void readBeliefs() {
   }
   gBelTotal = (int)total;
   return;
-#endif
   static char buf[768];
   for (int i = 0; i < gDb.recordCount() && gBelN < PERCEPTLEARN_MAX_BELIEFS; ++i) {
     if (gDb.record(i).lat != PERCEPTLEARN_BELIEF_LANE) continue;
@@ -3501,10 +3252,10 @@ static void renderBelief(uint32_t now) {
   // ⚠ If the panel shows fewer beliefs than exist it must say so (the record-pane rule):
   // "8/9" is the K10's belief NOT being on screen, which "8" would hide.
   if (gBelTotal > gBelN)
-    snprintf(l, sizeof(l), "LINK BELIEFS %s %d/%d rev%d", PHASEC_EPISODES ? "count" : "@LAT91",
+    snprintf(l, sizeof(l), "LINK BELIEFS count %d/%d rev%d",
              gBelN, gBelTotal, gBeliefRev);
   else
-    snprintf(l, sizeof(l), "LINK BELIEFS %s  %d  rev%d", PHASEC_EPISODES ? "count" : "@LAT91",
+    snprintf(l, sizeof(l), "LINK BELIEFS count  %d  rev%d",
              gBelN, gBeliefRev);
   drawWide(0, rgb565(150, 190, 255), l);
 
@@ -3512,21 +3263,15 @@ static void renderBelief(uint32_t now) {
     // Say WHY it is empty. A blank panel here would look identical to a broken view, and
     // on a freshly imaged filesystem empty is the correct and expected state.
     drawWide(20, rgb565(240, 200, 90), "no belief yet");
-    if (PHASEC_EPISODES) {
-      drawWide(32, rgb565(150, 150, 150), "beliefs are counted from @LAT103");
-      drawWide(42, rgb565(150, 150, 150), "link episodes; needs a still");
-      drawWide(52, rgb565(150, 150, 150), "window + a peer, then 1 window.");
-    } else {
-      drawWide(32, rgb565(150, 150, 150), "the Dream Cycle writes @LAT91 from");
-      drawWide(42, rgb565(150, 150, 150), "@LAT92 testimony; needs a still");
-      drawWide(52, rgb565(150, 150, 150), "window + a peer, then <=3 min.");
-    }
+    drawWide(32, rgb565(150, 150, 150), "beliefs are counted from @LAT103");
+    drawWide(42, rgb565(150, 150, 150), "link episodes; needs a still");
+    drawWide(52, rgb565(150, 150, 150), "window + a peer, then 1 window.");
     gBelPainted = true;
     return;
   }
 
-  // Narrower bar on the episode build to make room for Rule 3's number beside counting's.
-  const int kRowH = 14, kTop = 16, kBarX = 46, kBarW = PHASEC_EPISODES ? 64 : 96;
+  // Narrow bar, to make room for Rule 3's number beside counting's.
+  const int kRowH = 14, kTop = 16, kBarX = 46, kBarW = 64;
   gTft.setTextSize(1);
   for (int i = 0; i < gBelN; ++i) {
     const int y = kTop + i * kRowH;
@@ -3841,7 +3586,7 @@ void setup() {
     // The index is a whole-FILE budget shared by every lane, so a lane with room in
     // its own cap can still be refused - and until 2026-08-11 nothing said so.
     // Saturation is worse than a refusal: records past the cap are invisible to every
-    // reader, and a lane prune walks the INDEX, so before the tail-carry fix the next
+    // reader, and a lane rewrite walks the INDEX, so before the tail-carry fix the next
     // rewrite deleted them outright. That is how five @LAT101 records died once.
     if (gDb.indexSaturated())
       Serial.printf("!! TTDB INDEX SATURATED: file holds %u records, %u INVISIBLE to\n"
@@ -3859,43 +3604,18 @@ void setup() {
                 (unsigned)LittleFS.usedBytes(), (unsigned)LittleFS.totalBytes(),
                 (unsigned)(LittleFS.totalBytes() - LittleFS.usedBytes()));
 
-  // --- A PRUNE SCHEDULED BY AN EARLIER BOOT, RUN HERE BECAUSE HERE IS WHERE THE MEMORY
-  // IS. ⚠ POSITION IS THE WHOLE FEATURE: this MUST stay above WiFi/ESP-NOW/BLE. The same
-  // call fails once the radios are up (maxalloc ~7 KB) and succeeds here (~147 KB); there
-  // is nothing else different about it. If a future edit moves radio init earlier, or
-  // moves this later, the feature silently stops working and the node quietly goes back
-  // to discarding every window. The maxalloc printed below is the evidence for that, so
-  // it is printed whether the prune succeeds or fails.
-  {
-    uint8_t pending;
-    if (lanegen::takePendingPrune(pending)) {
-      Serial.printf("[percept] scheduled prune of lane %s — running now, before the "
-                    "radios (maxalloc %u B)\n",
-                    pending ? String(pending).c_str() : "ALL (94-97)",
-                    (unsigned)ESP.getMaxAllocHeap());
-      // ⚠ takePendingPrune already CLEARED the flag. If this fails too, the node reports
-      // it and carries on rather than rebooting into the same failure forever.
-      // ⚠ The boundary is stamped before gTs.begin(), so it carries stream:0x00000000 —
-      // local millis(), comparable only with this node's own records. That is a real but
-      // small loss, it is what the record itself says, and the alternative is a node that
-      // can never prune at all.
-      if (clearPerceptLanes(pending, /*may_defer=*/false) != lanegen::PRUNE_OK)
-        Serial.println("[percept] the scheduled prune FAILED TOO — see the step above. "
-                       "Not rescheduled; this needs a look, not another reboot.");
-    }
-  }
-  // --- THE EPISODE TIER BOOTS HERE, FOR THE SAME REASON: its boot cut is a whole-file
-  // rewrite, and above the radios is where a rewrite has the heap to succeed. Reads the
-  // newest @LAT104 checkpoint, replays the live @LAT103 episodes, cuts what is dead.
-  if (PHASEC_EPISODES) {
-    const uint32_t t0 = millis();
-    gEpisodes.begin(gDb);
-    Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
-                  "maxalloc %u B\n",
-                  (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
-                  (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
-    gEpisodes.print(Serial);
-  }
+  // --- THE EPISODE TIER BOOTS HERE, ABOVE THE RADIOS: its boot cut is a whole-file
+  // rewrite, and a rewrite that fails once BLE + WiFi have taken the heap (maxalloc ~7 KB)
+  // succeeds here (~147 KB). ⚠ If a future edit moves radio init above this, the cut
+  // silently stops succeeding. Reads the newest @LAT104 checkpoint, replays the live
+  // @LAT103 episodes, cuts what is dead.
+  const uint32_t t0 = millis();
+  gEpisodes.begin(gDb);
+  Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
+                "maxalloc %u B\n",
+                (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
+                (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
+  gEpisodes.print(Serial);
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
   // inside EntityPercept.cpp — a separate translation unit — so it can only be changed
@@ -3960,7 +3680,7 @@ void setup() {
   // still runs and still stamps (`stream:` in each sampler's lines, HELLO anchors), because
   // the un-migrated boards compare with this one on that clock. Transitions still print.
   // Nothing on the laptop reads @LAT90's REMAP lines (checked 2026-10-02).
-  gTs.begin(kNodeId, PHASEC_EPISODES ? nullptr : &gDb, millis());
+  gTs.begin(kNodeId, millis());
 
   // The default network starts with DECLARATIONS ONLY, then promotes what the boot
   // sequence has actually proven. ⚠ `gCodecOk` and `gImuOk` are exactly the right gates
@@ -4103,15 +3823,14 @@ void loop() {
   // Deferred work off the recv callback: bursts and flash writes on the main task.
   if (gReqPending)   { gReqPending = false;   serveTtdbReq(gPendingReq, sendEspNow, nullptr); }
   if (gPutPending)   { gPutPending = false;   handleToot(gPendingPut, sendEspNow, nullptr); }
-  if (gClearPending) { gClearPending = false; handleToot(gPendingClear, sendEspNow, nullptr); }
   if (gSyncPending)  { gSyncPending = false;  appendSyncRecord(); }
   if (gBeliefSyncPending) { gBeliefSyncPending = false; appendBeliefRecord(); }
 
   sectMark();                       // [1] end of "link": serial toot + deferred work
 
   // --- the four percept tiers: sample continuously, flush one record per window ---
-  // Every flush is a flash write, so it happens here in loop() and never in a callback,
-  // and every lane is capped until SP1 pruning takes it (CMD_CLEAR_PERCEPTS).
+  // Every flush is a flash write, so it happens here in loop() and never in a callback.
+  // Each is a @LAT103 episode in its tier's band; none has a cap or a prune (ACT-III C0).
   if (gLinkLog.due(now)) {
     // ACT-III §C2 (2026-10-02): the LINK tier, the last one, lives in @LAT103 now. One
     // link-band episode per window, scored or not: LinkPercept's **LINKWIN**/**LINK** lines
@@ -4120,137 +3839,76 @@ void loop() {
     // laptop's RSSI reader and the @LAT92 outcome's `derived_from@`/`observed_in:` cite,
     // and it is never refused for a full lane. Before this, a full @LAT97 meant the RSSI
     // was dropped and the outcome withheld ("[@LAT97 full: episode only]", 10-01 -> 10-02).
-    const int16_t ep_ord = PHASEC_EPISODES ? gEpisodes.nextOrdinal(semantic::TIER_LINK) : 0;
-    const int lane = PHASEC_EPISODES ? (int)ep_ord : laneCount(97);
-    const int link_lat = PHASEC_EPISODES ? SEMANTIC_EPISODE_LANE : 97;
-    const bool link_lane_full = !PHASEC_EPISODES && (lane >= LINKPERCEPT_MAX_LANE);
-    if (link_lane_full) {
-      gLearn.disarm();             // the pre-Phase-C behaviour, for the A/B
-      gLinkLog.reset(now);
-    } else {
-      // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
-      // double duty: they SCORE the expectation armed last window, and they are the
-      // basis for the next one (Rule 1 — re-derived from current state, every window).
-      gLearn.stageBegin(lane, link_lat);
-      for (int s = 0; s < gLinkLog.peerCount(); ++s) {
-        uint32_t pr; uint8_t pt; uint32_t pn; int rmin, rmed, rmax;
-        if (gLinkLog.stats(s, pr, pt, pn, rmin, rmed, rmax)) gLearn.stage(pr, pt, rmed);
-      }
-      // ⚠ Say so when the claim house is full. An overflowed (peer, proto) is scored
-      // VERDICT_UNOBSERVED, which is the SAME verdict a peer that genuinely went quiet
-      // gets — so without this line a cap that is one slot short looks like the fleet
-      // going intermittent. 4 nodes x {espnow, ble} needs exactly PERCEPTLEARN_MAX_CLAIMS,
-      // so this is live the moment the V4s come up, not a theoretical limit.
-      if (gLearn.stagedOverflow())
-        Serial.printf("[learn] %d peer-observation(s) DROPPED - staged claim house full "
-                      "(PERCEPTLEARN_MAX_CLAIMS %d): they will score as 'unobserved' and "
-                      "are NOT missing peers\n",
-                      gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
-      // The window's own record. With episodes it is rendered into the ONE scratch buffer
-      // (no buffer of its own: the heap margin is ~9–11 KB with peers on) and wrapped
-      // below, after scoring; nothing between here and the append touches the scratch.
-      size_t link_m = 0;
-      if (PHASEC_EPISODES) {
-        link_m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, lane,
-                                      gStreamWallSec, gStamp, now);
-      } else {
-        char rec[LINK_RECORD_CAP];
-        size_t m = gLinkLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec, gStamp, now);
-        if (m && gDb.appendRecord(rec, m))
-          Serial.printf("[link] percept window -> @LAT97LON%d (TTDB %uB)\n", lane,
-                        (unsigned)gDb.fileSize());
-      }
-
-      // Rule 2: the world has answered — score the prediction and TESTIFY. Appended to
-      // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
-      // doing it from the live loop is the exact violation Rule 2 names (and the one
-      // LOCUS committed).
-      const bool scored = gLearn.score(gStamp, gStreamWallSec) > 0;
-      bool episode_written = false;
-      if (PHASEC_EPISODES) {
-        // EVERY window is one episode; a scored one also carries its verdicts, which is
-        // what TTG-0003 §2 counts. An unscored one carries RSSI only and counts nothing.
-        semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
-        const int nc = scored ? gLearn.scoredCount() : 0;
-        for (int i = 0; i < nc; ++i) {
-          const perceptlearn::Claim& k = gLearn.scored(i);
-          lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
-                                      k.predicted, k.observed};
-        }
-        char at[72];                  // the pulse stamp, not the time stream: episodeAt()
-        episodeAt(at, sizeof(at), now);
-        episode_written = gEpisodes.appendLinkWindowScratch(ep_ord, link_m, lc, nc, at,
-                                                            gStreamWallSec);
-        if (episode_written)
-          // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
-          // falling maxalloc is fragmentation, and those need opposite fixes.
-          Serial.printf("[link] window -> @LAT%dLON%d (%d claim(s)) live %u present %u "
-                        "heap %u maxalloc %u\n",
-                        SEMANTIC_EPISODE_LANE, (int)ep_ord, nc,
-                        (unsigned)gEpisodes.tiers().live(),
-                        (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getFreeHeap(),
-                        (unsigned)ESP.getMaxAllocHeap());
-        else
-          // ⚠ The outcome below would cite this ordinal, and the NEXT window takes the same
-          // one, so a lost window must also withhold its outcome (see there).
-          Serial.printf("[link] window LOST at @LAT%dLON%d (render fail %lu, append fail "
-                        "%lu, index headroom %d) - its outcome is withheld\n",
-                        SEMANTIC_EPISODE_LANE, (int)ep_ord,
-                        (unsigned long)gEpisodes.stats().render_failed,
-                        (unsigned long)gEpisodes.stats().append_failed,
-                        gDb.indexHeadroom());
-        gEpisodes.service(now, gStreamWallSec);
-      }
-#if PHASEC_EPISODES
-      // ACT-III §C3 (2026-10-02): no @LAT92 outcome. The verdicts are in the episode just
-      // appended, which the consolidator has already counted; a second copy in a lane capped
-      // at 24 was the last refusal this tier could still hit. Just say the beliefs moved.
-      if (scored && episode_written) noteBeliefChange();
-#else
-      if (scored) {
-        if (!gLearn.outcomePending()) {
-          // Run-length: this window's verdicts matched the record before it, so it is
-          // FOLDED, not written. Say so — a lane that has gone quiet because nothing is
-          // changing looks identical to one that has stopped testifying, and the whole
-          // reason @LAT92 has a cap is that it used to do the latter silently.
-          static uint32_t last_fold_log = 0;
-          if (now - last_fold_log > 300000 || last_fold_log == 0) {
-            last_fold_log = now;
-            Serial.printf("[learn] %d window(s) folded into the run (met:%d violated:%d) "
-                          "- unchanged verdicts write no record\n",
-                          gLearn.coveredWindows(), gLearn.metCount(),
-                          gLearn.violatedCount());
-          }
-        } else {
-          // static: 2624 B is far too much to add to this loop's stack next to the
-          // other tiers' buffers (see PERCEPTLEARN_BUF).
-          static char orec[PERCEPTLEARN_BUF];
-          int olane = laneCount(PERCEPTLEARN_LANE);
-          // ⚠ Read the run length BEFORE rendering: buildOutcome adopts the run, which
-          // resets the counter to 1. Logging it afterwards would report every record as
-          // covering a single window, i.e. exactly as if run-length were not working.
-          const int covers = gLearn.windowsSinceLast();
-          // ⚠ RENDER EVEN WHEN THE LANE IS FULL, then throw the bytes away. buildOutcome
-          // is what adopts the run — skipping it would leave the just-closed run still
-          // open, so the NEXT window would compare against a stale verdict vector and a
-          // real change could be folded away as "unchanged". A record dropped for want
-          // of lane space must not also corrupt the run accounting.
-          size_t om = gLearn.buildOutcome(orec, sizeof(orec), olane, kNodeId);
-          if (olane >= PERCEPTLEARN_MAX_LANE) {
-            Serial.printf("[learn] outcome DROPPED - @LAT%d lane full (%d): the loop is "
-                          "still predicting but no longer testifying\n",
-                          PERCEPTLEARN_LANE, olane);
-          } else if (om && gDb.appendRecord(orec, om)) {
-            Serial.printf("[learn] outcome -> @LAT%dLON%d met:%d violated:%d streak:%d "
-                          "covers:%d (%uB, TTDB %uB)\n",
-                          PERCEPTLEARN_LANE, olane, gLearn.metCount(),
-                          gLearn.violatedCount(), gLearn.violationStreak(),
-                          covers, (unsigned)om, (unsigned)gDb.fileSize());
-          }
-        }
-      }
-#endif  // PHASEC_EPISODES
+    const int16_t ep_ord = gEpisodes.nextOrdinal(semantic::TIER_LINK);
+    const int lane = (int)ep_ord;
+    const int link_lat = SEMANTIC_EPISODE_LANE;
+    // Stage this window's medians BEFORE buildRecord() clears the histograms. They do
+    // double duty: they SCORE the expectation armed last window, and they are the
+    // basis for the next one (Rule 1 — re-derived from current state, every window).
+    gLearn.stageBegin(lane, link_lat);
+    for (int s = 0; s < gLinkLog.peerCount(); ++s) {
+      uint32_t pr; uint8_t pt; uint32_t pn; int rmin, rmed, rmax;
+      if (gLinkLog.stats(s, pr, pt, pn, rmin, rmed, rmax)) gLearn.stage(pr, pt, rmed);
     }
+    // ⚠ Say so when the claim house is full. An overflowed (peer, proto) is scored
+    // VERDICT_UNOBSERVED, which is the SAME verdict a peer that genuinely went quiet
+    // gets — so without this line a cap that is one slot short looks like the fleet
+    // going intermittent. 4 nodes x {espnow, ble} needs exactly PERCEPTLEARN_MAX_CLAIMS,
+    // so this is live the moment the V4s come up, not a theoretical limit.
+    if (gLearn.stagedOverflow())
+      Serial.printf("[learn] %d peer-observation(s) DROPPED - staged claim house full "
+                    "(PERCEPTLEARN_MAX_CLAIMS %d): they will score as 'unobserved' and "
+                    "are NOT missing peers\n",
+                    gLearn.stagedOverflow(), PERCEPTLEARN_MAX_CLAIMS);
+    // The window's own record. With episodes it is rendered into the ONE scratch buffer
+    // (no buffer of its own: the heap margin is ~9–11 KB with peers on) and wrapped
+    // below, after scoring; nothing between here and the append touches the scratch.
+    size_t link_m = 0;
+    link_m = gLinkLog.buildRecord(gEpisodes.scratch(), LINK_RECORD_CAP, lane,
+                                  gStreamWallSec, gStamp, now);
+
+    // Rule 2: the world has answered — score the prediction and TESTIFY. Appended to
+    // a side lane; nothing here edits any record's [ew]. That is Stage D's job, and
+    // doing it from the live loop is the exact violation Rule 2 names (and the one
+    // LOCUS committed).
+    const bool scored = gLearn.score(gStamp, gStreamWallSec) > 0;
+    bool episode_written = false;
+    // EVERY window is one episode; a scored one also carries its verdicts, which is
+    // what TTG-0003 §2 counts. An unscored one carries RSSI only and counts nothing.
+    semantic::LinkClaim lc[PERCEPTLEARN_MAX_CLAIMS];
+    const int nc = scored ? gLearn.scoredCount() : 0;
+    for (int i = 0; i < nc; ++i) {
+      const perceptlearn::Claim& k = gLearn.scored(i);
+      lc[i] = semantic::LinkClaim{k.peer, linkpercept::protoName(k.proto), k.verdict,
+                                  k.predicted, k.observed};
+    }
+    char at[72];                  // the pulse stamp, not the time stream: episodeAt()
+    episodeAt(at, sizeof(at), now);
+    episode_written = gEpisodes.appendLinkWindowScratch(ep_ord, link_m, lc, nc, at,
+                                                        gStreamWallSec);
+    if (episode_written)
+      // heap AND maxalloc, both: a falling heap is a leak, a steady heap under a
+      // falling maxalloc is fragmentation, and those need opposite fixes.
+      Serial.printf("[link] window -> @LAT%dLON%d (%d claim(s)) live %u present %u "
+                    "heap %u maxalloc %u\n",
+                    SEMANTIC_EPISODE_LANE, (int)ep_ord, nc,
+                    (unsigned)gEpisodes.tiers().live(),
+                    (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getFreeHeap(),
+                    (unsigned)ESP.getMaxAllocHeap());
+    else
+      // ⚠ The outcome below would cite this ordinal, and the NEXT window takes the same
+      // one, so a lost window must also withhold its outcome (see there).
+      Serial.printf("[link] window LOST at @LAT%dLON%d (render fail %lu, append fail "
+                    "%lu, index headroom %d) - its outcome is withheld\n",
+                    SEMANTIC_EPISODE_LANE, (int)ep_ord,
+                    (unsigned long)gEpisodes.stats().render_failed,
+                    (unsigned long)gEpisodes.stats().append_failed,
+                    gDb.indexHeadroom());
+    gEpisodes.service(now, gStreamWallSec);
+    // ACT-III §C3 (2026-10-02): no @LAT92 outcome. The verdicts are in the episode just
+    // appended, which the consolidator has already counted; a second copy in a lane capped
+    // at 24 was the last refusal this tier could still hit. Just say the beliefs moved.
+    if (scored && episode_written) noteBeliefChange();
   }
 
   // Stage D: the Dream Cycle's reconciliation pre-phase. Deliberately NOT run from the
@@ -4260,12 +3918,8 @@ void loop() {
     static uint32_t last_dream = 0;
     if (now - last_dream >= DREAM_RECONCILE_MS || last_dream == 0) {
       last_dream = now;
-#if PHASEC_EPISODES
       noteBeliefChange();
       gEpisodes.print(Serial);     // the node's beliefs: counting, with Rule 3 on the panel
-#else
-      reconcileBeliefs();
-#endif
     }
   }
 
@@ -4273,7 +3927,7 @@ void loop() {
 
 #if USE_WIFI_SCAN
   serviceWifiScan();
-  if (gEntityLog.due(now) && PHASEC_EPISODES) {
+  if (gEntityLog.due(now)) {
     // ACT-III §C2: the ENTITY tier lives in @LAT103 now, in its own band with its own
     // quota (SEMANTIC_QUOTA_ENTITY 48 = entity-survey's 8 h at MAX_RUN=1), so a window is
     // never refused for a full lane and link's ~60/h cannot evict it. EntityPercept still
@@ -4315,54 +3969,6 @@ void loop() {
       Serial.printf("[entity] window covered (run %d, core %d)\n",
                     gEntityLog.runLength(), gEntityLog.coreCount());
     }
-  } else if (gEntityLog.due(now)) {
-    int lane = laneCount(96);
-    if (lane >= ENTITYPERCEPT_MAX_LANE) {
-      // ⚠ SAY THIS OUT LOUD — the same argument `@LAT95` got after 2026-08-02, and it took
-      // a live debugging session on 2026-08-10 to notice `@LAT96` never got it. A full
-      // entity lane looks EXACTLY like a healthy node: `[wifi] scan: N AP(s)` still prints
-      // every 10 min, every other tier still flushes, and the window is dropped in silence.
-      // Both handhelds sat at 48/48 with freshly-flashed Part 2 firmware and wrote nothing,
-      // which read as a broken feature rather than a full lane.
-      static uint32_t last_ent_full_log = 0;
-      if (now - last_ent_full_log > 300000 || last_ent_full_log == 0) {
-        last_ent_full_log = now;
-        Serial.printf("[entity] @LAT96 lane FULL (%d/%d) - windows are being DISCARDED. "
-                      "Prune with `companion.py cmd --op clear-percepts --lane 96`.\n",
-                      lane, ENTITYPERCEPT_MAX_LANE);
-      }
-      gEntityLog.reset(now);
-    } else {
-      // static + ENTITYPERCEPT_RECORD_BUF: since @LAT96 became change-triggered a
-      // record can carry a **CORE** list and the run's **COVERED** union (worst case
-      // 2322 B, pinned in tests/test_entitypercept.cpp). That fits neither the old
-      // 1024 nor the loop task's stack, and buildRecord writes NOTHING rather than
-      // truncating — so an undersized buffer here loses whole windows silently.
-      // The episode tier's scratch, not a static of its own (EpisodeNode::scratch()).
-      char* rec = gEpisodes.scratch();
-      size_t m = gEntityLog.buildRecord(rec, ENTITYPERCEPT_RECORD_BUF, lane, gStreamWallSec,
-                                        gStamp, now);
-      if (m && gDb.appendRecord(rec, m)) {
-        // EXERCISED: a percept reached a lane. That is the whole definition, and it is
-        // deliberately the appendRecord — not the scan, not the buildRecord — because a
-        // window that was built and then dropped taught the fleet nothing.
-        gSocial.table().exercise(social::CAP_WIFI_SCAN);
-        Serial.printf("[entity] percept window -> @LAT96LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
-      } else if (gEntityLog.lastClose() == entitypercept::CLOSE_COVERED) {
-        // ⚠ A COVERED WINDOW MUST NOT CLAIM THE CAPABILITY. `exercise()` means "a percept
-        // reached a lane", and a fold reached no lane — the observation is real and is
-        // carried in the NEXT record's union, but the wifi bit is earned by an
-        // appendRecord and nothing else. Widening it here would let the fleet's
-        // capability table say `wifi:X` for a tier that had not written since boot.
-        //
-        // Say it out loud, though: under run-length "wrote nothing" is the NORMAL case
-        // for a still node in a stable room, and a lane that silently does nothing is
-        // this corpus's least favourite failure mode.
-        Serial.printf("[entity] window covered (run %d, core %d)\n",
-                      gEntityLog.runLength(), gEntityLog.coreCount());
-      }
-    }
   }
 #endif
 
@@ -4376,154 +3982,106 @@ void loop() {
     // arms ONLY off a written-or-covered `still` window, and the link episode is appended
     // only when an armed expectation is scored — so a full @LAT95 silenced the LINK tier
     // too (L46/48 frozen on 10-01 while acoustic grew).
-    int lane = PHASEC_EPISODES ? 0 : laneCount(95);
-    if (!PHASEC_EPISODES && lane >= MOTIONPERCEPT_MAX_LANE) {
-      // ⚠ SAY THIS OUT LOUD. This path used to be silent, and a silent full lane looks
-      // exactly like a healthy node: percept windows keep flushing on the other tiers
-      // while the learning loop is disarmed every single window and testifies nothing.
-      // That is precisely how it failed on 2026-08-02 — @LAT95 hit 48/48 after 48
-      // minutes, four @LAT92 outcomes had been written, and the loop then went quiet
-      // with no error anywhere. The motion lane fills ~2x faster than the link lane
-      // (motion flushes with no peers in range; link needs an observation), so it is
-      // always the first cap to bite.
-      static uint32_t last_full_log = 0;
-      if (now - last_full_log > 300000 || last_full_log == 0) {
-        last_full_log = now;
-        Serial.printf("[motion] @LAT95 lane FULL (%d/%d) - windows are being DISCARDED "
-                      "and the learning loop is disarmed. Prune with `companion.py cmd "
-                      "--op clear-percepts`. (Since run-length landed this should take "
-                      "~24 h of uptime, not 48 min - if it is fast, the node is moving "
-                      "or flapping at the %d mg threshold.)\n",
-                      lane, MOTIONPERCEPT_MAX_LANE, MOTIONPERCEPT_MOVING_MG);
-      }
-      gMotionLog.reset(now);
-      gLearn.disarm();   // no acting record to cite; make no claim
-    } else {
-      bool wrote = false;
-      if (PHASEC_EPISODES) {
-        // Into the episode scratch, wrapped in place — no buffer of its own (the heap
-        // margin is ~9–11 KB with peers on). The ordinal is taken first so the record's
-        // `covered_by:`, the @LAT93 transition and the @LAT92 outcome all cite it.
-        const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
-        const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF,
-                                                ord, gStreamWallSec, gStamp, now,
-                                                SEMANTIC_EPISODE_LANE);
-        if (gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN) {
-          char at[72];
-          episodeAt(at, sizeof(at), now);
-          wrote = m && gEpisodes.appendSaidScratch(ord, m, "motion window", "motionpercept",
-                                                   at, gStreamWallSec);
-          if (wrote)
-            gEpisodes.service(now, gStreamWallSec);
-          else
-            Serial.printf("[motion] window LOST: episode render/append failed at @LAT%dLON%d "
-                          "(render_failed %lu append_failed %lu) - Rule 1 will cite it anyway\n",
-                          SEMANTIC_EPISODE_LANE, (int)ord,
-                          (unsigned long)gEpisodes.stats().render_failed,
-                          (unsigned long)gEpisodes.stats().append_failed);
-        }
+    bool wrote = false;
+    // Into the episode scratch, wrapped in place — no buffer of its own (the heap
+    // margin is ~9–11 KB with peers on). The ordinal is taken first so the record's
+    // `covered_by:`, the @LAT93 transition and the @LAT92 outcome all cite it.
+    const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+    const size_t m = gMotionLog.buildRecord(gEpisodes.scratch(), MOTIONPERCEPT_RECORD_BUF,
+                                            ord, gStreamWallSec, gStamp, now,
+                                            SEMANTIC_EPISODE_LANE);
+    if (gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN) {
+      char at[72];
+      episodeAt(at, sizeof(at), now);
+      wrote = m && gEpisodes.appendSaidScratch(ord, m, "motion window", "motionpercept",
+                                               at, gStreamWallSec);
+      if (wrote)
+        gEpisodes.service(now, gStreamWallSec);
+      else
+        Serial.printf("[motion] window LOST: episode render/append failed at @LAT%dLON%d "
+                      "(render_failed %lu append_failed %lu) - Rule 1 will cite it anyway\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord,
+                      (unsigned long)gEpisodes.stats().render_failed,
+                      (unsigned long)gEpisodes.stats().append_failed);
+    }
+    if (wrote) {
+      // ⚠ This is the fleet's ONLY stillness witness reporting for duty. Rule 1 arms
+      // solely off a `still` @LAT95 window, so until this line runs once, no node in the
+      // fleet can author a belief at all — which is why the capability is worth stating
+      // as exercised rather than assumed from an IMU that merely answered on I2C.
+      gSocial.table().exercise(social::CAP_IMU);
+      Serial.printf("[motion] percept window -> @LAT%dLON%d (TTDB %uB)\n",
+                    gMotionLog.coveringLat(), gMotionLog.coveringLane(),
+                    (unsigned)gDb.fileSize());
+    }
+
+    // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
+    // window asserts the node was anchored for 60 s; that assertion is what makes
+    // "the next window's RSSI to each peer will land within the band" a prediction
+    // the world can refute. A `moving` window asserts nothing, so it earns no
+    // expectation — and any outstanding one is dropped UNSCORED rather than judged
+    // against a claim the node never made.
+    //
+    // The medians come from the link flush earlier in THIS pass (section [2]); if
+    // that did not run, arm() refuses rather than predicting from a stale window.
+    //
+    // ⚠ BRANCH ON lastClose(), NOT ON `m`. Under run-length a still window that
+    // matches the one before it writes 0 bytes and is completely normal — it is the
+    // common case on a shelf. Disarming on `m == 0`, which is what this line used to
+    // do, would silence Rule 1 for 29 windows out of every 30 and the loop would look
+    // healthy while testifying to nothing. The window is still a real observation; it
+    // is cited as (covering record, offset into its run) rather than by ordinal alone.
+    const motionpercept::Close close = gMotionLog.lastClose();
+    if (close == motionpercept::CLOSE_EMPTY) {
+      gLearn.disarm();
+    } else if (gMotionLog.lastWindow().moving) {
+      gLearn.disarm();
+    } else if (gLearn.arm(gMotionLog.coveringLane(), gMotionLog.runOffset(),
+                          gMotionLog.coveringLat())) {
+      Serial.printf("[learn] expectation armed from @LAT%dLON%d+%d (still): peers "
+                    "hold within +/-%d dBm\n", gMotionLog.coveringLat(),
+                    gMotionLog.coveringLane(), gMotionLog.runOffset(),
+                    PERCEPTLEARN_RSSI_BAND);
+    }
+
+    // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is
+    // the DIFFERENCE between it and the window before it, and per §5.2 the difference
+    // is the datum — the thing a prediction could ever be wrong about. Written only
+    // on a verdict change, so a node sitting still on a shelf writes none at all.
+    // Must run before the next buildRecord(), which would overwrite the `after` half.
+    // ⚠ A transition whose `after` window was LOST is withheld: it would cite that
+    // window's ordinal, which is the one it would take itself (K10, 2026-10-02).
+    const bool window_lost = !wrote &&
+                             gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN;
+    if (gMotionLog.transitionPending() && window_lost) {
+      gMotionLog.buildTransition(gEpisodes.scratch(), MOTIONPERCEPT_TRANSITION_BUF, 0,
+                                 kNodeId);   // consumes the pending flag; discarded
+      Serial.println("[motion] transition WITHHELD: its after-window was lost");
+    } else if (gMotionLog.transitionPending()) {
+      // ACT-III §C2 (2026-10-02): a transition is a MOTION-band episode, not a @LAT93
+      // record in a lane capped at 32. Its two halves (`  @PERCEPT:before/after …
+      // lane:@LAT103LON<n>+<k>`) ride as `said:` sentences — the wrap keeps indented
+      // lines for exactly this — so its citations survive; the old header's `relates:`
+      // edges do not, as no episode carries any. It is evicted with its own band, i.e.
+      // roughly with the windows it cites.
+      const int16_t tord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
+      const size_t tm = gMotionLog.buildTransition(gEpisodes.scratch(),
+                                                   MOTIONPERCEPT_TRANSITION_BUF, tord,
+                                                   kNodeId);
+      char at[72];
+      episodeAt(at, sizeof(at), now);
+      if (tm && gEpisodes.appendSaidScratch(tord, tm, "motion transition", "motionpercept",
+                                            at, gStreamWallSec)) {
+        Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d\n",
+                      gMotionLog.pendingBefore().moving ? "moving" : "still",
+                      gMotionLog.lastWindow().moving ? "moving" : "still",
+                      SEMANTIC_EPISODE_LANE, (int)tord);
+        gEpisodes.service(now, gStreamWallSec);
       } else {
-        char rec[MOTIONPERCEPT_RECORD_BUF];
-        size_t m = gMotionLog.buildRecord(rec, sizeof(rec), lane, gStreamWallSec,
-                                          gStamp, now);
-        wrote = m && gDb.appendRecord(rec, m);
-      }
-      if (wrote) {
-        // ⚠ This is the fleet's ONLY stillness witness reporting for duty. Rule 1 arms
-        // solely off a `still` @LAT95 window, so until this line runs once, no node in the
-        // fleet can author a belief at all — which is why the capability is worth stating
-        // as exercised rather than assumed from an IMU that merely answered on I2C.
-        gSocial.table().exercise(social::CAP_IMU);
-        Serial.printf("[motion] percept window -> @LAT%dLON%d (TTDB %uB)\n",
-                      gMotionLog.coveringLat(), gMotionLog.coveringLane(),
-                      (unsigned)gDb.fileSize());
-      }
-
-      // Rule 1: ARM the next expectation, but only on a positive claim. A `still`
-      // window asserts the node was anchored for 60 s; that assertion is what makes
-      // "the next window's RSSI to each peer will land within the band" a prediction
-      // the world can refute. A `moving` window asserts nothing, so it earns no
-      // expectation — and any outstanding one is dropped UNSCORED rather than judged
-      // against a claim the node never made.
-      //
-      // The medians come from the link flush earlier in THIS pass (section [2]); if
-      // that did not run, arm() refuses rather than predicting from a stale window.
-      //
-      // ⚠ BRANCH ON lastClose(), NOT ON `m`. Under run-length a still window that
-      // matches the one before it writes 0 bytes and is completely normal — it is the
-      // common case on a shelf. Disarming on `m == 0`, which is what this line used to
-      // do, would silence Rule 1 for 29 windows out of every 30 and the loop would look
-      // healthy while testifying to nothing. The window is still a real observation; it
-      // is cited as (covering record, offset into its run) rather than by ordinal alone.
-      const motionpercept::Close close = gMotionLog.lastClose();
-      if (close == motionpercept::CLOSE_EMPTY) {
-        gLearn.disarm();
-      } else if (gMotionLog.lastWindow().moving) {
-        gLearn.disarm();
-      } else if (gLearn.arm(gMotionLog.coveringLane(), gMotionLog.runOffset(),
-                            gMotionLog.coveringLat())) {
-        Serial.printf("[learn] expectation armed from @LAT%dLON%d+%d (still): peers "
-                      "hold within +/-%d dBm\n", gMotionLog.coveringLat(),
-                      gMotionLog.coveringLane(), gMotionLog.runOffset(),
-                      PERCEPTLEARN_RSSI_BAND);
-      }
-
-      // The transition form (TTDB-RFC-0006 §5). The window above is a STATE; this is
-      // the DIFFERENCE between it and the window before it, and per §5.2 the difference
-      // is the datum — the thing a prediction could ever be wrong about. Written only
-      // on a verdict change, so a node sitting still on a shelf writes none at all.
-      // Must run before the next buildRecord(), which would overwrite the `after` half.
-      // ⚠ A transition whose `after` window was LOST is withheld: it would cite that
-      // window's ordinal, which is the one it would take itself (K10, 2026-10-02).
-      const bool window_lost = PHASEC_EPISODES && !wrote &&
-                               gMotionLog.lastClose() == motionpercept::CLOSE_WRITTEN;
-      if (gMotionLog.transitionPending() && window_lost) {
-        gMotionLog.buildTransition(gEpisodes.scratch(), MOTIONPERCEPT_TRANSITION_BUF, 0,
-                                   kNodeId);   // consumes the pending flag; discarded
-        Serial.println("[motion] transition WITHHELD: its after-window was lost");
-      } else if (gMotionLog.transitionPending() && PHASEC_EPISODES) {
-        // ACT-III §C2 (2026-10-02): a transition is a MOTION-band episode, not a @LAT93
-        // record in a lane capped at 32. Its two halves (`  @PERCEPT:before/after …
-        // lane:@LAT103LON<n>+<k>`) ride as `said:` sentences — the wrap keeps indented
-        // lines for exactly this — so its citations survive; the old header's `relates:`
-        // edges do not, as no episode carries any. It is evicted with its own band, i.e.
-        // roughly with the windows it cites.
-        const int16_t tord = gEpisodes.nextOrdinal(semantic::TIER_MOTION);
-        const size_t tm = gMotionLog.buildTransition(gEpisodes.scratch(),
-                                                     MOTIONPERCEPT_TRANSITION_BUF, tord,
-                                                     kNodeId);
-        char at[72];
-        episodeAt(at, sizeof(at), now);
-        if (tm && gEpisodes.appendSaidScratch(tord, tm, "motion transition", "motionpercept",
-                                              at, gStreamWallSec)) {
-          Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d\n",
-                        gMotionLog.pendingBefore().moving ? "moving" : "still",
-                        gMotionLog.lastWindow().moving ? "moving" : "still",
-                        SEMANTIC_EPISODE_LANE, (int)tord);
-          gEpisodes.service(now, gStreamWallSec);
-        } else {
-          Serial.printf("[motion] transition LOST at @LAT%dLON%d (render fail %lu, append "
-                        "fail %lu)\n", SEMANTIC_EPISODE_LANE, (int)tord,
-                        (unsigned long)gEpisodes.stats().render_failed,
-                        (unsigned long)gEpisodes.stats().append_failed);
-        }
-      } else if (gMotionLog.transitionPending()) {
-        int tlane = laneCount(MOTIONPERCEPT_TRANSITION_LANE);
-        if (tlane >= MOTIONPERCEPT_MAX_TRANSITION_LANE) {
-          // Lane full. Say so out loud: silently dropping transitions would look
-          // exactly like a node that never moved, which is the opposite claim.
-          Serial.printf("[motion] transition DROPPED — @LAT%d lane full (%d)\n",
-                        MOTIONPERCEPT_TRANSITION_LANE, tlane);
-        } else {
-          char trec[MOTIONPERCEPT_TRANSITION_BUF];
-          size_t tm = gMotionLog.buildTransition(trec, sizeof(trec), tlane, kNodeId);
-          if (tm && gDb.appendRecord(trec, tm))
-            Serial.printf("[motion] %s -> %s TRANSITION -> @LAT%dLON%d (%uB, TTDB %uB)\n",
-                          gMotionLog.pendingBefore().moving ? "moving" : "still",
-                          gMotionLog.lastWindow().moving ? "moving" : "still",
-                          MOTIONPERCEPT_TRANSITION_LANE, tlane, (unsigned)tm,
-                          (unsigned)gDb.fileSize());
-        }
+        Serial.printf("[motion] transition LOST at @LAT%dLON%d (render fail %lu, append "
+                      "fail %lu)\n", SEMANTIC_EPISODE_LANE, (int)tord,
+                      (unsigned long)gEpisodes.stats().render_failed,
+                      (unsigned long)gEpisodes.stats().append_failed);
       }
     }
   }
@@ -4533,7 +4091,7 @@ void loop() {
 
 #if USE_MIC && USE_CARD_HW
   serviceMic(now);
-  if (gAcousticLog.due(now) && PHASEC_EPISODES) {
+  if (gAcousticLog.due(now)) {
     // ACT-III §C2: the ACOUSTIC tier lives in @LAT103 (tier 3, quota 24), so a window is
     // never refused for a full lane — @LAT94 sat at 48/48 dropping every one. Rendered
     // into the episode scratch and wrapped in place (no buffer of its own: this board's
@@ -4561,23 +4119,6 @@ void loop() {
                       SEMANTIC_EPISODE_LANE, (int)ord,
                       (unsigned long)gEpisodes.stats().render_failed,
                       (unsigned long)gEpisodes.stats().append_failed);
-      }
-    }
-  } else if (gAcousticLog.due(now)) {
-    int lane = laneCount(94);
-    if (lane >= ACOUSTICPERCEPT_MAX_LANE) {
-      gAcousticLog.reset(now);
-    } else {
-      char* rec = gEpisodes.scratch();     // not a stack 400: see ACOUSTICPERCEPT_RECORD_BUF
-      size_t m = gAcousticLog.buildRecord(rec, ACOUSTICPERCEPT_RECORD_BUF, lane, gStreamWallSec,
-                                          gStamp, now, I2S_RATE);
-      if (m && gDb.appendRecord(rec, m)) {
-        // The fleet's only ear, on the record. ⚠ `quorum(CAP_MIC) == 1` is not a
-        // deficiency report — it is the reason multi-node TDoA is unexercised, stated by
-        // the fleet about itself rather than living only in a comment.
-        gSocial.table().exercise(social::CAP_MIC);
-        Serial.printf("[acoustic] percept window -> @LAT94LON%d (TTDB %uB)\n", lane,
-                      (unsigned)gDb.fileSize());
       }
     }
   }

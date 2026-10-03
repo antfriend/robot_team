@@ -5,7 +5,7 @@
 // samplers and it: rendering an episode record, reading the lane back into the
 // consolidator, and deciding what the ring folds and what it may delete. Portable — no
 // <Arduino.h>, no <FS.h> — so tests/test_episode.cpp pins all of it natively. The Ttdb I/O
-// is the sketch glue's job, exactly as LaneGen/LaneGenNode split it.
+// is the sketch glue's job, exactly as TimeStream/TimeStreamNode split it.
 //
 // ---------------------------------------------------------------------------
 // THE LANES
