@@ -185,6 +185,11 @@ static timestream::Node gTs;
 // PerceptLearn on this board: link episodes carry RSSI only and the consolidator stays
 // empty. The stream still runs and stamps; its capped @LAT90 log is gone.
 static episodenode::Node gEpisodes;
+// ACT-III §C4 (docs/design/episode-order.md): this node's per-agent `seq` and the vector of
+// every other node's it has heard of. gOrderIn is the ONLY thing the recv callback touches;
+// loop() drains it into gOrder, which gEpisodes reads at every render.
+static semantic::VectorClock gOrder;
+static semantic::VectorInbox gOrderIn;
 #define LINK_RECORD_CAP 1024   // LinkPercept worst case 847 B (test_episode)
 static_assert(LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
                   ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
@@ -1996,6 +2001,12 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
       emitAck(t, toot::ACK_ACCEPTED, sendEspNow, nullptr);
     return;
   }
+  if (t.type == toot::EPISODE) {
+    // A peer's episode-order vector. COPY ONLY: merging here could tear the vector an
+    // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
+    gOrderIn.push(t.payload, t.payload_len);
+    return;
+  }
   if (t.type == toot::TTDB_REQ) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
   } else if (t.type == toot::TTDB_PUT) {
@@ -2093,12 +2104,17 @@ void setup() {
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
     const uint32_t t0 = millis();
+    gOrder.begin(kNodeId);
+    gEpisodes.attachOrder(&gOrder);    // BEFORE begin(): boot recovers seq + vector
     gEpisodes.begin(gDb);
     Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                   "maxalloc %u B\n",
                   (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
                   (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
     gEpisodes.print(Serial);
+    Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
+                  "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
+                  (unsigned)gOrder.others());
   }
 #if USE_WIFI_SCAN
   // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
@@ -2495,6 +2511,34 @@ void loop() {
     uint8_t hb[timestream::ANCHOR_LEN];
     size_t hn = gTs.helloPayload(hb, sizeof(hb), millis());
     emit(toot::HELLO, hn ? hb : nullptr, hn, sendEspNow, nullptr);
+  }
+
+  // Episode order (C4): merge what peers sent, then send ours when it changed (>= 1 s
+  // apart) or the 10 s heartbeat is due. A lost vector costs order, never correctness.
+  {
+    const uint32_t onow = millis();
+    const uint8_t before = gOrder.others();
+    if (gOrderIn.drainInto(gOrder) && gOrder.others() != before)
+      Serial.printf("[order] now %u other agent(s) in the vector\n", (unsigned)gOrder.others());
+    if (gOrder.sendDue(onow)) {
+      uint8_t vb[EPISODEORDER_VECTOR_MAX];
+      const size_t vn = gOrder.encode(vb, sizeof(vb));
+      if (vn) emit(toot::EPISODE, vb, (uint8_t)vn, sendEspNow, nullptr);
+      gOrder.sent(onow);
+    }
+    static uint32_t last_order_print = 0;
+    if (onow - last_order_print >= 60000) {
+      last_order_print = onow;
+      semantic::Follows f[EPISODEORDER_OTHERS];
+      const uint8_t nf = gOrder.follows(f, EPISODEORDER_OTHERS);
+      Serial.printf("[order] seq %lu | regressions %lu overflow %lu malformed %lu "
+                    "dropped %lu | follows:", (unsigned long)gOrder.seq(),
+                    (unsigned long)gOrder.regressions(), (unsigned long)gOrder.overflow(),
+                    (unsigned long)gOrder.malformed(), (unsigned long)gOrderIn.dropped());
+      for (uint8_t i = 0; i < nf; ++i)
+        Serial.printf(" 0x%08lx:%lu", (unsigned long)f[i].agent, (unsigned long)f[i].seq);
+      Serial.println();
+    }
   }
 
 #if USE_K10_HW
