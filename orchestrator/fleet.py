@@ -3045,6 +3045,93 @@ def order_cmd(specs, gate_ms=ORDER_GATE_SEPARATION_MS):
     return rep
 
 
+# --- the bar view (C4 stage 2, docs/design/episode-order.md §7.4) -------------------------
+# A node holds its own LINK episodes (@LAT103, LON band 0) and verbatim copies of other
+# agents' (@LAT105, `held: 0x<agent>` after the fence). Bar N of frame F is the window
+# [F + (N-1)·bar, F + N·bar): an episode is in it when its stamp is bounded, in frame F and
+# its whole range lies inside. The view = TTG-0003 counting over those episodes (no
+# checkpoint), and its digest = (terms, Σ FNV-1a("<subject> <belief line>") mod 2^32), as
+# firmware Semantic/src/EpisodeDelivery.cpp barDigest(). Two nodes holding the same episodes
+# must print the same digest (RFC-0004 §4.8 item 4).
+HELD_LANE = 105
+BAR_MS = 600000
+HELD_LINE_RE = re.compile(r"^held: 0x([0-9a-fA-F]+)\s*$")
+
+
+def bar_episodes(text):
+    """Own LINK episodes and held copies -> [{lane, lon, agent, seq, at, lines}]."""
+    out = []
+    keep = lambda lat, lon: (lat == EPISODE_LANE and episode_tier(lon) == EPISODE_TIER_LINK) \
+        or lat == HELD_LANE
+    for lat, lon, lines in lane_records(text, keep):
+        e = {"lane": lat, "lon": lon, "agent": None, "seq": 0, "at": parse_at(""),
+             "lines": [l.strip() for l in lines]}
+        for l in e["lines"]:
+            if l.startswith("at:"):
+                e["at"] = parse_at(l)
+            elif SEQ_LINE_RE.match(l):
+                e["seq"] = int(SEQ_LINE_RE.match(l).group(1))
+            elif HELD_LINE_RE.match(l):
+                e["agent"] = int(HELD_LINE_RE.match(l).group(1), 16)
+        out.append(e)
+    return out
+
+
+def in_bar(at, frame, n, bar_ms=BAR_MS):
+    lo, hi = frame + (n - 1) * bar_ms, frame + n * bar_ms
+    return (at["bounded"] and at["has_frame"] and at["frame"] == frame
+            and at["t_ms"] - at["bound_ms"] >= lo and at["t_ms"] + at["bound_ms"] < hi)
+
+
+def bar_view(eps, frame, n, bar_ms=BAR_MS):
+    """-> {own, held, terms, digest, beliefs} for bar n of frame, over bar_episodes()."""
+    sel = [e for e in eps if in_bar(e["at"], frame, n, bar_ms)]
+    synth = "".join(
+        f"@LAT{EPISODE_LANE}LON{i}\n```ttdb-episode\n"
+        + "".join(l + "\n" for l in e["lines"] if l.startswith("percept:")) + "```\n"
+        for i, e in enumerate(sel))
+    bs = parse_episode_beliefs(synth)
+    digest = 0
+    for b in bs:
+        digest = (digest + fnv1a(f"{b['subject']} {belief_line(b)}")) & 0xFFFFFFFF
+    return {"own": sum(1 for e in sel if e["lane"] == EPISODE_LANE),
+            "held": sum(1 for e in sel if e["lane"] == HELD_LANE),
+            "terms": len(bs), "digest": digest, "beliefs": bs}
+
+
+def bar_cmd(specs, bar_ms=BAR_MS):
+    """`fleet.py bar node=pull.md …`: every node's bar views, and whether they agree."""
+    stores = {}
+    for spec in specs:
+        name, sep, path = spec.partition("=")
+        if not sep or name not in NODE_IDS:
+            sys.exit(f"bar: expected <node>=<pulled ttdb>, node one of {list(NODE_IDS)}; "
+                     f"got {spec!r}")
+        with open(path, encoding="utf-8", errors="replace") as f:
+            stores[name] = bar_episodes(f.read())
+    bars = set()
+    for eps in stores.values():
+        for e in eps:
+            a = e["at"]
+            if a["bounded"] and a["has_frame"]:
+                bars.add((a["frame"], (a["t_ms"] - a["frame"]) // bar_ms + 1))
+    rows = []
+    for frame, n in sorted(bars):
+        views = {name: bar_view(eps, frame, n, bar_ms) for name, eps in stores.items()}
+        ds = {(v["terms"], v["digest"]) for v in views.values()}
+        agree = len(ds) == 1
+        rows.append((frame, n, views, agree))
+        cells = "  ".join(f"{name}: own {v['own']} held {v['held']} {v['terms']}t "
+                          f"0x{v['digest']:08x}" for name, v in views.items())
+        print(f"frame {frame} bar {n}: {'AGREE' if agree else 'DIFFER'}  {cells}")
+    held = {name: sorted({(e['agent'], e['seq']) for e in eps if e['lane'] == HELD_LANE})
+            for name, eps in stores.items()}
+    for name, h in held.items():
+        print(f"{name}: holds {len(h)} copies from "
+              f"{sorted({f'0x{a:08x}' for a, _ in h if a is not None})}")
+    return rows
+
+
 def parse_entity_percepts(text):
     """Parse a TTDB's @LAT96 lane into a list of windows:
     {lane, t_ms, stream, wall, synced, window_ms, entities: [{kind, id, n, rssi}],
@@ -5381,6 +5468,13 @@ def main():
     bp.add_argument("--file", default=None,
                     help="read an already-pulled TTDB instead of pulling")
 
+    bp2 = sub.add_parser(
+        "bar",
+        help="the bar view (C4 stage 2): every node's per-bar digest over own + held link "
+             "episodes, and whether they agree; e.g. bar cardputer_1=a.md tdeck_1=b.md")
+    bp2.add_argument("pulls", nargs="+", help="<node>=<pulled ttdb>")
+    bp2.add_argument("--bar-s", type=float, default=BAR_MS / 1000, help="bar length")
+
     op = sub.add_parser(
         "order",
         help="order episodes across nodes from their pulls (C4: seq + follows); "
@@ -5644,6 +5738,8 @@ def main():
         if not args.file and not (args.port and args.node):
             sys.exit("motion needs either --file, or both --port and --node")
         motion(args.port, args.baud, args.node, args.save, args.file)
+    elif args.cmd == "bar":
+        bar_cmd(args.pulls, int(args.bar_s * 1000))
     elif args.cmd == "order":
         order_cmd(args.pulls, int(args.gate_s * 1000))
     elif args.cmd == "beliefs":

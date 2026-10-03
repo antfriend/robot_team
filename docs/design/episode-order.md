@@ -219,32 +219,109 @@ does (§7).
 
 ---
 
-## 7. Stage 2 — delivery (sketch, not part of this build)
+## 7. Stage 2 — delivery and the bar view
 
-Stage 2 is what RFC-0004 §4.5 / §4.8 item 4 needs: two nodes holding the *same
-episodes* compute the *same view as of bar N*.
+*Spec 2026-10-03, written when the operator said "proceed" after stage 1 passed. It replaces
+the sketch that stood here; the four places it departs from that sketch are marked 🔄.*
 
-- **`WANT {agent, from_seq, to_seq}`**, addressed. A receiver whose vector says it knows
-  `V[a]` but holds less asks for the difference, so the vector **is** the anti-entropy
-  digest and stage 1 is its prerequisite. Because `seq` is dense (§2), "what am I
-  missing" is a range, not a set.
-- **`DATA`**: one episode per logical toot, chunked under RFC-0007 (8 × 208 = 1664 B cap,
-  which fits 1408 + 16 B header), streamed **from `loop()` and paced** (the ESP-NOW burst-pacing
-  rule), `want_ack` per chunk. The author answers first; any holder may answer later
-  (gossip), keyed on `(agent, seq)`.
-- **Stored in a new lane, `@LAT105` HELD**, with a per-source quota (say 8 each,
-  ~40 index slots for five peers; the Cardputer is at 173/288) and oldest-first eviction
-  per source, the same ring as the tiers. **Never fed to this node's consolidator.**
-  Another agent's episode is testimony (TTG-0002 §5.1; default-network.md: *testimony
-  must never fold into the world's tally*). The bar view reads own + held; beliefs read
-  own only.
-- **Integrity:** an EVENT sid (`Sid.h`) on each episode lets a receiver verify that the
-  copy it holds is the episode the author wrote, and gives `follows` the `#sid` suffix
-  FLEET.md §6 asked for. It is useful in stage 2, not needed in stage 1.
+Stage 2 is what RFC-0004 §4.5 / §4.8 item 4 needs: **two nodes holding the same episodes
+compute the same view as of bar N, without coordinating.**
+
+### 7.1 What is delivered: link episodes only 🔄
+
+Only the LINK tier writes `percept:` lines (no other sampler emits one), so it is the only
+tier whose episodes can change a view. Entity episodes are the largest records the fleet
+writes (up to ~2.9 KB) and contribute nothing a view reads. So stage 2 delivers the link
+tier. Other tiers can be added later without changing the wire.
+
+### 7.2 Wire: three more `EPISODE` sub-ops, pull-from-author, one episode per round trip
+
+```
+WANT  (1)  to u32 | agent u32 | from_seq u32 | to_seq u32 | tier u8        → 18 B
+DATA  (2)  to u32 | agent u32 | seq u32 | total u16 | off u16 | bytes…     → 17 B + ≤ 191
+DONE  (3)  to u32 | agent u32 | through u32                                 → 13 B
+```
+
+- The receiver asks the **author** (`agent`) for `from_seq = cursor[a] + 1 .. to_seq = V[a]`.
+  The author answers with the **first** link episode it holds with `seq ≥ from_seq`, as
+  DATA slices, then `DONE{through = that seq}`. If it holds none in range it sends only
+  `DONE{through = to_seq}`. The receiver's cursor moves to `through` once the episode is
+  stored (or immediately for an empty DONE), and the next WANT follows. One episode per
+  round trip keeps the receiver to ONE reassembly buffer.
+- 🔄 **Own slicing, not RFC-0007 chunking:** both consoles drop `chunk_total > 1` in their
+  recv callbacks (no chunked consumer), and a link window episode can reach ~2.3 KB, past
+  the 1664 B reassembly cap. DATA carries its own `off/total`, like TTDB_DATA, and slices go
+  out from `loop()`, paced (the ESP-NOW burst-pacing rule).
+- 🔄 **No `want_ack`; the cursor is the retry.** A slice lost mid-episode leaves the
+  reassembly short at DONE, so the receiver does NOT advance and asks again. This is the
+  duet lesson again: re-asking idempotent state beats acknowledging each frame.
+- An author that never answers (not on the stage-2 build, out of range, asleep) is backed
+  off: one WANT per 5 s while answered, 60 s after an unanswered one. The V4s and the K10
+  are exactly this until they get the build, and that is harmless: **a node no one can
+  fetch from is missing from every view equally.**
+- Gossip (any holder answers) is left for later. Keyed on `(agent, seq)`, it needs no
+  wire change.
+
+### 7.3 Stored: `@LAT105` HELD, verbatim, never in beliefs
+
+- The record is the author's episode **byte for byte**, re-headed as `@LAT105LON<k>` and with
+  one line added after the fence opens: `held: 0x<agent>`. Its `seq:`, `follows:`, `at:` and
+  `percept:` lines are untouched, so a held copy and the original produce identical views.
+- **Beliefs never read it, and that is already true:** the firmware's `EpisodeReader` feeds
+  nothing from a `ttdb-episode` block on any lane but its own (TTG-0002 §5.1, "only the lane
+  is the owner's words"), and `fleet.py`'s readers select `@LAT103`.
+- 🔄 **One lane-wide ring, oldest first, `HELD_QUOTA` 32**, not per-source bands: two
+  stage-2 peers today, and per-source bands need an agent→band table to survive reboots,
+  which costs more than it buys at this size. Dedup is a RAM set of `(agent, seq)` rebuilt
+  at boot from the lane. Index cost: ≤ 32 + `SEMANTIC_CUT_SLACK` slots (Cardputer 173/288).
+- A copy is checked before it is stored: the block parses, its `seq:` equals the DATA's
+  `seq`, and its header names `@LAT103` in the LINK band. HMAC already covers each frame;
+  the EVENT-sid integrity check (`Sid.h`) stays deferred.
+
+### 7.4 The bar view
+
+- **Bar N of frame F** ends at `F + N × BAR_MS`, with `F` = the chart's `downbeat_epoch`
+  (which is the `frame:` every stamp carries, and `at:` is band-epoch ms, so anyone holding
+  the text can place it). `BAR_MS` = **10 min** for now, chosen so a test fits in an hour,
+  not as the fleet's Dream Cycle.
+- **The view** = TTG-0003 counting over every LINK episode, own (`@LAT103`) or held
+  (`@LAT105`), with `inBar(at, line, F)`: bounded, in frame F, and ending before the line.
+  No checkpoint and no carried tally: a view is of episodes, not of history.
+- **Its digest** = count of terms + Σ FNV-1a(`<subject> <belief line>`) mod 2³², which is
+  order-free, so no node sorts anything. The node prints, once per bar line:
+  `[bar] frame F bar N: E episode(s) (own O, held H) T term(s) digest 0x…`
+  for the last **two complete bars**, i.e. those whose line is ≥ `BAR_SETTLE_MS` (2 min)
+  in the past, so a late delivery has landed.
+- `fleet.py bar node=pull.md …` recomputes the same digests from pulls, and reports per
+  bar whether all nodes agree.
+
+### 7.5 Where it runs first: the two handhelds 🔄
+
+Both are on `huge_app` with ~1.8 MB free; the three V4s are at 95% (~53 KB left). Stage 2
+goes onto the **T-Deck and the Cardputer** first. The V4s follow after D0 (repartition,
+which moves LittleFS and needs a pull first), as an operator decision.
+
+### 7.6 Gate (pre-registered)
+
+Both handhelds on the stage-2 build, side by side, ≥ 40 min (four bars), then pulled:
+
+- **(e)** for every bar both nodes printed, **the digests are equal** (RFC-0004 §4.8 item 4,
+  the headline claim). Also reported: on how many bars the two nodes' *live* beliefs
+  differed (if they never differ, the test is vacuous; `test_fleettime` pins that it is not
+  in fixtures).
+- **(f)** `fleet.py bar` reproduces every printed digest from the pulls.
+- **(g)** each node holds every one of the other's LINK episodes in those bars (no losses
+  the cursor did not recover).
+- **Falsifier:** (g) passes but (e) fails. That would mean the same episodes do not give
+  the same view, i.e. the view is not a function of the episodes, and the bar mechanism is
+  wrong, not delivery.
+
+### 7.7 Unchanged from the sketch
+
 - **Not `@LAT102`.** That lane was reserved for *attributed testimony as tallies*, one
   record per `(speaker, claim-slot)`, bounded by cardinality (default-network.md §3).
-  Whole foreign episodes are a different kind of record, and putting them there would
-  undo the design decision that lane exists to protect.
+  Whole foreign episodes are a different kind of record.
+- Held episodes are testimony: they are in the view, never in beliefs.
 
 ---
 

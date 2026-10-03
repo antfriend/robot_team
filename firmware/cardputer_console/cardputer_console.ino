@@ -53,6 +53,7 @@
 #include <EntityPercept.h>   // SP0 entity tier: WiFi BSSID sightings -> @LAT96
 #include <MotionPercept.h>   // SP0 motion tier: was this node still? -> @LAT95
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
+#include <EpisodeDeliveryNode.h>  // C4 stage 2: fetch peers' link episodes into @LAT105 + the bar view
 #include <EpisodeNode.h>     // ACT-III §C2: every percept tier -> @LAT103 episodes, @LAT104 folds
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound>` (TTG-RFC-0004 §4.3)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
@@ -165,6 +166,9 @@ static episodenode::Node gEpisodes;
 // loop() drains it into gOrder, which gEpisodes reads at every render.
 static semantic::VectorClock gOrder;
 static semantic::VectorInbox gOrderIn;
+// C4 stage 2 (docs/design/episode-order.md §7): serves our LINK episodes to peers, fetches theirs
+// into @LAT105, prints the bar view. Its recv side only copies.
+static episodedelivery::Node gDelivery;
 // LinkPercept's record, rendered into the episode scratch before it is wrapped. The worst
 // case (8 maximal peers) is 847 B, pinned by test_episode; LinkPercept drops whole peer
 // lines that do not fit rather than truncating one, so this must stay above it.
@@ -1175,7 +1179,10 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   if (t.type == toot::EPISODE) {
     // A peer's episode-order vector. COPY ONLY: merging here could tear the vector an
     // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
-    gOrderIn.push(t.payload, t.payload_len);
+    if (t.payload_len && t.payload[0] == EPISODEORDER_SUBOP_VECTOR)
+      gOrderIn.push(t.payload, t.payload_len);
+    else
+      gDelivery.onToot(t.src_node_id, t.payload, t.payload_len);
     return;
   }
   if (t.type == toot::TTDB_REQ) {
@@ -3480,6 +3487,11 @@ static void setFaceView(FaceView v) {
 }
 #endif  // USE_CARD_HW
 
+// gDelivery's radio: every stage-2 frame is an EPISODE toot (WANT / DATA / DONE).
+static void sendEpisodeToot(const uint8_t* b, uint8_t n) {
+  emit(toot::EPISODE, b, n, sendEspNow, nullptr);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -3623,6 +3635,7 @@ void setup() {
   const uint32_t t0 = millis();
   gOrder.begin(kNodeId);
   gEpisodes.attachOrder(&gOrder);      // BEFORE begin(): boot recovers seq + vector
+  gDelivery.attach(gEpisodes);       // BEFORE begin(): boot lines -> its seq map
   gEpisodes.begin(gDb);
   Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                 "maxalloc %u B\n",
@@ -3632,6 +3645,8 @@ void setup() {
   Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
                 "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
                 (unsigned)gOrder.others());
+  gDelivery.begin(gDb, gEpisodes, gOrder, kNodeId, sendEpisodeToot);
+  gDelivery.print(Serial);
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
   // inside EntityPercept.cpp — a separate translation unit — so it can only be changed
@@ -3946,6 +3961,7 @@ void loop() {
         for (uint8_t i = 0; i < nf; ++i)
           Serial.printf(" 0x%08lx:%lu", (unsigned long)f[i].agent, (unsigned long)f[i].seq);
         Serial.println();
+        gDelivery.print(Serial);
       }
     }
   }
@@ -4475,6 +4491,12 @@ void loop() {
       if (vn) emit(toot::EPISODE, vb, vn, sendEspNow, nullptr);
       gOrder.sent(now);
     }
+#if USE_PULSE
+    gDelivery.service(now, gPulse.playing(), gPulse.chart().downbeat_epoch,
+                      gPulse.pulseNow(now));
+#else
+    gDelivery.service(now, false, 0, 0);
+#endif
   }
 
   // Periodic HELLO beacon — now also the carrier for the time-stream anchor. The

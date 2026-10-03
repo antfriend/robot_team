@@ -121,6 +121,11 @@ FT_SRCS := test_fleettime.cpp $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/
 EO_SRCS := test_episode_order.cpp $(LIB)/Semantic/src/EpisodeOrder.cpp \
         $(LIB)/Semantic/src/Episode.cpp $(LIB)/Semantic/src/FleetTime.cpp \
         $(LIB)/Semantic/src/Semantic.cpp
+# C4 stage 2 (docs/design/episode-order.md §7): WANT/DATA/DONE, reassembly, the held lane,
+# and the bar view two agents agree on (TTG-RFC-0004 §4.8 item 4).
+ED_SRCS := test_episode_delivery.cpp $(LIB)/Semantic/src/EpisodeDelivery.cpp \
+        $(LIB)/Semantic/src/EpisodeOrder.cpp $(LIB)/Semantic/src/Episode.cpp \
+        $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp
 
 test: build
 	./test_toot
@@ -142,8 +147,9 @@ test: build
 	./test_episode
 	./test_fleettime
 	./test_episode_order
+	./test_episode_delivery
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -163,6 +169,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EPI_SRCS) -o test_episode
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(FT_SRCS) -o test_fleettime
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EO_SRCS) -o test_episode_order
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ED_SRCS) -o test_episode_delivery
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -180,6 +187,7 @@ clean:
 	      test_ttdb_index test_ttdb_index.exe \
 	      test_semantic test_semantic.exe \
 	      test_episode test_episode.exe test_fleettime test_fleettime.exe \
-	      test_episode_order test_episode_order.exe
+	      test_episode_order test_episode_order.exe \
+	      test_episode_delivery test_episode_delivery.exe
 
 .PHONY: test build clean

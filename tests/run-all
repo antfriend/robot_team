@@ -39,7 +39,8 @@ TS="$LIB/TimeStream/src/TimeStream.cpp"
 # `python tests/check_makefile.py` guards the Makefile's copy of the same information.
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
                   symmetric_edges nmea pulse timestream
-                  tracefield social sid citation ttdb_index semantic episode fleettime episode_order)
+                  tracefield social sid citation ttdb_index semantic episode fleettime episode_order
+                  episode_delivery)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [linkpercept]="$TS $LIB/LinkPercept/src/LinkPercept.cpp"
@@ -59,6 +60,7 @@ declare -A SRCS=(
   [semantic]="$LIB/Semantic/src/Semantic.cpp"
   [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp $LIB/AcousticPercept/src/AcousticPercept.cpp $LIB/LinkPercept/src/LinkPercept.cpp $LIB/MotionPercept/src/MotionPercept.cpp"
   [fleettime]="$LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
+  [episode_delivery]="$LIB/Semantic/src/EpisodeDelivery.cpp $LIB/Semantic/src/EpisodeOrder.cpp $LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
   [episode_order]="$LIB/Semantic/src/EpisodeOrder.cpp $LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
 )
 # ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)

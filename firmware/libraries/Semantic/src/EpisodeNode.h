@@ -108,9 +108,12 @@ inline void feedBuffer(const char* text, size_t n, R& r) {
 struct BootTee {
   semantic::EpisodeReader& rd;
   semantic::OrderRecovery* rec;
+  void (*sink)(void*, const char*);
+  void* sink_ctx;
   void line(const char* l) {
     rd.line(l);
     if (rec) rec->line(l);
+    if (sink) sink(sink_ctx, l);
   }
 };
 
@@ -122,6 +125,16 @@ class Node {
   // before. The clock's RADIO side (inbox, emit) is the sketch's; this only reads and
   // commits it, always from loop().
   void attachOrder(semantic::VectorClock* vc) { order_ = vc; }
+  // Every line begin() streams (the live episodes, all tiers) is also handed to `fn`. Attach
+  // BEFORE begin(). Stage 2's author builds its lon -> seq map from it (EpisodeDeliveryNode.h).
+  void attachBootSink(void (*fn)(void*, const char*), void* ctx) {
+    boot_sink_ = fn;
+    boot_sink_ctx_ = ctx;
+  }
+  // The last LINK episode this node appended, and a counter that moves with each one.
+  uint32_t linkAppends() const { return link_gen_; }
+  int16_t lastLinkOrdinal() const { return last_link_ord_; }
+  uint32_t lastLinkSeq() const { return last_link_seq_; }
 
   // Boot. Call from setup() AFTER gDb.begin() and BEFORE the radios come up, so the cut
   // here runs with the heap that makes a rewrite succeed. `quotas`: per-tier capacity
@@ -159,7 +172,7 @@ class Node {
       const int k = semantic::tierOf(rec.lon);
       if (k < 0 || k >= SEMANTIC_TIERS || !live[k]) continue;
       if (!tiers_.ring(k).inRun(rec.lon, from[k], through[k])) continue;
-      BootTee tee{rd[k], order_ ? &orec : nullptr};
+      BootTee tee{rd[k], order_ ? &orec : nullptr, boot_sink_, boot_sink_ctx_};
       streamRecord(db, i, tee, st_.long_lines);
     }
     for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
@@ -231,6 +244,11 @@ class Node {
     // ⚠ Commit ONLY the seq this render carried, and only now: a refused append re-uses
     // the number, so seq stays dense (EpisodeOrder.h).
     if (order_ && seq) order_->committed(seq);
+    if (k == semantic::TIER_LINK) {
+      last_link_ord_ = ord;
+      last_link_seq_ = seq;
+      ++link_gen_;
+    }
     tiers_.appended(ord);
     semantic::EpisodeReader r(c_);
     r.select(ord, ord, semantic::Consolidator::KEEPING, semantic::tierBand((uint8_t)k));
@@ -364,6 +382,10 @@ class Node {
   Ttdb* db_ = nullptr;
   semantic::VectorClock* order_ = nullptr;
   uint32_t pending_seq_ = 0;
+  void (*boot_sink_)(void*, const char*) = nullptr;
+  void* boot_sink_ctx_ = nullptr;
+  uint32_t link_gen_ = 0, last_link_seq_ = 0;
+  int16_t last_link_ord_ = 0;
   static_assert(SEMANTIC_ENTITY_EPISODE_BUF >= SEMANTIC_LINK_EPISODE_BUF,
                 "the shared scratch must hold the largest episode any tier renders");
   char scratch_[SEMANTIC_ENTITY_EPISODE_BUF];
