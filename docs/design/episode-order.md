@@ -330,7 +330,9 @@ builds on it.
 > ordered, by stamps, as §3.2 predicts. **(d)** 5 V4-A reboots, `seq 65` → 66 each time.
 > **(a)** every episode after the first exchange carries `follows`; gaps are folds (each tier's
 > LONs contiguous, `seq` rising with LON). Pulls: `master/{cardputer,v4a}_c4gate_2026-10-03.md`.
-> **Next: step 5**, the other four boards one at a time.
+> ✅ **Step 5 done the same day: all six boards** (T-Deck, K10, V4-B, V4-C added; each 5/5
+> clean boots, +1.2–1.3 KB flash / +360–368 B RAM). V4-C's episodes follow all five others.
+> Stage 1 is complete. **Next: stage 2 (§7), an operator decision.**
 
 1. The `order()` guard for `seq = 0` (test 8 first, red), then `EpisodeOrder.*`
    portable core + native tests 1–7 (no hardware).

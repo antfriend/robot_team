@@ -361,9 +361,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
    reboot; +2992 B flash, +368 B RAM). ✅ **V4-A too, and the pre-registered gate PASSED**
    (62 min side by side): **99.9 %** of cross-node pairs > 20 s apart ordered by an edge
    (≥ 95 % required), **0 clock contradictions**; reboots resume `seq` (gate d). The fleet now
-   orders its own episodes across nodes without a cable. **Next: step 5**, the V4-B, V4-C,
-   T-Deck and K10 glue (copy V4-A's four hooks), one board at a time, each boot-counted;
-   then stage 2 (delivery, `@LAT105`) is its own decision.
+   orders its own episodes across nodes without a cable. ✅ **All six boards on it**
+   (2026-10-03; each 5/5 clean boots; V4-C's episodes follow all five others).
+   **Next:** stage 2, episode delivery into `@LAT105` (design §7). It is what the bar view
+   and RFC-0004 §4.8 item 4 need, and it is its own decision (V4 flash is at 95%).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
