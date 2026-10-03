@@ -316,6 +316,11 @@ static timestream::Node gTs;
 // consolidator stays empty (a V4 authors no belief, exactly as before). The stream still
 // runs and stamps; its capped @LAT90 log is gone (order is in each episode's `at:`).
 static episodenode::Node gEpisodes;
+// ACT-III §C4 (docs/design/episode-order.md): this node's per-agent `seq` and the vector of
+// every other node's it has heard of. gOrderIn is the ONLY thing the recv callback touches;
+// loop() drains it into gOrder, which gEpisodes reads at every render.
+static semantic::VectorClock gOrder;
+static semantic::VectorInbox gOrderIn;
 // LinkPercept's record is rendered into the episode scratch (no buffer of its own); its
 // worst case (8 maximal peers) is 847 B, pinned by test_episode.
 #define LINK_RECORD_CAP 1024
@@ -593,6 +598,12 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   gEspRx++;
   gLastSrc = t.src_node_id;
   gOledDirty = true;
+  if (t.type == toot::EPISODE) {
+    // A peer's episode-order vector. COPY ONLY: merging here could tear the vector an
+    // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
+    gOrderIn.push(t.payload, t.payload_len);
+    return;
+  }
   // Bridge mesh -> laptop: anything destined upward (TTDB_DATA, telemetry,
   // beliefs, ACKs, skew-probe replies) is re-framed onto the serial link.
   if (t.type == toot::TTDB_DATA || t.type == toot::BELIEF ||
@@ -788,12 +799,17 @@ void setup() {
                     "   stops accepting records whatever its own cap says.\n",
                     gDb.indexHeadroom());
     const uint32_t t0 = millis();
+    gOrder.begin(kNodeId);
+    gEpisodes.attachOrder(&gOrder);    // BEFORE begin(): boot recovers seq + vector
     gEpisodes.begin(gDb);
     Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                   "maxalloc %u B\n",
                   (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
                   (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
     gEpisodes.print(Serial);
+    Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
+                  "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
+                  (unsigned)gOrder.others());
   }
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT — see the Cardputer's copy.
@@ -997,6 +1013,35 @@ void loop() {
     Serial.printf("[beep] %u Hz, %u ms\n", freq, ms);
   }
 #endif
+
+  // Episode order (C4): merge what peers sent, then send ours when it changed (>= 1 s
+  // apart) or the 10 s heartbeat is due. Outside USE_PULSE on purpose: order is not a band
+  // feature. A lost vector costs order, never correctness.
+  {
+    const uint32_t onow = millis();
+    const uint8_t before = gOrder.others();
+    if (gOrderIn.drainInto(gOrder) && gOrder.others() != before)
+      Serial.printf("[order] now %u other agent(s) in the vector\n", (unsigned)gOrder.others());
+    if (gOrder.sendDue(onow)) {
+      uint8_t vb[EPISODEORDER_VECTOR_MAX];
+      const size_t vn = gOrder.encode(vb, sizeof(vb));
+      if (vn) emitMesh(toot::EPISODE, vb, (uint8_t)vn);
+      gOrder.sent(onow);
+    }
+    static uint32_t last_order_print = 0;
+    if (onow - last_order_print >= 60000) {
+      last_order_print = onow;
+      semantic::Follows f[EPISODEORDER_OTHERS];
+      const uint8_t nf = gOrder.follows(f, EPISODEORDER_OTHERS);
+      Serial.printf("[order] seq %lu | regressions %lu overflow %lu malformed %lu "
+                    "dropped %lu | follows:", (unsigned long)gOrder.seq(),
+                    (unsigned long)gOrder.regressions(), (unsigned long)gOrder.overflow(),
+                    (unsigned long)gOrder.malformed(), (unsigned long)gOrderIn.dropped());
+      for (uint8_t i = 0; i < nf; ++i)
+        Serial.printf(" 0x%08lx:%lu", (unsigned long)f[i].agent, (unsigned long)f[i].seq);
+      Serial.println();
+    }
+  }
 
 #if USE_PULSE
   // --- fleet pulse (TTN-RFC-0010): timekeeper part — LED + OLED dot every beat ----
