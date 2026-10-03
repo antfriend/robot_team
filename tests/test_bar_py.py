@@ -94,6 +94,48 @@ check(c.bar_view(c.bar_episodes(missing), F, 1)["digest"] != c.bar_view(Y, F, 1)
 check(c.bar_view(c.bar_episodes(x_held + x_own), F, 2)["digest"] == c.bar_view(X, F, 2)["digest"],
       "record order does not matter")
 
+# The BAR record (@LAT106), pinned byte for byte against tests/test_episode_delivery.cpp.
+WANT = ("@LAT106LON7 | created:0 | updated:0\n\n"
+        "**BAR** frame:5500 bar:1 own:1 held:1 terms:2 digest:0xfa9dab24 settled_ms:120000\n"
+        "**HOLDS** agent:0x00000200 n:1 lo:4 hi:4 sum:4\n"
+        "**HOLDS** agent:0x00000300 n:1 lo:1 hi:1 sum:1\n")
+fv = c.bar_view(c.bar_episodes(FX), 5500, 1, self_id=0x300)
+check(c.render_bar_record(7, 5500, 1, fv, 120000) == WANT,
+      "the pinned fixture's BAR record, byte-exact (= firmware renderBar)")
+recs = c.parse_bar_records(FX + "\n---\n\n" + WANT)
+r = recs.get((5500, 1))
+check(r is not None and r["digest"] == 0xfa9dab24 and r["terms"] == 2 and r["lon"] == 7
+      and r["holds"] == {0x200: (1, 4, 4, 4), 0x300: (1, 1, 1, 1)} and r["settled_ms"] == 120000,
+      "parse_bar_records reads it back")
+check(r is not None and r["holds"] == fv["holds"], "its HOLDS rows = the recomputed holds")
+
+# Scoring records: X and Y each record bar 1 and 2 (item-4 stores above).
+xr = "".join(c.render_bar_record(n, F, n, c.bar_view(X, F, n, self_id=0x300), 120000) + "\n---\n\n"
+             for n in (1, 2))
+yr = "".join(c.render_bar_record(n, F, n, c.bar_view(Y, F, n, self_id=0x200), 125000) + "\n---\n\n"
+             for n in (1, 2))
+RX, RY = c.parse_bar_records(xr), c.parse_bar_records(yr)
+views = {"x": {(F, n): c.bar_view(X, F, n, self_id=0x300) for n in (1, 2)},
+         "y": {(F, n): c.bar_view(Y, F, n, self_id=0x200) for n in (1, 2)}}
+rows = c.bar_records_report({"x": RX, "y": RY}, views)
+check(len(rows) == 2 and all(da and ha for _, _, _, da, ha in rows),
+      "records of the same episodes: digests AGREE and HOLDS sets are the same")
+miss = c.bar_episodes(missing)
+mr = c.parse_bar_records(c.render_bar_record(0, F, 1, c.bar_view(miss, F, 1, self_id=0x300), 1))
+rows = c.bar_records_report({"x": mr, "y": RY}, {})
+check(rows[0][3] is False and rows[0][4] is False,
+      "one missing copy: the records DIFFER and their sets differ (scorable with no copies)")
+check(len(c.bar_records_report({"x": RX}, {})) == 2, "a bar only one node recorded is listed")
+import io, contextlib  # noqa: E402
+bad = c.parse_bar_records(xr)
+bad[(F, 1)]["digest"] ^= 1                     # bar 1 recorded something else; bar 2 intact
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    c.bar_records_report({"x": bad}, views)
+check("NOT reproduced" in buf.getvalue().splitlines()[0] and
+      "[reproduced]" in buf.getvalue().splitlines()[1],
+      "(f) can fail: a record the copies on flash do not reproduce says NOT reproduced")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

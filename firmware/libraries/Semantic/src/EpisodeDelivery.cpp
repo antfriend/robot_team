@@ -500,16 +500,36 @@ int64_t completeBar(int64_t pulse_now, uint64_t frame, uint32_t bar_ms, uint32_t
   return t / (int64_t)bar_ms;
 }
 
-BarView::BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi)
-    : c_(c), frame_(frame), lo_(lo), hi_(hi) {}
+BarView::BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi, uint32_t self)
+    : c_(c), frame_(frame), lo_(lo), hi_(hi), self_(self) {}
+
+void BarView::hold(uint32_t agent, uint32_t seq) {
+  if (!seq) { ++unattributed_; return; }
+  uint8_t i = 0;
+  while (i < nh_ && h_[i].agent < agent) ++i;
+  if (i < nh_ && h_[i].agent == agent) {
+    BarHolds& h = h_[i];
+    ++h.n;
+    if (seq < h.lo) h.lo = seq;
+    if (seq > h.hi) h.hi = seq;
+    h.sum += seq;
+    return;
+  }
+  if (nh_ == EPISODEDELIVERY_BAR_AGENTS) { ++unattributed_; return; }
+  for (uint8_t k = nh_; k > i; --k) h_[k] = h_[k - 1];
+  h_[i] = BarHolds{agent, 1, seq, seq, seq};
+  ++nh_;
+}
 
 void BarView::close() {
   if (started_) {
     c_.endEpisode(Consolidator::KEEPING);
     if (lat_ == EPISODEDELIVERY_HELD_LANE) ++held_;
     else ++own_;
+    hold(lat_ == EPISODEDELIVERY_HELD_LANE ? agent_ : self_, seq_);
   }
   in_block_ = decided_ = started_ = false;
+  agent_ = seq_ = 0;
 }
 
 void BarView::line(const char* l) {
@@ -531,6 +551,9 @@ void BarView::line(const char* l) {
   }
   if (!in_block_) return;
   const char* s = skipWs(l);
+  uint32_t v;
+  if (lat_ == EPISODEDELIVERY_HELD_LANE && !agent_ && readHeldAgent(s, &v)) { agent_ = v; return; }
+  if (!seq_ && strncmp(s, "seq: ", 5) == 0 && readU32Dec(s + 5, &v)) { seq_ = v; return; }
   if (!decided_ && strncmp(s, "at:", 3) == 0) {
     decided_ = true;
     const At a = parseAt(s);
@@ -563,6 +586,115 @@ BarDigest barDigest(const Consolidator& c) {
     ++d.terms;
   }
   return d;
+}
+
+// ---------------------------------------------------------------------------------------
+// the BAR record
+// ---------------------------------------------------------------------------------------
+size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
+                 const BarView& v, const BarDigest& d, int64_t settled_ms) {
+  if (!out || !cap) return 0;
+  out[0] = '\0';
+  int k = snprintf(out, cap,
+                   "@LAT%dLON%d | created:0 | updated:0\n\n"
+                   "**BAR** frame:%llu bar:%lld own:%u held:%u terms:%u digest:0x%08lx "
+                   "settled_ms:%lld\n",
+                   EPISODEDELIVERY_BAR_LANE, (int)ord, (unsigned long long)frame, (long long)bar,
+                   (unsigned)v.own(), (unsigned)v.held(), (unsigned)d.terms,
+                   (unsigned long)d.sum, (long long)settled_ms);
+  if (k < 0 || (size_t)k >= cap) { out[0] = '\0'; return 0; }
+  size_t n = (size_t)k;
+  for (uint8_t i = 0; i < v.holdsCount(); ++i) {
+    const BarHolds& h = v.holds(i);
+    k = snprintf(out + n, cap - n, "**HOLDS** agent:0x%08lx n:%u lo:%lu hi:%lu sum:%lu\n",
+                 (unsigned long)h.agent, (unsigned)h.n, (unsigned long)h.lo,
+                 (unsigned long)h.hi, (unsigned long)h.sum);
+    if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
+    n += (size_t)k;
+  }
+  return n;
+}
+
+// Decimal digits -> value; *end past them. No sscanf: it pulls newlib's scanf (~10 KB) into
+// an image the V4s cannot spare.
+static bool readDec64(const char* p, uint64_t* v, const char** end) {
+  uint64_t x = 0;
+  const char* s = p;
+  while (*p >= '0' && *p <= '9') {
+    if (x > (UINT64_MAX - 9) / 10) return false;
+    x = x * 10 + (uint64_t)(*p++ - '0');
+  }
+  if (p == s) return false;
+  *v = x;
+  *end = p;
+  return true;
+}
+
+static bool readBarKey(const char* l, uint64_t* frame, int64_t* bar) {
+  if (strncmp(l, "**BAR** frame:", 14) != 0) return false;
+  const char* p;
+  uint64_t f, b;
+  if (!readDec64(l + 14, &f, &p) || strncmp(p, " bar:", 5) != 0) return false;
+  const bool neg = p[5] == '-';
+  if (!readDec64(p + 5 + (neg ? 1 : 0), &b, &p) || b > (uint64_t)INT64_MAX) return false;
+  *frame = f;
+  *bar = neg ? -(int64_t)b : (int64_t)b;
+  return true;
+}
+
+void BarIndex::line(const char* l) {
+  if (!l) return;
+  int16_t lat, lon;
+  if (l[0] == '@') {
+    in_rec_ = headerCoord(l, &lat, &lon) && lat == EPISODEDELIVERY_BAR_LANE;
+    cur_lon_ = in_rec_ ? lon : 0;
+    return;
+  }
+  uint64_t f;
+  int64_t b;
+  if (in_rec_ && readBarKey(l, &f, &b)) {
+    appended(f, b, cur_lon_);
+    in_rec_ = false;
+  }
+}
+
+void BarIndex::appended(uint64_t frame, int64_t bar, int16_t lon) {
+  if (n_ == EPISODEDELIVERY_BAR_CAP) {          // not expected: cut keeps it <= QUOTA+SLACK
+    for (uint16_t i = 1; i < n_; ++i) e_[i - 1] = e_[i];
+    --n_;
+  }
+  e_[n_++] = E{frame, bar, lon};
+}
+
+bool BarIndex::has(uint64_t frame, int64_t bar) const {
+  for (uint16_t i = 0; i < n_; ++i)
+    if (e_[i].frame == frame && e_[i].bar == bar) return true;
+  return false;
+}
+
+int16_t BarIndex::nextOrdinal() const {
+  return n_ ? ordinalAdd(e_[n_ - 1].lon, 1) : 0;
+}
+
+bool BarIndex::cut(Cut* out, bool force, uint16_t* covers) const {
+  if (covers) *covers = 0;
+  const uint16_t q = EPISODEDELIVERY_BAR_QUOTA;
+  if (!out || n_ <= q || (!force && n_ < q + EPISODEDELIVERY_BAR_SLACK)) return false;
+  const uint16_t want = n_ - q;
+  uint16_t covered = 1;
+  *out = Cut{(int16_t)EPISODEDELIVERY_BAR_LANE, e_[0].lon, e_[0].lon};
+  while (covered < want && out->lon_hi != 32767 && e_[covered].lon == out->lon_hi + 1) {
+    out->lon_hi = e_[covered].lon;
+    ++covered;
+  }
+  if (covers) *covers = covered;
+  return true;
+}
+
+void BarIndex::cutDone(uint16_t removed) {
+  if (removed > n_) removed = n_;
+  for (uint16_t i = removed; i < n_; ++i) e_[i - removed] = e_[i];
+  n_ -= removed;
 }
 
 }  // namespace semantic

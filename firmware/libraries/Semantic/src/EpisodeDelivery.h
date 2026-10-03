@@ -237,22 +237,41 @@ int64_t completeBar(int64_t pulse_now, uint64_t frame, uint32_t bar_ms, uint32_t
 
 // Feed the records of @LAT103 (only its LINK band counts) and @LAT105, any order. Every
 // included episode is replayed into `c` (KEEPING), which the caller began empty.
+// Which episodes went into a bar, per author: count, lowest/highest seq, and sum of seqs.
+// Two nodes that held the same episodes have the same rows, so a peer's BAR record can be
+// checked for the same SET without the copies (which retention trims) being on flash.
+#define EPISODEDELIVERY_BAR_AGENTS (EPISODEORDER_OTHERS + 1)
+struct BarHolds {
+  uint32_t agent;
+  uint16_t n;
+  uint32_t lo, hi, sum;
+};
+
 class BarView {
  public:
-  BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi);
+  // `self` names the author of own (@LAT103) episodes in holds().
+  BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi, uint32_t self = 0);
   void line(const char* l);
   void finish();
   uint16_t own() const { return own_; }
   uint16_t held() const { return held_; }
+  uint8_t holdsCount() const { return nh_; }
+  const BarHolds& holds(uint8_t i) const { return h_[i]; }   // ascending agent
+  uint16_t unattributed() const { return unattributed_; }    // no seq, or past AGENTS
 
  private:
   void close();
+  void hold(uint32_t agent, uint32_t seq);
   Consolidator& c_;
   uint64_t frame_;
   int64_t  lo_, hi_;
+  uint32_t self_;
   int16_t  lat_ = 0;
   bool     accept_ = false, in_block_ = false, decided_ = false, started_ = false;
-  uint16_t own_ = 0, held_ = 0;
+  uint16_t own_ = 0, held_ = 0, unattributed_ = 0;
+  uint32_t agent_ = 0, seq_ = 0;
+  BarHolds h_[EPISODEDELIVERY_BAR_AGENTS];
+  uint8_t  nh_ = 0;
 };
 
 struct BarDigest {
@@ -260,6 +279,56 @@ struct BarDigest {
   uint32_t sum;          // Σ FNV-1a("<subject> <belief line>") mod 2^32 — order-free
 };
 BarDigest barDigest(const Consolidator& c);
+
+// ---------------------------------------------------------------------------------------
+// the BAR record (@LAT106): what a node computed for a bar, kept on flash so the gate and
+// any peer can read it without a cable at print time (design 7.6, 2026-10-03)
+// ---------------------------------------------------------------------------------------
+//   @LAT106LON<ord> | created:0 | updated:0
+//
+//   **BAR** frame:<F> bar:<N> own:<o> held:<h> terms:<t> digest:0x<8 hex> settled_ms:<s>
+//   **HOLDS** agent:0x<8 hex> n:<n> lo:<seq> hi:<seq> sum:<sum of seqs>   (one per author)
+//
+// settled_ms = how long after bar N's closing line it was computed (>= BAR_SETTLE_MS; a
+// record written at boot for a bar that settled while the node was off says so).
+#ifndef EPISODEDELIVERY_BAR_LANE
+#define EPISODEDELIVERY_BAR_LANE 106
+#endif
+#ifndef EPISODEDELIVERY_BAR_QUOTA
+#define EPISODEDELIVERY_BAR_QUOTA 16      // 2 h 40 min of bars
+#endif
+#ifndef EPISODEDELIVERY_BAR_SLACK
+#define EPISODEDELIVERY_BAR_SLACK 4
+#endif
+#define EPISODEDELIVERY_BAR_CAP (EPISODEDELIVERY_BAR_QUOTA + EPISODEDELIVERY_BAR_SLACK + 4)
+
+// Returns bytes written, or 0 (out[0] = NUL) if it does not fit. Never truncates.
+size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
+                 const BarView& v, const BarDigest& d, int64_t settled_ms);
+
+// Which bars this node has recorded, oldest first. Line-driven at boot (@LAT106 records in
+// file order), appended() for each new one.
+class BarIndex {
+ public:
+  void reset() { n_ = 0; cur_lon_ = 0; in_rec_ = false; }
+  void line(const char* l);
+  void finish() {}                      // line-driven like HeldIndex; nothing pending
+  void appended(uint64_t frame, int64_t bar, int16_t lon);
+  bool has(uint64_t frame, int64_t bar) const;
+  uint16_t count() const { return n_; }
+  int16_t nextOrdinal() const;
+  // The oldest (count - QUOTA) records as ONE contiguous LON run, once count >= QUOTA + SLACK
+  // (or `force` and count > QUOTA). false = nothing to cut. *covers = records in the run.
+  bool cut(Cut* out, bool force, uint16_t* covers) const;
+  void cutDone(uint16_t removed);
+
+ private:
+  struct E { uint64_t frame; int64_t bar; int16_t lon; };
+  E e_[EPISODEDELIVERY_BAR_CAP];
+  uint16_t n_ = 0;
+  int16_t cur_lon_ = 0;
+  bool in_rec_ = false;
+};
 
 }  // namespace semantic
 

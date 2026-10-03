@@ -12,6 +12,7 @@
 //   8. held copies never reach beliefs (EpisodeReader on @LAT103 ignores @LAT105)
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -397,6 +398,30 @@ static BarDigest digestOf(const std::string& store, int64_t n, uint16_t* own = n
   return barDigest(c);
 }
 
+// The BAR record a node would write for bar n of `store`, and only its HOLDS lines.
+static std::string barRecordOf(const std::string& store, int64_t n, uint32_t self,
+                               int16_t ord = 0, int64_t settled = 120000) {
+  static Consolidator c;
+  c.begin();
+  BarView v(c, kFrame, barLine(kFrame, kBar, n - 1), barLine(kFrame, kBar, n), self);
+  feedText(v, store);
+  v.finish();
+  static char out[1024];
+  const size_t m = renderBar(out, sizeof(out), ord, kFrame, n, v, barDigest(c), settled);
+  return std::string(out, m);
+}
+
+static std::string holdsOf(const std::string& rec) {
+  std::string out;
+  size_t at = 0;
+  while ((at = rec.find("**HOLDS**", at)) != std::string::npos) {
+    const size_t e = rec.find('\n', at);
+    out += rec.substr(at, e - at + 1);
+    at = e;
+  }
+  return out;
+}
+
 static std::string beliefsOf(const std::string& store) {
   static Consolidator c;
   c.begin();
@@ -469,6 +494,20 @@ static void testItem4() {
   check(digestOf(xMissing, 2).sum == digestOf(yStore, 2).sum,
         "...and only that bar's: bars are disjoint windows");
 
+  // The BAR record's HOLDS rows: the same SET of episodes gives the same rows on both
+  // nodes, and the missing copy shows there too, so a pair of records answers gate (g)
+  // after retention has trimmed the copies themselves.
+  for (int64_t n = 1; n <= 2; ++n) {
+    const std::string hx = holdsOf(barRecordOf(xStore, n, 0x300));
+    const std::string hy = holdsOf(barRecordOf(yStore, n, 0x200));
+    char msg[96];
+    snprintf(msg, sizeof(msg), "bar %lld: X's and Y's HOLDS rows are identical (2 authors)",
+             (long long)n);
+    check(!hx.empty() && hx == hy && std::count(hx.begin(), hx.end(), '\n') == 2, msg);
+  }
+  check(holdsOf(barRecordOf(xMissing, 1, 0x300)) != holdsOf(barRecordOf(yStore, 1, 0x200)),
+        "one missing copy changes that bar's HOLDS rows");
+
   // Order does not matter: held copies first, own later.
   check(digestOf(xHeld + xOwn, 2).sum == digestOf(xStore, 2).sum,
         "record order in the store does not change the view");
@@ -505,6 +544,62 @@ static void testItem4() {
   const BarDigest fd = digestOf(fx, 1, &fo, &fh);
   check(fo == 1 && fh == 1 && fd.terms == 2 && fd.sum == 0xfa9dab24u,
         "the pinned fixture: own 1, held 1, 2 terms, digest 0xfa9dab24 (= fleet.py)");
+
+  // CROSS-LANGUAGE PIN #2: the BAR record for the fixture, byte for byte
+  // (tests/test_bar_py.py renders and parses this exact text).
+  const std::string want =
+      "@LAT106LON7 | created:0 | updated:0\n\n"
+      "**BAR** frame:5500 bar:1 own:1 held:1 terms:2 digest:0xfa9dab24 settled_ms:120000\n"
+      "**HOLDS** agent:0x00000200 n:1 lo:4 hi:4 sum:4\n"
+      "**HOLDS** agent:0x00000300 n:1 lo:1 hi:1 sum:1\n";
+  check(barRecordOf(fx, 1, 0x300, 7) == want, "the pinned fixture's BAR record, byte-exact");
+}
+
+// ---------------------------------------------------------------------------------------
+static void testBarRecord() {
+  printf("9. the BAR record (@LAT106) and its index\n");
+  static Consolidator c;
+  c.begin();
+  BarView v(c, kFrame, 0, 1, 0x300);
+  v.finish();
+  char out[256];
+  const size_t full = renderBar(out, sizeof(out), 3, kFrame, 4, v, barDigest(c), 130000);
+  check(full > 0 && strstr(out, "own:0 held:0 terms:0 digest:0x00000000") &&
+            !strstr(out, "**HOLDS**"),
+        "an empty bar is still recorded (no HOLDS rows)");
+  char tight[256];
+  check(renderBar(tight, full + 1, 3, kFrame, 4, v, barDigest(c), 130000) == full,
+        "it fits in exactly its length + NUL");
+  check(renderBar(tight, full, 3, kFrame, 4, v, barDigest(c), 130000) == 0 && tight[0] == '\0',
+        "one byte less: nothing written, never truncated");
+
+  BarIndex ix;
+  ix.reset();
+  std::string boot;
+  for (int i = 0; i < 3; ++i) {
+    renderBar(out, sizeof(out), (int16_t)(10 + i), kFrame, 40 + i, v, barDigest(c), 120000);
+    boot += std::string(out) + "\n---\n\n";
+  }
+  feedText(ix, "@LAT105LON9 | created:0 | updated:0\n\n**BAR** frame:5500 bar:99 x\n\n---\n\n" +
+                   boot);
+  check(ix.count() == 3 && ix.has(kFrame, 41) && !ix.has(kFrame, 99) && !ix.has(6500, 41),
+        "boot scan: three bars, keyed by (frame, bar); another lane's text is ignored");
+  check(ix.nextOrdinal() == 13, "the next record takes the next LON");
+  Cut cut;
+  uint16_t covers = 9;
+  check(!ix.cut(&cut, false, &covers) && covers == 0, "under quota: nothing to cut");
+  for (int i = 3; i < EPISODEDELIVERY_BAR_QUOTA + EPISODEDELIVERY_BAR_SLACK; ++i)
+    ix.appended(kFrame, 40 + i, ix.nextOrdinal());
+  check(ix.cut(&cut, false, &covers) && cut.lat == EPISODEDELIVERY_BAR_LANE &&
+            cut.lon_lo == 10 && cut.lon_hi == 10 + EPISODEDELIVERY_BAR_SLACK - 1 &&
+            covers == EPISODEDELIVERY_BAR_SLACK,
+        "at QUOTA + SLACK: the oldest SLACK records, one contiguous run");
+  ix.cutDone(covers);
+  check(ix.count() == EPISODEDELIVERY_BAR_QUOTA && !ix.has(kFrame, 40) && ix.has(kFrame, 44),
+        "cutDone drops exactly the oldest");
+  ix.appended(kFrame, 100, ix.nextOrdinal());
+  check(!ix.cut(&cut, false, &covers) && ix.cut(&cut, true, &covers) && covers == 1,
+        "over quota but under slack: only a forced (boot) cut");
 }
 
 // ---------------------------------------------------------------------------------------
@@ -526,6 +621,7 @@ int main() {
   testSeqMap();
   testItem4();
   testNotBeliefs();
+  testBarRecord();
   printf("\n%d checks, %d failures\n", gChecks, gFails);
   return gFails ? 1 : 0;
 }

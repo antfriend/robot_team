@@ -1,6 +1,7 @@
 // EpisodeDeliveryNode.h — the Arduino glue for C4 stage 2 (docs/design/episode-order.md §7):
 // serve this node's LINK episodes to peers that WANT them, fetch theirs into @LAT105, and
-// print the BAR VIEW once per bar line. The portable half is EpisodeDelivery.h.
+// print the BAR VIEW once per bar line and keep it as a @LAT106 BAR record (so the view a
+// node computed survives without a cable listening). The portable half is EpisodeDelivery.h.
 //
 // ⚠ Header-only and NOT in the native test build (<Arduino.h>, TTDB.h). What could be wrong in
 // a way a test could catch lives in EpisodeDelivery.cpp; this is plumbing, kept small.
@@ -38,6 +39,7 @@ struct Stats {
   uint32_t wants_sent = 0, fetched = 0, duplicate = 0, refused = 0, broken = 0,
            unanswered = 0, empty = 0, append_failed = 0, nomem = 0, resumed = 0;
   uint32_t wants_heard = 0, served = 0, served_empty = 0, cuts = 0, cut_failed = 0;
+  uint32_t bars_written = 0, bar_fail = 0;
 };
 
 class Node {
@@ -55,10 +57,15 @@ class Node {
       if (db.record(i).lat == EPISODEDELIVERY_HELD_LANE)
         episodenode::streamRecord(db, i, held_, long_lines_);
     held_.finish();
+    bars_.reset();
+    for (int i = 0; i < db.recordCount(); ++i)
+      if (db.record(i).lat == EPISODEDELIVERY_BAR_LANE)
+        episodenode::streamRecord(db, i, bars_, long_lines_);
     for (uint16_t i = 0; i < held_.count(); ++i)
       fetch_.seed(held_.agentAt(i), held_.maxSeq(held_.agentAt(i)));
     link_gen_seen_ = ep.linkAppends();
     cut(true);                                          // boot: radios down, heap free
+    cutBars(true);
   }
 
   // --- recv callback: copy only -------------------------------------------------------
@@ -104,7 +111,7 @@ class Node {
   void print(Print& out) const {
     out.printf("[deliver] held %u | fetched %lu dup %lu refused %lu broken %lu resumed %lu "
                "unanswered %lu empty %lu nomem %lu appendfail %lu | served %lu (empty %lu) of %lu want(s) | "
-               "own link map %u | cuts %lu (fail %lu)\n",
+               "own link map %u | cuts %lu (fail %lu) | bars %u on flash, %lu written (fail %lu)\n",
                (unsigned)held_.count(), (unsigned long)st_.fetched,
                (unsigned long)st_.duplicate, (unsigned long)st_.refused,
                (unsigned long)st_.broken, (unsigned long)st_.resumed,
@@ -113,7 +120,8 @@ class Node {
                (unsigned long)st_.append_failed, (unsigned long)st_.served,
                (unsigned long)st_.served_empty, (unsigned long)st_.wants_heard,
                (unsigned)seqs_.count(), (unsigned long)st_.cuts,
-               (unsigned long)st_.cut_failed);
+               (unsigned long)st_.cut_failed, (unsigned)bars_.count(),
+               (unsigned long)st_.bars_written, (unsigned long)st_.bar_fail);
   }
   const Stats& stats() const { return st_; }
 
@@ -296,22 +304,39 @@ class Node {
     return true;
   }
 
+  // The BAR lane's ring: QUOTA records, the oldest cut once SLACK more have landed.
+  bool cutBars(bool boot) {
+    semantic::Cut cs;
+    uint16_t covers = 0;
+    if (!bars_.cut(&cs, boot, &covers)) return true;
+    TtdbCut tc{cs.lat, cs.lon_lo, cs.lon_hi};
+    db_->clearRewriteErr();
+    if (!db_->removeCuts(&tc, 1)) { ++st_.cut_failed; return false; }
+    bars_.cutDone(covers);
+    ++st_.cuts;
+    return true;
+  }
+
   // ---- the bar view ----
+  // Bars n and n-1 are printed once per new bar; each is WRITTEN once, the first time it is
+  // computed (a bar the node missed while off is written at its next boot, settled_ms says
+  // how late).
   void bar(uint64_t frame, int64_t pulse_now) {
     const int64_t n = semantic::completeBar(pulse_now, frame, EPISODEDELIVERY_BAR_MS,
                                             EPISODEDELIVERY_BAR_SETTLE_MS);
     if (n < 1 || (n == last_bar_ && frame == last_frame_)) return;
     last_bar_ = n;
     last_frame_ = frame;
-    for (int64_t k = n; k >= 1 && k >= n - 1; --k) printBar(frame, k);
+    for (int64_t k = n; k >= 1 && k >= n - 1; --k) printBar(frame, k, pulse_now);
+    if (bars_.count() >= EPISODEDELIVERY_BAR_QUOTA + EPISODEDELIVERY_BAR_SLACK) cutBars(false);
   }
 
-  void printBar(uint64_t frame, int64_t n) {
+  void printBar(uint64_t frame, int64_t n, int64_t pulse_now) {
     semantic::Consolidator* c = new (std::nothrow) semantic::Consolidator();
     if (!c) { Serial.println("[bar] nomem"); return; }
     c->begin();
     semantic::BarView v(*c, frame, semantic::barLine(frame, EPISODEDELIVERY_BAR_MS, n - 1),
-                        semantic::barLine(frame, EPISODEDELIVERY_BAR_MS, n));
+                        semantic::barLine(frame, EPISODEDELIVERY_BAR_MS, n), self_);
     for (int i = 0; i < db_->recordCount(); ++i) {
       const int16_t lat = db_->record(i).lat;
       if (lat == SEMANTIC_EPISODE_LANE || lat == EPISODEDELIVERY_HELD_LANE)
@@ -324,6 +349,18 @@ class Node {
                   (unsigned long long)frame, (long long)n, (unsigned)(v.own() + v.held()),
                   (unsigned)v.own(), (unsigned)v.held(), (unsigned)d.terms,
                   (unsigned long)d.sum);
+    if (!bars_.has(frame, n)) {
+      const int16_t ord = bars_.nextOrdinal();
+      const int64_t late = pulse_now - semantic::barLine(frame, EPISODEDELIVERY_BAR_MS, n);
+      const size_t m = semantic::renderBar(ep_->scratch(), ep_->scratchCap(), ord, frame, n,
+                                           v, d, late);
+      if (m && db_->appendRecord(ep_->scratch(), m)) {
+        bars_.appended(frame, n, ord);
+        ++st_.bars_written;
+      } else {
+        ++st_.bar_fail;
+      }
+    }
     delete c;
   }
 
@@ -335,6 +372,7 @@ class Node {
 
   semantic::SeqMap seqs_;
   semantic::HeldIndex held_;
+  semantic::BarIndex bars_;
   semantic::Fetcher fetch_;
   semantic::Inflight in_;
   uint8_t* buf_ = nullptr;

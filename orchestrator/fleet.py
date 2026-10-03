@@ -3054,8 +3054,17 @@ def order_cmd(specs, gate_ms=ORDER_GATE_SEPARATION_MS):
 # firmware Semantic/src/EpisodeDelivery.cpp barDigest(). Two nodes holding the same episodes
 # must print the same digest (RFC-0004 §4.8 item 4).
 HELD_LANE = 105
+BAR_LANE = 106
 BAR_MS = 600000
 HELD_LINE_RE = re.compile(r"^held: 0x([0-9a-fA-F]+)\s*$")
+# The BAR record each node writes once per settled bar (firmware renderBar). Its HOLDS rows
+# summarise WHICH episodes went into the view, per author, so two nodes' records can be
+# compared for the same set after retention has trimmed the copies themselves.
+BAR_REC_RE = re.compile(
+    r"^\*\*BAR\*\* frame:(\d+) bar:(-?\d+) own:(\d+) held:(\d+) terms:(\d+) "
+    r"digest:0x([0-9a-fA-F]{8}) settled_ms:(-?\d+)\s*$")
+HOLDS_REC_RE = re.compile(
+    r"^\*\*HOLDS\*\* agent:0x([0-9a-fA-F]{8}) n:(\d+) lo:(\d+) hi:(\d+) sum:(\d+)\s*$")
 
 
 def bar_episodes(text):
@@ -3083,8 +3092,20 @@ def in_bar(at, frame, n, bar_ms=BAR_MS):
             and at["t_ms"] - at["bound_ms"] >= lo and at["t_ms"] + at["bound_ms"] < hi)
 
 
-def bar_view(eps, frame, n, bar_ms=BAR_MS):
-    """-> {own, held, terms, digest, beliefs} for bar n of frame, over bar_episodes()."""
+def bar_holds(sel, self_id):
+    """{agent: (n, lo, hi, sum of seqs)} over the selected episodes (firmware BarView)."""
+    h = {}
+    for e in sel:
+        agent = e["agent"] if e["lane"] == HELD_LANE else self_id
+        if not e["seq"] or agent is None:
+            continue
+        n, lo, hi, sm = h.get(agent, (0, e["seq"], e["seq"], 0))
+        h[agent] = (n + 1, min(lo, e["seq"]), max(hi, e["seq"]), (sm + e["seq"]) & 0xFFFFFFFF)
+    return h
+
+
+def bar_view(eps, frame, n, bar_ms=BAR_MS, self_id=0):
+    """-> {own, held, terms, digest, beliefs, holds} for bar n of frame, over bar_episodes()."""
     sel = [e for e in eps if in_bar(e["at"], frame, n, bar_ms)]
     synth = "".join(
         f"@LAT{EPISODE_LANE}LON{i}\n```ttdb-episode\n"
@@ -3096,34 +3117,110 @@ def bar_view(eps, frame, n, bar_ms=BAR_MS):
         digest = (digest + fnv1a(f"{b['subject']} {belief_line(b)}")) & 0xFFFFFFFF
     return {"own": sum(1 for e in sel if e["lane"] == EPISODE_LANE),
             "held": sum(1 for e in sel if e["lane"] == HELD_LANE),
-            "terms": len(bs), "digest": digest, "beliefs": bs}
+            "terms": len(bs), "digest": digest, "beliefs": bs, "holds": bar_holds(sel, self_id)}
+
+
+def render_bar_record(ord_, frame, n, view, settled_ms):
+    """The @LAT106 record firmware renderBar() writes for this view, byte for byte."""
+    out = (f"@LAT{BAR_LANE}LON{ord_} | created:0 | updated:0\n\n"
+           f"**BAR** frame:{frame} bar:{n} own:{view['own']} held:{view['held']} "
+           f"terms:{view['terms']} digest:0x{view['digest']:08x} settled_ms:{settled_ms}\n")
+    for a in sorted(view["holds"]):
+        c, lo, hi, sm = view["holds"][a]
+        out += f"**HOLDS** agent:0x{a:08x} n:{c} lo:{lo} hi:{hi} sum:{sm}\n"
+    return out
+
+
+def parse_bar_records(text):
+    """@LAT106 -> {(frame, bar): {own, held, terms, digest, settled_ms, holds, lon}}.
+    A bar recorded twice (not expected) keeps the first: it is what the node printed."""
+    out = {}
+    for lat, lon, lines in lane_records(text, lambda lat, lon: lat == BAR_LANE):
+        rec = None
+        for l in lines:
+            l = l.strip()
+            m = BAR_REC_RE.match(l)
+            if m:
+                rec = {"frame": int(m.group(1)), "bar": int(m.group(2)),
+                       "own": int(m.group(3)), "held": int(m.group(4)),
+                       "terms": int(m.group(5)), "digest": int(m.group(6), 16),
+                       "settled_ms": int(m.group(7)), "holds": {}, "lon": lon}
+                continue
+            m = HOLDS_REC_RE.match(l)
+            if m and rec is not None:
+                rec["holds"][int(m.group(1), 16)] = tuple(int(m.group(i)) for i in range(2, 6))
+        if rec is not None:
+            out.setdefault((rec["frame"], rec["bar"]), rec)
+    return out
+
+
+def bar_records_report(records, views):
+    """Score BAR records: (e)/(g) across nodes from the records alone, (f) per node against
+    the recomputation. records: {name: parse_bar_records()}, views: {name: {(f, n): view}}.
+    -> list of (frame, bar, {name: rec}, digest_agree, holds_agree)."""
+    keys = sorted({k for r in records.values() for k in r})
+    rows = []
+    for k in keys:
+        have = {name: r[k] for name, r in records.items() if k in r}
+        cells = []
+        for name, rec in have.items():
+            v = views.get(name, {}).get(k)
+            if v is None or not v["holds"]:
+                f = "not on flash"
+            elif (v["terms"], v["digest"], v["holds"]) == (rec["terms"], rec["digest"],
+                                                           rec["holds"]):
+                f = "reproduced"
+            else:
+                f = "NOT reproduced"
+            cells.append(f"{name}: own {rec['own']} held {rec['held']} {rec['terms']}t "
+                         f"0x{rec['digest']:08x} +{rec['settled_ms'] // 1000}s [{f}]")
+        if len(have) < 2:
+            verdict, da, ha = "one node", None, None
+        else:
+            da = len({(r["terms"], r["digest"]) for r in have.values()}) == 1
+            ha = len({tuple(sorted(r["holds"].items())) for r in have.values()}) == 1
+            verdict = ("AGREE" if da else "DIFFER") + (", same set" if ha else ", SETS DIFFER")
+        rows.append((k[0], k[1], have, da, ha))
+        print(f"frame {k[0]} bar {k[1]}: {verdict}  " + "  ".join(cells))
+    return rows
 
 
 def bar_cmd(specs, bar_ms=BAR_MS):
     """`fleet.py bar node=pull.md …`: every node's bar views, and whether they agree."""
-    stores = {}
+    stores, records = {}, {}
     for spec in specs:
         name, sep, path = spec.partition("=")
         if not sep or name not in NODE_IDS:
             sys.exit(f"bar: expected <node>=<pulled ttdb>, node one of {list(NODE_IDS)}; "
                      f"got {spec!r}")
         with open(path, encoding="utf-8", errors="replace") as f:
-            stores[name] = bar_episodes(f.read())
+            text = f.read()
+        stores[name] = bar_episodes(text)
+        records[name] = parse_bar_records(text)
     bars = set()
     for eps in stores.values():
         for e in eps:
             a = e["at"]
             if a["bounded"] and a["has_frame"]:
                 bars.add((a["frame"], (a["t_ms"] - a["frame"]) // bar_ms + 1))
-    rows = []
+    for r in records.values():
+        bars.update(r)
+    rows, by_node = [], {name: {} for name in stores}
+    print("-- recomputed from the copies still on flash --")
     for frame, n in sorted(bars):
-        views = {name: bar_view(eps, frame, n, bar_ms) for name, eps in stores.items()}
+        views = {name: bar_view(eps, frame, n, bar_ms, NODE_IDS[name])
+                 for name, eps in stores.items()}
+        for name, v in views.items():
+            by_node[name][(frame, n)] = v
         ds = {(v["terms"], v["digest"]) for v in views.values()}
         agree = len(ds) == 1
         rows.append((frame, n, views, agree))
         cells = "  ".join(f"{name}: own {v['own']} held {v['held']} {v['terms']}t "
                           f"0x{v['digest']:08x}" for name, v in views.items())
         print(f"frame {frame} bar {n}: {'AGREE' if agree else 'DIFFER'}  {cells}")
+    if any(records.values()):
+        print("-- BAR records (@LAT106): what each node computed when the bar settled --")
+        bar_records_report(records, by_node)
     held = {name: sorted({(e['agent'], e['seq']) for e in eps if e['lane'] == HELD_LANE})
             for name, eps in stores.items()}
     for name, h in held.items():
