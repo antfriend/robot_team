@@ -321,7 +321,16 @@ builds on it.
 > callback, drain + send in `loop()`). +2992 B flash / +368 B RAM vs HEAD. 5/5 clean boots;
 > 8 appends → `seq 1..8` dense on a pull (link and entity interleaved under one counter);
 > reboot after a fold recovers `seq 8` → next 9. `follows:` empty, as it must be until a
-> second board runs this build. **Next: step 4.**
+> second board runs this build.
+>
+> ✅ **Step 4 + the hardware gate, 2026-10-03: PASS.** V4-A on the build; 62 min side by side.
+> **(b) 4178 / 4182 = 99.9 %** of cross-agent pairs > 20 s apart ordered by an edge (≥ 95 %
+> pre-registered); 4187 pairs, 0 concurrent, **0 clock contradictions**. The 5 non-edge pairs
+> are lost vectors (one side wrote > 20 s after the other without having heard it): still
+> ordered, by stamps, as §3.2 predicts. **(d)** 5 V4-A reboots, `seq 65` → 66 each time.
+> **(a)** every episode after the first exchange carries `follows`; gaps are folds (each tier's
+> LONs contiguous, `seq` rising with LON). Pulls: `master/{cardputer,v4a}_c4gate_2026-10-03.md`.
+> **Next: step 5**, the other four boards one at a time.
 
 1. The `order()` guard for `seq = 0` (test 8 first, red), then `EpisodeOrder.*`
    portable core + native tests 1–7 (no hardware).
