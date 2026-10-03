@@ -160,6 +160,11 @@ static perceptlearn::Loop gLearn;
 // @LAT94-97 outright; the PHASEC_EPISODES kill switch that kept the old path for the A/B
 // was deleted with the caps in Phase C0 (2026-10-02).
 static episodenode::Node gEpisodes;
+// ACT-III §C4 (docs/design/episode-order.md): this node's per-agent `seq` and the vector of
+// every other node's it has heard of. gOrderIn is the ONLY thing the recv callback touches;
+// loop() drains it into gOrder, which gEpisodes reads at every render.
+static semantic::VectorClock gOrder;
+static semantic::VectorInbox gOrderIn;
 // LinkPercept's record, rendered into the episode scratch before it is wrapped. The worst
 // case (8 maximal peers) is 847 B, pinned by test_episode; LinkPercept drops whole peer
 // lines that do not fit rather than truncating one, so this must stay above it.
@@ -1167,6 +1172,12 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   gEspRx++;
   gScreenDirty = true;
 
+  if (t.type == toot::EPISODE) {
+    // A peer's episode-order vector. COPY ONLY: merging here could tear the vector an
+    // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
+    gOrderIn.push(t.payload, t.payload_len);
+    return;
+  }
   if (t.type == toot::TTDB_REQ) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }   // defer burst
     return;
@@ -3610,12 +3621,17 @@ void setup() {
   // silently stops succeeding. Reads the newest @LAT104 checkpoint, replays the live
   // @LAT103 episodes, cuts what is dead.
   const uint32_t t0 = millis();
+  gOrder.begin(kNodeId);
+  gEpisodes.attachOrder(&gOrder);      // BEFORE begin(): boot recovers seq + vector
   gEpisodes.begin(gDb);
   Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                 "maxalloc %u B\n",
                 (unsigned long)(millis() - t0), (unsigned)gEpisodes.bootFed(),
                 (unsigned)gEpisodes.tiers().present(), (unsigned)ESP.getMaxAllocHeap());
   gEpisodes.print(Serial);
+  Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
+                "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
+                (unsigned)gOrder.others());
 #if USE_WIFI_SCAN
   // ⚠ THE BOARD DECLARES ITS OWN @LAT96 BUILD, AT BOOT. `ENTITYPERCEPT_MAX_RUN` is read
   // inside EntityPercept.cpp — a separate translation unit — so it can only be changed
@@ -3920,6 +3936,17 @@ void loop() {
       last_dream = now;
       noteBeliefChange();
       gEpisodes.print(Serial);     // the node's beliefs: counting, with Rule 3 on the panel
+      {
+        semantic::Follows f[EPISODEORDER_OTHERS];
+        const uint8_t nf = gOrder.follows(f, EPISODEORDER_OTHERS);
+        Serial.printf("[order] seq %lu | regressions %lu overflow %lu malformed %lu "
+                      "dropped %lu | follows:", (unsigned long)gOrder.seq(),
+                      (unsigned long)gOrder.regressions(), (unsigned long)gOrder.overflow(),
+                      (unsigned long)gOrder.malformed(), (unsigned long)gOrderIn.dropped());
+        for (uint8_t i = 0; i < nf; ++i)
+          Serial.printf(" 0x%08lx:%lu", (unsigned long)f[i].agent, (unsigned long)f[i].seq);
+        Serial.println();
+      }
     }
   }
 
@@ -4434,6 +4461,21 @@ void loop() {
   serviceIntero(now);
 
   sectMark();                       // [8] end of "intero": battery + die temp + heap
+
+  // Episode order (C4): merge what peers sent, then send ours when it changed (≥ 1 s apart)
+  // or the 10 s heartbeat is due. A lost vector costs order, never correctness: the next
+  // one carries the same knowledge.
+  {
+    const uint32_t before = gOrder.others();
+    if (gOrderIn.drainInto(gOrder) && gOrder.others() != before)
+      Serial.printf("[order] now %u other agent(s) in the vector\n", (unsigned)gOrder.others());
+    if (gOrder.sendDue(now)) {
+      uint8_t vb[EPISODEORDER_VECTOR_MAX];
+      const size_t vn = gOrder.encode(vb, sizeof(vb));
+      if (vn) emit(toot::EPISODE, vb, vn, sendEspNow, nullptr);
+      gOrder.sent(now);
+    }
+  }
 
   // Periodic HELLO beacon — now also the carrier for the time-stream anchor. The
   // anchor is sampled HERE rather than reused from gStamp so `stream_ms` is the value

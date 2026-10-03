@@ -24,6 +24,7 @@
 #include <TTDB.h>
 #include <stdlib.h>
 #include "Episode.h"
+#include "EpisodeOrder.h"
 
 namespace episodenode {
 
@@ -103,8 +104,25 @@ inline void feedBuffer(const char* text, size_t n, R& r) {
   }
 }
 
+// Feeds one stream of lines to the tier's reader AND (when order is on) to boot recovery.
+struct BootTee {
+  semantic::EpisodeReader& rd;
+  semantic::OrderRecovery* rec;
+  void line(const char* l) {
+    rd.line(l);
+    if (rec) rec->line(l);
+  }
+};
+
 class Node {
  public:
+  // ACT-III §C4 (docs/design/episode-order.md): attach BEFORE begin(). Every episode this
+  // node writes then carries `seq:`/`follows:` from `vc`, and begin() restores `vc`'s seq
+  // and vector from the newest live episode. Null (the default) writes exactly what it did
+  // before. The clock's RADIO side (inbox, emit) is the sketch's; this only reads and
+  // commits it, always from loop().
+  void attachOrder(semantic::VectorClock* vc) { order_ = vc; }
+
   // Boot. Call from setup() AFTER gDb.begin() and BEFORE the radios come up, so the cut
   // here runs with the heap that makes a rewrite succeed. `quotas`: per-tier capacity
   // (null = SEMANTIC_QUOTA_*).
@@ -134,18 +152,21 @@ class Node {
       if (live[k]) rd[k].select(from[k], through[k], semantic::Consolidator::KEEPING,
                                 tiers_.ring(k).band());
     }
+    semantic::OrderRecovery orec;    // the newest live episode is never folded (Episode.h)
     for (int i = 0; i < db.recordCount(); ++i) {
       const TtdbRecord& rec = db.record(i);
       if (rec.lat != SEMANTIC_EPISODE_LANE) continue;
       const int k = semantic::tierOf(rec.lon);
       if (k < 0 || k >= SEMANTIC_TIERS || !live[k]) continue;
       if (!tiers_.ring(k).inRun(rec.lon, from[k], through[k])) continue;
-      streamRecord(db, i, rd[k], st_.long_lines);
+      BootTee tee{rd[k], order_ ? &orec : nullptr};
+      streamRecord(db, i, tee, st_.long_lines);
     }
     for (uint8_t k = 0; k < SEMANTIC_TIERS; ++k) {
       rd[k].finish();
       boot_fed_ += rd[k].fed();
     }
+    if (order_) orec.applyTo(*order_);
     cut(true);                     // boot: always, regardless of slack
   }
 
@@ -154,8 +175,9 @@ class Node {
   bool appendLink(const semantic::LinkClaim* claims, int n, const char* at, uint32_t t) {
     if (!db_) return false;
     const int16_t ord = tiers_.nextOrdinal(semantic::TIER_LINK);
+    char ob[EPISODEORDER_BLOCK_MAX];
     const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, scratch_,
-                                                 sizeof(scratch_));
+                                                 sizeof(scratch_), orderBlock(ob));
     if (!m) { ++st_.render_failed; return false; }
     return appendRendered(scratch_, m, ord);
   }
@@ -174,8 +196,9 @@ class Node {
   bool appendSaidScratch(int16_t ord, size_t m, const char* title, const char* source,
                          const char* at, uint32_t t) {
     if (!db_) return false;
+    char ob[EPISODEORDER_BLOCK_MAX];
     const size_t n = semantic::renderSaidEpisodeInPlace(scratch_, sizeof(scratch_), m, ord, t,
-                                                        title, source, at);
+                                                        title, source, at, orderBlock(ob));
     if (!n) { ++st_.render_failed; return false; }
     return appendRendered(scratch_, n, ord);
   }
@@ -187,8 +210,10 @@ class Node {
   bool appendLinkWindowScratch(int16_t ord, size_t m, const semantic::LinkClaim* claims,
                                int n, const char* at, uint32_t t) {
     if (!db_) return false;
+    char ob[EPISODEORDER_BLOCK_MAX];
     const size_t r = semantic::renderLinkWindowEpisodeInPlace(scratch_, sizeof(scratch_), m,
-                                                              claims, n, ord, t, at);
+                                                              claims, n, ord, t, at,
+                                                              orderBlock(ob));
     if (!r) { ++st_.render_failed; return false; }
     return appendRendered(scratch_, r, ord);
   }
@@ -199,8 +224,13 @@ class Node {
     if (!db_) return false;
     const int k = semantic::tierOf(ord);
     if (k < 0 || k >= SEMANTIC_TIERS) { ++st_.render_failed; return false; }
+    const uint32_t seq = pending_seq_;
+    pending_seq_ = 0;                // spent or not, it belongs to THIS render only
     if (!db_->appendRecord(rec, m)) { ++st_.append_failed; return false; }
     ++st_.appended;
+    // ⚠ Commit ONLY the seq this render carried, and only now: a refused append re-uses
+    // the number, so seq stays dense (EpisodeOrder.h).
+    if (order_ && seq) order_->committed(seq);
     tiers_.appended(ord);
     semantic::EpisodeReader r(c_);
     r.select(ord, ord, semantic::Consolidator::KEEPING, semantic::tierBand((uint8_t)k));
@@ -271,6 +301,15 @@ class Node {
   }
 
  private:
+  // The `seq:`/`follows:` block for the episode about to be rendered, or null when order
+  // is off or the block does not fit (an episode WITHOUT order beats no episode at all).
+  const char* orderBlock(char* ob) {
+    pending_seq_ = 0;
+    if (!order_ || !order_->renderBlock(ob, EPISODEORDER_BLOCK_MAX)) return nullptr;
+    pending_seq_ = order_->nextSeq();
+    return ob;
+  }
+
   void scan() {
     tiers_.resetScan();
     for (int i = 0; i < db_->recordCount(); ++i)
@@ -323,6 +362,8 @@ class Node {
   }
 
   Ttdb* db_ = nullptr;
+  semantic::VectorClock* order_ = nullptr;
+  uint32_t pending_seq_ = 0;
   static_assert(SEMANTIC_ENTITY_EPISODE_BUF >= SEMANTIC_LINK_EPISODE_BUF,
                 "the shared scratch must hold the largest episode any tier renders");
   char scratch_[SEMANTIC_ENTITY_EPISODE_BUF];

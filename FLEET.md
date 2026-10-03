@@ -356,8 +356,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    collides, not an ordinal; a sid becomes stage 2's integrity check. Its three §8
    decisions were taken as recommended. ✅ **Steps 1–2 built 2026-10-03** (no hardware):
    the `seq 0` fix in `order()`, `Semantic/src/EpisodeOrder.*` (66 native checks), and
-   `fleet.py order`. **Next: step 3**, the Cardputer glue (its episodes start carrying
-   `seq:`), then one V4 and the pre-registered hardware gate.
+   `fleet.py order`. ✅ **Step 3 done the same day: the Cardputer writes `seq:`** (flashed,
+   5/5 clean boots, `seq 1..8` dense across tiers on a pull, recovered across a fold and a
+   reboot; +2992 B flash, +368 B RAM). **Next: step 4**, one V4 on the same build
+   (`EpisodeNode::attachOrder` + the type-14 recv/emit, as the Cardputer), then the
+   pre-registered hardware gate (design §9): both side by side ≥ 1 h, then
+   `fleet.py order cardputer_1=… v4a_bridge=…`.
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257

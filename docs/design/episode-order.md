@@ -314,7 +314,14 @@ builds on it.
 > (**66 checks**); the optional `order` block threaded through every episode renderer
 > (default off, so existing output is byte-identical); `fleet.py order` + its Python port,
 > mirrored case-for-case in `tests/test_episode_order_py.py`. Toot type 14 reserved.
-> The Cardputer builds at 42% / 40% (nothing calls the new code yet). **Next: step 3.**
+> The Cardputer builds at 42% / 40% (nothing calls the new code yet).
+>
+> ✅ **Step 3 done 2026-10-03:** Cardputer glue (`EpisodeNode::attachOrder`, `BootTee` →
+> `OrderRecovery`, commit-on-append via `pending_seq_`; sketch: inbox push in the recv
+> callback, drain + send in `loop()`). +2992 B flash / +368 B RAM vs HEAD. 5/5 clean boots;
+> 8 appends → `seq 1..8` dense on a pull (link and entity interleaved under one counter);
+> reboot after a fold recovers `seq 8` → next 9. `follows:` empty, as it must be until a
+> second board runs this build. **Next: step 4.**
 
 1. The `order()` guard for `seq = 0` (test 8 first, red), then `EpisodeOrder.*`
    portable core + native tests 1–7 (no hardware).
