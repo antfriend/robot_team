@@ -370,8 +370,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    46–47 before the pull, only bar 49 has captured prints from both boards, and the T-Deck's
    episodes carry no `percept:` terms. So the digest tests the Cardputer's content only.
    Delivery needed a resume (half the handhelds' broadcasts are lost).
-   **Next:** write each bar's digest to flash so the gate needs no cable to read, then
-   re-run the gate over bars that are still retained ([docs/log/2026-10.md](docs/log/2026-10.md)).
+   ✅ Each bar is now also kept on flash as a **`@LAT106` BAR record** (digest + per-author
+   HOLDS rows), so the gate needs no cable. ◐ **The re-run, scored from those records:
+   digests agree on 8/8 bars, episode sets on only 5/8.** The Cardputer's copies of the
+   T-Deck's episodes arrived *late* (the digest is blind to them, since the T-Deck has no
+   terms). Cause: four powered-off peers ate ~2/3 of the fetcher's time.
+   **Next:** the exponential back-off (Cardputer flashed) on the T-Deck, then the run again
+   ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
