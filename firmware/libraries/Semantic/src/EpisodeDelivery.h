@@ -67,6 +67,12 @@ namespace semantic {
 #ifndef EPISODEDELIVERY_BACKOFF_MS
 #define EPISODEDELIVERY_BACKOFF_MS 60000
 #endif
+// The back-off doubles with each further miss up to this cap, and any answer resets it. A
+// board that is OFF otherwise cost three 4 s timeouts a minute each: with four of them off,
+// ~2/3 of the fetcher's time (2026-10-03, the Cardputer lagged its peer by up to 9 bars-min).
+#ifndef EPISODEDELIVERY_BACKOFF_MAX_MS
+#define EPISODEDELIVERY_BACKOFF_MAX_MS 960000UL
+#endif
 // Consecutive unanswered WANTs to one agent before it is backed off (a single lost WANT or
 // DONE is ordinary at the loss these radios see, ~half of broadcasts; 2026-10-03).
 #ifndef EPISODEDELIVERY_MISSES_BEFORE_BACKOFF

@@ -254,6 +254,26 @@ static void testFetcher() {
   f.answered(0x300, 100, t);
   f.unanswered(0x300, t + 1);
   check(f.next(vc, t + 1 + EPISODEDELIVERY_RETRY_MS, w), "an answer resets the miss count");
+
+  // A board that is OFF: the back-off doubles per further miss, to the cap.
+  Fetcher d;
+  d.begin(0x200);
+  uint32_t u = 1000;
+  for (int i = 0; i < EPISODEDELIVERY_MISSES_BEFORE_BACKOFF; ++i) d.unanswered(0x300, u);
+  check(!d.next(vc, u + EPISODEDELIVERY_BACKOFF_MS - 1, w) &&
+            d.next(vc, u + EPISODEDELIVERY_BACKOFF_MS, w),
+        "the first back-off is BACKOFF_MS");
+  d.unanswered(0x300, u);
+  check(!d.next(vc, u + 2 * EPISODEDELIVERY_BACKOFF_MS - 1, w) &&
+            d.next(vc, u + 2 * EPISODEDELIVERY_BACKOFF_MS, w),
+        "one more miss: twice that");
+  for (int i = 0; i < 20; ++i) d.unanswered(0x300, u);
+  check(!d.next(vc, u + EPISODEDELIVERY_BACKOFF_MAX_MS - 1, w) &&
+            d.next(vc, u + EPISODEDELIVERY_BACKOFF_MAX_MS, w),
+        "many misses: capped at BACKOFF_MAX_MS (no overflow)");
+  d.answered(0x300, 100, u);
+  d.unanswered(0x300, u + 1);
+  check(d.next(vc, u + 1 + EPISODEDELIVERY_RETRY_MS, w), "an answer ends the back-off entirely");
   f.retry(0x300, 100);
   check(!f.next(vc, 101, w) && f.next(vc, 100 + EPISODEDELIVERY_RETRY_MS, w),
         "broken: retried after RETRY_MS");

@@ -251,8 +251,16 @@ void Fetcher::unanswered(uint32_t agent, uint32_t now_ms) {
   E* e = find(agent, true);
   if (!e) return;
   if (e->misses < 255) ++e->misses;
-  e->next_ms = now_ms + (e->misses >= EPISODEDELIVERY_MISSES_BEFORE_BACKOFF
-                             ? EPISODEDELIVERY_BACKOFF_MS : EPISODEDELIVERY_RETRY_MS);
+  if (e->misses < EPISODEDELIVERY_MISSES_BEFORE_BACKOFF) {
+    e->next_ms = now_ms + EPISODEDELIVERY_RETRY_MS;
+    return;
+  }
+  uint32_t wait = EPISODEDELIVERY_BACKOFF_MS;          // 60 s, 120 s, 240 s ... the cap
+  for (uint8_t k = EPISODEDELIVERY_MISSES_BEFORE_BACKOFF; k < e->misses; ++k) {
+    if (wait >= EPISODEDELIVERY_BACKOFF_MAX_MS / 2) { wait = EPISODEDELIVERY_BACKOFF_MAX_MS; break; }
+    wait *= 2;
+  }
+  e->next_ms = now_ms + wait;
 }
 
 void Fetcher::retry(uint32_t agent, uint32_t now_ms) {

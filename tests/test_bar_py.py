@@ -136,6 +136,24 @@ check("NOT reproduced" in buf.getvalue().splitlines()[0] and
       "[reproduced]" in buf.getvalue().splitlines()[1],
       "(f) can fail: a record the copies on flash do not reproduce says NOT reproduced")
 
+rec = {0x200: (10, 200, 209, 2045), 0x300: (10, 1038, 1057, 10473)}
+check(c.bar_holds_trimmed({0x200: (10, 200, 209, 2045), 0x300: (4, 1050, 1057, 4215)}, rec),
+      "copies cut since the record (fewer, inside its seq range): trimmed")
+check(not c.bar_holds_trimmed(dict(rec), rec), "the same holds are not 'trimmed'")
+check(not c.bar_holds_trimmed({0x200: (10, 200, 209, 2045), 0x300: (4, 1050, 1060, 4215)}, rec),
+      "a seq outside the recorded range is a contradiction, not a trim")
+check(not c.bar_holds_trimmed({0x200: (10, 200, 209, 2045), 0x999: (1, 5, 5, 5)}, rec),
+      "an author the record never held is a contradiction, not a trim")
+
+recc = {0x300: (10, 900, 918, 9090), 0x200: (1, 231, 231, 231)}
+check(c.bar_only_held_changed({0x300: (10, 900, 918, 9090), 0x200: (4, 231, 234, 930)}, recc, 0x300),
+      "own row intact, more held copies since the record: 'changed since', not a contradiction")
+check(not c.bar_only_held_changed({0x300: (9, 900, 918, 8190), 0x200: (4, 231, 234, 930)}, recc, 0x300)
+      or c.bar_holds_trimmed({0x300: (9, 900, 918, 8190)}, {0x300: recc[0x300]}),
+      "a trimmed own row still counts as intact")
+check(not c.bar_only_held_changed({0x300: (11, 900, 920, 9999), 0x200: (1, 231, 231, 231)}, recc, 0x300),
+      "an own row that GREW past the record is a contradiction")
+
 print()
 if fails:
     sys.exit(f"{fails} FAILURE(S)")

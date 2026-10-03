@@ -3154,6 +3154,35 @@ def parse_bar_records(text):
     return out
 
 
+def bar_holds_trimmed(now, rec):
+    """True when the episodes still on flash (`now`) are a strict, in-range SUBSET of what
+    the record says the bar held: retention (the held ring, or a fold of own episodes) has
+    cut some since. The digest then cannot be re-checked, but nothing contradicts it."""
+    fewer = False
+    for agent, (n, lo, hi, _) in now.items():
+        if agent not in rec:
+            return False
+        rn, rlo, rhi, _ = rec[agent]
+        if n > rn or lo < rlo or hi > rhi:
+            return False
+        fewer = fewer or n < rn
+    return fewer or len(now) < len(rec)
+
+
+def bar_only_held_changed(now, rec, self_id):
+    """The node's OWN row still matches the record (or is a trim of it): what moved is only
+    held copies, which arrive late (a fetch that lagged the settle) or get cut. Not a
+    contradiction of the record, but the bar can no longer be re-checked from this pull."""
+    if self_id is None:
+        return False
+    own_now, own_rec = now.get(self_id), rec.get(self_id)
+    if own_now != own_rec and own_now is not None and not (
+            own_rec and bar_holds_trimmed({self_id: own_now}, {self_id: own_rec})):
+        return False                     # (own_now None = all folded away: a full trim)
+    return {a: h for a, h in now.items() if a != self_id} != \
+        {a: h for a, h in rec.items() if a != self_id}
+
+
 def bar_records_report(records, views):
     """Score BAR records: (e)/(g) across nodes from the records alone, (f) per node against
     the recomputation. records: {name: parse_bar_records()}, views: {name: {(f, n): view}}.
@@ -3170,6 +3199,11 @@ def bar_records_report(records, views):
             elif (v["terms"], v["digest"], v["holds"]) == (rec["terms"], rec["digest"],
                                                            rec["holds"]):
                 f = "reproduced"
+            elif bar_holds_trimmed(v["holds"], rec["holds"]):
+                left = sum(h[0] for h in v["holds"].values())
+                f = f"trimmed ({left} of {rec['own'] + rec['held']} left)"
+            elif bar_only_held_changed(v["holds"], rec["holds"], NODE_IDS.get(name)):
+                f = "changed since: held copies arrived late or were cut"
             else:
                 f = "NOT reproduced"
             cells.append(f"{name}: own {rec['own']} held {rec['held']} {rec['terms']}t "
