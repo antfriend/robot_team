@@ -10,7 +10,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 port = sys.argv[1]
 secs = float(sys.argv[2]) if len(sys.argv) > 2 else 12.0
@@ -23,7 +23,7 @@ secs = float(sys.argv[2]) if len(sys.argv) > 2 else 12.0
 # RTS must stay FALSE — DTR+RTS together is esptool's DOWNLOAD-mode sequence.
 import serial  # noqa: E402  (pyserial)
 
-ser = serial.Serial(port, 115200, timeout=0.1)   # same open companion.py's readers use
+ser = serial.Serial(port, 115200, timeout=0.1)   # same open fleet.py's readers use
 try:
     ser.reset_input_buffer()
     buf = b""

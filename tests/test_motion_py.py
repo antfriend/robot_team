@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_motion_py.py -- verify companion.py's reader for the CHANGE-TRIGGERED @LAT95
+"""test_motion_py.py -- verify fleet.py's reader for the CHANGE-TRIGGERED @LAT95
 motion lane (docs/handoffs/part-b-handoff.md Part 1, landed 2026-08-04) without hardware.
 
 The one thing this file exists to stop: **counting records and calling them windows.**
@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

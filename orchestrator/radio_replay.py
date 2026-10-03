@@ -20,7 +20,7 @@ import struct
 import sys
 import time
 
-import companion as C  # same directory
+import fleet as C  # same directory
 
 
 def count_data(ser, target, seconds):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_survey_py.py -- pin `companion.py entity-survey`, the instrument that turns
+"""test_survey_py.py -- pin `fleet.py entity-survey`, the instrument that turns
 "how far apart must two nodes be?" from one overnight run per candidate distance into
 one afternoon walk (`ttn-semantic-positioning.md` Draft 0.3 §4.3).
 
@@ -28,7 +28,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

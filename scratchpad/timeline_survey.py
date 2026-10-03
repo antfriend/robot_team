@@ -23,7 +23,7 @@ Usage:  python scratchpad/timeline_survey.py <pulled-ttdb.md> [more.md ...]
 
 ⚠ Reads PULLED files, not the boards — so it surveys the lanes as banked. Pull first.
 ⚠ `prev_stream:` is stripped before matching: it names the stream a RECONCILED record
-   LEFT, and a bare `stream:0x` needle matches inside it (same trap as companion.py's).
+   LEFT, and a bare `stream:0x` needle matches inside it (same trap as fleet.py's).
 """
 import re
 import sys

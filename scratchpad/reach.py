@@ -1,6 +1,6 @@
 """One held connection, many probes — reachability without rebooting the bridge.
 
-Every `companion.py ping` invocation opens the port with DTR/RTS asserted, which
+Every `fleet.py ping` invocation opens the port with DTR/RTS asserted, which
 resets the V4-A bridge. Looping it therefore power-cycles the bridge once per probe
 and measures a node that has just rebooted. This opens ONCE, without the reset, and
 probes each node several times over that single session.
@@ -13,7 +13,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 port = sys.argv[1] if len(sys.argv) > 1 else "COM6"
 rounds = int(sys.argv[2]) if len(sys.argv) > 2 else 3

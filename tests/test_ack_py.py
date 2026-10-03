@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_ack_py.py — verify companion.py's ACK codec (TTN-RFC-0007) is wire-exact
+"""test_ack_py.py — verify fleet.py's ACK codec (TTN-RFC-0007) is wire-exact
 and self-consistent, without any serial hardware.
 
 This is the in-session gate for the laptop half of the reliability layer; the
@@ -14,7 +14,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

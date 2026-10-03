@@ -11,7 +11,7 @@ WHY THIS FILE EXISTS, TWICE OVER.
    stopped: every citation would silently resolve `stale` against a perfectly good
    record. The eight vectors below are the same eight in `tests/test_sid.cpp`.
    ⚠ Until 2026-08-11 the Python side lived only in `scripts/sid_probe.py`, a
-   measurement script no test ran. `companion.py` now owns it and sid_probe imports
+   measurement script no test ran. `fleet.py` now owns it and sid_probe imports
    from there -- two languages, one implementation each, as RFC-0010 §4.2.2 intends.
 
 2. KEY IDENTITY MUST BE BODY- AND TIME-INDEPENDENT. A position belief is revised
@@ -27,7 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 
@@ -60,7 +60,7 @@ check(c.sid_key(0x300, 91, "") == 0x0177C5F9, "vector key/empty matches test_sid
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import sid_probe  # noqa: E402
 check(sid_probe.fnv1a is c.fnv1a and sid_probe.sid_key is c.sid_key,
-      "scripts/sid_probe.py IMPORTS companion's hash rather than re-implementing it")
+      "scripts/sid_probe.py IMPORTS fleet's hash rather than re-implementing it")
 
 # ---------------------------------------------------------------------------
 # 2) KEY identity: no body, no time. This is the property SP4 depends on.
@@ -114,7 +114,7 @@ check(c.sid_header_field(0xA1B2C3D4) == " | sid:a1b2c3d4",
       "the header field is lowercase 8-hex in RFC-0010's form")
 check(c.header_sid("@BELIEF:POSITION @node(v4a_bridge)"
                    + c.sid_header_field(sid_a)) == sid_a,
-      "and companion's own READER round-trips what its writer emits")
+      "and fleet's own READER round-trips what its writer emits")
 
 # ---------------------------------------------------------------------------
 # 5) Proximity sids: symmetric in the pair, and proto is part of the subject.

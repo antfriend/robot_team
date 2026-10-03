@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""test_pull_py.py — verify companion.py's pull-stream reliability layer without
+"""test_pull_py.py — verify fleet.py's pull-stream reliability layer without
 any serial hardware: gap detection + selective TTDB_REQ_RANGE re-request recovers
 a lossy offset-addressed TTDB_DATA stream byte-exact (the laptop half of the
 "pull-stream ACK" work; closes the old ~1/6 bridged-pull frame drop).
 
 The firmware half (handleRequest's TTDB_REQ_RANGE branch) is gated on-device by a
-bridged `companion.py pull` that now self-heals dropped slices.
+bridged `fleet.py pull` that now self-heals dropped slices.
 
 Run: python tests/test_pull_py.py
 """
@@ -14,7 +14,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 
@@ -62,7 +62,7 @@ class MockNode:
         self.data = data
         self.drop = set(drop)
         self.seq = 1
-        self.rx = bytearray()      # bytes waiting for the companion to read()
+        self.rx = bytearray()      # bytes waiting for the laptop to read()
 
     def _emit(self, offset, payload_bytes):
         pl = struct.pack("<IH", offset, len(payload_bytes)) + payload_bytes
@@ -146,7 +146,7 @@ check(run_pull(b"", drop=[]) == b"", "empty TTDB -> empty bytes, no spurious gap
 
 
 # ---------------------------------------------------------------------------
-# 3) Companion-side induced loss (`pull --drop`): discard slices by arrival index
+# 3) Laptop-side induced loss (`pull --drop`): discard slices by arrival index
 #    on the first pass against a LOSSLESS node, then recover via range re-request.
 #    This is the exact mechanism the on-device --drop test exercises.
 # ---------------------------------------------------------------------------

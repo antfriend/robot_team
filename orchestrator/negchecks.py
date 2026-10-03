@@ -25,7 +25,7 @@ import struct
 import sys
 import time
 
-import companion as C  # same directory
+import fleet as C  # same directory
 
 
 def hmac_with(key, data):

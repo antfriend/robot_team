@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_position_belief_py.py — verify companion.py's SP2 "publish @BELIEF:POSITION
+"""test_position_belief_py.py — verify fleet.py's SP2 "publish @BELIEF:POSITION
 back to each node" authoring without hardware (semantic positioning,
 ttn-semantic-positioning.md §3 Phase 2, PLAN.md SP2). Checks that
 `author_position_belief` turns master/positions.md (relative frame) and
@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 
@@ -29,7 +29,7 @@ def check(cond, msg):
 
 REL = """# Fleet Position Beliefs (semantic positioning SP2)
 
-Authored by `companion.py positions`.
+Authored by `fleet.py positions`.
 
 ---
 
@@ -56,7 +56,7 @@ touched: 2026-07-10T17:49:16Z
 
 GEO = """# Fleet Anchored Position Beliefs (semantic positioning SP2)
 
-Authored by `companion.py anchor`.
+Authored by `fleet.py anchor`.
 
 fit: ties=4 scale=0.2768 reflected=False tie_rmse=4.98 m flip_resolved=True
 

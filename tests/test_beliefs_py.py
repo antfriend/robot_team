@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_beliefs_py.py — companion.py's recomputation of a node's beliefs from a pull
+"""test_beliefs_py.py — fleet.py's recomputation of a node's beliefs from a pull
 (ACT-III §C3, 2026-10-02).
 
 Since C3 was wired the Cardputer writes no belief record: its beliefs are TTG-0003 counts
@@ -17,7 +17,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

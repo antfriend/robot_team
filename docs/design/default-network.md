@@ -57,7 +57,7 @@ Those four are broken only by a node holding a capability nobody else has:
 |---|---|---|
 | translation | one absolute fix | T-Deck GPS |
 | rotation | a second fix at a different place | T-Deck GPS, roaming |
-| reflection | a third non-collinear fix | T-Deck GPS, roaming (`companion.py anchor`'s "≥3 ties resolve mirror") |
+| reflection | a third non-collinear fix | T-Deck GPS, roaming (`fleet.py anchor`'s "≥3 ties resolve mirror") |
 | *nothing* | RSSI amplitude | ⚠ measured broken outdoors: 2–7× over-range, decorrelated |
 
 So the capability table is not metadata about the fleet — **it is the list of who can
@@ -66,7 +66,7 @@ much of its own shape is knowable right now. That is a computable quantity, it b
 the default-network scene, and it is the most useful single number the scene could hold.
 
 🔬 Falsifier for the whole reframe: if the scene's shape estimate agrees with
-`companion.py positions` in every configuration, the distributed version added nothing.
+`fleet.py positions` in every configuration, the distributed version added nothing.
 Say so and stop (stigmergy.md §4.C's falsifier, restated).
 
 ---

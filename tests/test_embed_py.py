@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_embed_py.py — verify companion.py's SP2 position embedding without
+"""test_embed_py.py — verify fleet.py's SP2 position embedding without
 hardware (semantic positioning, ttn-semantic-positioning.md §3 Phase 2):
 spring relaxation recovers known geometry (up to the documented rotation/
 mirror freedom), the canonical relative frame, honest stress on inconsistent
@@ -12,7 +12,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

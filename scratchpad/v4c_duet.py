@@ -14,7 +14,7 @@ import sys, time, struct
 
 sys.path.insert(0, r"c:\git\robot_team\orchestrator")
 import serial
-import companion as c
+import fleet as c
 
 DUET_HARM, DUET_OFF = 1, 0xFF
 SPEED = 2

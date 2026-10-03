@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_anchor_py.py — verify companion.py's SP2 GPS anchoring without hardware
+"""test_anchor_py.py — verify fleet.py's SP2 GPS anchoring without hardware
 (semantic positioning, ttn-semantic-positioning.md §3 Phase 2): the GPS PERCEPT
 codec, the closed-form 2D Procrustes fit (scale/rotation/translation, reflection
 detection), and the end-to-end `anchor` that ties the relative @BELIEF:POSITION map
@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

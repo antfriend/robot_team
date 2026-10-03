@@ -188,7 +188,7 @@ themselves according to a rule correlated with the thing being measured. See §5
 ### C. Stigmergic positioning — the map relaxes itself, laptop-absent
 **The most interesting scientifically; medium cost.**
 
-Today the embedding is computed centrally (`companion.py positions` → MDS/spring
+Today the embedding is computed centrally (`fleet.py positions` → MDS/spring
 relaxation on the laptop). The stigmergic version: each node keeps its own `(x, y, σ)`,
 broadcasts it in the spare HELLO bytes, and on each beacon applies **one relaxation step**
 — pull toward peers with high umwelt overlap, push from peers with none. No node computes
@@ -246,7 +246,7 @@ motif that thins out.
 ### F. The operator as a stigmergic agent — deposits, not commands
 **Small, and it fixes something that just cost a measurement.**
 
-Every `companion.py cmd` is an *addressed instruction* — the opposite of a deposit. A
+Every `fleet.py cmd` is an *addressed instruction* — the opposite of a deposit. A
 handheld key that writes a **mark** into the field instead ("measurement in progress",
 "this node is where I left it") makes the human a participant rather than a foreman.
 

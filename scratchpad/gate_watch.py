@@ -19,7 +19,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 port = sys.argv[1]
 secs = float(sys.argv[2]) if len(sys.argv) > 2 else 600.0

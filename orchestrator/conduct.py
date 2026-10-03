@@ -11,7 +11,7 @@ import time
 import struct
 
 sys.path.insert(0, r"c:\git\robot_team\orchestrator")
-import companion as C
+import fleet as C
 
 PORT = "COM6"
 BAUD = 115200

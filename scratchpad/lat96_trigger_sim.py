@@ -16,7 +16,7 @@ derived here; this is a mechanism comparison, not a constant.
 """
 import sys, statistics
 sys.path.insert(0, "orchestrator")
-import companion as C
+import fleet as C
 
 PATHS = [
     ("night 1 (GATES PASSED)", "master/entity-baseline/cardputer_baseline_2026-08-06.md"),
@@ -91,7 +91,7 @@ for label, path in PATHS:
     ds = sorted(d for d in (C.jaccard_distance(sets[i], sets[i + 1])
                             for i in range(len(sets) - 1)) if d is not None)
     if ds:
-        pct = lambda p: ds[min(len(ds) - 1, int(len(ds) * p))]   # companion.py's rule
+        pct = lambda p: ds[min(len(ds) - 1, int(len(ds) * p))]   # fleet.py's rule
         print(f"    drift over ALL consecutive pairs (not gate-filtered): "
               f"p50 {pct(.50):.3f} p90 {pct(.90):.3f} max {ds[-1]:.3f}")
 

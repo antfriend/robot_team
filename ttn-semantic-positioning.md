@@ -467,7 +467,7 @@ relaxation can oscillate where a central one converges, and this fleet has no
 global step counter to appeal to.
 
 🔬 **Falsifier for Phase 2b specifically:** if the distributed shape estimate agrees
-with `companion.py positions` in every configuration tested, **the distributed
+with `fleet.py positions` in every configuration tested, **the distributed
 version added nothing** — say so, record it, and keep the central solver. Phase 2b
 is a strengthening of the hypothesis, not a prerequisite for it: **Phases 1–2 alone
 still prove or refute §0**, and 2b may be abandoned without touching the primary

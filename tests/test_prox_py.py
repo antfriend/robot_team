@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""test_prox_py.py — verify companion.py's SP1 proximity consolidation without
+"""test_prox_py.py — verify fleet.py's SP1 proximity consolidation without
 hardware (semantic positioning, ttn-semantic-positioning.md §2.1/§3 Phase 1):
 @LAT97 link-percept parsing, directed-link fusion into pair beliefs, the
 orchestrator pseudo-peer filter, and path-loss monotonicity.
 
 The firmware half (LinkPercept @LAT97 records) is gated on-device by
-`companion.py percepts` (verified 2026-07-07).
+`fleet.py percepts` (verified 2026-07-07).
 
 Run: python tests/test_prox_py.py
 """
@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 
@@ -101,7 +101,7 @@ check(c.fmt_stream(sw[1]) == "5ea51de7*" and c.fmt_stream(sw[0]) == "-"
 # timestream::buildStamp (`t_ms: stream: wall:`), but the @LAT90 lane leads with the
 # stream, because there the stream is the SUBJECT — "this node moved to timeline X" —
 # not the time an observation was taken. An order-anchored regex returned None for it,
-# so companion.py could not read the one lane the time stream exists to write, and
+# so fleet.py could not read the one lane the time stream exists to write, and
 # said nothing about it. Real lines, copied off V4-A's flash after the 2026-08-03 flash.
 lat90 = c.parse_time_fields(
     "**STREAM-ADOPTED** stream:0x59fb8ce8 wall:0 t_ms:1672837 node:0x10 from:0x200")

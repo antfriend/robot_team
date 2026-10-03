@@ -11,7 +11,7 @@ its own measurement is worth more than one that was reasoned about.
 computed with the very threshold under test, so filtering on it is circular. This
 script therefore reports on ALL windows in the file and expects the operator to
 have kept the node stationary for the whole run — which is why the run is done on
-a pruned lane, with nothing touching the port (every companion.py call resets the
+a pruned lane, with nothing touching the port (every fleet.py call resets the
 board and restarts the 60 s window).
 
 Usage: python scratchpad/motion_noise.py <pulled-ttdb.md> [...]

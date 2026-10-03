@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_entity_py.py — verify companion.py's SP0 entity-co-occurrence tier
+"""test_entity_py.py — verify fleet.py's SP0 entity-co-occurrence tier
 (semantic positioning, ttn-semantic-positioning.md §3 Phase 0) without hardware:
 parsing the @LAT96 lane the firmware EntityPercept log writes, and the pairwise
 Jaccard-overlap consolidation that turns shared WiFi APs into a coarse proximity
@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 fails = 0
 

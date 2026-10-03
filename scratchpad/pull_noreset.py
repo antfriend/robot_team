@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 port, node = sys.argv[1], sys.argv[2]
 out = sys.argv[3] if len(sys.argv) > 3 else "scratchpad/%s_noreset.md" % node

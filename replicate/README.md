@@ -62,7 +62,7 @@ compactly at `@LAT50LON1` / `@LAT50LON3` in the spec store.
 [https://github.com/antfriend/robot_team](https://github.com/antfriend/robot_team),
 assemble the hardware, flash. The fleet is three Heltec WiFi
 LoRa 32 V4s, a LilyGo T-Deck, and an M5Stack Cardputer ADV, coordinated by a
-laptop running `orchestrator/companion.py`. The repo's `CLAUDE.md` documents the
+laptop running `orchestrator/fleet.py`. The repo's `CLAUDE.md` documents the
 build path (arduino-cli, not PlatformIO) and every hardware gotcha we hit so you
 don't have to. The primary hypothesis under test is *semantic positioning:*
 inferring where nodes are from what they perceive in common.

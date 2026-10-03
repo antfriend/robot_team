@@ -526,7 +526,7 @@ own I2C address, so its axis convention is not something to bury in the renderer
 HELLOs never do.
 
 **Phase S4 — interoception + heat.** ✅ **BUILT, flashed and verified 2026-07-28.**
-*Done when:* `companion.py monitor` shows a real temperature for `cardputer_1` instead
+*Done when:* `fleet.py monitor` shows a real temperature for `cardputer_1` instead
 of `0` — **met: `cardputer_1  47.6C`.**
 Delivered as a **view on `3`** (§4.5) rather than as ambient colouring only, plus the
 G10 battery ADC, the die temperature in the fleet's STATUS `temp_c_x100` field, and a

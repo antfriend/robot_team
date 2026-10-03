@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """fleet_ui.py — one window over the whole fleet, over ONE held serial connection.
 
-Why this exists, and why it is not just buttons that shell out to `companion.py`:
-every `companion.py` invocation opens the port with DTR/RTS asserted, which REBOOTS
+Why this exists, and why it is not just buttons that shell out to `fleet.py`:
+every `fleet.py` invocation opens the port with DTR/RTS asserted, which REBOOTS
 the cabled node ([[looping-companion-py-resets-bridge]] — a shell loop of probes once
 fabricated a two-node outage out of nothing but its own resets). A UI that polls has
 to hold ONE connection open for its whole life, so that is the shape here: a `Link`
 owns a port on its own thread and everything — polling, commands, pulls — is a job on
 that thread.
 
-The wire format, the parsers and the reliable-send rules all come from `companion.py`;
+The wire format, the parsers and the reliable-send rules all come from `fleet.py`;
 nothing about the protocol is re-implemented here. Outside libraries: tkinter (stdlib)
-and pyserial, which `companion.py` already requires. Nothing else.
+and pyserial, which `fleet.py` already requires. Nothing else.
 
     python orchestrator/fleet_ui.py [--bridge COM6] [--aux COM10] [--no-connect]
 
@@ -42,7 +42,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import companion as C  # noqa: E402  (path fixed above so this runs from anywhere)
+import fleet as C  # noqa: E402  (path fixed above so this runs from anywhere)
 
 try:
     import serial                      # noqa: F401  pyserial
@@ -93,7 +93,7 @@ RECORD_RE = re.compile(r"^@LAT(-?\d+)LON(\d+)\b")
 def lane_inventory(text):
     """A TTDB's records grouped by lane -> {lat: {"n": count, "last_lon": int,
     "bytes": int}}. A record is a header line `@LAT<lat>LON<lon> | ...` and everything
-    under it until the next one (companion.py `_records`)."""
+    under it until the next one (fleet.py `_records`)."""
     inv = {}
     cur = None
     for line in text.splitlines(keepends=True):
@@ -118,7 +118,7 @@ def fmt_uptime(s):
 
 @contextlib.contextmanager
 def tee_stdout(sink):
-    """Route a companion.py function's prints into the UI log. companion's long ops
+    """Route a fleet.py function's prints into the UI log. fleet's long ops
     (request_ttdb's gap re-requests) report progress on stdout and there is no hook —
     so borrow stdout rather than fork the function. One at a time: two links pulling
     at once would interleave their lines, which the lock prevents."""
@@ -348,7 +348,7 @@ class Link:
 # --- Jobs (run on a link thread) ---------------------------------------------
 
 def send_reliable_quiet(ser, reader, frame, target, seq, log, rto0=0.5, attempts=4):
-    """companion.send_reliable's retransmit rule, logging to the UI instead of stdout.
+    """fleet.send_reliable's retransmit rule, logging to the UI instead of stdout.
     Retransmits reuse the original (src,seq) so the receiver's dedup re-ACKs the
     duplicate (TTN-RFC-0007 §5). Returns the 1-based attempt ACKed, or 0."""
     rto = rto0
@@ -1102,13 +1102,13 @@ class FleetUI(tk.Tk):
         self.destroy()
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--bridge", default=None, help="serial port of the V4-A bridge")
     ap.add_argument("--aux", default=None, help="serial port of a second USB node")
     ap.add_argument("--no-connect", action="store_true", dest="no_connect",
                     help="preselect the ports but don't open them")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     FleetUI(a.bridge, a.aux, autoconnect=not a.no_connect).mainloop()
 
 

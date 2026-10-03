@@ -58,7 +58,7 @@ So the moves that matter now:
 These are laptop-side or portable-lib work, native-testable, and every one of them
 is a precondition for an experiment further down. **Committing 0.3 unblocks all four.**
 
-1. ✅ **DONE 2026-08-11 — `companion.py entity-separation`, the ablation's gatekeeper
+1. ✅ **DONE 2026-08-11 — `fleet.py entity-separation`, the ablation's gatekeeper
    (SP0).** First verdict on the real pair: **`ABLATION *NOT* ADMISSIBLE`, 1.12x
    against the pre-registered 2.0x.** 20 checks green; laptop suite 11 → 12 files.
    *Original scope, kept for the record:* Measure
@@ -91,7 +91,7 @@ is a precondition for an experiment further down. **Committing 0.3 unblocks all 
    a mechanism:** author `ORCHESTRATOR_ID`, lane **negative** (`-1` position, `-2`
    proximity) — provably disjoint from every node lane, using RFC-0010 §4.2.2's own
    provision that a negative lane hashes as two's-complement `hex4`. Registered in the
-   RFC's §4.2.7 table. 🎯 **`companion.py` now OWNS the Python hash and
+   RFC's §4.2.7 table. 🎯 **`fleet.py` now OWNS the Python hash and
    `scripts/sid_probe.py` imports it** — authoring would otherwise have created a
    *second* Python implementation of a hash whose entire value is that every reader
    computes it identically. 34 checks in `tests/test_sid_py.py` incl. all 8
@@ -235,7 +235,7 @@ code lives in `firmware/libraries/` and is added per-build with `--libraries`.
       nearest search), wired into `Ttdb::nearest()` / `edgesAt()`.
 - [x] `k10_percept` exercises the loop end-to-end (placeholder temp sensor →
       `@LAT10LON0` warm record → `triggers` fires the indicator).
-- [x] `orchestrator/companion.py pull` — reassembles a node's TTDB over serial.
+- [x] `orchestrator/fleet.py pull` — reassembles a node's TTDB over serial.
 - [x] Native test (`tests/`, g++/make): SHA-256/HMAC vectors pinned to Python,
       plus TTDB header/edge parsing and nearest-search. Parser + routing logic
       also cross-checked against the sample TTDB with a Python mirror.
@@ -252,7 +252,7 @@ optional native `g++` test suite, deferred.
 
 ---
 
-## Phase 1 — K10 ↔ laptop over USB-CDC (`companion.py pull`)
+## Phase 1 — K10 ↔ laptop over USB-CDC (`fleet.py pull`)
 
 **Reality check:** there is only **one** physical K10, so the original "two K10s
 talk" milestone (kept below, deferred) can't run yet. The available single-K10
@@ -262,9 +262,9 @@ the second party — over USB-CDC, no second radio node needed.
 - [x] Single K10 runs the Agent32 loop on-device; LCD shows both TTDB records +
       cursor/WARM state (done in Phase 0).
 - [x] Firmware flashed with **`CDCOnBoot=cdc`** so `Serial` (and the TootSerialLink
-      `companion.py` pulls over) rides the native USB CDC, not UART0. Without this
+      `fleet.py` pulls over) rides the native USB CDC, not UART0. Without this
       the pull silently gets zero bytes — see CLAUDE.md.
-- [x] `companion.py pull --port COM3 --node k10_1` reassembles a **byte-identical**
+- [x] `fleet.py pull --port COM3 --node k10_1` reassembles a **byte-identical**
       copy of `data/ttdb.md` (1114 B, sha256 `ec17aee2…`). Settle delay bumped to
       2.5 s because opening the port resets the S3 and it must finish booting first.
 - [x] Negative checks (verified on-device over COM3): a valid request streams 7
@@ -286,12 +286,12 @@ bridge sketch: laptop↔mesh gateway over USB-CDC. Both radio nodes now exist.
 - [x] **Reflash the K10** with the radio-only-dedup change (dedup moved off the
       shared dispatch onto the ESP-NOW recv path); `negchecks.py` re-verified on
       COM3 (2026-06-20) — both nodes now radio-only.
-- [x] **Bridged pull:** `companion.py pull --node k10_1 --port COM6` reassembles
+- [x] **Bridged pull:** `fleet.py pull --node k10_1 --port COM6` reassembles
       the K10's TTDB **byte-exact through the V4-A bridge over ESP-NOW** (1114 B),
       repeatably (~5/6 runs clean). Two firmware fixes made the burst survive the
       air: the K10 **serves the reply from `loop()`, not the recv callback** (so its
       TX/send-callback aren't starved by the WiFi task), and **paces sends** via the
-      ESP-NOW send-complete callback + a 6 ms inter-frame gap. `companion.py` now
+      ESP-NOW send-complete callback + a 6 ms inter-frame gap. `fleet.py` now
       uses a fresh `toot_seq` per pull so a non-reset target won't dedup-drop it.
 - [x] Radio-replay check: `orchestrator/radio_replay.py --bridge-port COM6 --node
       k10_1` — a duplicate `(src,seq)` injected over the air is dropped by the K10's
@@ -301,7 +301,7 @@ bridge sketch: laptop↔mesh gateway over USB-CDC. Both radio nodes now exist.
 **Done when:** the laptop reassembles the K10's TTDB *through* the V4-A bridge over
 ESP-NOW ✅, and a duplicate injected over the air is dropped ✅. **Phase 1b complete.**
 Residual: ~1/6 runs dropped a frame (no ACK/retry yet). **Closed ✅ 2026-06-25:** the pull
-stream is now self-healing — `companion.py request_ttdb` takes the EOF marker as the true
+stream is now self-healing — `fleet.py request_ttdb` takes the EOF marker as the true
 total length, detects gaps in offset coverage, and selectively re-requests the missing byte
 ranges via `TTDB_REQ_RANGE` (which `handleRequest` already serves — no firmware change) until
 byte-complete. Offline-gated by `tests/test_pull_py.py`; **on-device verified over COM3 and
@@ -320,15 +320,15 @@ load-bearing gotcha: a dedup-dropped `want_ack` toot MUST be re-ACKed, body
 processed once), and chunk reassembly. The dependency for Phase 2.5's `TIME_SYNC`.
 
 - [x] `want_ack` toots: ACK payload `(ack_src,ack_seq,ack_chunk,status)` (`Toot`
-      `makeAck`/`parseAck`/`ackMatches`); `companion.py` sender retransmits with ×2
+      `makeAck`/`parseAck`/`ackMatches`); `fleet.py` sender retransmits with ×2
       backoff, `N=4`; declares undelivered on exhaustion (never silent).
 - [x] Receiver re-ACK: a dedup-dropped `want_ack` toot re-ACKs from the duplicate
       (self-identifying) without re-processing the body (K10 `onEspNowRecv`).
 - [x] Chunk + reassemble >208 B: portable `Reassembler` (per-chunk dedup, completed
-      ring, TTL evict, `MAX_CHUNKS=8`, `SLOTS=2`); `companion.py reltest` selective
+      ring, TTL evict, `MAX_CHUNKS=8`, `SLOTS=2`); `fleet.py reltest` selective
       per-chunk retransmit.
 
-**Done ✅ (2026-06-22, K10 + V4-A on COM3/COM6):** `companion.py ping --node k10_1`
+**Done ✅ (2026-06-22, K10 + V4-A on COM3/COM6):** `fleet.py ping --node k10_1`
 ACKed on attempt 1; `reltest --size 500` delivered a 3-chunk toot, **organically
 recovering 2 air-dropped chunks via selective retransmit** (attempts resent only the
 unacked chunk) and completing the set (ACCEPTED on the completing chunk). Native
@@ -338,7 +338,7 @@ unacked chunk) and completing the set (ACCEPTED on the completing chunk). Native
 
 ## Phase 2.5 — Fleet time-sync (laptop timestamp → node TTDB log → verify in-sync) ✅ on-device verified
 
-**Done ✅ (2026-06-22, K10 + V4-A on COM6 bridge).** `companion.py sync` had both
+**Done ✅ (2026-06-22, K10 + V4-A on COM6 bridge).** `fleet.py sync` had both
 nodes adopt + ACK on attempt 1 and logged the laptop master record; `verify
 --sync-id 2` confirmed all three carry the `**SYNC** id:2` record and measured skew
 **v4a_bridge −2.4 ms, k10_1 −30.6 ms** — both within ±50 ms (the K10's −30 ms is the
@@ -389,7 +389,7 @@ Per project convention (new toot type → RFC before code). Three types:
       so resend it N times (or set `FLAG_WANT_ACK` once Phase 2 lands). The K10
       still serves replies from `loop()`, not the recv callback (Phase 1b lesson).
 
-### Companion (`orchestrator/companion.py`)
+### Companion (`orchestrator/fleet.py`)
 - [x] `sync` subcommand: pick `sync_id` + `T = now_ms`, broadcast `TIME_SYNC` through
       the bridge port, and append the same record to the laptop master
       (`master/orchestrator-sync.md`) so the laptop is the 3rd "node."
@@ -400,7 +400,7 @@ Per project convention (new toot type → RFC before code). Three types:
          `TIME_RESP`, note `t1`; `skew = node_epoch − (t0 + (t1−t0)/2)`. Take the
          min-RTT sample of a few probes. Print a table: node | has_record | skew_ms.
 
-**Done when:** after one `companion.py sync`, all three TTDBs (K10, V4-A, laptop
+**Done when:** after one `fleet.py sync`, all three TTDBs (K10, V4-A, laptop
 master) carry the same `sync_id` log record, and the NTP-lite probe shows the K10
 and V4-A clocks within a stated bound (target: ≤ 50 ms) of the laptop. Reproducible.
 
@@ -408,7 +408,7 @@ and V4-A clocks within a stated bound (target: ≤ 50 ms) of the laptop. Reprodu
 > (TTN-RFC-0010, 2026-06-26 → 2026-07-06).** Built on the time-sync layer: a
 > self-synchronizing beat (shared pulse clock, first-up-conducts election with
 > `era` handoff, drift-paced `PULSE` beacons — zero per-beat traffic). Verified:
-> **3-node ensemble on one chart, phase skew ≤ ±10.4 ms** (`companion.py band`
+> **3-node ensemble on one chart, phase skew ≤ ±10.4 ms** (`fleet.py band`
 > PASS), conductor reboot/handoff exercised live, then `Score.h` data-driven
 > parts — K10 lead + T-Deck harmony playing the **two-part Ode to Joy duet at
 > 120 BPM**, boot-silent and started/stopped via `CMD_PLAY`/`CMD_STOP`. Details
@@ -451,11 +451,11 @@ LoRa with correct TTL and no duplicates.
 > `set-interval`, payload `op | target u32 | args`; `beep` is deferred to `loop()`
 > since `playTone` blocks); the K10 acts only on a CMD addressed to it and ACKs it
 > (`want_ack`), with `set-led` overriding the local warm/cool indicator until
-> `clear-led`. `companion.py cmd --op set-led --rgb 0000FF` and `clear-led` both ACKed
+> `clear-led`. `fleet.py cmd --op set-led --rgb 0000FF` and `clear-led` both ACKed
 > on attempt 1 on-device (over the K10's USB; the bridge-relayed CMD path was proven
 > by `ping` over COM6). **Telemetry collect also works:** `CMD_GET_STATUS` → a node
 > answers a STATUS `PERCEPT` (cursor, temp, warm/led/synced flags, epoch), and
-> `companion.py monitor` prints a live refreshing table — verified on the K10 over
+> `fleet.py monitor` prints a live refreshing table — verified on the K10 over
 > COM3 (`@L10L0`, 31.9 °C, warm). This is the laptop **driving + observing** the fleet
 > — the Phase 5 core. Remaining below is the full A→B→C spine + Dream-Cycle reconcile.
 
@@ -473,10 +473,10 @@ returns end-to-end.
 > whose keyboard injects CMD toots and whose 320×240 screen shows the fleet, so the swarm
 > is drivable without the laptop. `firmware/tdeck_console` (node id `0x200`) is built from
 > the V4-B participant pattern; **verified on hardware** (COM10): boots from TTDB,
-> `companion.py pull --node tdeck_1` reassembled a byte-exact 1351 B (sha `fd95360b…`) and
+> `fleet.py pull --node tdeck_1` reassembled a byte-exact 1351 B (sha `fd95360b…`) and
 > `negchecks.py` rejected wrong-key/tampered toots (HMAC → 0 frames). Full Dream-Cycle
 > participant (pull/HMAC, sync+`@LAT99`, belief+`@LAT98`, STATUS, PULSE follower);
-> `companion.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). It also carries
+> `fleet.py` node map + `RobotTeamConfig` updated (`--node tdeck_1`). It also carries
 > an SX1262 (LoRa-spine-capable, `USE_LORA`). **Flashing note:** native-USB auto-reset is
 > flaky — manual BOOT/RST bootloader entry required (see `FLEET.md §6`).
 > **Console UI ✅ on-device verified (2026-07-06, `USE_TDECK_HW 1`):** boot "toot toot"
@@ -491,7 +491,7 @@ returns end-to-end.
 ## Phase 6 — Channel convergence & Dream Cycle
 
 > **Seed ✅ (2026-06-22): `reconcile` consolidates the fleet's sync logs.** The
-> minimal first instance of the Dream Cycle: `companion.py reconcile` pulls each
+> minimal first instance of the Dream Cycle: `fleet.py reconcile` pulls each
 > node's TTDB, folds the `@LAT99` sync records each node self-authored into one
 > `master/consolidated.md` with provenance (per-source `recv_ms`/`offset_ms`), and
 > confirms every node's logged `t_ms` agrees with the master. Verified on the K10
@@ -499,7 +499,7 @@ returns end-to-end.
 > a semantic master record.
 
 > **Push-back ✅ (2026-06-24): `push` distributes a re-authored belief back to a
-> node (TTN-RFC-0009).** The propagation half of the Dream Cycle: `companion.py
+> node (TTN-RFC-0009).** The propagation half of the Dream Cycle: `fleet.py
 > push` re-authors a belief TTDB from the consolidated sync knowledge, streams it as
 > offset-addressed `want_ack TTDB_PUT` slices (reliable, CRC-32 whole-object
 > integrity), and the node writes it to a separate `/belief.md`, CRC-verifies, and
@@ -532,14 +532,14 @@ returns end-to-end.
       (SP0) alongside its console role, so the two leaves can gossip beliefs
       directly rather than only via the laptop. **Unblocked ≠ built** — to make
       K10 ↔ T-Deck gossip actually run, these pieces are still missing:
-      1. **A node-originated belief send path.** Today only `companion.py push`
+      1. **A node-originated belief send path.** Today only `fleet.py push`
          originates belief traffic (`TTDB_PUT` slices, laptop → node). A leaf needs
          to *transmit* — either address `TTDB_PUT` slices to a peer node id, or
          populate the so-far-unused `BELIEF` toot type (3) — rather than only
          answering the laptop's pulls.
       2. **On-device consolidation of its own percepts.** The `@LAT97` → `@BELIEF:
          PROXIMITY` fuse (median-of-window-maxes + sigma) currently lives in
-         `companion.py proximity`, not on the node. Either the originating leaf
+         `fleet.py proximity`, not on the node. Either the originating leaf
          fuses its own percepts on-device before gossiping, or the leaves gossip
          raw `@LAT97` percepts and the receiver fuses.
       3. **A receiving-node belief consumer.** `case BELIEF` is a no-op
@@ -550,7 +550,7 @@ returns end-to-end.
          the laptop's `/belief.md`; a gossiped peer belief needs its own sink.
       4. **Merge / convergence semantics on-device.** When both leaves hold a belief
          about the same pair, the receiver must merge by TBEW (higher `conf`/`rev`
-         wins, or evidence-combine) — the logic that lives in `companion.py
+         wins, or evidence-combine) — the logic that lives in `fleet.py
          reconcile` today has no on-device equivalent. Radio `(src,seq)` dedup guards
          the mesh loop, but belief *merge* needs its own idempotency (`rev`/`touched`)
          so re-gossiped beliefs converge instead of oscillating.
@@ -619,7 +619,7 @@ with something measured.
       peer/proto). Lane-capped (`LINKPERCEPT_MAX_LANE` 48) so the TTDB index
       can't fill before SP1 pruning exists. Format pinned by
       `tests/test_linkpercept.cpp` (g++ gate; this machine is device-first).
-      Read back with **`companion.py percepts --node <n> --port <p>`**.
+      Read back with **`fleet.py percepts --node <n> --port <p>`**.
 - [x] **On-device verify (the SP0 gate) ✅ 2026-07-07.** V4-A (COM6), V4-B
       (COM9), T-Deck (COM10) all flashed, hash-verified, byte-exact pull
       confirmed on each (regression: the new instrumentation didn't disturb
@@ -652,7 +652,7 @@ with something measured.
       **re-asserts the ESP-NOW channel** after (the scan hops channels).
       Native-gated by `tests/test_entitypercept.cpp` (20 checks, zig c++) and
       `tests/test_entity_py.py` (16 checks: parse + pairwise Jaccard). Companion:
-      **`companion.py entities --node <n>`** dumps the lane;
+      **`fleet.py entities --node <n>`** dumps the lane;
       `consolidate_entity_jaccard()` computes each pair's BSSID Jaccard → a coarse
       distance bound (down-payment on the SP1 entity cap). **On-device result:**
       V4-A flashed (`USE_WIFI_SCAN 1`, firmware-only — TTDB persisted, no FS
@@ -687,7 +687,7 @@ with something measured.
       ⚠ **Night 1 remains the constant to design against** — the two nights are not
       independent draws (same 9-BSSID room; per-window set size p50 5 → 8, so most
       of night 3's narrowing is Jaccard *quantisation*, not a quieter bench).
-- [x] 🆕 **`companion.py entity-separation` — the ablation gatekeeper (spec §4.3).
+- [x] 🆕 **`fleet.py entity-separation` — the ablation gatekeeper (spec §4.3).
       ✅ BUILT 2026-08-11, 20 checks green, and its first verdict on the real pair is
       `ABLATION *NOT* ADMISSIBLE` at 1.12x.**
       Cross-node entity Jaccard between two nodes vs. each node's own within-node
@@ -704,7 +704,7 @@ with something measured.
       `**COVERED**` union into a cross-node set **halves the measured distance** —
       measured, not estimated; it is the error the first hand-run made.
 
-- [x] 🆕 **`companion.py entity-survey` — ONE WALK, MANY GEOMETRIES. ✅ BUILT
+- [x] 🆕 **`fleet.py entity-survey` — ONE WALK, MANY GEOMETRIES. ✅ BUILT
       2026-08-11, 35 checks green (laptop suite 15 → 16 files).** The gatekeeper above
       returns a single bit, and its NOT-ADMISSIBLE says nothing about **how much further
       to walk** — which is why the field re-run has been item 1 for a month. This walks
@@ -745,7 +745,7 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       far side 3.75 m, hall end 9 m, deck 19.5 m NLOS, front yard 37.5 m,
       ~3 min dwell each; both directions logged. Fused per-station RSSI
       (median of window maxes): -33 / -54.8 / -67.5 / -82.5. **Fit
-      (`companion.py calibrate` → `master/calibration.md`): RSSI(d) = −6.3 −
+      (`fleet.py calibrate` → `master/calibration.md`): RSSI(d) = −6.3 −
       48.4·log₁₀(d), n = 4.84, rmse 1.4 dB, valid 3.75–37.5 m** — through-wall
       home propagation (open air would be n≈2.7; recalibrate per environment).
       `proximity` now auto-loads it (calibrated sigma, no ×2 penalty). Bonus
@@ -755,7 +755,7 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       (recency filter — the walk proved a moved node's stale windows pollute
       the fuse).
 - [x] Consolidation job — **built + first live run 2026-07-07**:
-      `companion.py proximity` pulls the fleet, fuses each pair's directional
+      `fleet.py proximity` pulls the fleet, fuses each pair's directional
       `@LAT97` windows (median of per-window `rssi_max` per direction,
       directions averaged; sigma from spread + asymmetry, ×2 while
       uncalibrated; the orchestrator pseudo-peer `0x1` excluded) into
@@ -790,7 +790,7 @@ from every powered node; verified with a serial dump. Pure plumbing, no inferenc
       ⚠ Not a one-time fix: `@LAT97` refills its 48-record cap in under an hour,
       so a collect must land inside that window or it fuses a truncated sample.
 - [x] **Entity-Jaccard cap ✅ BUILT + offline-verified 2026-07-12.**
-      `companion.py proximity` now pulls each node's `@LAT96` lane alongside
+      `fleet.py proximity` now pulls each node's `@LAT96` lane alongside
       `@LAT97`, fuses the pairwise **WiFi-AP Jaccard** (`consolidate_entity_jaccard`)
       into a distance **bound**, and folds it into `consolidate_proximity`: shared
       APs **cap the RSSI estimate from above** (never refine below it — spec §2.2),
@@ -817,7 +817,7 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
 ## SP2 — Embedding + anchoring (position beliefs)
 
 - [x] **Embedding solver ✅ built + first fleet self-map (2026-07-07):**
-      `companion.py positions` — weighted spring relaxation (conf/sigma²
+      `fleet.py positions` — weighted spring relaxation (conf/sigma²
       weights, 8 random restarts to escape fold minima) over the
       `@BELIEF:PROXIMITY` matrix → **`@BELIEF:POSITION`** records
       (`master/positions.md`) in a canonical relative frame (V4-A origin, 2nd
@@ -833,7 +833,7 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       hemisphere-signed, `test_nmea.cpp` 27/27); the T-Deck reads its u-blox on
       UART1 (GPIO44/43, auto-baud), shows the fix, and answers `CMD_GET_GPS`
       (op 9) with a 24-B GPS PERCEPT (compiles, 78% flash, not yet flashed).
-      `companion.py gps [--at <node>]` records ground-truth ties; `companion.py
+      `fleet.py gps [--at <node>]` records ground-truth ties; `fleet.py
       anchor` fits the relative map onto them by 2D Procrustes (reflection
       allowed) → absolute lat/lon `@BELIEF:POSITION` in `master/anchored.md`,
       **flip resolved with ≥3 non-collinear ties** (2 ties emit `flip_resolved:
@@ -845,7 +845,7 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       all verified on real signal. **Pending:** walk the ties (`gps --at`) +
       `anchor` to resolve the mirror.
 - [~] **Publish `@BELIEF:POSITION` back to each node over the mesh — BUILT +
-      offline-verified 2026-07-12, no reflash needed.** `companion.py push
+      offline-verified 2026-07-12, no reflash needed.** `fleet.py push
       --positions` (relative `positions.md`) / `--anchored` (geo `anchored.md`)
       re-authors the fleet position map as a belief and ships it over the **existing
       TTN-RFC-0009 `TTDB_PUT` → `/belief.md` rails** — zero new toot type, so it works
@@ -880,7 +880,7 @@ powered pair, `sigma` honest. (Needs the calibration walk.)
       `-2` proximity), provably disjoint from node lanes (all ≥ 0); registered in
       RFC-0010 §4.2.7. ⚠ The proximity pair **must be sorted by node id** or a change in
       iteration order silently renames every pair belief; an unknown node id yields **no
-      sid**, never a guessed one. `companion.py` owns the Python hash and
+      sid**, never a guessed one. `fleet.py` owns the Python hash and
       `scripts/sid_probe.py` imports it — two languages, one implementation each.
       🆕 **KEY-kind `sid` on `@BELIEF:POSITION` and `@BELIEF:PROXIMITY`
       (spec §2.4, `TTDB-RFC-0010` §4.2).** A living belief must survive revision
@@ -909,7 +909,7 @@ table, and `pulse::Chart`'s idle scene, which is currently silence.
 - [ ] Per idle bar: **recompute `poseCeiling()`** from the capability table and
       adjust the node's own re-advertisement rate.
 
-🔬 **Falsifier:** if the distributed estimate agrees with `companion.py positions`
+🔬 **Falsifier:** if the distributed estimate agrees with `fleet.py positions`
 in every configuration tested, **the distributed version added nothing** — say so,
 record it, keep the central solver. ⚠ **SP2b is a strengthening, not a
 prerequisite: SP1+SP2 alone still prove or refute the hypothesis**, and SP2b may be
@@ -1016,7 +1016,7 @@ delivery dies and returns when back in range — zero manual transport config.
       console pane, with the fleet rendered as **the map the mesh draws of
       itself**: nodes at believed `@LATxLONy`, name labels, `sigma` uncertainty
       rings, and links colored by transport (green ESP-NOW / amber LoRa). The
-      TTDB is generated from the real beliefs by **`companion.py fleetmap`**
+      TTDB is generated from the real beliefs by **`fleet.py fleetmap`**
       (`master/positions.md` + `proximity.md` → the T-Deck's `data/ttdb.md`), so
       the laptop viewer and the T-Deck render one TTDB lineage. Keyboard keeps the
       CMD-remote role. See SP6-T.
@@ -1088,7 +1088,7 @@ Flashed first try (auto-reset cooperated: firmware over USB, then the TTDB to th
 huge_app spiffs at 0x310000 via `Upload-Tdeck-FS.ps1`, both hashes verified; esptool
 confirmed "Embedded PSRAM 8MB"). Resolved: (a) **huge_app boots + PSRAM inits** — the
 board is live and answering toots; (b) **FS mounts at the new 0x310000 offset** —
-`companion.py pull --node tdeck_1` came back **byte-exact 1351 B, sha `fd95360b…`**
+`fleet.py pull --node tdeck_1` came back **byte-exact 1351 B, sha `fd95360b…`**
 (identical to source, the repartition didn't disturb the network floor); (c)+(d)
 **the PSRAM globe canvas allocated and renders** — the user confirmed the screen shows
 the **globe (top) + record text (bottom)**, i.e. the canvas is real (not the low-RAM

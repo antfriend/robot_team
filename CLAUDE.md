@@ -44,7 +44,7 @@ firmware/
                         timestamp of the loudest transient (Phase 3 TDoA groundwork)
     (LaneGen/)          DELETED 2026-10-02 (ACT-III C0) with every prune path. The
                         @LAT100 boundaries it wrote stay on flash as history, and
-                        companion.py still reads them (tests/test_lanegen_py.py).
+                        fleet.py still reads them (tests/test_lanegen_py.py).
     TimeStream/         The team time stream: a fleet-owned timeline that survives the
                         laptop's absence. `stream:<id>` + `wall:<0|1>` replacing the old
                         single `synced` bit; anchors ride on HELLO. TimeStreamNode.h is
@@ -79,10 +79,12 @@ firmware/
   tdeck_console/        LilyGo T-Deck handheld console (fleet remote + harmony voice)
   cardputer_console/    M5Stack Cardputer ADV — 2nd handheld + the fleet's motion and
                         acoustic senses (BMI270 + ES8311 mic); no LoRa, no GPS
-orchestrator/companion.py   Laptop side: pull/sync/verify/reconcile/push/cmd/
-                            monitor/band over the link
-orchestrator/fleet_ui.py    The same fleet in one tkinter window: link status, live
-                            intero table, position map, lane caps + Clear. Holds ONE
+orchestrator/fleet.py       Laptop side: pull/sync/verify/reconcile/push/cmd/
+                            monitor/band over the link. Was `companion.py` until
+                            2026-10-03 (ACT-III B2); docs/log/ keeps the old name.
+orchestrator/fleet_ui.py    The same fleet in one tkinter window (`fleet.py ui`): link
+                            status, live intero table, position map, lanes as live or
+                            history. Holds ONE
                             connection per link (open_serial_no_reset) instead of
                             resetting the node on every refresh the way the CLI does.
 master/                 Laptop-side artifacts: consolidated + belief TTDBs, logs
@@ -121,8 +123,8 @@ FQBN per board: **the UNIHIKER K10 is `UNIHIKER:esp32:k10:CDCOnBoot=cdc`** (DFRo
 core via `--additional-urls .../package_unihiker_index.json`), *not*
 `esp32:esp32:esp32s3`. The **`CDCOnBoot=cdc`** suffix is required: the board
 default is CDC-on-boot *disabled*, which binds the sketch's `Serial` (and thus the
-`TootSerialLink` that `companion.py` pulls over) to **UART0**, not the native USB —
-so `companion.py pull` over USB-CDC gets nothing. With `CDCOnBoot=cdc`, `Serial`
+`TootSerialLink` that `fleet.py` pulls over) to **UART0**, not the native USB —
+so `fleet.py pull` over USB-CDC gets nothing. With `CDCOnBoot=cdc`, `Serial`
 is the native USB CDC on the COM port and the toot link works.
 
 **K10 LCD = TFT_eSPI with K10 pins.** The K10 library hard-includes TFT_eSPI
@@ -197,7 +199,7 @@ it can only ever be a build property — a sketch `#define` cannot reach it. Def
 **6** (folding, ~48 h of `@LAT96` lane life); the **measurement build is 1**, which writes
 every 600 s window and therefore fills the 48-slot lane in exactly **8 hours**.
 
-**A `companion.py entity-survey` needs BOTH participating nodes on the measurement build.**
+**A `fleet.py entity-survey` needs BOTH participating nodes on the measurement build.**
 A folded lane writes ~1 record per hour while a node stands still — and standing still is
 what a node does at a station — so folding deletes the walker's entire per-station
 contribution (measured: over the same 5.52 h, unfolded wrote 48 windows, folded 20).
@@ -226,7 +228,7 @@ invisible from outside.
 
 ⚠ **The three V4s are indistinguishable from the outside, and flashing the wrong sketch
 to one is silent. Identify a board by READING ITS APP IMAGE, never by inferring from the
-mesh.** COM numbers move between plug-ins, and a `companion.py intero`/`ping` reply can
+mesh.** COM numbers move between plug-ins, and a `fleet.py intero`/`ping` reply can
 arrive **over the air** from a battery-powered node, so an answer on a port proves
 nothing about which board that port is.
 
@@ -347,7 +349,7 @@ pass. All four nodes carry `gBatSampled` as of 2026-07-30.
 ⚠ **`lp` (worst loop pass) is a 10-second-window number, so sampling it late reads clean.**
 Every node shows a multi-second stall reliably at boot and occasionally later, then single-
 or double-digit ms; a series started at 77 s of uptime misses it entirely and looks like a
-fix. State the uptime range with any claim about it. `companion.py intero` also **resets the
+fix. State the uptime range with any claim about it. `fleet.py intero` also **resets the
 node on port open**, so looping it can never see past the ~8 s settle — watch windowed
 numbers over one held connection (`scratchpad/intero_watch.py`). ⚠ **But that reset is not
 universal: on a V4 the port open did NOT reset the board** (2026-08-03, n=1 — V4-C reported
@@ -432,7 +434,7 @@ selected and the main pane is showing. INTERO PERCEPT is a payload convention ov
 PERCEPT type distinguished by **length** (15/43/45 STATUS · 24 GPS · **21 INTERO**) — no new toot
 type, so the bridge already forwards it. Transmit the numbers, never the pixels: the receiver has
 a different panel and palette, which is what makes this a TTCP render. Read it from the laptop
-with `companion.py intero --node <n> --port <p>`. **`d` starts a DUET with the node the pane is
+with `fleet.py intero --node <n> --port <p>`. **`d` starts a DUET with the node the pane is
 showing** (`CMD_DUET` op 13, `partner u32 | role u8`): T-Deck leads, partner harmonises, both
 from HeroArc.h's finale pairing. A duet is **not** a chart scene — a scene is band-wide and would
 pull in every powered member — it overrides only the two participants' *parts* and leaves the
@@ -447,11 +449,11 @@ never by an ACK — a blocking tone call eats the ACK window.
 Args: `view u8`, or **`toot::VIEW_NEXT` (0xFF)** to step. ⚠ **The view id is NODE-LOCAL and
 the op is ADDRESSED-ONLY, never broadcast** — an absolute id means something different on
 every board, so a broadcast would put the fleet into unrelated states while reading like one
-command (`companion.py` refuses `--node broadcast` here, and so does the node). `VIEW_NEXT`
+command (`fleet.py` refuses `--node broadcast` here, and so does the node). `VIEW_NEXT`
 is the form that needs no shared table: one key steps whatever the addressed node has, and a
 node with one view ACKs and does nothing. Omitting the arg byte means VIEW_NEXT, **not view
 0** — "step it" is the request that is meaningful without knowing the receiver's table.
-T-Deck: **`v`**. Laptop: `companion.py cmd --op set-view [--view N]`. K10 views: 0 eye,
+T-Deck: **`v`**. Laptop: `fleet.py cmd --op set-view [--view N]`. K10 views: 0 eye,
 1 status, 2 senses.
 
 **Record pane paging (both handhelds, 2026-08-02).** `renderRecord` used to read a record
@@ -496,7 +498,7 @@ notes-per-phrase (invalid unless the window aligns to phrase boundaries) and do 
 per-note serial gaps (CDC buffering shows 100 ms gaps on a 125 ms grid). The mesh map holds **V4-A, V4-B, T-Deck and the
 Cardputer as of 2026-07-29 — the K10 was removed** (v1 firmware, off the band roster).
 ⚠ **The K10 is back on the BAND roster (2026-08-12) but deliberately NOT back on the mesh
-map**: that globe is generated by `companion.py fleetmap` from MEASURED proximity, so
+map**: that globe is generated by `fleet.py fleetmap` from MEASURED proximity, so
 hand-writing a position would fabricate a measurement. It re-enters when it has been heard.
 Consequence: the T-Deck's **`d` (duet)** picks its partner from the mesh-map selection, so
 `d`-with-the-K10 does not work yet; `t`/`s`/`p`/`b`/**`v`** do, because those use
@@ -525,7 +527,7 @@ format.
 ⚠ **BUT `@LAT90` DELIBERATELY LEADS WITH THE STREAM — `stream: wall: t_ms:` — AND EVERY
 READER MUST BE ORDER-INDEPENDENT.** That lane is not an observation; it is a statement
 about the timeline itself ("this node moved to timeline X"), so the stream is the subject
-of the sentence and `buildStreamRecord` writes it first on purpose. `companion.py`'s
+of the sentence and `buildStreamRecord` writes it first on purpose. `fleet.py`'s
 first reader was anchored on `t_ms:` and therefore returned `None` for **every record in
 the one lane the time stream exists to write**, silently (found 2026-08-03 while flashing
 the V4s). It now matches `t_ms:`/`synced:`/`stream:`/`wall:` independently. ⚠ It also
@@ -534,7 +536,7 @@ the V4s). It now matches `t_ms:`/`synced:`/`stream:`/`wall:` independently. ⚠ 
 **left**. Same trap, same shape, as the dedup needle's leading space below.
 
 ⚠ **BOTH FORMATS ARE LIVE AND BOTH MUST PARSE.** A node's TTDB is appended to for its
-whole life, so pre-2026-08-03 records sit on the same flash as post-. `companion.py
+whole life, so pre-2026-08-03 records sit on the same flash as post-. `fleet.py
 parse_time_fields()` handles both, and an old `synced:1` reads back as **stream `None`**
 ("some clock, unnameable") rather than a fabricated id. Do not "clean this up" by
 dropping the old branch — that silently folds a subset of every existing lane. Verified
@@ -586,7 +588,7 @@ WRITTEN, AND DROPPED IF THE NODE MOVES ON** (2026-08-03). The 6 s listen window 
 anchor in time, originated, and the next reboot adopted the fleet stream — whose record
 was then correctly deduped. Each lost race left a permanent ORIGIN with nothing saying
 the node had left it, taking that lane from 13 to 15 against a cap of 16 in one session
-(`companion.py` resets the cabled node on nearly every call). The lane's contract is *one
+(`fleet.py` resets the cabled node on nearly every call). The lane's contract is *one
 record per settled state, not one per hop*; a stream abandoned three seconds later was
 never a state. ⚠ **The hold is ALSO released early the moment the TTDB grows at all** —
 the settle window sits under the 60 s percept flush so no window record can carry an
@@ -632,7 +634,7 @@ record that closes the run states what it suppressed:
 
 ⚠ **`len(records)` IS NO LONGER THE WINDOW COUNT, and it is wrong in the flattering
 direction** — the windows it drops are the ones where nothing happened, so any statistic
-computed by counting records under-reports stillness. Use `companion.py motion` (or
+computed by counting records under-reports stillness. Use `fleet.py motion` (or
 `parse_motion_percepts` + `motion_totals`), which sums itemised windows plus every
 `**COVERED**` block's `windows:` and reports an `unaccounted` count when a `**RUN**` line
 claims windows nothing explains. Both formats are live: a pre-08-04 record has no `**RUN**`
@@ -682,7 +684,7 @@ so nothing is ever refused and no operator clears anything. Old `@LAT100` bounda
 (`**OUTCOMES-CARRIED**`, `**BELIEF-AT-BOUNDARY**`, `**STREAMS-EXPLAINED**`) remain on flash
 as history; their format is in [docs/log/2026-08.md](docs/log/2026-08.md). ⚠ They must
 still never contain `**OBSERVED** peer:0x` / `**COVERED** peer:0x` — those are
-`Reconciler::foldRecord`'s needles, and `companion.py beliefs` still folds old lanes.
+`Reconciler::foldRecord`'s needles, and `fleet.py beliefs` still folds old lanes.
 
 ## TTDB on the filesystem, shared over the network
 
@@ -692,7 +694,7 @@ still never contain `**OBSERVED** peer:0x` / `**COVERED** peer:0x` — those are
 - Any node can **share any or all of its TTDB** with the companion: a `TTDB_REQ`
   toot (whole file or a byte range, addressed to a node id) makes the node
   stream `TTDB_DATA` toots back — each an offset-addressed, HMAC-signed slice —
-  over ESP-NOW, LoRa, or USB-CDC serial. `orchestrator/companion.py pull`
+  over ESP-NOW, LoRa, or USB-CDC serial. `orchestrator/fleet.py pull`
   reassembles them into the laptop's master copy. See `TTDB/src/TtdbShare.*`.
 
 ## Constraints
@@ -700,7 +702,7 @@ still never contain `**OBSERVED** peer:0x` / `**COVERED** peer:0x` — those are
 - Target ESP32-S3, Arduino framework. RAM is tight: stream the TTDB, feed the
   watchdog (`yield()` in long loops), prefer fixed buffers over `String`.
 - Every toot is HMAC-signed. The prototype key in `RobotTeamConfig.h` must match
-  `companion.py`'s `NETWORK_KEY`.
+  `fleet.py`'s `NETWORK_KEY`.
 - **Dedup is radio-only.** `(src_node_id, toot_seq)` dedup is applied on the
   ESP-NOW/LoRa receive path (replay + mesh forwarding-loop guard) but NOT on the
   trusted USB-CDC command link, so the laptop can retry a lost request. Gate dedup
@@ -720,5 +722,5 @@ still never contain `**OBSERVED** peer:0x` / `**COVERED** peer:0x` — those are
 cd tests && make            # native KAT + codec tests (needs g++)
 ```
 
-The native test pins SHA-256/HMAC to the same vectors `companion.py` produces,
+The native test pins SHA-256/HMAC to the same vectors `fleet.py` produces,
 so firmware and laptop authenticate identically.

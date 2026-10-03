@@ -1,6 +1,6 @@
 """Poll one node's INTERO PERCEPT repeatedly over a SINGLE serial connection.
 
-`companion.py intero` opens the port per invocation, and opening it resets the node — so
+`fleet.py intero` opens the port per invocation, and opening it resets the node — so
 repeated invocations can never observe a loop-profiler window past the ~8 s settle, and
 `worst loop pass` reads 0 forever. One open, many probes, is the only way to watch a
 number that is published on a 10 s window.
@@ -11,7 +11,7 @@ import sys, os, time
 
 sys.path.insert(0, r"c:\git\robot_team\orchestrator")
 import serial
-import companion as c
+import fleet as c
 
 port, node, count, every = sys.argv[1], sys.argv[2], int(sys.argv[3]), float(sys.argv[4])
 target = c.NODE_IDS[node]

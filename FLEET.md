@@ -105,7 +105,7 @@ firmware + TTDB. (Specs: `docs/hardware/hardware_specs.md`; mesh roles:
 | **K10-1** | UNIHIKER K10 | Percept node — the fleet's SECOND ear + second stillness witness; the eye that is always on | leaf | ESP-NOW / WiFi | USB (no battery sense) | `firmware/k10_percept` | 🟨 **UNPARKED 2026-08-12 — back on the roster, compile-verified, NOT YET FLASHED.** Parked 2026-07-31, off the band roster since 2026-07-29. Returns with: **`heroarc::kPercept`** (its private Ode-to-Joy loop deleted — silent until the FINALE harmony, as scored); **`CMD_GET_INTERO`** (no battery sense, so bat 0 mV / pct 255 — honest, not silent) and **`CMD_DUET`**; **`CMD_CLEAR_PERCEPTS` + `@LAT100` lane generations** (it had NO prune path at all, which was survivable with one growing lane and is not with four); **`@LAT95`/`@LAT93` motion** off its SC7A20H accelerometer and **`@LAT94` acoustic** off its I2S mic — the two organs that had been on the board unread since it arrived; and a **screen-filling eyeball** as its default face, gazed by the tilt and dilated by the mic. It has **no reachable button**, so **`CMD_SET_VIEW` (op 14) is the only thing that can change its screen** — the T-Deck's `v` key is its hands. Still ✅ on-device verified for everything it had before (TTDB-share over ESP-NOW & USB, `want_ack`/re-ACK, chunk reassembly, `TIME_SYNC` + `@LAT99` self-write, `@LAT96` WiFi entity tier) |
 | **T-DECK-1** | LilyGo T-Deck | Handheld console — keyboard injects CMD, screen shows fleet; roams | roaming leaf | ESP-NOW + LoRa (gated) + USB-CDC | battery | `firmware/tdeck_console` | ✅ on-device verified network floor (2026-07-06, COM10): boots from TTDB, **byte-exact pull (1351 B, sha `fd95360b…`)** + **HMAC reject** (`negchecks` wrong-key/tampered → 0). Full participant (pull/HMAC/dedup, `TIME_SYNC`+`@LAT99`, belief `TTDB_PUT`+`@LAT98`, STATUS, PULSE follower). **Console UI live (`USE_TDECK_HW 1`): "toot toot" on boot (I²S sine on the MAX98357A amp) + 320×240 fleet view (Adafruit_ST7789, rotation 3) — both confirmed on-device.** Keyboard (I²C 0x55) → CMD. LoRa gated. **GPS (Plus): NMEA read + `CMD_GET_GPS` GPS PERCEPT built (SP2 roaming anchor); compiles, not yet flashed/skied.** |
 | **CARD-1** | M5Stack Cardputer ADV | 2nd handheld console + the fleet's **sense organ** — motion (BMI270) and sound (ES8311 mic); roams | roaming leaf | ESP-NOW + BLE + USB-CDC | battery (1750 mAh) | `firmware/cardputer_console` | ✅ on-device verified (2026-07-27, COM14): boots from TTDB (3 globes), **byte-exact pull 4166 B (sha `c764ae3b…`)**, `negchecks` wrong-key/tampered → 0 (HMAC reject), `CMD_BEEP` ACK attempt 1, hears V4-A over ESP-NOW (`@LAT97` −32 dBm), and logs **four** percept tiers — the first fleet node with @LAT95 motion + @LAT94 acoustic. No LoRa, no GPS (the T-Deck stays the GPS anchor). **2026-08-02: the Learning-from-Action stack (@LAT93 transitions · @LAT92 outcomes · @LAT91 TBEW beliefs) passed its verification gate on this node** — Dream Cycle flash cost measured (150 ms→1757 ms, O(file)), the shape claim confirmed against operator labels with a **23× roamer-vs-stationary separation**, `unobserved` fired for real, beliefs moved to `rev:9`, and a laptop re-fold matched the device on 8 pairs × 7 fields. Also answers `CMD_PING` with a `[mark] FIELD MARK` line so a walk can be labelled from across the house |
-| **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/companion.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
+| **orchestrator** | laptop | The companion itself — Locus loop, Dream Cycle, master TTDB | — | USB-CDC + WiFi | mains | `orchestrator/fleet.py` | 🟨 scaffold (`pull` reassembles a node's TTDB) |
 
 Legend: ⬜ not started · 🟨 scaffold (compiles/ports, not on-device verified) · ✅ on-device verified
 
@@ -254,7 +254,7 @@ If a fact lives in one of these, link to it from here — don't copy it.
   bytes, 44 records`** — the Cardputer flashed 2026-09-30, `rfc.ttdb.md` byte-identical
   in both `data/` dirs.
 - ✅ **Phase B (this reorganization) is COMPLETE** — this file's rename, the log split,
-  root down to 6 files, and one test entry point. `orchestrator/companion.py` →
+  root down to 6 files, and one test entry point. `orchestrator/fleet.py` →
   `fleet.py` is deliberately held for Phase C (B2).
 - ✅ **Repo health, current:** **0 broken links across 222 markdown files**;
   `bash tests/run-all` is **35/35** (18 native + 16 laptop + the Makefile guard).
@@ -314,7 +314,7 @@ If a fact lives in one of these, link to it from here — don't copy it.
    citing `@LAT103` (first since `@LAT97` filled; `@LAT91` beliefs 1 → 5). `@LAT97` released: index → 139/288.
    ✅ **C3 WIRED** (2026-10-02): the node's beliefs ARE the episode consolidator (TTG-0003 counting) —
    no `@LAT92` written, no `@LAT91` rewritten; FACE_BELIEF reads RAM with Rule 3 beside it (retained window
-   only). `companion.py beliefs` recomputes them from a pull, **9/9 byte-identical** to the node. Heap
+   only). `fleet.py beliefs` recomputes them from a pull, **9/9 byte-identical** to the node. Heap
    dividend: `.bss` −6.3 KB, loop heap 9–11 → **16–18 KB**. ⚠ The panel itself is not yet eyeballed.
    ✅ **No capped lane left on the Cardputer** (2026-10-02 evening): `@LAT90` no longer written (episode
    `at:` stamps carry the order; stream still runs), `@LAT93` transitions are MOTION-band episodes. It now
@@ -427,7 +427,7 @@ collision_policy: reject
 timestamp_kind: unix
 umwelt:
   umwelt_id: orchestrator
-  role: companion-orchestrator
+  role: fleet-orchestrator
   perspective: whole-fleet
   scope: master
   constraints:
@@ -466,7 +466,7 @@ touched:1783983861
 [/ew]
 
 **Orchestrator** — the laptop companion, the only LLM in the system. Holds the
-master TTDB and drives the fleet. `orchestrator/companion.py pull` reassembles any
+master TTDB and drives the fleet. `orchestrator/fleet.py pull` reassembles any
 node's TTDB over the link (whole-file or byte-range, HMAC-verified), directly over
 USB-CDC or through the V4-A bridge into the mesh. Verified: byte-exact pulls of
 both built nodes (K10 1114 B, V4-A 976 B). Auth/replay floor checked with
@@ -548,7 +548,7 @@ Li-ion ceiling), so it withholds the percentage rather than invent one.
 **SP6-T (2026-07-11):** repartitioned to **huge_app** (3 MB APP; FS at 0x310000, flashed
 with `scripts/Upload-Tdeck-FS.ps1`) and grown into a native **TTCP mini-renderer** — a
 trackball-navigable globe (nodes at believed `@LATxLONy`, sigma rings, transport-coloured
-edges, graticule, 3 zooms) + record view + console pane, fed by `companion.py fleetmap`
+edges, graticule, 3 zooms) + record view + console pane, fed by `fleet.py fleetmap`
 (`positions.md`+`proximity.md` → its `data/ttdb.md`, one TTDB lineage with the laptop
 viewer). A **second globe view** (`n` toggles) browses the RFC corpus (`rfc.ttdb.md`,
 view-only, off the mesh). See `@LAT90LON60`.
@@ -633,7 +633,7 @@ touched:1783983861
 USB (no UART bridge chip), so `Serial` — and the `TootSerialLink` the companion
 pulls over — only reaches the COM port when built with the FQBN suffix
 `CDCOnBoot=cdc`; otherwise it binds to UART0 and pulls return zero bytes. Opening
-the port resets the board, so `companion.py` waits ~2.5 s before sending the request.
+the port resets the board, so `fleet.py` waits ~2.5 s before sending the request.
 
 ---
 
@@ -646,7 +646,7 @@ touched:1783983861
 [/ew]
 
 **Milestone — bridged ESP-NOW pull (Phase 1b) ✅ achieved 2026-06-20.**
-`companion.py pull --node k10_1 --port COM6` reassembles the K10's TTDB byte-exact
+`fleet.py pull --node k10_1 --port COM6` reassembles the K10's TTDB byte-exact
 through the V4-A bridge over the air (laptop→USB→V4-A→ESP-NOW→K10 and back),
 repeatably; `radio_replay.py` confirms an over-the-air duplicate `(src,seq)` is
 dropped. Firmware lessons baked in: serve replies from `loop()` (not the recv
@@ -669,10 +669,10 @@ touched:1783983861
 [/ew]
 
 **Milestone — Dream Cycle, both halves (Phase 6 seed) ✅ achieved 2026-06-24.** The
-consolidation half: `companion.py reconcile` folds each node's self-authored `@LAT99`
+consolidation half: `fleet.py reconcile` folds each node's self-authored `@LAT99`
 sync records into `master/consolidated.md` (per-source `recv_ms`/`offset_ms`
 provenance) and exits non-zero on any `t_ms` disagreement — K10 `id:1`/`id:2` both
-`agree:yes`. The propagation half (`TTN-RFC-0009`): `companion.py push` re-authors
+`agree:yes`. The propagation half (`TTN-RFC-0009`): `fleet.py push` re-authors
 `master/belief.md` from that consolidated knowledge and streams it as offset-addressed
 `want_ack TTDB_PUT` slices with CRC-32 whole-object integrity; the K10 writes it to a
 separate `/belief.md`, CRC-verifies, and appends a `BELIEF-ADOPTED` record to its own
@@ -705,7 +705,7 @@ touched:1783983861
 adopted offset), first-up-conducts election with `era`-numbered handoff, and
 drift-paced `PULSE` beacons (~1 per 15–30 s — zero per-beat traffic; 51 beats on one
 beacon measured). Verified: **3-node ensemble locked to one chart, skew ≤ ±10.4 ms**
-(`companion.py band` PASS, well inside the ±50 ms swing budget); conductor reboot +
+(`fleet.py band` PASS, well inside the ±50 ms swing budget); conductor reboot +
 era-latch handoff exercised live. On top of it, `Score.h` note tables give each node a
 **data-driven part**: K10 = lead melody (Ode to Joy), T-Deck = harmony a third below,
 V4-A = timekeeper, V4-B = backbeat. **120 BPM two-part duet confirmed by the user**;
@@ -755,7 +755,7 @@ touched:1783983861
 became a native **TTCP mini-renderer** (repartitioned to huge_app, 3 MB APP; FS at
 0x310000 via `scripts/Upload-Tdeck-FS.ps1`) — a trackball-navigable globe (believed
 `@LATxLONy`, sigma rings, transport-coloured edges, graticule, 3 zooms) + record view
-+ console pane, fed by **`companion.py fleetmap`** so laptop and handheld draw one TTDB
++ console pane, fed by **`fleet.py fleetmap`** so laptop and handheld draw one TTDB
 lineage (the SP6 "Done when"). A **second globe view** browses the RFC corpus on-device
 (`rfc.ttdb.md`, view-only). Verified first try: huge_app boots, PSRAM canvas renders,
 byte-exact pull (1351 B) confirms the repartition left the floor intact. The hypothesis
@@ -782,7 +782,7 @@ companion before the physical system corrected it. Cost: a chase after a nonexis
 V4-C fault while it was audibly playing.
 
 **(1) `cmd --op play` reports "NOT applied" on nodes that ARE playing.** Per-node
-`companion.py cmd --op play --node v4c_edge|tdeck_1` printed **"no ACK after 4
+`fleet.py cmd --op play --node v4c_edge|tdeck_1` printed **"no ACK after 4
 attempts → NOT applied"** — yet both had applied it and were sounding. **`toneI2S`
 blocks**, so a node that starts its part misses the ACK retry window (RTO ~4 s max)
 though the CMD landed fine. The ACK path fails, not the command path: **`ping` still

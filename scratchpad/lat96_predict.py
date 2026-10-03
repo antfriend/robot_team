@@ -12,7 +12,7 @@ produced after the fact is a description; the same number produced before is a t
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 CORE_N, CORE_M, MAX_RUN, MAX_UNION = 3, 5, 6, 16
 

@@ -28,7 +28,7 @@ REC = re.compile(r'^@LAT(-?\d+)LON(-?\d+)\s*\|', re.M)
 # --------------------------------------------------------------------------------------
 # The decided scheme. MUST match firmware/libraries/TTDB/src/Sid.cpp byte for byte.
 #
-# ⚠ IMPORTED FROM companion.py, NOT re-implemented here (2026-08-11). This file used to
+# ⚠ IMPORTED FROM fleet.py, NOT re-implemented here (2026-08-11). This file used to
 # carry its own copy; when the laptop started AUTHORING sids (Draft 0.3 §2.4) that would
 # have become a SECOND Python implementation of a hash whose whole value is that every
 # reader computes it identically. RFC-0010 §4.2.2 pins it "in two languages deliberately"
@@ -38,7 +38,7 @@ REC = re.compile(r'^@LAT(-?\d+)LON(-?\d+)\s*\|', re.M)
 # --------------------------------------------------------------------------------------
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), 'orchestrator'))
-from companion import (fnv1a, sid_event, sid_key,          # noqa: E402
+from fleet import (fnv1a, sid_event, sid_key,          # noqa: E402
                        sid_body_digest as body_digest,
                        FNV_OFFSET, FNV_PRIME)              # noqa: F401
 

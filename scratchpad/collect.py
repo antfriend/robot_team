@@ -15,7 +15,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
-import companion as c  # noqa: E402
+import fleet as c  # noqa: E402
 
 BRIDGE = "COM6"
 # node -> port to pull it over. COM6 is V4-A's own cable AND the mesh bridge.
@@ -54,7 +54,7 @@ def pull_once(node, port, settle):
     import serial
     reader = c.SerialFrameReader()
     with serial.Serial(port, 115200, timeout=0.1) as ser:
-        # Opening the port resets the S3. companion.py's stock 2.5 s settle is
+        # Opening the port resets the S3. fleet.py's stock 2.5 s settle is
         # NOT enough for a bridged pull: the bridge reboots too, and it has a
         # multi-second stall early in boot (FLEET.md §6, seen on 4/4 nodes),
         # so the request can land while it is descheduled and get no reply at all.

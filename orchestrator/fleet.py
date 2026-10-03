@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""companion.py — laptop side of the robot_team orchestrator.
+"""fleet.py — laptop side of the robot_team orchestrator.
 
 Pulls a node's TTDB over the network. Connect to a node directly over USB-CDC,
 or to the V4-A bridge (which routes the request into the mesh and streams the
@@ -10,8 +10,8 @@ replies back). The wire format mirrors the firmware exactly:
   - auth: truncated HMAC-SHA256 with NETWORK_KEY (== ROBOT_TEAM_KEY)
 
 Usage:
-  python companion.py pull --port COM5 --node k10_1 --out master/k10.md
-  python companion.py pull --port /dev/ttyACM0 --node v4a_bridge --out master/v4a.md
+  python fleet.py pull --port COM5 --node k10_1 --out master/k10.md
+  python fleet.py pull --port /dev/ttyACM0 --node v4a_bridge --out master/v4a.md
 
 Requires: pyserial  (pip install -r requirements.txt)
 """
@@ -806,7 +806,7 @@ collision_policy: reject
 timestamp_kind: unix
 umwelt:
   umwelt_id: orchestrator
-  role: companion-orchestrator
+  role: fleet-orchestrator
   scope: master
 ```
 
@@ -824,7 +824,7 @@ SYNC_FULL_RE = re.compile(
 
 CONSOLIDATED_HEADER = """# Orchestrator Consolidated Knowledge (Dream-Cycle seed)
 
-This file is authored by `companion.py reconcile`: it folds each node's
+This file is authored by `fleet.py reconcile`: it folds each node's
 self-reported `@LAT99` sync log into one master view with provenance, the minimal
 first instance of the Dream Cycle (TTDB-RFC-0007) — episodic node records
 consolidated into a semantic master record.
@@ -839,7 +839,7 @@ collision_policy: reject
 timestamp_kind: unix
 umwelt:
   umwelt_id: orchestrator
-  role: companion-orchestrator
+  role: fleet-orchestrator
   scope: master
 ```
 
@@ -1467,9 +1467,9 @@ def reconcile(port, baud, nodes, master, out, do_pull, settle):
 DEFAULT_BELIEF_LOG = os.path.join("master", "belief-log.md")
 DEFAULT_BELIEF_OUT = os.path.join("master", "belief.md")
 
-BELIEF_HEADER = """# Fleet Belief (authored by companion push)
+BELIEF_HEADER = """# Fleet Belief (authored by fleet.py push)
 
-This object is re-authored by `companion.py push` from the consolidated fleet sync
+This object is re-authored by `fleet.py push` from the consolidated fleet sync
 knowledge and pushed back to a node (TTN-RFC-0009) — the propagation half of the
 Dream Cycle (TTDB-RFC-0007). The node stores it as `/belief.md` and records the
 adoption in its own TTDB.
@@ -1484,7 +1484,7 @@ collision_policy: reject
 timestamp_kind: unix
 umwelt:
   umwelt_id: orchestrator
-  role: companion-orchestrator
+  role: fleet-orchestrator
   scope: belief
 ```
 
@@ -1541,10 +1541,10 @@ def author_belief(master_path, sense_interval_ms=DEFAULT_SENSE_INTERVAL_MS):
     return "".join(parts).encode("utf-8")
 
 
-POSITION_BELIEF_HEADER = """# Fleet Position Belief (authored by companion push --positions)
+POSITION_BELIEF_HEADER = """# Fleet Position Belief (authored by fleet.py push --positions)
 
 The fleet's @BELIEF:POSITION map (semantic positioning SP2), re-authored by
-`companion.py push --positions` and pushed back to a node over the mesh
+`fleet.py push --positions` and pushed back to a node over the mesh
 (TTN-RFC-0009) — publishing where the fleet believes each node is. The node
 stores it byte-exact as `/belief.md`, CRC-verifies, and attests adoption in its
 own TTDB. Each record carries `node_id:` so a node can find its OWN position by
@@ -1561,7 +1561,7 @@ collision_policy: reject
 timestamp_kind: unix
 umwelt:
   umwelt_id: orchestrator
-  role: companion-orchestrator
+  role: fleet-orchestrator
   scope: belief
 ```
 
@@ -3224,7 +3224,7 @@ discipline that made V4-A's fold prediction a test instead of a description."""
 
 
 def _pctl(vals, p):
-    """companion.py's percentile rule (shared with entity_drift)."""
+    """fleet.py's percentile rule (shared with entity_drift)."""
     return vals[min(len(vals) - 1, int(len(vals) * p))]
 
 
@@ -3702,7 +3702,7 @@ DEFAULT_PROXIMITY_OUT = os.path.join("master", "proximity.md")
 
 PROXIMITY_HEADER = """# Fleet Proximity Beliefs (semantic positioning SP1)
 
-Authored by `companion.py proximity`: each node's @LAT97 link-percept windows
+Authored by `fleet.py proximity`: each node's @LAT97 link-percept windows
 (SP0 evidence) fused into one @BELIEF:PROXIMITY record per node pair
 (ttn-semantic-positioning.md §2.1). Estimator: median of per-window rssi_max
 per direction (the strongest receptions sit nearest line-of-sight truth;
@@ -3715,7 +3715,7 @@ DEFAULT_CALIBRATION = os.path.join("master", "calibration.md")
 
 CALIBRATION_HEADER = """# Fleet Path-Loss Calibration (semantic positioning SP1)
 
-Authored by `companion.py calibrate` from a measured calibration walk
+Authored by `fleet.py calibrate` from a measured calibration walk
 (ttn-semantic-positioning.md Appendix B): per-station fused RSSI vs ground-truth
 distance, least-squares fit of the log-distance model
 RSSI(d) = rssi_d0 - 10*n*log10(d/d0). `proximity` reads this file and uses the
@@ -4167,7 +4167,7 @@ DEFAULT_POSITIONS_OUT = os.path.join("master", "positions.md")
 
 POSITIONS_HEADER = """# Fleet Position Beliefs (semantic positioning SP2)
 
-Authored by `companion.py positions`: the @BELIEF:PROXIMITY pair matrix embedded
+Authored by `fleet.py positions`: the @BELIEF:PROXIMITY pair matrix embedded
 into 2D by weighted spring relaxation, then canonicalized — frame ORIGIN at
 v4a_bridge, second node on +x, third node at +y.
 
@@ -4175,7 +4175,7 @@ v4a_bridge, second node on +x, third node at +y.
 claim: `sigma_m` measures how well the shape fits its evidence and says nothing
 about where that shape sits. Common information cannot reach translation (2),
 rotation (1) or reflection (1) — spec §0.1 — and only a GPS fix pins any of them
-(`companion.py anchor`).
+(`fleet.py anchor`).
 
 ⚠ v4a_bridge is the frame ORIGIN, NOT an anchor. Before Draft 0.3 these records
 carried `anchor_chain: [v4a_bridge]` off a CONFIGURED coordinate, which asserted the
@@ -4389,7 +4389,7 @@ def positions(proximity_path, out, iters):
     pairs = parse_proximity_file(proximity_path)
     if not pairs:
         sys.exit(f"no @BELIEF:PROXIMITY records in {proximity_path} — run "
-                 f"`companion.py proximity` first")
+                 f"`fleet.py proximity` first")
     pos, residuals, stress = embed_positions(pairs, iters)
 
     # embedding_rev: monotonic per output file (warm-start bookkeeping).
@@ -4444,7 +4444,7 @@ def positions(proximity_path, out, iters):
           f"belief(s)  (rev {rev}, stress {stress:.2f} m)")
     print(f"  pose_ceiling {pose_dof} of {POSE_DOF_TOTAL} DoF -- {pose_note}")
     print("  this is a SHAPE, not a map: sigma_m below says how well it fits, NOT")
-    print("  where it is. Run `companion.py anchor` with GPS ties to pin pose.")
+    print("  where it is. Run `fleet.py anchor` with GPS ties to pin pose.")
     print(f"{'node':<12} {'x_m':>7} {'y_m':>7} {'sigma_m':>8}")
     for nd, (x, y) in sorted(pos.items()):
         sigma = (sum(inc[nd]) / len(inc[nd])) ** 0.5 if inc[nd] else 0.0
@@ -4670,8 +4670,8 @@ def gps(port, baud, node, at, probes, settle, fixes_path):
         return
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     header = ("# Fleet GPS Fixes (semantic positioning SP2 ground truth)\n\n"
-              "Authored by `companion.py gps --at <node>`: each record is a T-Deck GPS\n"
-              "fix taken beside a static node. `companion.py anchor` fits the relative\n"
+              "Authored by `fleet.py gps --at <node>`: each record is a T-Deck GPS\n"
+              "fix taken beside a static node. `fleet.py anchor` fits the relative\n"
               "@BELIEF:POSITION map to these absolute tie points (GPS is the verifier +\n"
               "anchor, never an inference input). >=3 non-collinear ties resolve the "
               "mirror.\n")
@@ -4826,7 +4826,7 @@ def anchor(positions_path, fixes_path, out):
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         f.write("# Fleet Anchored Position Beliefs (semantic positioning SP2)\n\n"
-                "Authored by `companion.py anchor`: the relative @BELIEF:POSITION map\n"
+                "Authored by `fleet.py anchor`: the relative @BELIEF:POSITION map\n"
                 "(positions.md) fitted onto the T-Deck GPS tie points (gps-fixes.md) by\n"
                 "a 2D similarity (scale+rotation+translation, reflection allowed). GPS is\n"
                 "the verifier + anchor, never an inference input, and since Draft 0.3 it\n"
@@ -4995,7 +4995,7 @@ umwelt:
   globe:
     frame: mesh-topology
     origin: "@LAT0LON0"
-    mapping: "each record is a fleet node at its believed position; the map the mesh draws of itself (companion.py fleetmap from positions.md + proximity.md)"
+    mapping: "each record is a fleet node at its believed position; the map the mesh draws of itself (fleet.py fleetmap from positions.md + proximity.md)"
 typed_edges:
   enabled: true
   syntax: "type@LATxLONy"
@@ -5073,7 +5073,7 @@ librarian:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="robot_team orchestrator companion")
+    ap = argparse.ArgumentParser(description="robot_team fleet orchestrator (laptop observer)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pull", help="pull a node's TTDB (or stored belief) over the link")
     p.add_argument("--port", required=True, help="serial port (COM5, /dev/ttyACM0)")
@@ -5317,7 +5317,7 @@ def main():
                     help="don't pull; read existing master/<node>.md")
     px.add_argument("--settle", type=float, default=2.5)
     px.add_argument("--calibration", default=DEFAULT_CALIBRATION,
-                    help="fitted path-loss file (companion.py calibrate)")
+                    help="fitted path-loss file (fleet.py calibrate)")
     px.add_argument("--since", default=None,
                     help="recency filter as TIME: keep only windows within this "
                          "of the newest window on the node's stream, fleet-wide "
@@ -5341,7 +5341,7 @@ def main():
         "positions",
         help="SP2: embed @BELIEF:PROXIMITY into @BELIEF:POSITION + a fleet map")
     po.add_argument("--proximity", default=DEFAULT_PROXIMITY_OUT,
-                    help="proximity beliefs to embed (companion.py proximity)")
+                    help="proximity beliefs to embed (fleet.py proximity)")
     po.add_argument("--out", default=DEFAULT_POSITIONS_OUT)
     po.add_argument("--iters", type=int, default=3000)
 
@@ -5371,18 +5371,18 @@ def main():
         "anchor",
         help="SP2: fit the relative position map to GPS ties -> absolute lat/lon")
     an.add_argument("--positions", default=DEFAULT_POSITIONS_OUT,
-                    help="relative @BELIEF:POSITION map (companion.py positions)")
+                    help="relative @BELIEF:POSITION map (fleet.py positions)")
     an.add_argument("--fixes", default=DEFAULT_GPS_FIXES,
-                    help="GPS tie points (companion.py gps --at)")
+                    help="GPS tie points (fleet.py gps --at)")
     an.add_argument("--out", default=DEFAULT_ANCHORED_OUT)
 
     fm = sub.add_parser(
         "fleetmap",
         help="SP6: author the T-Deck fleet-map TTDB from position+proximity beliefs")
     fm.add_argument("--positions", default=DEFAULT_POSITIONS_OUT,
-                    help="relative @BELIEF:POSITION map (companion.py positions)")
+                    help="relative @BELIEF:POSITION map (fleet.py positions)")
     fm.add_argument("--proximity", default=DEFAULT_PROXIMITY_OUT,
-                    help="@BELIEF:PROXIMITY links (companion.py proximity)")
+                    help="@BELIEF:PROXIMITY links (fleet.py proximity)")
     fm.add_argument("--out", default=DEFAULT_FLEETMAP_OUT,
                     help="TTDB to write (flash with Upload-Tdeck-FS.ps1)")
 
@@ -5435,6 +5435,15 @@ def main():
                     dest="positions_src",
                     help="publish the GPS-anchored (geo) position map "
                          "(master/anchored.md) — shorthand for --positions with that file")
+
+    # ACT-III B2: the window stays its own file (tkinter loads only when asked for);
+    # `ui` is an alias that hands every later argument to fleet_ui.py untouched.
+    sub.add_parser("ui", add_help=False,
+                   help="open the fleet window (fleet_ui.py; e.g. ui --bridge COM6)")
+    if sys.argv[1:2] == ["ui"]:
+        import fleet_ui
+        fleet_ui.main(sys.argv[2:])
+        return
 
     args = ap.parse_args()
 
