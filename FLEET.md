@@ -393,7 +393,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ✅ **All three V4s repartitioned to `huge_app` (40%) and on stage 2 (2026-10-04)**, each
    store byte-exact, so **all six boards run stage 2**. ⚠ V4s now flash like the T-Deck
    (CLAUDE.md); `Upload-V4-FS.ps1` refuses.
-   **Next:** a six-board run (only the Cardputer writes `percept:` terms), item 5
+   ◐ **Six-board run (2026-10-04): the sets FAIL on every six-board bar** (best boards 36–40 of
+   40, V4-A 21–24). Two measured causes: the 56 hard cap (`early` cuts 36/19) and
+   one-episode-per-round-trip throughput, at capacity with four authors. ✅ The digest now
+   spans 8–9 terms from four authors (the V4s write `percept:`), but it is coarser than the
+   set, so only the HOLDS rows catch this.
+   **Next:** an operator choice among: size the cap to the authors, fetch several episodes per
+   WANT, a longer settle ([docs/log/2026-10.md](docs/log/2026-10.md)); then item 5
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
