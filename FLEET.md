@@ -375,7 +375,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
    digests agree on 8/8 bars, episode sets on only 5/8.** The Cardputer's copies of the
    T-Deck's episodes arrived *late* (the digest is blind to them, since the T-Deck has no
    terms). Cause: four powered-off peers ate ~2/3 of the fetcher's time.
-   **Next:** the exponential back-off (Cardputer flashed) on the T-Deck, then the run again
+   ✅ **GATE PASSED on run 4** (2026-10-03): bars 73–76 (and 72) **AGREE with the same
+   episode set** on both handhelds, from the records alone, each written at the settle.
+   Getting there took a resume, a back-off, and liveness from direct hearing. ⚠ The digest
+   is one-sided (the T-Deck has no terms), so its direction rests on the HOLDS rows.
+   **Next:** stage 2 on the K10 (an IMU, so a two-sided digest), then the V4s (flash at 95%)
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.

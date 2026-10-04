@@ -349,6 +349,12 @@ Both handhelds on the stage-2 build, side by side, ≥ 40 min (four bars), then 
 > Fix for the re-run: write each bar's digest as a record (a cable-free capability, and it
 > fixes flaw 2), and score only bars still retained.
 
+> ✅ **PASSED on run 4 (2026-10-03), scored from `@LAT106` BAR records:** bars 72–76 agree
+> with identical HOLDS rows on both handhelds, each record written at the settle, 0
+> contradictions. Runs 2–3 failed (g) on late delivery: powered-off peers starved the
+> fetcher, then the back-off stalled a live peer. Fixed by liveness from direct hearing.
+> Flaw 3 stands: the digest is blind to the T-Deck's side, so (g) carries that direction.
+
 ### 7.7 Unchanged from the sketch
 
 - **Not `@LAT102`.** That lane was reserved for *attributed testimony as tallies*, one
