@@ -379,7 +379,13 @@ If a fact lives in one of these, link to it from here — don't copy it.
    episode set** on both handhelds, from the records alone, each written at the settle.
    Getting there took a resume, a back-off, and liveness from direct hearing. ⚠ The digest
    is one-sided (the T-Deck has no terms), so its direction rests on the HOLDS rows.
-   **Next:** stage 2 on the K10 (an IMU, so a two-sided digest), then the V4s (flash at 95%)
+   ✅ **Run 5 (2026-10-04, three boards):** the handhelds passed again, 7/7 bars. The K10 is on
+   stage 2 as a pure receiver (no link episodes of its own: no ESP-NOW RSSI, no BLE on its
+   core), and its recomputed view of bar 6 equals both handhelds' records. ⚠ **The band
+   split into two charts:** the K10 is on frame 9000, the handhelds on 7000, and PULSE does not
+   cross. So the K10's own bar records land in an empty frame.
+   ⚠ The held ring is lane-wide (32), so retention halves per extra author.
+   **Next:** why PULSE does not cross K10 ↔ handhelds; a per-author held quota; then the V4s
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
