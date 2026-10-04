@@ -1,0 +1,191 @@
+BLE near-range tier up (advert + passive scan)
+Cardputer console 0x00000300 online (hw on, codec on, imu on)
+[field] armed: 16 cells, half-life 10s, floor 24, rides HELLO (+19 B). Deposit needs a mic transient at lvl >= 900. '5' shows it; there '-'/'=' tune that, DEL clears the field fleet-wide.
+[social] fleet table  self 0x300 ep 6  peers 5 (4 silent)  stale-reports 0
+[social]   0x300  mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v   (self)
+[social]   0x100  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x200  co: 64~  spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v   FADED 
+[social]   0x010  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x011  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x012  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   pose: <=translation  (gps exercised 1 of 1 declared)  stillness-witnesses 0  ears 0
+[intero] pin 2031mV x2.00 = pack 4062mV (86%) | die 43.6C | maxalloc 17K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[stream] adopted stream=0x9afbb748 t_ms=41592253 wall=0 from=0x200 offset=0ms
+[field] merged peer trace: 5 cell(s) raised, energy 25
+[social] self ep 6: mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[episode] live 131 present 131 dead 0 horizon 1385 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E47/48 M23/24 A16/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 798 16 | 250 eps:5 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 868 13 | 251 eps:4 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 397 3 | 252 eps:3 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
+[order] seq 1306 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000200:334
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 1 (fail 0) | bars 16 on flash, 0 written (fail 0)
+[loop] worst pass 54ms (render 31ms, widest section render 49ms) | worst render 31ms | frames 1 | heap 23780 maxalloc 14K
+[scene] scene 0 ALONE (era 1 cond 0x00000300)
+[field] |................| e  25 mine 0 theirs 0
+[field] |................| e  23 mine 0 theirs 0
+[ble] 104 advert(s) handled in the first 5 s of scanning | heap 17568 maxalloc 9716
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  18 mine 0 theirs 0
+[wifi] scan: 8 AP(s) folded into @LAT96 window
+[field] |................| e  16 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[link] window -> @LAT103LON1431 (0 claim(s)) live 132 present 132 heap 17188 maxalloc 8692
+[entity] window -> @LAT103LON8311 (entity live 48/48, TTDB 158895B)
+[motion] percept window -> @LAT103LON16452 (TTDB 159359B)
+[learn] expectation armed from @LAT103LON16452+0 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25798 (acoustic live 17/24)
+[social] self ep 9: mic:X spk:v imu:X wifi:X ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 3 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[ble] 806 advert(s) handled in the first 30 s of scanning | heap 16416 maxalloc 8180
+[loop] worst pass 302ms (render 0ms, widest section mic 112ms) | worst render 18ms | frames 237 | heap 16416 maxalloc 7K
+[field] merged peer trace: 3 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[bar] frame 5500 bar 69: 10 episode(s) (own 10, held 0) 2 term(s) digest 0x0938c1d3
+[bar] frame 5500 bar 68: 10 episode(s) (own 10, held 0) 2 term(s) digest 0x0938c1d3
+[field] merged peer trace: 4 cell(s) raised, energy 10
+[field] |................| e   9 mine 0 theirs 0
+[loop] worst pass 4202ms (render 0ms, widest section render 4201ms) | worst render 18ms | frames 203 | heap 23356 maxalloc 12K
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[link] window -> @LAT103LON1432 (2 claim(s)) live 136 present 136 heap 20360 maxalloc 11252
+[learn] expectation armed from @LAT103LON16452+1 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25799 (acoustic live 18/24)
+[field] |................| e   9 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 10
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[loop] worst pass 2466ms (render 0ms, widest section render 2466ms) | worst render 18ms | frames 218 | heap 17140 maxalloc 7K
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | heap 25756 maxalloc 14K
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[link] window -> @LAT103LON1433 (2 claim(s)) live 138 present 138 heap 20652 maxalloc 12788
+[learn] expectation armed from @LAT103LON16452+2 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25800 (acoustic live 19/24)
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[loop] worst pass 140ms (render 0ms, widest section mic 66ms) | worst render 18ms | frames 238 | heap 20380 maxalloc 11K
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[episode] live 139 present 139 dead 0 horizon 1385 terms 9 reclaimed 0 | appended 8 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L48/48 E48/48 M24/24 A19/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 800 16 | 250 eps:5 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 870 13 | 251 eps:4 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 397 3 | 252 eps:3 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
+[order] seq 1314 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000200:339
+[deliver] held 32 | fetched 16 dup 0 refused 0 broken 0 resumed 13 unanswered 21 empty 0 nomem 0 appendfail 0 | served 4 (empty 2) of 6 want(s) | own link map 48 | cuts 3 (fail 0) | bars 16 on flash, 0 written (fail 0)
+[loop] worst pass 2489ms (render 0ms, widest section render 2489ms) | worst render 19ms | frames 218 | heap 22808 maxalloc 7K
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 1
+[link] window -> @LAT103LON1434 (2 claim(s)) live 140 present 140 heap 17184 maxalloc 8180
+[learn] expectation armed from @LAT103LON16452+3 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25801 (acoustic live 20/24)
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[loop] worst pass 306ms (render 0ms, widest section linkperc 239ms) | worst render 18ms | frames 238 | heap 16912 maxalloc 7K

@@ -1,0 +1,1 @@
+Sketch uses 1326709 bytes (42%) of program storage space. Maximum is 3145728 bytes.

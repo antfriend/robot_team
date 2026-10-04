@@ -1,0 +1,152 @@
+[field] |.2....3...3.4.43| e 580 mine 0 theirs 6
+[field] merged peer trace: 5 cell(s) raised, energy 582
+[field] |.2....3...2.3.33| e 531 mine 0 theirs 6
+[field] merged peer trace: 2 cell(s) raised, energy 527
+[field] |.1....2...2.3.32| e 475 mine 0 theirs 6
+[field] |.1....2...2.2.32| e 419 mine 0 theirs 6
+[field] merged peer trace: 7 cell(s) raised, energy 428
+[field] |.1....2...2.2.22| e 391 mine 0 theirs 6
+[field] merged peer trace: 6 cell(s) raised, energy 392
+[field] |.1....2...2.2.21| e 360 mine 0 theirs 6
+[field] merged peer trace: 8 cell(s) raised, energy 364
+[field] |.1....2...1.2.21| e 336 mine 0 theirs 6
+[field] merged peer trace: 1 cell(s) raised, energy 333
+[field] |.1....1...1.2.21| e 301 mine 0 theirs 6
+[field] merged peer trace: 6 cell(s) raised, energy 302
+[field] |.1....1...1.1.21| e 280 mine 0 theirs 6
+[field] merged peer trace: 4 cell(s) raised, energy 279
+[field] |.1....1...1.1.11| e 252 mine 0 theirs 6
+[field] merged peer trace: 1 cell(s) raised, energy 251
+[field] |.0....1...1.1.11| e 224 mine 0 theirs 6
+[field] merged peer trace: 6 cell(s) raised, energy 228
+[field] |......1...1.1.11| e 211 mine 0 theirs 5
+[field] merged peer trace: 2 cell(s) raised, energy 209
+[field] |......1...1.1.11| e 190 mine 0 theirs 5
+[field] |......0...0.1.10| e 168 mine 0 theirs 5
+[field] merged peer trace: 6 cell(s) raised, energy 174
+[loop] worst pass 193ms (render 1ms, widest section link 184ms) | worst render 19ms | frames 221 | heap 19672 maxalloc 8K
+[field] |......0.....1.1.| e 160 mine 0 theirs 3
+[field] merged peer trace: 5 cell(s) raised, energy 162
+[field] |............1.1.| e 147 mine 0 theirs 2
+[field] merged peer trace: 8 cell(s) raised, energy 154
+[field] |............0.0.| e 143 mine 0 theirs 2
+[field] merged peer trace: 6 cell(s) raised, energy 149
+[field] |..............0.| e 139 mine 0 theirs 1
+[field] |................| e 123 mine 0 theirs 0
+[field] merged peer trace: 6 cell(s) raised, energy 128
+[episode] live 134 present 134 dead 0 horizon 1205 terms 9 reclaimed 0 | appended 136 (fail 0) commits 14 (fail 0 nomem 0) cuts 7 (fail 0 last 'ok') malformed 0 | tiers L43/48 E44/48 M24/24 A23/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 625 11 | 250 eps:5 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 693 10 | 251 eps:4 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 397 3 | 252 eps:3 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
+[order] seq 922 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000200:139
+[deliver] held 37 | fetched 103 dup 0 refused 0 broken 11 resumed 178 unanswered 311 empty 1 nomem 0 appendfail 0 | served 169 (empty 33) of 202 want(s) | own link map 72 | cuts 9 (fail 0)
+[field] |................| e 119 mine 0 theirs 0
+[field] |................| e 104 mine 0 theirs 0
+[field] merged peer trace: 6 cell(s) raised, energy 108
+[field] |................| e  99 mine 0 theirs 0
+[field] |................| e  87 mine 0 theirs 0
+[link] window -> @LAT103LON1249 (2 claim(s)) live 135 present 135 heap 16724 maxalloc 8692
+[learn] expectation armed from @LAT103LON16443+5 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25616 (acoustic live 24/24)
+[field] merged peer trace: 5 cell(s) raised, energy 92
+[field] |................| e  86 mine 0 theirs 0
+[field] |................| e  76 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 80
+[field] |................| e  74 mine 0 theirs 0
+[field] merged peer trace: 4 cell(s) raised, energy 78
+[field] |................| e  70 mine 0 theirs 0
+[field] |................| e  63 mine 0 theirs 0
+[field] merged peer trace: 7 cell(s) raised, energy 68
+[field] |................| e  67 mine 0 theirs 0
+[field] merged peer trace: 4 cell(s) raised, energy 68
+[loop] worst pass 122ms (render 0ms, widest section mic 58ms) | worst render 18ms | frames 238 | heap 21472 maxalloc 11K
+[field] |................| e  65 mine 0 theirs 0
+[field] merged peer trace: 4 cell(s) raised, energy 66
+[field] |................| e  64 mine 0 theirs 0
+[field] merged peer trace: 4 cell(s) raised, energy 64
+[field] |................| e  60 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 62
+[field] |................| e  61 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 62
+[field] |................| e  59 mine 0 theirs 0
+[field] merged peer trace: 6 cell(s) raised, energy 62
+[field] |................| e  61 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 62
+[field] |................| e  60 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 62
+[field] |................| e  60 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 61
+[field] |................| e  59 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 61
+[field] |................| e  60 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 61
+[field] |................| e  58 mine 0 theirs 0
+[field] merged peer trace: 5 cell(s) raised, energy 60
+[field] |................| e  59 mine 0 theirs 0
+[bar] frame 5500 bar 50: 19 episode(s) (own 10, held 9) 2 term(s) digest 0xee5eb19f
+[bar] frame 5500 bar 49: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[loop] worst pass 7883ms (render 1ms, widest section render 7882ms) | worst render 18ms | frames 179 | heap 16672 maxalloc 7K
+[field] merged peer trace: 6 cell(s) raised, energy 51
+[field] |................| e  51 mine 0 theirs 0
+[field] |................| e  48 mine 0 theirs 0
+[field] deposit cell 2 amount 255 (lvl 2777 sens 900) energy 302
+[field] merged peer trace: 3 cell(s) raised, energy 289
+[field] |..9.............| e 278 mine 1 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 263
+[field] |..8.............| e 253 mine 0 theirs 1
+[field] |..7.............| e 226 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 213
+[field] |..6.............| e 205 mine 0 theirs 1
+[field] |..5.............| e 184 mine 0 theirs 1
+[field] deposit cell 3 amount 255 (lvl 6108 sens 900) energy 435
+[field] merged peer trace: 4 cell(s) raised, energy 418
+[field] |..59............| e 402 mine 1 theirs 1
+[field] |..48............| e 361 mine 1 theirs 1
+[link] window -> @LAT103LON1250 (2 claim(s)) live 137 present 137 heap 19344 maxalloc 7668
+[learn] expectation armed from @LAT103LON16443+6 (still): peers hold within +/-6 dBm
+[acoustic] window -> @LAT103LON25617 (acoustic live 25/24)
+[field] merged peer trace: 2 cell(s) raised, energy 340
+[field] |..47............| e 328 mine 0 theirs 2
+[field] |..36............| e 290 mine 0 theirs 2
+[field] |..35............| e 259 mine 0 theirs 2
+[field] merged peer trace: 5 cell(s) raised, energy 242
+[field] |..35............| e 236 mine 0 theirs 2
+[field] |..24............| e 212 mine 0 theirs 2
+[field] |..24............| e 190 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 178
+[loop] worst pass 378ms (render 0ms, widest section mic 303ms) | worst render 18ms | frames 237 | heap 21796 maxalloc 11K
+[field] |..23............| e 171 mine 0 theirs 2
+[field] merged peer trace: 5 cell(s) raised, energy 162
+[field] |..23............| e 158 mine 0 theirs 2
+[field] merged peer trace: 1 cell(s) raised, energy 149
+[field] |..13............| e 145 mine 0 theirs 2
+[field] merged peer trace: 1 cell(s) raised, energy 136
+[field] |..12............| e 132 mine 0 theirs 2
+[field] |..12............| e 119 mine 0 theirs 2
+[field] merged peer trace: 5 cell(s) raised, energy 114
+[field] |..12............| e 107 mine 0 theirs 2
+[field] merged peer trace: 1 cell(s) raised, energy 102
+[field] |..12............| e  99 mine 0 theirs 2
+[field] |..11............| e  88 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 85
+[field] |..11............| e  84 mine 0 theirs 2
+[field] |..01............| e  73 mine 0 theirs 2
+[field] merged peer trace: 5 cell(s) raised, energy 73
+[field] |...1............| e  72 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 69
+[field] |...1............| e  67 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 64
+[field] |...1............| e  63 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 61
+[field] |...1............| e  60 mine 0 theirs 1
+[field] merged peer trace: 5 cell(s) raised, energy 58
+[field] |...1............| e  58 mine 0 theirs 1
+[loop] worst pass 18ms (render 18ms, widest section render 18ms) | worst render 18ms | frames 240 | heap 19156 maxalloc 10K
+[field] |...1............| e  53 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 50

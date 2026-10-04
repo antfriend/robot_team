@@ -1,0 +1,963 @@
+[scene] scene 0 ALONE (era 1 cond 0x00000200)
+[bar] frame 5500 bar 44: 8 episode(s) (own 8, held 0) 0 term(s) digest 0x00000000
+[bar] frame 5500 bar 43: 10 episode(s) (own 10, held 0) 0 term(s) digest 0x00000000
+[social] self ep 5: spk:v gps:v wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[social] self ep 6: spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[field] |..0.............| e  24 mine 0 theirs 1
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  18 mine 0 theirs 0
+[wifi] scan: 6 AP(s) folded into @LAT96 window
+[field] |................| e  15 mine 0 theirs 0
+[field] |................| e  14 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 13
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 8
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 8
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[order] seq 81 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:808
+[deliver] held 26 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 8 empty 0 nomem 0 appendfail 0 | served 2 (empty 0) of 2 want(s) | own link map 43 | cuts 0 (fail 0)
+[link] window -> @LAT103LON277 (link live 44/48, TTDB 68610B, heap 11736)
+[entity] window -> @LAT103LON8212 (entity live 21/48, TTDB 69424B)
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[link] window -> @LAT103LON278 (link live 45/48, TTDB 72044B, heap 14932)
+[order] seq 84 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:810
+[deliver] held 29 | fetched 3 dup 0 refused 0 broken 1 resumed 8 unanswered 14 empty 0 nomem 0 appendfail 0 | served 16 (empty 0) of 16 want(s) | own link map 45 | cuts 0 (fail 0)
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[link] window -> @LAT103LON279 (link live 46/48, TTDB 77993B, heap 11968)
+[order] seq 85 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:812
+[deliver] held 37 | fetched 11 dup 0 refused 0 broken 1 resumed 17 unanswered 20 empty 0 nomem 0 appendfail 0 | served 29 (empty 0) of 29 want(s) | own link map 46 | cuts 0 (fail 0)
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 153
+[field] |5...............| e 142 mine 0 theirs 1
+[field] |4...............| e 127 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 125
+[field] |4...............| e 116 mine 0 theirs 1
+[field] |3...............| e 104 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 102
+[field] |3...............| e  95 mine 0 theirs 1
+[field] |3...............| e  85 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 84
+[field] |2...............| e  78 mine 0 theirs 1
+[field] |2...............| e  69 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 69
+[field] |2...............| e  65 mine 0 theirs 1
+[field] |2...............| e  58 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 57
+[field] |2...............| e  54 mine 0 theirs 1
+[field] |1...............| e  48 mine 0 theirs 1
+[field] |1...............| e  43 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 43
+[field] |1...............| e  39 mine 0 theirs 1
+[link] window -> @LAT103LON280 (link live 47/48, TTDB 78257B, heap 11704)
+[order] seq 86 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:814
+[deliver] held 37 | fetched 19 dup 0 refused 0 broken 1 resumed 28 unanswered 26 empty 0 nomem 0 appendfail 0 | served 48 (empty 0) of 48 want(s) | own link map 47 | cuts 1 (fail 0)
+[field] |1...............| e  35 mine 0 theirs 1
+[field] merged peer trace: 3 cell(s) raised, energy 179
+[field] |1.....5.........| e 167 mine 0 theirs 2
+[field] |1.....4.........| e 149 mine 0 theirs 2
+[field] merged peer trace: 1 cell(s) raised, energy 147
+[field] |1.....4.........| e 136 mine 0 theirs 2
+[field] |......3.........| e 120 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 120
+[field] |......3.........| e 112 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 196
+[field] |......3..3......| e 180 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 178
+[field] |......2..2......| e 166 mine 0 theirs 2
+[field] |......2..2......| e 148 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 145
+[field] |......2..2......| e 134 mine 0 theirs 2
+[field] merged peer trace: 1 cell(s) raised, energy 131
+[field] |......2..1......| e 120 mine 0 theirs 2
+[field] |......1..1......| e 104 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 103
+[field] |......1..1......| e  94 mine 0 theirs 2
+[field] |......1..1......| e  82 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 83
+[field] |......1..1......| e  76 mine 0 theirs 2
+[field] |......1..1......| e  66 mine 0 theirs 2
+[field] |......0..1......| e  59 mine 0 theirs 2
+[field] |................| e  52 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 52
+[field] |................| e  48 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 47
+[field] |................| e  44 mine 0 theirs 0
+[field] |................| e  37 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 38
+[field] |................| e  35 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 35
+[field] |................| e  32 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 32
+[field] |................| e  30 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 30
+[field] |................| e  28 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 27
+[field] |................| e  26 mine 0 theirs 0
+[field] |................| e  23 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 24
+[field] |................| e  23 mine 0 theirs 0
+[field] |................| e  19 mine 0 theirs 0
+[field] merged peer trace: 3 cell(s) raised, energy 21
+[field] |................| e  20 mine 0 theirs 0
+[link] window -> @LAT103LON281 (link live 48/48, TTDB 78734B, heap 14660)
+[order] seq 87 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:816
+[deliver] held 37 | fetched 19 dup 0 refused 0 broken 1 resumed 28 unanswered 33 empty 0 nomem 0 appendfail 0 | served 54 (empty 0) of 54 want(s) | own link map 48 | cuts 1 (fail 0)
+[field] |................| e  17 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 19
+[field] |................| e  19 mine 0 theirs 0
+[field] |................| e  17 mine 0 theirs 0
+[field] |................| e  15 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 16
+[field] |................| e  15 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 15
+[field] |................| e  14 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 15
+[field] |................| e  15 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 15
+[field] |................| e  14 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 15
+[field] |................| e  15 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 12
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 12
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 12
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 12
+[field] |................| e  12 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 12
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 12
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 9
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[link] window -> @LAT103LON282 (link live 49/48, TTDB 79211B, heap 14908)
+[order] seq 88 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:818
+[deliver] held 37 | fetched 19 dup 0 refused 0 broken 1 resumed 28 unanswered 38 empty 0 nomem 0 appendfail 0 | served 54 (empty 0) of 54 want(s) | own link map 49 | cuts 1 (fail 0)
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 4
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[bar] frame 5500 bar 45: 8 episode(s) (own 8, held 0) 0 term(s) digest 0x00000000
+[bar] frame 5500 bar 44: 16 episode(s) (own 8, held 8) 2 term(s) digest 0xcb787962
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[link] window -> @LAT103LON283 (link live 41/48, TTDB 81233B, heap 12724)
+[order] seq 89 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:820
+[deliver] held 39 | fetched 21 dup 0 refused 0 broken 1 resumed 32 unanswered 42 empty 0 nomem 0 appendfail 0 | served 54 (empty 0) of 54 want(s) | own link map 50 | cuts 1 (fail 0)
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[link] window -> @LAT103LON284 (link live 42/48, TTDB 77179B, heap 12500)
+[order] seq 90 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:822
+[deliver] held 32 | fetched 30 dup 0 refused 0 broken 1 resumed 37 unanswered 48 empty 0 nomem 0 appendfail 0 | served 69 (empty 0) of 69 want(s) | own link map 51 | cuts 3 (fail 0)
+[link] window -> @LAT103LON285 (link live 43/48, TTDB 79798B, heap 12524)
+[order] seq 91 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:824
+[deliver] held 35 | fetched 33 dup 0 refused 0 broken 1 resumed 43 unanswered 55 empty 0 nomem 0 appendfail 0 | served 69 (empty 0) of 69 want(s) | own link map 52 | cuts 3 (fail 0)
+[link] window -> @LAT103LON286 (link live 44/48, TTDB 82417B, heap 12796)
+[order] seq 92 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:826
+[deliver] held 38 | fetched 36 dup 0 refused 0 broken 1 resumed 44 unanswered 58 empty 1 nomem 0 appendfail 0 | served 82 (empty 0) of 82 want(s) | own link map 53 | cuts 3 (fail 0)
+[wifi] scan: 5 AP(s) folded into @LAT96 window
+[entity] window covered (run 2, core 0)
+[link] window -> @LAT103LON287 (link live 45/48, TTDB 83608B, heap 14388)
+[order] seq 93 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:829
+[deliver] held 39 | fetched 37 dup 0 refused 0 broken 1 resumed 47 unanswered 63 empty 2 nomem 0 appendfail 0 | served 88 (empty 0) of 88 want(s) | own link map 54 | cuts 3 (fail 0)
+[link] window -> @LAT103LON288 (link live 46/48, TTDB 79549B, heap 15180)
+[order] seq 94 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:831
+[deliver] held 32 | fetched 38 dup 0 refused 0 broken 1 resumed 51 unanswered 68 empty 3 nomem 0 appendfail 0 | served 88 (empty 0) of 88 want(s) | own link map 55 | cuts 4 (fail 0)
+[link] window -> @LAT103LON289 (link live 47/48, TTDB 80740B, heap 14352)
+[order] seq 95 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:833
+[deliver] held 33 | fetched 39 dup 0 refused 0 broken 1 resumed 51 unanswered 74 empty 4 nomem 0 appendfail 0 | served 97 (empty 0) of 97 want(s) | own link map 56 | cuts 4 (fail 0)
+[field] merged peer trace: 1 cell(s) raised, energy 106
+[field] |........3.......| e  98 mine 0 theirs 1
+[field] |........3.......| e  88 mine 0 theirs 1
+[field] |........2.......| e  77 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 76
+[field] |........2.......| e  71 mine 0 theirs 1
+[field] |........2.......| e  63 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 62
+[field] |........2.......| e  58 mine 0 theirs 1
+[field] |........1.......| e  51 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 52
+[field] |........1.......| e  48 mine 0 theirs 1
+[field] |........1.......| e  43 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 43
+[field] |........1.......| e  40 mine 0 theirs 1
+[field] |........1.......| e  36 mine 0 theirs 1
+[field] |........1.......| e  32 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 32
+[field] |........1.......| e  30 mine 0 theirs 1
+[field] |........1.......| e  27 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 27
+[field] |........0.......| e  25 mine 0 theirs 1
+[field] |................| e  23 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 23
+[field] |................| e  22 mine 0 theirs 0
+[link] window -> @LAT103LON290 (link live 48/48, TTDB 81931B, heap 14636)
+[order] seq 96 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:835
+[deliver] held 34 | fetched 40 dup 0 refused 0 broken 1 resumed 51 unanswered 78 empty 5 nomem 0 appendfail 0 | served 97 (empty 0) of 97 want(s) | own link map 57 | cuts 4 (fail 0)
+[field] |................| e  19 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 20
+[field] |................| e  19 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 19
+[field] |................| e  18 mine 0 theirs 0
+[field] |................| e  16 mine 0 theirs 0
+[field] |................| e  14 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 132
+[field] |........4.......| e 122 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 121
+[field] |........4.......| e 112 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 111
+[field] |........3.......| e 103 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 102
+[field] |........3.......| e  94 mine 0 theirs 1
+[field] |........3.......| e  84 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 83
+[link] window -> @LAT103LON291 (link live 49/48, TTDB 83122B, heap 14668)
+[order] seq 97 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:837
+[deliver] held 35 | fetched 41 dup 0 refused 0 broken 1 resumed 53 unanswered 82 empty 6 nomem 0 appendfail 0 | served 105 (empty 0) of 106 want(s) | own link map 58 | cuts 4 (fail 0)
+[field] |........2.......| e  69 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 68
+[field] |........2.......| e  63 mine 0 theirs 1
+[field] |........2.......| e  56 mine 0 theirs 1
+[field] |........1.......| e  50 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 49
+[field] |........1.......| e  46 mine 0 theirs 1
+[field] |........1.......| e  41 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 41
+[field] |........1.......| e  38 mine 0 theirs 1
+[field] |........1.......| e  34 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 35
+[field] |........1.......| e  33 mine 0 theirs 1
+[field] |........1.......| e  29 mine 0 theirs 1
+[field] |........1.......| e  26 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 26
+[field] |........0.......| e  24 mine 0 theirs 1
+[field] |................| e  22 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 22
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  19 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 19
+[field] |................| e  18 mine 0 theirs 0
+[field] |................| e  16 mine 0 theirs 0
+[field] |................| e  14 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 137
+[field] |...........4....| e 125 mine 0 theirs 1
+[field] |...........4....| e 111 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 112
+[field] |...........3....| e 102 mine 0 theirs 1
+[field] |...........3....| e  90 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 91
+[field] |...........3....| e  82 mine 0 theirs 1
+[field] |...........2....| e  74 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 75
+[field] |...........2....| e  68 mine 0 theirs 1
+[field] |...........2....| e  61 mine 0 theirs 1
+[link] window -> @LAT103LON292 (link live 41/48, TTDB 75619B, heap 15456)
+[field] |...........1....| e  54 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 54
+[order] seq 98 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:839
+[deliver] held 36 | fetched 42 dup 0 refused 0 broken 1 resumed 53 unanswered 89 empty 6 nomem 0 appendfail 0 | served 116 (empty 0) of 116 want(s) | own link map 59 | cuts 4 (fail 0)
+[field] |...........1....| e  49 mine 0 theirs 1
+[field] |...........1....| e  44 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 44
+[field] |...........1....| e  41 mine 0 theirs 1
+[field] |...........1....| e  36 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 37
+[field] |...........1....| e  34 mine 0 theirs 1
+[field] |...........1....| e  30 mine 0 theirs 1
+[field] |...........0....| e  26 mine 0 theirs 1
+[field] |................| e  23 mine 0 theirs 0
+[field] |................| e  19 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 19
+[field] |................| e  18 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 18
+[field] |................| e  17 mine 0 theirs 0
+[field] |................| e  15 mine 0 theirs 0
+[field] |................| e  13 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 5
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 5
+[field] |................| e   5 mine 0 theirs 0
+[bar] frame 5500 bar 46: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[bar] frame 5500 bar 45: 18 episode(s) (own 8, held 10) 2 term(s) digest 0x64df73f3
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[link] window -> @LAT103LON293 (link live 42/48, TTDB 76810B, heap 15424)
+[field] |................| e   2 mine 0 theirs 0
+[order] seq 99 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:841
+[deliver] held 37 | fetched 43 dup 0 refused 0 broken 1 resumed 53 unanswered 95 empty 6 nomem 0 appendfail 0 | served 122 (empty 0) of 122 want(s) | own link map 60 | cuts 4 (fail 0)
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[link] window -> @LAT103LON294 (link live 43/48, TTDB 77288B, heap 15712)
+[order] seq 100 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:843
+[deliver] held 37 | fetched 43 dup 0 refused 0 broken 1 resumed 53 unanswered 100 empty 6 nomem 0 appendfail 0 | served 122 (empty 0) of 122 want(s) | own link map 61 | cuts 4 (fail 0)
+[link] window -> @LAT103LON295 (link live 44/48, TTDB 77766B, heap 13032)
+[order] seq 101 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:845
+[deliver] held 37 | fetched 43 dup 0 refused 0 broken 1 resumed 53 unanswered 104 empty 6 nomem 0 appendfail 0 | served 128 (empty 0) of 128 want(s) | own link map 62 | cuts 4 (fail 0)
+[link] window -> @LAT103LON296 (link live 45/48, TTDB 78244B, heap 12760)
+[order] seq 102 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:847
+[deliver] held 37 | fetched 43 dup 0 refused 0 broken 1 resumed 53 unanswered 109 empty 6 nomem 0 appendfail 0 | served 130 (empty 0) of 130 want(s) | own link map 63 | cuts 4 (fail 0)
+[wifi] scan: 6 AP(s) folded into @LAT96 window
+[entity] window -> @LAT103LON8213 (entity live 22/48, TTDB 79667B)
+[link] window -> @LAT103LON297 (link live 46/48, TTDB 80145B, heap 15168)
+[order] seq 104 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:850
+[deliver] held 37 | fetched 43 dup 0 refused 0 broken 1 resumed 53 unanswered 113 empty 6 nomem 0 appendfail 0 | served 132 (empty 1) of 133 want(s) | own link map 64 | cuts 4 (fail 0)
+[link] window -> @LAT103LON298 (link live 47/48, TTDB 78485B, heap 14924)
+[order] seq 105 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:853
+[deliver] held 34 | fetched 48 dup 0 refused 0 broken 1 resumed 55 unanswered 119 empty 7 nomem 0 appendfail 0 | served 134 (empty 1) of 135 want(s) | own link map 65 | cuts 5 (fail 0)
+[link] window -> @LAT103LON299 (link live 48/48, TTDB 79678B, heap 15940)
+[order] seq 106 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:855
+[deliver] held 35 | fetched 49 dup 0 refused 0 broken 1 resumed 55 unanswered 125 empty 8 nomem 0 appendfail 0 | served 141 (empty 1) of 142 want(s) | own link map 66 | cuts 5 (fail 0)
+[link] window -> @LAT103LON300 (link live 49/48, TTDB 80871B, heap 11964)
+[order] seq 107 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:857
+[deliver] held 36 | fetched 50 dup 0 refused 0 broken 1 resumed 55 unanswered 131 empty 9 nomem 0 appendfail 0 | served 141 (empty 1) of 142 want(s) | own link map 67 | cuts 5 (fail 0)
+[field] merged peer trace: 1 cell(s) raised, energy 77
+[field] |...............2| e  76 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 71
+[field] |...............2| e  70 mine 0 theirs 1
+[field] |...............2| e  63 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 59
+[field] |...............2| e  59 mine 0 theirs 1
+[field] |...............2| e  53 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 49
+[field] |...............1| e  49 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 46
+[field] |...............1| e  46 mine 0 theirs 1
+[field] |...............1| e  41 mine 0 theirs 1
+[link] window -> @LAT103LON301 (link live 41/48, TTDB 82176B, heap 13040)
+[field] |...............1| e  37 mine 0 theirs 1
+[order] seq 108 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:859
+[deliver] held 37 | fetched 51 dup 0 refused 0 broken 1 resumed 57 unanswered 137 empty 9 nomem 0 appendfail 0 | served 146 (empty 1) of 147 want(s) | own link map 68 | cuts 5 (fail 0)
+[field] |...............1| e  32 mine 0 theirs 1
+[field] |...............1| e  27 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 28
+[field] |...............1| e  27 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 27
+[field] |...............1| e  26 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 176
+[field] |..............50| e 165 mine 0 theirs 2
+[field] |..............4.| e 147 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 154
+[field] |..............4.| e 145 mine 0 theirs 1
+[field] |..............4.| e 129 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 127
+[field] |..............3.| e 119 mine 0 theirs 1
+[field] |..............3.| e 106 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 104
+[field] |..............3.| e  97 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 95
+[field] |..............2.| e  89 mine 0 theirs 1
+[field] |..............2.| e  80 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 79
+[field] |..............2.| e  73 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 72
+[field] |..............2.| e  69 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 68
+[field] |..............1.| e  65 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 64
+[field] |..............1.| e  61 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 60
+[field] |..............1.| e  57 mine 0 theirs 1
+[field] |..............1.| e  51 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 52
+[field] |..............1.| e  50 mine 0 theirs 1
+[field] |..............1.| e  44 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 44
+[field] |..............1.| e  41 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 40
+[field] |..............1.| e  38 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 39
+[field] |..............1.| e  38 mine 0 theirs 1
+[field] |..............0.| e  34 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 34
+[field] |................| e  33 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 32
+[field] |................| e  31 mine 0 theirs 0
+[field] |................| e  28 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 27
+[field] |................| e  26 mine 0 theirs 0
+[link] window -> @LAT103LON302 (link live 42/48, TTDB 82654B, heap 15152)
+[field] |................| e  23 mine 0 theirs 0
+[order] seq 109 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:861
+[deliver] held 37 | fetched 51 dup 0 refused 0 broken 1 resumed 57 unanswered 141 empty 9 nomem 0 appendfail 0 | served 147 (empty 1) of 148 want(s) | own link map 69 | cuts 5 (fail 0)
+[field] |................| e  20 mine 0 theirs 0
+[field] |................| e  18 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 18
+[field] |................| e  18 mine 0 theirs 0
+[field] |................| e  16 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 16
+[field] |................| e  16 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 15
+[field] |................| e  15 mine 0 theirs 0
+[field] |................| e  13 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[bar] frame 5500 bar 47: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[bar] frame 5500 bar 46: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[link] window -> @LAT103LON303 (link live 43/48, TTDB 83132B, heap 15444)
+[field] |................| e   2 mine 0 theirs 0
+[order] seq 110 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:863
+[deliver] held 37 | fetched 51 dup 0 refused 0 broken 1 resumed 57 unanswered 146 empty 9 nomem 0 appendfail 0 | served 149 (empty 1) of 150 want(s) | own link map 70 | cuts 5 (fail 0)
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[link] window -> @LAT103LON304 (link live 44/48, TTDB 85040B, heap 13028)
+[order] seq 111 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:865
+[deliver] held 39 | fetched 53 dup 0 refused 0 broken 1 resumed 58 unanswered 151 empty 9 nomem 0 appendfail 0 | served 149 (empty 1) of 151 want(s) | own link map 71 | cuts 5 (fail 0)
+[link] window -> @LAT103LON305 (link live 45/48, TTDB 85518B, heap 15688)
+[order] seq 112 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:867
+[deliver] held 39 | fetched 53 dup 0 refused 0 broken 1 resumed 58 unanswered 157 empty 9 nomem 0 appendfail 0 | served 154 (empty 1) of 155 want(s) | own link map 72 | cuts 5 (fail 0)
+[social] field @LAT101LON0 sid:2136c351 node:0x100 co:0 reinforced:0
+[social] field @LAT101LON1 sid:27653a2f node:0x010 co:0 reinforced:0
+[social] field @LAT101LON2 sid:42caf4db node:0x300 co:255 reinforced:806
+[social] field @LAT101LON3 sid:2665389c node:0x011 co:0 reinforced:0
+[social] field @LAT101LON4 sid:29653d55 node:0x012 co:0 reinforced:0
+[social] field persisted: 5 trace(s) (TTDB 82168B)
+[link] window -> @LAT103LON306 (link live 46/48, TTDB 82646B, heap 15984)
+[order] seq 113 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:869
+[deliver] held 34 | fetched 56 dup 0 refused 0 broken 1 resumed 58 unanswered 163 empty 10 nomem 0 appendfail 0 | served 154 (empty 1) of 155 want(s) | own link map 72 | cuts 6 (fail 0)
+[wifi] scan: 6 AP(s) folded into @LAT96 window
+[entity] window covered (run 2, core 5)
+[link] window -> @LAT103LON307 (link live 47/48, TTDB 83839B, heap 15456)
+[order] seq 114 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:871
+[deliver] held 35 | fetched 57 dup 0 refused 0 broken 1 resumed 59 unanswered 167 empty 11 nomem 0 appendfail 0 | served 156 (empty 1) of 157 want(s) | own link map 72 | cuts 6 (fail 0)
+[link] window -> @LAT103LON308 (link live 48/48, TTDB 85032B, heap 15420)
+[order] seq 115 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:873
+[deliver] held 36 | fetched 58 dup 0 refused 0 broken 1 resumed 61 unanswered 171 empty 12 nomem 0 appendfail 0 | served 157 (empty 1) of 158 want(s) | own link map 72 | cuts 6 (fail 0)
+[link] window -> @LAT103LON309 (link live 49/48, TTDB 86225B, heap 15416)
+[order] seq 116 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:875
+[deliver] held 37 | fetched 59 dup 0 refused 0 broken 1 resumed 63 unanswered 175 empty 13 nomem 0 appendfail 0 | served 162 (empty 1) of 163 want(s) | own link map 72 | cuts 6 (fail 0)
+[link] window -> @LAT103LON310 (link live 41/48, TTDB 78812B, heap 12492)
+[order] seq 117 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:877
+[deliver] held 38 | fetched 60 dup 0 refused 0 broken 1 resumed 64 unanswered 179 empty 14 nomem 0 appendfail 0 | served 162 (empty 1) of 163 want(s) | own link map 72 | cuts 6 (fail 0)
+[link] window -> @LAT103LON311 (link live 42/48, TTDB 80005B, heap 15452)
+[order] seq 118 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:879
+[deliver] held 39 | fetched 61 dup 0 refused 0 broken 1 resumed 64 unanswered 184 empty 15 nomem 0 appendfail 0 | served 169 (empty 1) of 170 want(s) | own link map 72 | cuts 6 (fail 0)
+[link] window -> @LAT103LON312 (link live 43/48, TTDB 75466B, heap 10904)
+[order] seq 119 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:881
+[deliver] held 32 | fetched 62 dup 0 refused 0 broken 1 resumed 64 unanswered 187 empty 16 nomem 0 appendfail 0 | served 171 (empty 1) of 172 want(s) | own link map 72 | cuts 7 (fail 0)
+[bar] frame 5500 bar 48: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[bar] frame 5500 bar 47: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[link] window -> @LAT103LON313 (link live 44/48, TTDB 76659B, heap 14932)
+[order] seq 120 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:883
+[deliver] held 33 | fetched 63 dup 0 refused 0 broken 1 resumed 65 unanswered 191 empty 17 nomem 0 appendfail 0 | served 173 (empty 1) of 174 want(s) | own link map 72 | cuts 7 (fail 0)
+[link] window -> @LAT103LON314 (link live 45/48, TTDB 77852B, heap 14920)
+[order] seq 121 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:885
+[deliver] held 34 | fetched 64 dup 0 refused 0 broken 1 resumed 65 unanswered 195 empty 18 nomem 0 appendfail 0 | served 173 (empty 1) of 174 want(s) | own link map 72 | cuts 7 (fail 0)
+[field] merged peer trace: 1 cell(s) raised, energy 108
+[field] |....3...........| e 102 mine 0 theirs 1
+[field] |....3...........| e  91 mine 0 theirs 1
+[field] |....3...........| e  81 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 80
+[field] |....2...........| e  76 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 73
+[field] |....2...........| e  69 mine 0 theirs 1
+[field] |....2...........| e  62 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 60
+[field] |....2...........| e  57 mine 0 theirs 1
+[field] |....1...........| e  51 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 50
+[field] |....1...........| e  47 mine 0 theirs 1
+[field] |....1...........| e  42 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 41
+[field] |....1...........| e  39 mine 0 theirs 1
+[field] |....1...........| e  35 mine 0 theirs 1
+[field] |....1...........| e  31 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 31
+[field] |....1...........| e  30 mine 0 theirs 1
+[field] |....1...........| e  27 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 26
+[field] |....0...........| e  25 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 25
+[field] |....0...........| e  24 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 24
+[field] |................| e  23 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 23
+[field] |................| e  22 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 22
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  19 mine 0 theirs 0
+[field] |................| e  17 mine 0 theirs 0
+[field] |................| e  15 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 13
+[field] |................| e  13 mine 0 theirs 0
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0
+[link] window -> @LAT103LON315 (link live 46/48, TTDB 79045B, heap 12004)
+[order] seq 122 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:887
+[deliver] held 35 | fetched 65 dup 0 refused 0 broken 1 resumed 73 unanswered 202 empty 18 nomem 0 appendfail 0 | served 175 (empty 1) of 176 want(s) | own link map 72 | cuts 7 (fail 0)
+[field] |................| e   8 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 8
+[field] |................| e   8 mine 0 theirs 0
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 7
+[field] |................| e   7 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 6
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   6 mine 0 theirs 0
+[field] |................| e   5 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   4 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 3
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   3 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[link] window -> @LAT103LON316 (link live 47/48, TTDB 79523B, heap 13856)
+[order] seq 123 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:889
+[deliver] held 35 | fetched 65 dup 0 refused 0 broken 1 resumed 73 unanswered 207 empty 18 nomem 0 appendfail 0 | served 178 (empty 1) of 180 want(s) | own link map 72 | cuts 7 (fail 0)
+[field] |................| e   2 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 2
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   2 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 1
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[wifi] scan: 6 AP(s) folded into @LAT96 window
+[entity] window covered (run 3, core 5)
+[field] merged peer trace: 1 cell(s) raised, energy 1
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 1
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[field] |................| e   1 mine 0 theirs 0
+[link] window -> @LAT103LON317 (link live 48/48, TTDB 81431B, heap 12216)
+[order] seq 124 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:891
+[deliver] held 37 | fetched 67 dup 0 refused 0 broken 1 resumed 73 unanswered 211 empty 20 nomem 0 appendfail 0 | served 183 (empty 1) of 184 want(s) | own link map 72 | cuts 7 (fail 0)
+[link] window -> @LAT103LON318 (link live 49/48, TTDB 82624B, heap 15420)
+[order] seq 125 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:893
+[deliver] held 38 | fetched 68 dup 0 refused 0 broken 1 resumed 76 unanswered 216 empty 21 nomem 0 appendfail 0 | served 185 (empty 1) of 186 want(s) | own link map 72 | cuts 7 (fail 0)
+[link] window -> @LAT103LON319 (link live 41/48, TTDB 83929B, heap 14944)
+[order] seq 126 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:895
+[deliver] held 39 | fetched 69 dup 0 refused 0 broken 1 resumed 76 unanswered 224 empty 22 nomem 0 appendfail 0 | served 188 (empty 1) of 189 want(s) | own link map 72 | cuts 7 (fail 0)
+[link] window -> @LAT103LON320 (link live 42/48, TTDB 79410B, heap 15188)
+[order] seq 127 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:897
+[deliver] held 32 | fetched 70 dup 0 refused 0 broken 1 resumed 77 unanswered 230 empty 23 nomem 0 appendfail 0 | served 189 (empty 1) of 190 want(s) | own link map 72 | cuts 8 (fail 0)
+[link] window -> @LAT103LON321 (link live 43/48, TTDB 80603B, heap 15228)
+[order] seq 128 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:899
+[deliver] held 33 | fetched 71 dup 0 refused 0 broken 1 resumed 78 unanswered 234 empty 24 nomem 0 appendfail 0 | served 192 (empty 1) of 193 want(s) | own link map 72 | cuts 8 (fail 0)
+[link] window -> @LAT103LON322 (link live 44/48, TTDB 81796B, heap 14692)
+[order] seq 129 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:901
+[deliver] held 34 | fetched 72 dup 0 refused 0 broken 1 resumed 78 unanswered 238 empty 25 nomem 0 appendfail 0 | served 195 (empty 1) of 196 want(s) | own link map 72 | cuts 8 (fail 0)
+[bar] frame 5500 bar 49: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[bar] frame 5500 bar 48: 20 episode(s) (own 10, held 10) 2 term(s) digest 0x0938c1d3
+[link] window -> @LAT103LON323 (link live 45/48, TTDB 82989B, heap 14392)
+[order] seq 130 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:903
+[deliver] held 35 | fetched 73 dup 0 refused 0 broken 1 resumed 79 unanswered 243 empty 26 nomem 0 appendfail 0 | served 198 (empty 1) of 199 want(s) | own link map 72 | cuts 8 (fail 0)
+[field] merged peer trace: 1 cell(s) raised, energy 95
+[field] |..............3.| e  95 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 87
+[field] |..............3.| e  87 mine 0 theirs 1
+[field] |..............3.| e  79 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 71
+[field] |..............2.| e  71 mine 0 theirs 1
+[field] |..............2.| e  64 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 59
+[field] |..............2.| e  59 mine 0 theirs 1
+[link] window -> @LAT103LON324 (link live 46/48, TTDB 84182B, heap 15164)
+[order] seq 131 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:905
+[deliver] held 36 | fetched 74 dup 0 refused 0 broken 1 resumed 80 unanswered 251 empty 27 nomem 0 appendfail 0 | served 198 (empty 1) of 199 want(s) | own link map 72 | cuts 8 (fail 0)
+[field] |..............2.| e  54 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 49
+[field] |..............1.| e  49 mine 0 theirs 1
+[field] |..............1.| e  45 mine 0 theirs 1
+[field] |..............1.| e  40 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 37
+[field] |..............1.| e  37 mine 0 theirs 1
+[field] |..............1.| e  34 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 31
+[field] |..............1.| e  31 mine 0 theirs 1
+[field] |..............1.| e  28 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 26
+[field] |..............1.| e  26 mine 0 theirs 1
+[field] |..............0.| e  24 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 22
+[field] |................| e  22 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 21
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  19 mine 0 theirs 0
+[field] |................| e  17 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 269
+[field] |.............9..| e 269 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 246
+[field] |.............8..| e 246 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 225
+[field] |.............8..| e 225 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 206
+[field] |.............7..| e 206 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 189
+[field] |.............6..| e 189 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 174
+[field] |.............6..| e 174 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 160
+[field] |.............5..| e 160 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 148
+[field] |.............5..| e 148 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 136
+[field] |.............4..| e 136 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 126
+[field] |.............4..| e 126 mine 0 theirs 1
+[field] |.............3..| e 115 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 104
+[field] |.............3..| e 104 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 97
+[field] |.............3..| e  97 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 90
+[field] |.............2..| e  90 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 83
+[field] |.............2..| e  83 mine 0 theirs 1
+[field] merged peer trace: 3 cell(s) raised, energy 318
+[field] |......9......2..| e 318 mine 0 theirs 2
+[link] window -> @LAT103LON325 (link live 47/48, TTDB 85376B, heap 11732)
+[order] seq 132 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:907
+[deliver] held 37 | fetched 75 dup 0 refused 0 broken 1 resumed 83 unanswered 254 empty 28 nomem 0 appendfail 0 | served 199 (empty 1) of 200 want(s) | own link map 72 | cuts 8 (fail 0)
+[field] merged peer trace: 3 cell(s) raised, energy 292
+[field] |......8......2..| e 292 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 268
+[field] |......7......2..| e 268 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 245
+[field] |......7......1..| e 245 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 226
+[field] |......6......1..| e 226 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 209
+[field] |......5......1..| e 209 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 192
+[field] |......5......1..| e 192 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 177
+[field] |......4......1..| e 177 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 162
+[field] |......4......1..| e 162 mine 0 theirs 2
+[field] merged peer trace: 2 cell(s) raised, energy 148
+[field] |......4......1..| e 148 mine 0 theirs 2
+[field] merged peer trace: 3 cell(s) raised, energy 137
+[field] |......3......0..| e 137 mine 0 theirs 2
+[field] |......3.........| e 125 mine 0 theirs 1
+[field] |......3.........| e 110 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 100
+[field] |......2.........| e 100 mine 0 theirs 1
+[field] |......2.........| e  89 mine 0 theirs 1
+[field] merged peer trace: 3 cell(s) raised, energy 83
+[field] |......2.........| e  83 mine 0 theirs 1
+[field] |......2.........| e  76 mine 0 theirs 1
+[field] merged peer trace: 3 cell(s) raised, energy 71
+[field] |......1.........| e  71 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 68
+[field] |......1.........| e  68 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 64
+[field] |......1.........| e  64 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 60
+[field] |......1.........| e  60 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 56
+[field] |......1.........| e  56 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 52
+[field] |......1.........| e  52 mine 0 theirs 1
+[field] merged peer trace: 1 cell(s) raised, energy 48
+[field] |......1.........| e  48 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 46
+[field] |......1.........| e  46 mine 0 theirs 1
+[field] |......1.........| e  42 mine 0 theirs 1
+[field] merged peer trace: 2 cell(s) raised, energy 40
+[field] |......0.........| e  40 mine 0 theirs 1
+[field] |................| e  36 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 35
+[field] |................| e  34 mine 0 theirs 0
+[field] merged peer trace: 2 cell(s) raised, energy 33
+[field] |................| e  33 mine 0 theirs 0
+[field] |................| e  30 mine 0 theirs 0
+[link] window -> @LAT103LON326 (link live 48/48, TTDB 86575B, heap 15176)
+[order] seq 133 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:121 0x00000300:909
+[deliver] held 38 | fetched 76 dup 0 refused 0 broken 1 resumed 85 unanswered 259 empty 29 nomem 0 appendfail 0 | served 200 (empty 1) of 201 want(s) | own link map 72 | cuts 8 (fail 0)
+[field] merged peer trace: 2 cell(s) raised, energy 29
+[field] |................| e  29 mine 0 theirs 0
+[field] |................| e  27 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 25
+[field] |................| e  25 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 23
+[field] |................| e  23 mine 0 theirs 0
+[field] |................| e  21 mine 0 theirs 0
+[field] |................| e  17 mine 0 theirs 0
+[field] |................| e  16 mine 0 theirs 0
+[field] |................| e  14 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 12
+[field] |................| e  12 mine 0 theirs 0
+[field] |................| e  12 mine 0 theirs 0
+[field] merged peer trace: 1 cell(s) raised, energy 11
+[field] |................| e  11 mine 0 theirs 0
+[field] |................| e  10 mine 0 theirs 0
+[field] |................| e   9 mine 0 theirs 0

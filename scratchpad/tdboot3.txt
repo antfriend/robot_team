@@ -1,0 +1,30 @@
+re-attached after 0.02s
+TTDB loaded: 100499 bytes, 150/288 records indexed (138 free)
+[episode] boot in 1095 ms: 80 live episode(s) replayed, 80 present, maxalloc 106484 B
+[episode] live 80 present 80 dead 0 horizon 494 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L40/48 E40/48 M0/24 A0/24
+[order] seq 359 recovered, next episode seq 360, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 40 | cuts 0 (fail 0) | bars 16 on flash, 0 written (fail 0)
+[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
+RFC globe loaded: 52692 bytes, 44 records
+Feelings globe loaded: 37569 bytes, 48 records
+[social] field: 5 peer trace(s) reloaded from @LAT101 — age unknown, clamped to 64 and FADED until heard (RFC-0010 s5.4)
+GPS UART1 (rx 44 tx 43) @ 38400 baud
+BLE near-range tier up (advert + passive scan)
+[social] fleet table  self 0x200 ep 4  peers 5 (4 silent)  stale-reports 0
+[social]   0x200  spk:v gps:d wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v   (self)
+[social]   0x100  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x010  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x300  co: 64~  mic:X spk:v imu:X wifi:X ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v   FADED 
+[social]   0x011  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x012  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   pose: shape only  (gps exercised 0 of 1 declared)  stillness-witnesses 1  ears 1
+T-Deck console 0x00000200 online (hw on, LoRa off, GPS on)
+[field] armed: 16 cells, half-life 10s, floor 24, rides HELLO (+19 B). Deposits: press 'f' at the step you want.
+[social] self ep 4: spk:v gps:d wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[intero] pin 2356mV x2.00 = pack 4712mV (255%) | die 40.8C | maxalloc 13K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[stream] adopted stream=0x9afbb748 t_ms=42957634 wall=0 from=0x300 offset=0ms
+[social] self ep 5: spk:v gps:v wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[social] self ep 6: spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[scene] scene 0 ALONE (era 1 cond 0x00000200)
+[wifi] scan: 7 AP(s) folded into @LAT96 window
+
