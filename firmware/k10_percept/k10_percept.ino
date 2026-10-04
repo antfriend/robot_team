@@ -2017,6 +2017,13 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
     if (!gReqPending) { gPendingReq = t; gReqPending = true; }  // defer to loop()
   } else if (t.type == toot::TTDB_PUT) {
     if (!gPutPending) { gPendingPut = t; gPutPending = true; }  // flash write -> loop()
+  } else {
+    // ⚠ This branch is the K10's whole radio inbox: PULSE, HELLO, CMD, TIME_REQ, PERCEPT.
+    // ACT-III C0 (04a0fb5, 2026-10-02) deleted the CLEAR_PERCEPTS branch above it and the
+    // edit swallowed this `else`, leaving the call inside the TTDB_PUT branch: for two days
+    // the K10 heard NO beacon (it conducted a chart of its own, frame 9000, while the
+    // handhelds kept theirs) and ignored every radio CMD, and a PUT slice was also handled
+    // here in the WiFi task as well as from loop().
     handleToot(t, sendEspNow, nullptr);                         // cheap, no burst
   }
 }
