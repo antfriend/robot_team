@@ -192,7 +192,7 @@ certainly needs `huge_app` first. ⚠ **`huge_app` MOVES the LittleFS partition*
 0x310000, as the T-Deck's): pull the TTDB first and re-image it at the new offset, or the
 board boots with an empty store.
 
-⚠ **V4-A IS ON `huge_app` SINCE 2026-10-04** (stage 2 needed the room: 40% of 3 MB). Build it
+⚠ **V4-A AND V4-B ARE ON `huge_app` SINCE 2026-10-04** (stage 2 needed the room: 40% of 3 MB). Build it
 with `--fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app"` and flash its FS
 with **`Upload-Tdeck-FS.ps1`** (0x310000). **`Upload-V4-FS.ps1` (0x290000) would now write
 into V4-A's app region.** A plain default-scheme compile/upload would also put back the old
@@ -204,7 +204,10 @@ table and orphan the store. How it was moved, byte-exact (`scripts/repartition-v
    0x10000, FS 0x310000. The new app never boots against an empty store, so it cannot recover
    a wrong `seq`. `nvs` stays at 0x9000 in both tables.
 4. Boot banner: same `TTDB loaded: <bytes>, <n>/288` and the same `seq N recovered`.
-V4-B and V4-C are still on the default table until moved the same way.
+V4-C is still on the default table until moved the same way. 📎 **Unpack the raw partition,
+don't rely on the pull:** V4-B's FS held a second file, `belief.md` (1 373 B, a pushed
+belief), which `fleet.py pull` (the TTDB) does not return. It came back byte-identical via
+`pull --file belief` after the move.
 
 ### ⚠ THE MEASUREMENT BUILD — the flag, and the exact command line
 
