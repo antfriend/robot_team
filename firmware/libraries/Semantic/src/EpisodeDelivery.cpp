@@ -369,13 +369,13 @@ int16_t HeldIndex::nextOrdinal() const {
 }
 
 uint8_t HeldIndex::cuts(Cut* out, uint8_t max, bool force, uint16_t* covers,
-                        const BarIndex* recorded, uint16_t* early) const {
+                        const BarIndex* recorded, uint16_t* early, uint16_t hard_cap) const {
   if (covers) *covers = 0;
   if (early) *early = 0;
   const uint16_t q = EPISODEDELIVERY_HELD_QUOTA;
   if (n_ <= q || (!force && n_ < q + EPISODEDELIVERY_HELD_SLACK) || !out || !max) return 0;
   const uint16_t want = n_ - q;
-  const bool hard = n_ >= EPISODEDELIVERY_HELD_HARD;
+  const bool hard = n_ >= hard_cap;
   uint8_t runs = 0;
   uint16_t covered = 0, before = 0;
   for (uint16_t i = 0; i < want; ++i) {
@@ -394,6 +394,53 @@ uint8_t HeldIndex::cuts(Cut* out, uint8_t max, bool force, uint16_t* covers,
   if (covers) *covers = covered;
   if (early) *early = before;
   return runs;
+}
+
+uint16_t HeldIndex::authors() const {
+  uint16_t k = 0;
+  for (uint16_t i = 0; i < n_; ++i) {
+    bool seen = false;
+    for (uint16_t j = 0; j < i && !seen; ++j) seen = e_[j].agent == e_[i].agent;
+    if (!seen) ++k;
+  }
+  return k;
+}
+
+uint16_t heldHardCap(uint16_t authors, uint16_t board_max) {
+  if (board_max > EPISODEDELIVERY_HELD_HARD_MAX) board_max = EPISODEDELIVERY_HELD_HARD_MAX;
+  if (board_max < EPISODEDELIVERY_HELD_HARD) board_max = EPISODEDELIVERY_HELD_HARD;
+  const uint32_t want = (uint32_t)authors * EPISODEDELIVERY_HELD_PER_AUTHOR;
+  if (want < EPISODEDELIVERY_HELD_HARD) return EPISODEDELIVERY_HELD_HARD;
+  return want > board_max ? board_max : (uint16_t)want;
+}
+
+bool WantQueue::push(uint32_t src, const Want& w) {
+  const uint8_t next = (uint8_t)((head_ + 1) % EPISODEDELIVERY_WANT_QUEUE);
+  if (next == tail_) {
+    ++dropped_;
+    return false;
+  }
+  e_[head_] = E{src, w};
+  head_ = next;                        // publish last
+  return true;
+}
+
+bool WantQueue::pop(uint32_t* src, Want* w) {
+  while (tail_ != head_) {
+    const uint8_t t = tail_;
+    const uint8_t h = head_;
+    bool newer = false;
+    for (uint8_t i = (uint8_t)((t + 1) % EPISODEDELIVERY_WANT_QUEUE); i != h;
+         i = (uint8_t)((i + 1) % EPISODEDELIVERY_WANT_QUEUE))
+      if (e_[i].src == e_[t].src) { newer = true; break; }
+    const E e = e_[t];
+    tail_ = (uint8_t)((t + 1) % EPISODEDELIVERY_WANT_QUEUE);
+    if (newer) { ++superseded_; continue; }
+    if (src) *src = e.src;
+    if (w) *w = e.w;
+    return true;
+  }
+  return false;
 }
 
 void HeldIndex::cutDone(uint16_t removed) {

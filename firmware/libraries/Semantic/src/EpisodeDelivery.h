@@ -45,10 +45,29 @@ namespace semantic {
 // frame: until then the copy is part of a view not yet written down, and with a lane-wide
 // ring of 32 three authors would leave under 12 min (bar + settle) per author. Past HARD the
 // oldest go regardless, counted as `early`: the shared TTDB index (288) is the real bound.
+// The hard cap scales with the authors held (2026-10-04, six boards: four authors overran a
+// fixed 56 and cut copies before their bar was recorded): PER_AUTHOR x authors, never under
+// HELD_HARD, never over the board's own maximum (Node::setHeldHardMax, <= HELD_HARD_MAX),
+// which is what its share of the 288-slot TTDB index allows.
 #ifndef EPISODEDELIVERY_HELD_HARD
 #define EPISODEDELIVERY_HELD_HARD 56
 #endif
-#define EPISODEDELIVERY_HELD_CAP (EPISODEDELIVERY_HELD_HARD + 8)
+#ifndef EPISODEDELIVERY_HELD_PER_AUTHOR
+#define EPISODEDELIVERY_HELD_PER_AUTHOR 16     // bar + settle (~12 copies) + fetch backlog
+#endif
+#ifndef EPISODEDELIVERY_HELD_HARD_MAX
+#define EPISODEDELIVERY_HELD_HARD_MAX 80
+#endif
+#define EPISODEDELIVERY_HELD_CAP (EPISODEDELIVERY_HELD_HARD_MAX + 8)
+// The hard cap for `authors` held, within `board_max`.
+uint16_t heldHardCap(uint16_t authors, uint16_t board_max);
+
+// WANTs waiting at the author. One slot dropped every WANT that arrived while another was
+// pending, and each asker then waited out a 4 s timeout: with four or five boards asking
+// one author, most of a V4's 574 'unanswered' (2026-10-04).
+#ifndef EPISODEDELIVERY_WANT_QUEUE
+#define EPISODEDELIVERY_WANT_QUEUE 5           // ring slots; one stays empty
+#endif
 
 // Largest episode a receiver will reassemble: the worst link window + a maximal order block,
 // rounded up. A longer DATA total is refused at its first slice, never truncated.
@@ -124,6 +143,24 @@ size_t encodeData(const DataHdr& h, const uint8_t* bytes, size_t n, uint8_t* p, 
 bool decodeData(const uint8_t* p, size_t len, DataHdr& h, const uint8_t** bytes, size_t* n);
 size_t encodeDone(const Done& d, uint8_t* p, size_t cap);
 bool decodeDone(const uint8_t* p, size_t len, Done& d);
+
+// Callback pushes, loop pops (the VectorInbox pattern: head_ written only by the writer,
+// published last). pop() skips a WANT superseded by a newer one from the same asker still
+// queued: the asker has moved on (a resume, or a new fetch), so serving the old one is
+// airtime spent on slices it will ignore.
+class WantQueue {
+ public:
+  bool push(uint32_t src, const Want& w);              // callback-safe; false = full
+  bool pop(uint32_t* src, Want* w);                    // loop()
+  uint32_t dropped() const { return dropped_; }
+  uint32_t superseded() const { return superseded_; }
+
+ private:
+  struct E { uint32_t src; Want w; };
+  E e_[EPISODEDELIVERY_WANT_QUEUE];
+  volatile uint8_t head_ = 0, tail_ = 0;
+  uint32_t dropped_ = 0, superseded_ = 0;
+};
 
 // ---------------------------------------------------------------------------------------
 // the receiver: ONE episode in flight
@@ -208,7 +245,9 @@ class HeldIndex {
   // (BarIndex::covers) is cut, unless count >= HARD. Returns runs written (<= max);
   // `*covers` = copies covered, `*early` = of those, cut before their bar was recorded.
   uint8_t cuts(Cut* out, uint8_t max, bool force, uint16_t* covers,
-               const BarIndex* recorded = nullptr, uint16_t* early = nullptr) const;
+               const BarIndex* recorded = nullptr, uint16_t* early = nullptr,
+               uint16_t hard = EPISODEDELIVERY_HELD_HARD) const;
+  uint16_t authors() const;             // distinct agents among the copies
   void cutDone(uint16_t removed);       // drop the `removed` oldest
   uint32_t agentAt(uint16_t i) const { return e_[i].agent; }
 

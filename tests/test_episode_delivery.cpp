@@ -646,6 +646,64 @@ static void testItem4() {
 }
 
 // ---------------------------------------------------------------------------------------
+static void testScaling() {
+  printf("10. scaling: the WANT queue and the hard cap per author\n");
+  WantQueue q;
+  Want w1{0x10, 0x10, 5, 9, TIER_LINK, 0}, w2{0x10, 0x10, 7, 9, TIER_LINK, 0}, got;
+  uint32_t src = 0;
+  check(!q.pop(&src, &got), "empty: nothing to serve");
+  check(q.push(0x200, w1) && q.push(0x300, w2) && q.pop(&src, &got) && src == 0x200 &&
+            got.from_seq == 5 && q.pop(&src, &got) && src == 0x300 && got.from_seq == 7 &&
+            !q.pop(&src, &got),
+        "two askers at once: BOTH served, in arrival order (one slot dropped the second)");
+  for (int i = 0; i < EPISODEDELIVERY_WANT_QUEUE - 1; ++i) q.push(0x100 + i, w1);
+  check(!q.push(0x999, w1) && q.dropped() == 1, "full: the next WANT is dropped and counted");
+  while (q.pop(&src, &got)) {}
+  q.push(0x200, w1);
+  q.push(0x300, w1);
+  q.push(0x200, w2);                    // 0x200 moved on (a resume, a new fetch)
+  check(q.pop(&src, &got) && src == 0x300 && q.pop(&src, &got) && src == 0x200 &&
+            got.from_seq == 7 && !q.pop(&src, &got) && q.superseded() == 1,
+        "an asker's older WANT is skipped when its newer one is queued");
+
+  check(heldHardCap(0, 80) == EPISODEDELIVERY_HELD_HARD &&
+            heldHardCap(2, 80) == EPISODEDELIVERY_HELD_HARD,
+        "few authors: never under HELD_HARD");
+  check(heldHardCap(4, 80) == 4 * EPISODEDELIVERY_HELD_PER_AUTHOR,
+        "four authors: PER_AUTHOR each (the six-board run's case)");
+  check(heldHardCap(8, 80) == 80 && heldHardCap(4, 60) == 60 && heldHardCap(8, 500) ==
+            EPISODEDELIVERY_HELD_HARD_MAX && heldHardCap(8, 10) == EPISODEDELIVERY_HELD_HARD,
+        "clamped to the board's max, which is itself clamped to [HARD, HARD_MAX]");
+
+  HeldIndex h;
+  h.reset();
+  for (int i = 0; i < 64; ++i) h.appended(0x100u * (uint32_t)(1 + i % 4), 1 + i, h.nextOrdinal());
+  check(h.authors() == 4 && h.count() == 64, "authors(): distinct agents held");
+  BarIndex none;
+  none.reset();
+  Cut c[4];
+  uint16_t cov = 0, early = 0;
+  // appended() copies have no stamp (bar 0), so they are always cuttable; give them a frame
+  // nothing has recorded instead, by feeding stamped copies.
+  HeldIndex s;
+  s.reset();
+  VectorClock v;
+  v.begin(0x200);
+  for (int m = 0; m < 60; ++m) {
+    std::string e = held(linkEp(v, (int16_t)m, (int64_t)kFrame + 1000 + m * 1000, 0,
+                                {{0x10, "espnow", LINK_MET, -40, -40}}),
+                         0x100u * (uint32_t)(1 + m % 4), (int16_t)m);
+    s.feed(e.data(), e.size());
+  }
+  check(s.count() == 60 && s.authors() == 4, "60 stamped copies of 4 authors, bar 1, unrecorded");
+  check(s.cuts(c, 4, false, &cov, &none, &early, EPISODEDELIVERY_HELD_HARD) >= 1 && early == cov &&
+            cov == 60 - EPISODEDELIVERY_HELD_QUOTA,
+        "with the old fixed cap (56): 60 copies trip it, cut before their bar is recorded");
+  check(s.cuts(c, 4, false, &cov, &none, &early, heldHardCap(s.authors(), 80)) == 0 && cov == 0,
+        "with the cap scaled to 4 authors (64): nothing is cut early");
+}
+
+// ---------------------------------------------------------------------------------------
 static void testBarRecord() {
   printf("9. the BAR record (@LAT106) and its index\n");
   static Consolidator c;
@@ -712,6 +770,7 @@ int main() {
   testItem4();
   testNotBeliefs();
   testBarRecord();
+  testScaling();
   printf("\n%d checks, %d failures\n", gChecks, gFails);
   return gFails ? 1 : 0;
 }

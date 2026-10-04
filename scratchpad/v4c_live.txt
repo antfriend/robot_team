@@ -1,0 +1,5 @@
+[wifi] scan: 7 AP(s) folded into @LAT96 window
+[entity] window -> @LAT103LON8203 (entity live 12/48, TTDB 121124B)
+[link] window -> @LAT103LON123 (link live 43/48, TTDB 126216B, heap 124420)
+[order] seq 115 | regressions 0 overflow 0 malformed 0 dropped 97 | follows: 0x00000010:265 0x00000011:199 0x00000100:468 0x00000200:897 0x00000300:2420
+[deliver] held 37 | fetched 444 dup 0 refused 0 broken 59 resumed 1387 unanswered 435 empty 132 nomem 0 appendfail 0 | served 1474 (empty 26) of 1503 want(s) | own link map 72 | cuts 48 (fail 0, early 19) | bars 12 on flash, 10 written (fail 0)

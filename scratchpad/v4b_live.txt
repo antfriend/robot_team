@@ -1,0 +1,3 @@
+[link] window -> @LAT103LON205 (link live 44/48, TTDB 127767B, heap 124808)
+[order] seq 196 | regressions 0 overflow 0 malformed 0 dropped 71 | follows: 0x00000010:262 0x00000012:110 0x00000100:465 0x00000200:894 0x00000300:2413
+[deliver] held 33 | fetched 595 dup 0 refused 0 broken 92 resumed 1674 unanswered 574 empty 181 nomem 0 appendfail 0 | served 1885 (empty 29) of 1918 want(s) | own link map 72 | cuts 64 (fail 0, early 36) | bars 16 on flash, 14 written (fail 0)

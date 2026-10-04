@@ -44,6 +44,9 @@ struct Stats {
 
 class Node {
  public:
+  // This board's ceiling for held copies (its share of the 288-slot index). Before begin().
+  void setHeldHardMax(uint16_t n) { hard_max_ = n; }
+
   void attach(episodenode::Node& ep) {
     ep.attachBootSink(&Node::bootLine, this);
   }
@@ -77,11 +80,8 @@ class Node {
     if (p[0] == EPISODEORDER_SUBOP_WANT) {
       semantic::Want w;
       if (semantic::decodeWant(p, len, w) && w.to == self_ && w.agent == self_ && src &&
-          src != self_ && !want_pending_) {
-        want_ = w;
-        want_src_ = src;
-        want_pending_ = true;                           // last: loop reads after this
-      }
+          src != self_)
+        wants_.push(src, w);
     } else if (p[0] == EPISODEORDER_SUBOP_DATA) {
       semantic::DataHdr h;
       const uint8_t* b;
@@ -119,8 +119,8 @@ class Node {
   void print(Print& out) const {
     out.printf("[deliver] held %u | fetched %lu dup %lu refused %lu broken %lu resumed %lu "
                "unanswered %lu empty %lu nomem %lu appendfail %lu | served %lu (empty %lu) of %lu want(s) | "
-               "own link map %u | cuts %lu (fail %lu, early %lu) | bars %u on flash, %lu written "
-               "(fail %lu)\n",
+               "own link map %u | cuts %lu (fail %lu, early %lu, cap %u) | bars %u on flash, "
+               "%lu written (fail %lu) | wantq drop %lu superseded %lu\n",
                (unsigned)held_.count(), (unsigned long)st_.fetched,
                (unsigned long)st_.duplicate, (unsigned long)st_.refused,
                (unsigned long)st_.broken, (unsigned long)st_.resumed,
@@ -130,8 +130,10 @@ class Node {
                (unsigned long)st_.served_empty, (unsigned long)st_.wants_heard,
                (unsigned)seqs_.count(), (unsigned long)st_.cuts,
                (unsigned long)st_.cut_failed, (unsigned long)st_.cut_early,
-               (unsigned)bars_.count(),
-               (unsigned long)st_.bars_written, (unsigned long)st_.bar_fail);
+               (unsigned)semantic::heldHardCap(held_.authors(), hard_max_),
+               (unsigned)bars_.count(), (unsigned long)st_.bars_written,
+               (unsigned long)st_.bar_fail, (unsigned long)wants_.dropped(),
+               (unsigned long)wants_.superseded());
   }
   const Stats& stats() const { return st_; }
 
@@ -172,10 +174,9 @@ class Node {
       serving_ = false;
       return;
     }
-    if (!want_pending_) return;
-    const semantic::Want w = want_;
-    const uint32_t who = want_src_;
-    want_pending_ = false;
+    semantic::Want w;
+    uint32_t who;
+    if (!wants_.pop(&who, &w)) return;
     ++st_.wants_heard;
     if (w.tier != semantic::TIER_LINK) return;
     // The first own link episode in range that is STILL on flash (a fold may have cut it).
@@ -303,7 +304,8 @@ class Node {
   bool cut(bool boot) {
     semantic::Cut cs[4];
     uint16_t covers = 0, early = 0;
-    const uint8_t n = held_.cuts(cs, 4, boot, &covers, &bars_, &early);
+    const uint8_t n = held_.cuts(cs, 4, boot, &covers, &bars_, &early,
+                                 semantic::heldHardCap(held_.authors(), hard_max_));
     if (!n) return true;
     TtdbCut tc[4];
     for (uint8_t i = 0; i < n; ++i) tc[i] = TtdbCut{cs[i].lat, cs[i].lon_lo, cs[i].lon_hi};
@@ -391,10 +393,9 @@ class Node {
   size_t resume_got_ = 0;
   uint8_t stalled_ = 0;
 
-  volatile bool want_pending_ = false;
+  semantic::WantQueue wants_;
   volatile uint32_t heard_src_ = 0;
-  semantic::Want want_ = {0, 0, 0, 0, 0, 0};
-  uint32_t want_src_ = 0;
+  uint16_t hard_max_ = EPISODEDELIVERY_HELD_HARD_MAX;
 
   bool serving_ = false;
   uint32_t to_ = 0, seq_ = 0, last_tx_ = 0;
