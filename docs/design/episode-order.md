@@ -364,6 +364,10 @@ Both handhelds on the stage-2 build, side by side, ≥ 40 min (four bars), then 
 > fetcher, then the back-off stalled a live peer. Fixed by liveness from direct hearing.
 > Flaw 3 stands: the digest is blind to the T-Deck's side, so (g) carries that direction.
 
+> ✅ **Three boards, 2026-10-04:** after the K10's dispatch fix and the record-before-cut rule,
+> the Cardputer's, T-Deck's and K10's records agree with identical HOLDS on 10/10 bars. The
+> K10 authors none of them.
+
 ### 7.7 Unchanged from the sketch
 
 - **Not `@LAT102`.** That lane was reserved for *attributed testimony as tallies*, one

@@ -386,7 +386,11 @@ If a fact lives in one of these, link to it from here — don't copy it.
    `else` that hands it every radio toot, so it heard no PULSE, HELLO or CMD. ✅ **Fixed and
    flashed 2026-10-04:** the K10 now joins the handhelds' chart (frame 7000).
    ⚠ The held ring is lane-wide (32), so retention halves per extra author.
-   **Next:** a per-author held quota; a three-board run where the K10's records compare; the V4s
+   ✅ **Three boards, one view (2026-10-04):** with held copies now cut only after their bar is
+   recorded, the Cardputer's, T-Deck's and K10's own `@LAT106` records agree with the same
+   episode set on **10 of 10 bars** (frame 7000, 15–24). The K10's view is built entirely from
+   the other two boards' episodes.
+   **Next:** the V4s (flash at 95%: needs the D0 repartition, an operator decision)
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
