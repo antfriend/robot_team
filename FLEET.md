@@ -381,11 +381,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    is one-sided (the T-Deck has no terms), so its direction rests on the HOLDS rows.
    ✅ **Run 5 (2026-10-04, three boards):** the handhelds passed again, 7/7 bars. The K10 is on
    stage 2 as a pure receiver (no link episodes of its own: no ESP-NOW RSSI, no BLE on its
-   core), and its recomputed view of bar 6 equals both handhelds' records. ⚠ **The band
-   split into two charts:** the K10 is on frame 9000, the handhelds on 7000, and PULSE does not
-   cross. So the K10's own bar records land in an empty frame.
+   core), and its recomputed view of bar 6 equals both handhelds' records. 🐛 **The band split
+   into two charts because the K10 had gone deaf:** C0's deletion (2026-10-02) swallowed the
+   `else` that hands it every radio toot, so it heard no PULSE, HELLO or CMD. ✅ **Fixed and
+   flashed 2026-10-04:** the K10 now joins the handhelds' chart (frame 7000).
    ⚠ The held ring is lane-wide (32), so retention halves per extra author.
-   **Next:** why PULSE does not cross K10 ↔ handhelds; a per-author held quota; then the V4s
+   **Next:** a per-author held quota; a three-board run where the K10's records compare; the V4s
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
