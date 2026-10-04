@@ -28,6 +28,7 @@
 #include <MotionPercept.h>    // SP0 motion tier: the K10's tilt -> @LAT95 still|moving, @LAT93
 #include <AcousticPercept.h>  // SP0 acoustic tier: the K10's mic -> @LAT94 (the fleet's 2nd ear)
 #include <TimeStreamNode.h>  // the team time stream -> @LAT90 (a timeline the fleet owns)
+#include <EpisodeDeliveryNode.h>  // C4 stage 2: fetch peers' link episodes into @LAT105 + the bar view
 #include <EpisodeNode.h>     // ACT-III §C2: all four percept tiers -> @LAT103 episodes, @LAT104 folds
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound> frame:<f>` (TTG-RFC-0004 §4.3)
 #include <RobotTeamConfig.h>
@@ -190,6 +191,9 @@ static episodenode::Node gEpisodes;
 // loop() drains it into gOrder, which gEpisodes reads at every render.
 static semantic::VectorClock gOrder;
 static semantic::VectorInbox gOrderIn;
+// C4 stage 2 (docs/design/episode-order.md §7): serves our LINK episodes to peers, fetches theirs
+// into @LAT105, prints the bar view. Its recv side only copies.
+static episodedelivery::Node gDelivery;
 #define LINK_RECORD_CAP 1024   // LinkPercept worst case 847 B (test_episode)
 static_assert(LINK_RECORD_CAP < episodenode::Node::scratchCap() &&
                   ENTITYPERCEPT_RECORD_BUF < episodenode::Node::scratchCap() &&
@@ -2004,7 +2008,9 @@ static ESPNOW_RECV_CB(onEspNowRecv, data, len) {
   if (t.type == toot::EPISODE) {
     // A peer's episode-order vector. COPY ONLY: merging here could tear the vector an
     // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
-    gOrderIn.push(t.payload, t.payload_len);
+    if (t.payload_len && t.payload[0] == EPISODEORDER_SUBOP_VECTOR)
+      gOrderIn.push(t.payload, t.payload_len);
+    gDelivery.onToot(t.src_node_id, t.payload, t.payload_len);   // all: src is alive
     return;
   }
   if (t.type == toot::TTDB_REQ) {
@@ -2049,6 +2055,11 @@ static bool appendEpisode(int16_t ord, size_t m, const char* title, const char* 
                 (unsigned)gDb.fileSize());
   gEpisodes.service(now, gStreamWallSec);
   return true;
+}
+
+// gDelivery's radio: every stage-2 frame is an EPISODE toot (WANT / DATA / DONE).
+static void sendEpisodeToot(const uint8_t* b, uint8_t n) {
+  emit(toot::EPISODE, b, n, sendEspNow, nullptr);
 }
 
 void setup() {
@@ -2106,6 +2117,7 @@ void setup() {
     const uint32_t t0 = millis();
     gOrder.begin(kNodeId);
     gEpisodes.attachOrder(&gOrder);    // BEFORE begin(): boot recovers seq + vector
+    gDelivery.attach(gEpisodes);       // BEFORE begin(): boot lines -> its seq map
     gEpisodes.begin(gDb);
     Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                   "maxalloc %u B\n",
@@ -2115,6 +2127,8 @@ void setup() {
     Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
                   "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
                   (unsigned)gOrder.others());
+    gDelivery.begin(gDb, gEpisodes, gOrder, kNodeId, sendEpisodeToot);
+    gDelivery.print(Serial);
   }
 #if USE_WIFI_SCAN
   // The board declares its own @LAT96 build at boot. ENTITYPERCEPT_MAX_RUN lives in
@@ -2526,6 +2540,12 @@ void loop() {
       if (vn) emit(toot::EPISODE, vb, (uint8_t)vn, sendEspNow, nullptr);
       gOrder.sent(onow);
     }
+#if USE_PULSE
+    gDelivery.service(onow, gPulse.playing(), gPulse.chart().downbeat_epoch,
+                      gPulse.pulseNow(onow));
+#else
+    gDelivery.service(onow, false, 0, 0);
+#endif
     static uint32_t last_order_print = 0;
     if (onow - last_order_print >= 60000) {
       last_order_print = onow;
@@ -2538,6 +2558,7 @@ void loop() {
       for (uint8_t i = 0; i < nf; ++i)
         Serial.printf(" 0x%08lx:%lu", (unsigned long)f[i].agent, (unsigned long)f[i].seq);
       Serial.println();
+      gDelivery.print(Serial);
     }
   }
 
