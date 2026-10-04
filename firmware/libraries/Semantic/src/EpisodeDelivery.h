@@ -41,7 +41,14 @@ namespace semantic {
 #ifndef EPISODEDELIVERY_HELD_SLACK
 #define EPISODEDELIVERY_HELD_SLACK 8
 #endif
-#define EPISODEDELIVERY_HELD_CAP (EPISODEDELIVERY_HELD_QUOTA + EPISODEDELIVERY_HELD_SLACK + 8)
+// A copy is cut only once THIS node has recorded its bar (@LAT106), or a later bar of the same
+// frame: until then the copy is part of a view not yet written down, and with a lane-wide
+// ring of 32 three authors would leave under 12 min (bar + settle) per author. Past HARD the
+// oldest go regardless, counted as `early`: the shared TTDB index (288) is the real bound.
+#ifndef EPISODEDELIVERY_HELD_HARD
+#define EPISODEDELIVERY_HELD_HARD 56
+#endif
+#define EPISODEDELIVERY_HELD_CAP (EPISODEDELIVERY_HELD_HARD + 8)
 
 // Largest episode a receiver will reassemble: the worst link window + a maximal order block,
 // rounded up. A longer DATA total is refused at its first slice, never truncated.
@@ -180,8 +187,11 @@ class Fetcher {
 // ---------------------------------------------------------------------------------------
 // the held lane
 // ---------------------------------------------------------------------------------------
+class BarIndex;
+
 // Feed every line of the @LAT105 records in FILE ORDER (oldest first) at boot; then
-// appended() for each new copy. Keeps, per copy, (agent, seq, lon) in age order.
+// appended() (or feed() with the record) for each new copy. Keeps, per copy, (agent, seq,
+// lon, and the bar its stamp ends in) in age order.
 class HeldIndex {
  public:
   void reset();
@@ -192,19 +202,23 @@ class HeldIndex {
   uint32_t maxSeq(uint32_t agent) const;
   uint16_t count() const { return n_; }
   int16_t nextOrdinal() const;
-  // The oldest (count - quota) copies as contiguous LON runs, when count ≥ quota + slack
-  // (or `force` and count > quota). Returns runs written (≤ max); `*covers` copies covered.
-  uint8_t cuts(Cut* out, uint8_t max, bool force, uint16_t* covers) const;
+  void feed(const char* rec, size_t n);  // one rendered record, line by line
+  // The oldest copies (down to quota) as contiguous LON runs, when count >= quota + slack (or
+  // `force` and count > quota). With `recorded`, only a PREFIX of copies whose bar it covers
+  // (BarIndex::covers) is cut, unless count >= HARD. Returns runs written (<= max);
+  // `*covers` = copies covered, `*early` = of those, cut before their bar was recorded.
+  uint8_t cuts(Cut* out, uint8_t max, bool force, uint16_t* covers,
+               const BarIndex* recorded = nullptr, uint16_t* early = nullptr) const;
   void cutDone(uint16_t removed);       // drop the `removed` oldest
   uint32_t agentAt(uint16_t i) const { return e_[i].agent; }
 
  private:
   void commitCur();
-  struct E { uint32_t agent, seq; int16_t lon; };
+  struct E { uint32_t agent, seq; int16_t lon; uint32_t frame; int32_t bar; };  // bar 0: none
   E e_[EPISODEDELIVERY_HELD_CAP];
   uint16_t n_ = 0;
   bool     in_rec_ = false;
-  E        cur_ = {0, 0, 0};
+  E        cur_ = {0, 0, 0, 0, 0};
 };
 
 // The author's record as a held copy: verified (one record, @LAT103 in the LINK band, its
@@ -326,6 +340,9 @@ class BarIndex {
   void finish() {}                      // line-driven like HeldIndex; nothing pending
   void appended(uint64_t frame, int64_t bar, int16_t lon);
   bool has(uint64_t frame, int64_t bar) const;
+  // Is bar `bar` of `frame` (low 32 bits) settled HERE: recorded, or a later bar of the same
+  // frame recorded (so it was missed, never to be written). bar 0 (a copy in no bar): yes.
+  bool covers(uint32_t frame, int32_t bar) const;
   uint16_t count() const { return n_; }
   int16_t nextOrdinal() const;
   // The oldest (count - QUOTA) records as ONE contiguous LON run, once count >= QUOTA + SLACK

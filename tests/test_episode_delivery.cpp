@@ -390,6 +390,61 @@ static void testHeldIndex() {
   hi.appended(0x300, 999, hi.nextOrdinal());
   check(hi.cuts(c, 4, false, &cov) == 0 && hi.cuts(c, 4, true, &cov) == 1 && cov == 1,
         "between quota and slack: only a forced (boot) cut runs");
+
+  // CUT ONLY WHAT IS RECORDED (2026-10-04). Copies of two authors, one per minute each, in
+  // bars 1..2 of kFrame, fed as rendered records so the at: line names the bar.
+  VectorClock a, b;
+  a.begin(0x200);
+  b.begin(0x300);
+  HeldIndex h2;
+  h2.reset();
+  int16_t ord = 0;
+  for (int m = 0; m < 20; ++m) {          // 40 copies: bar 1 (m 0..9) and bar 2 (m 10..19)
+    const int64_t t = (int64_t)kFrame + m * 60000 + 1000;
+    std::string ea = held(linkEp(a, (int16_t)m, t, 50, {{0x10, "espnow", LINK_MET, -40, -40}}),
+                          0x200, ord++);
+    std::string eb = held(linkEp(b, (int16_t)m, t + 500, 50, {{0x10, "espnow", LINK_MET, -40, -40}}),
+                          0x300, ord++);
+    h2.feed(ea.data(), ea.size());
+    h2.feed(eb.data(), eb.size());
+  }
+  check(h2.count() == 40 && h2.has(0x200, 1) && h2.has(0x300, 20),
+        "feed(): each rendered copy lands with its agent and seq");
+  BarIndex rec;
+  rec.reset();
+  uint16_t early = 9;
+  check(h2.cuts(c, 4, false, &cov, &rec, &early) == 0 && cov == 0,
+        "no bar recorded yet: NOTHING is cut, though over quota + slack");
+  BarIndex other;
+  other.reset();
+  other.appended(6500, 5, 0);
+  check(h2.cuts(c, 4, true, &cov, &other, &early) == 0,
+        "40 copies, a bar of ANOTHER frame recorded: still nothing is cut");
+  rec.appended(kFrame, 1, 0);
+  n = h2.cuts(c, 4, false, &cov, &rec, &early);
+  check(n == 1 && cov == 8 && early == 0 && c[0].lon_lo == 0 && c[0].lon_hi == 7,
+        "bar 1 recorded: the oldest (count - quota) = 8 copies, all in bar 1, are cut");
+  h2.cutDone(cov);
+  rec.reset();
+  rec.appended(6500, 1, 0);
+  rec.appended(kFrame, 2, 1);
+  check(rec.covers((uint32_t)kFrame, 1) && rec.covers((uint32_t)kFrame, 2) &&
+            !rec.covers((uint32_t)kFrame, 3) && rec.covers((uint32_t)kFrame, 0),
+        "a LATER bar of the same frame covers bar 1 (missed, never to be written); bar 0 always");
+
+  // Past HARD the oldest go regardless, counted as early.
+  for (int i = 0; h2.count() < EPISODEDELIVERY_HELD_HARD; ++i)
+    h2.appended(0x400, 1 + i, h2.nextOrdinal());
+  n = h2.cuts(c, 4, false, &cov, &other, &early);
+  check(n >= 1 && cov == EPISODEDELIVERY_HELD_HARD - EPISODEDELIVERY_HELD_QUOTA && early == cov,
+        "at HARD with nothing recorded: cut down to quota anyway, every one counted early");
+  HeldIndex h3;
+  h3.reset();
+  for (int i = 0; i < EPISODEDELIVERY_HELD_QUOTA + EPISODEDELIVERY_HELD_SLACK; ++i)
+    h3.appended(0x200, 1 + i, h3.nextOrdinal());   // appended(): no stamp -> in no bar
+  check(h3.cuts(c, 4, false, &cov, &other, &early) == 1 && early == 0 &&
+            cov == EPISODEDELIVERY_HELD_SLACK,
+        "a copy in no bar is always cuttable (and not early)");
 }
 
 // ---------------------------------------------------------------------------------------

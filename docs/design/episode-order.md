@@ -288,6 +288,15 @@ DONE  (3)  to u32 | agent u32 | through u32 | total u16                         
   stage-2 peers today, and per-source bands need an agent→band table to survive reboots,
   which costs more than it buys at this size. Dedup is a RAM set of `(agent, seq)` rebuilt
   at boot from the lane. Index cost: ≤ 32 + `SEMANTIC_CUT_SLACK` slots (Cardputer 173/288).
+- 🔄 **Revised 2026-10-04: cut only what is recorded.** A copy must live until THIS node has
+  written its bar's `@LAT106` record (bar + settle, ~12 min). After that the record's HOLDS
+  rows carry it. A lane-wide 32 gives each of *k* authors 32/k minutes, which is under 12
+  from three authors on, so a copy would have been cut before its bar was recorded and the
+  record would have been wrong. Now each copy remembers the bar its stamp ends in. The ring
+  is trimmed back to 32 (at 40) only through a **prefix of copies whose bar is covered**:
+  recorded, or a later bar of the same frame recorded, or in no bar. Past **`HELD_HARD` 56**
+  the oldest go regardless, counted as `early` on the `[deliver]` line. The shared index is
+  the real bound: the Cardputer was at 224/288 (130 episodes, 32 held, 16 bars, 45 other).
 - A copy is checked before it is stored: the block parses, its `seq:` equals the DATA's
   `seq`, and its header names `@LAT103` in the LINK band. HMAC already covers each frame;
   the EVENT-sid integrity check (`Sid.h`) stays deferred.

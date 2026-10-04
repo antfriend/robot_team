@@ -39,7 +39,7 @@ struct Stats {
   uint32_t wants_sent = 0, fetched = 0, duplicate = 0, refused = 0, broken = 0,
            unanswered = 0, empty = 0, append_failed = 0, nomem = 0, resumed = 0;
   uint32_t wants_heard = 0, served = 0, served_empty = 0, cuts = 0, cut_failed = 0;
-  uint32_t bars_written = 0, bar_fail = 0;
+  uint32_t bars_written = 0, bar_fail = 0, cut_early = 0;
 };
 
 class Node {
@@ -119,7 +119,8 @@ class Node {
   void print(Print& out) const {
     out.printf("[deliver] held %u | fetched %lu dup %lu refused %lu broken %lu resumed %lu "
                "unanswered %lu empty %lu nomem %lu appendfail %lu | served %lu (empty %lu) of %lu want(s) | "
-               "own link map %u | cuts %lu (fail %lu) | bars %u on flash, %lu written (fail %lu)\n",
+               "own link map %u | cuts %lu (fail %lu, early %lu) | bars %u on flash, %lu written "
+               "(fail %lu)\n",
                (unsigned)held_.count(), (unsigned long)st_.fetched,
                (unsigned long)st_.duplicate, (unsigned long)st_.refused,
                (unsigned long)st_.broken, (unsigned long)st_.resumed,
@@ -128,7 +129,8 @@ class Node {
                (unsigned long)st_.append_failed, (unsigned long)st_.served,
                (unsigned long)st_.served_empty, (unsigned long)st_.wants_heard,
                (unsigned)seqs_.count(), (unsigned long)st_.cuts,
-               (unsigned long)st_.cut_failed, (unsigned)bars_.count(),
+               (unsigned long)st_.cut_failed, (unsigned long)st_.cut_early,
+               (unsigned)bars_.count(),
                (unsigned long)st_.bars_written, (unsigned long)st_.bar_fail);
   }
   const Stats& stats() const { return st_; }
@@ -259,7 +261,7 @@ class Node {
           ++st_.append_failed;
           fetch_.retry(agent, now);
         } else {
-          held_.appended(agent, seq, ord);
+          held_.feed(ep_->scratch(), m);                // agent, seq, lon AND its bar
           ++st_.fetched;
           fetch_.answered(agent, seq, now);
         }
@@ -300,14 +302,15 @@ class Node {
 
   bool cut(bool boot) {
     semantic::Cut cs[4];
-    uint16_t covers = 0;
-    const uint8_t n = held_.cuts(cs, 4, boot, &covers);
+    uint16_t covers = 0, early = 0;
+    const uint8_t n = held_.cuts(cs, 4, boot, &covers, &bars_, &early);
     if (!n) return true;
     TtdbCut tc[4];
     for (uint8_t i = 0; i < n; ++i) tc[i] = TtdbCut{cs[i].lat, cs[i].lon_lo, cs[i].lon_hi};
     db_->clearRewriteErr();
     if (!db_->removeCuts(tc, n)) { ++st_.cut_failed; return false; }
     held_.cutDone(covers);
+    st_.cut_early += early;
     ++st_.cuts;
     return true;
   }

@@ -307,7 +307,7 @@ void HeldIndex::line(const char* l) {
   if (l[0] == '@') {
     commitCur();
     if (headerCoord(l, &lat, &lon) && lat == EPISODEDELIVERY_HELD_LANE) {
-      cur_ = E{0, 0, lon};
+      cur_ = E{0, 0, lon, 0, 0};
       in_rec_ = true;
     }
     return;
@@ -316,13 +316,37 @@ void HeldIndex::line(const char* l) {
   uint32_t v;
   if (readHeldAgent(l, &v)) cur_.agent = v;
   else if (strncmp(l, "seq: ", 5) == 0 && readU32Dec(l + 5, &v)) cur_.seq = v;
+  else if (strncmp(l, "at:", 3) == 0 && !cur_.bar) {
+    const At a = parseAt(l);
+    const int64_t end = a.t_ms + (int64_t)a.bound_ms - (int64_t)a.frame;
+    if (a.bounded && a.has_frame && end >= 0) {
+      cur_.frame = (uint32_t)a.frame;
+      cur_.bar = (int32_t)(end / (int64_t)EPISODEDELIVERY_BAR_MS + 1);
+    }
+  }
+}
+
+void HeldIndex::feed(const char* rec, size_t n) {
+  char l[160];
+  size_t k = 0;
+  for (size_t i = 0; i <= n; ++i) {
+    const char ch = i < n ? rec[i] : '\n';
+    if (ch == '\n') {
+      l[k] = '\0';
+      line(l);
+      k = 0;
+    } else if (k + 1 < sizeof(l)) {
+      l[k++] = ch;
+    }
+  }
+  commitCur();
 }
 
 void HeldIndex::finish() { commitCur(); }
 
 void HeldIndex::appended(uint32_t agent, uint32_t seq, int16_t lon) {
   in_rec_ = false;
-  cur_ = E{agent, seq, lon};
+  cur_ = E{agent, seq, lon, 0, 0};
   in_rec_ = true;
   commitCur();
 }
@@ -344,14 +368,20 @@ int16_t HeldIndex::nextOrdinal() const {
   return n_ ? ordinalAdd(e_[n_ - 1].lon, 1) : 0;
 }
 
-uint8_t HeldIndex::cuts(Cut* out, uint8_t max, bool force, uint16_t* covers) const {
+uint8_t HeldIndex::cuts(Cut* out, uint8_t max, bool force, uint16_t* covers,
+                        const BarIndex* recorded, uint16_t* early) const {
   if (covers) *covers = 0;
+  if (early) *early = 0;
   const uint16_t q = EPISODEDELIVERY_HELD_QUOTA;
   if (n_ <= q || (!force && n_ < q + EPISODEDELIVERY_HELD_SLACK) || !out || !max) return 0;
   const uint16_t want = n_ - q;
+  const bool hard = n_ >= EPISODEDELIVERY_HELD_HARD;
   uint8_t runs = 0;
-  uint16_t covered = 0;
+  uint16_t covered = 0, before = 0;
   for (uint16_t i = 0; i < want; ++i) {
+    const bool settled = !recorded || recorded->covers(e_[i].frame, e_[i].bar);
+    if (!settled && !hard) break;    // a PREFIX: cutDone() drops the oldest `covers`
+    if (!settled) ++before;
     const int16_t lon = e_[i].lon;
     if (runs && out[runs - 1].lon_hi != 32767 && lon == out[runs - 1].lon_hi + 1) {
       out[runs - 1].lon_hi = lon;
@@ -362,6 +392,7 @@ uint8_t HeldIndex::cuts(Cut* out, uint8_t max, bool force, uint16_t* covers) con
     ++covered;
   }
   if (covers) *covers = covered;
+  if (early) *early = before;
   return runs;
 }
 
@@ -685,6 +716,13 @@ void BarIndex::appended(uint64_t frame, int64_t bar, int16_t lon) {
 bool BarIndex::has(uint64_t frame, int64_t bar) const {
   for (uint16_t i = 0; i < n_; ++i)
     if (e_[i].frame == frame && e_[i].bar == bar) return true;
+  return false;
+}
+
+bool BarIndex::covers(uint32_t frame, int32_t bar) const {
+  if (bar <= 0) return true;
+  for (uint16_t i = 0; i < n_; ++i)
+    if ((uint32_t)e_[i].frame == frame && e_[i].bar >= bar) return true;
   return false;
 }
 
