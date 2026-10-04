@@ -172,31 +172,27 @@ K10's only LittleFS-capable partition is `model` (subtype spiffs, @0x510000),
 mounted by label in the sketch.
 
 The **Heltec V4** builds with arduino-cli directly (no VSCode task yet); it also
-uses the ESP32-S3 native USB, so it needs `CDCOnBoot=cdc` too:
+uses the ESP32-S3 native USB, so it needs `CDCOnBoot=cdc` too, and **since 2026-10-04 all
+three V4s are on `huge_app`**:
 
 ```bash
 ACLI="/c/Program Files/Arduino CLI/arduino-cli.exe"
-"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" \
+"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app" \
         --libraries firmware/libraries firmware/v4a_bridge        # firmware
-powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 \
-        -Node v4a_bridge -Port COM6                               # TTDB image
+powershell -ExecutionPolicy Bypass -File scripts/Upload-Tdeck-FS.ps1 \
+        -Node v4a_bridge -Port COM6                               # TTDB image @0x310000
 ```
 
-The V4 uses the esp32 core's default 4MB partition (spiffs @0x290000, 0x160000);
-`Upload-V4-FS.ps1` builds the LittleFS image with the **esp32** core's `mklittlefs`
-(not UNIHIKER's) so the on-flash format matches. LoRa stays gated (`USE_LORA 0`),
-so no PA-variant flag is needed until Phase 4. All three V4 sketches are at **95% of the
-default app partition** (~56–58 KB left as of 2026-10-02, after the episode tier cost
-+14.8 KB and ACT-III C0's deletion gave ~10 KB back) — past the ceiling the T-Deck hit, so the next feature added to them almost
-certainly needs `huge_app` first. ⚠ **`huge_app` MOVES the LittleFS partition** (0x290000 →
-0x310000, as the T-Deck's): pull the TTDB first and re-image it at the new offset, or the
-board boots with an empty store.
+⚠ **ALL THREE V4s ARE ON `huge_app` SINCE 2026-10-04** (C4 stage 2 needed the room; each
+is at 40% of 3 MB, was 95% of 1.25 MB). So, exactly like the T-Deck: build with
+`PartitionScheme=huge_app`, and flash the FS with **`Upload-Tdeck-FS.ps1`** (0x310000).
+**`Upload-V4-FS.ps1` targets the OLD 0x290000 and would now write into a V4's app region**;
+it stays only for history. A plain default-scheme compile/upload would also put back the
+old table and orphan the store. Both scripts build the LittleFS image with the **esp32**
+core's `mklittlefs` (not UNIHIKER's), so the on-flash format matches. LoRa stays gated
+(`USE_LORA 0`), so no PA-variant flag is needed until Phase 4.
 
-⚠ **V4-A AND V4-B ARE ON `huge_app` SINCE 2026-10-04** (stage 2 needed the room: 40% of 3 MB). Build it
-with `--fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app"` and flash its FS
-with **`Upload-Tdeck-FS.ps1`** (0x310000). **`Upload-V4-FS.ps1` (0x290000) would now write
-into V4-A's app region.** A plain default-scheme compile/upload would also put back the old
-table and orphan the store. How it was moved, byte-exact (`scripts/repartition-v4.sh`):
+How they were moved, byte-exact (`scripts/repartition-v4.sh`, one board per run):
 1. `esptool read-flash 0x290000 0x160000` at 460800, then `mklittlefs -u … -s 0x160000` to
    unpack **every** file. Cross-check `ttdb.md` against a `fleet.py pull`: byte-identical.
 2. `mklittlefs -c … -s 0xE0000` and unpack it again: round-trips.
@@ -204,7 +200,7 @@ table and orphan the store. How it was moved, byte-exact (`scripts/repartition-v
    0x10000, FS 0x310000. The new app never boots against an empty store, so it cannot recover
    a wrong `seq`. `nvs` stays at 0x9000 in both tables.
 4. Boot banner: same `TTDB loaded: <bytes>, <n>/288` and the same `seq N recovered`.
-V4-C is still on the default table until moved the same way. 📎 **Unpack the raw partition,
+📎 **Unpack the raw partition,
 don't rely on the pull:** V4-B's FS held a second file, `belief.md` (1 373 B, a pushed
 belief), which `fleet.py pull` (the TTDB) does not return. It came back byte-identical via
 `pull --file belief` after the move.
@@ -223,7 +219,7 @@ contribution (measured: over the same 5.52 h, unfolded wrote 48 windows, folded 
 
 ```bash
 # MEASUREMENT build (survey/walk nodes). The plain command below is the DEFAULT build.
-"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc" \
+"$ACLI" compile --upload -p COM6 --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=huge_app" \
         --build-property "compiler.cpp.extra_flags=-DENTITYPERCEPT_MAX_RUN=1" \
         --libraries firmware/libraries firmware/v4a_bridge
 ```

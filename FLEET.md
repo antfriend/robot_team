@@ -390,7 +390,10 @@ If a fact lives in one of these, link to it from here — don't copy it.
    recorded, the Cardputer's, T-Deck's and K10's own `@LAT106` records agree with the same
    episode set on **10 of 10 bars** (frame 7000, 15–24). The K10's view is built entirely from
    the other two boards' episodes.
-   **Next:** the V4s (flash at 95%: needs the D0 repartition, an operator decision)
+   ✅ **All three V4s repartitioned to `huge_app` (40%) and on stage 2 (2026-10-04)**, each
+   store byte-exact, so **all six boards run stage 2**. ⚠ V4s now flash like the T-Deck
+   (CLAUDE.md); `Upload-V4-FS.ps1` refuses.
+   **Next:** a six-board run (only the Cardputer writes `percept:` terms), item 5
    ([docs/log/2026-10.md](docs/log/2026-10.md)).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
@@ -633,6 +636,8 @@ touched:1784160000
 flashed on **COM13** (identify by USB `VID_303A&PID_1001` — COM numbers drift; the
 historical fleet ports were all absent that session). TTDB image via
 `scripts/Upload-V4-FS.ps1` (default 4 MB spiffs @0x290000 — *not* the T-Deck script).
+⚠ *History: since 2026-10-04 all V4s are on `huge_app`, so it is now the T-Deck script
+(`Upload-Tdeck-FS.ps1`, 0x310000), and `Upload-V4-FS.ps1` refuses to run.*
 **Needed zero source changes**: the fleet-wide square-wave/8 kHz audio and quarter-amp
 `STARTUP_TOOT_AMP` 2750 had already landed. Verified: `ping` ACK attempt 1; `pull`
 byte-exact (842 B flashed → **1840 B returned**, the surplus being **two `@LAT96`

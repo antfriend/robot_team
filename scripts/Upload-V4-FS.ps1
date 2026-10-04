@@ -7,12 +7,22 @@
 # on-flash format matches the 3.x core the V4 firmware links against.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/Upload-V4-FS.ps1 -Node v4a_bridge -Port COM6
+#
+# ⚠ OBSOLETE FOR THE FLEET SINCE 2026-10-04: all three V4s are on huge_app, whose LittleFS
+# is at 0x310000. Writing 0x290000 now lands in a V4's APP region. Use Upload-Tdeck-FS.ps1.
+# Refuses to run without -LegacyDefaultTable (a V4 still on the default 4MB table).
 param(
   [string]$Node = "v4a_bridge",
   [string]$Port = "COM6",
-  [int]$Baud = 921600
+  [int]$Baud = 921600,
+  [switch]$LegacyDefaultTable
 )
 $ErrorActionPreference = "Stop"
+if (-not $LegacyDefaultTable) {
+  throw "All V4s are on huge_app since 2026-10-04 (FS @0x310000): use scripts/Upload-Tdeck-FS.ps1. " +
+        "This script writes 0x290000, inside the huge_app APP region. Pass -LegacyDefaultTable " +
+        "only for a V4 you have verified is still on the default table."
+}
 
 $root    = Split-Path $PSScriptRoot -Parent
 $dataDir = Join-Path $root "firmware\$Node\data"
