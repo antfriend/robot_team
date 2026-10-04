@@ -69,7 +69,10 @@ class Node {
   }
 
   // --- recv callback: copy only -------------------------------------------------------
+  // Takes EVERY EPISODE toot, VECTOR included: its src is a peer that is on (heard_src_, one
+  // slot; vectors repeat every <= 10 s, so an overwrite only delays). VECTOR stops there.
   void onToot(uint32_t src, const uint8_t* p, size_t len) {
+    if (src && src != self_) heard_src_ = src;
     if (!p || !len) return;
     if (p[0] == EPISODEORDER_SUBOP_WANT) {
       semantic::Want w;
@@ -97,6 +100,11 @@ class Node {
     if (ep_->linkAppends() != link_gen_seen_) {
       link_gen_seen_ = ep_->linkAppends();
       seqs_.add(ep_->lastLinkOrdinal(), ep_->lastLinkSeq());
+    }
+    const uint32_t h = heard_src_;
+    if (h) {
+      heard_src_ = 0;
+      fetch_.heard(h, now);
     }
     serve(now);
     fetch(now);
@@ -381,6 +389,7 @@ class Node {
   uint8_t stalled_ = 0;
 
   volatile bool want_pending_ = false;
+  volatile uint32_t heard_src_ = 0;
   semantic::Want want_ = {0, 0, 0, 0, 0, 0};
   uint32_t want_src_ = 0;
 

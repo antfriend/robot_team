@@ -274,6 +274,21 @@ static void testFetcher() {
   d.answered(0x300, 100, u);
   d.unanswered(0x300, u + 1);
   check(d.next(vc, u + 1 + EPISODEDELIVERY_RETRY_MS, w), "an answer ends the back-off entirely");
+
+  // Heard directly: a peer that is ON is never held at the cap by unlucky retries.
+  for (int i = 0; i < 20; ++i) d.unanswered(0x300, u);
+  check(!d.next(vc, u + EPISODEDELIVERY_RETRY_MS, w), "at the cap again");
+  d.heard(0x300, u + 10);
+  check(!d.next(vc, u + 10 + EPISODEDELIVERY_RETRY_MS - 1, w) &&
+            d.next(vc, u + 10 + EPISODEDELIVERY_RETRY_MS, w),
+        "heard(): the back-off shrinks to RETRY_MS");
+  d.unanswered(0x300, u + 20);
+  check(d.next(vc, u + 20 + EPISODEDELIVERY_RETRY_MS, w),
+        "...and its misses restart from 0 (one loss is a plain retry)");
+  d.heard(0x999, u);
+  check(d.cursor(0x999) == 0 && d.next(vc, u + 20 + EPISODEDELIVERY_RETRY_MS, w) &&
+            w.agent == 0x300,
+        "heard() of an agent it never wanted adds nothing and blocks nothing");
   f.retry(0x300, 100);
   check(!f.next(vc, 101, w) && f.next(vc, 100 + EPISODEDELIVERY_RETRY_MS, w),
         "broken: retried after RETRY_MS");

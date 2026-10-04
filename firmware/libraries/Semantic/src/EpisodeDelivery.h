@@ -162,6 +162,11 @@ class Fetcher {
   void answered(uint32_t agent, uint32_t through, uint32_t now_ms);
   void unanswered(uint32_t agent, uint32_t now_ms);  // retry soon; back off after MISSES
   void retry(uint32_t agent, uint32_t now_ms);                 // broken: ask again soon
+  // Heard DIRECTLY from `agent` (any EPISODE toot, its VECTOR included): it is on, so a miss
+  // is radio loss, not absence. Clears its misses and any back-off past RETRY_MS. The
+  // exponential back-off alone stalled an hour (2026-10-03): a peer that rebooted climbed
+  // to the 16 min cap, and at ~half loss each retry could double it again.
+  void heard(uint32_t agent, uint32_t now_ms);
   uint32_t cursor(uint32_t agent) const;
 
  private:

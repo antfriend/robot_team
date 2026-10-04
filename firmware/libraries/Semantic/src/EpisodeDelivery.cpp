@@ -263,6 +263,14 @@ void Fetcher::unanswered(uint32_t agent, uint32_t now_ms) {
   e->next_ms = now_ms + wait;
 }
 
+void Fetcher::heard(uint32_t agent, uint32_t now_ms) {
+  E* e = find(agent, false);
+  if (!e) return;
+  e->misses = 0;
+  if ((int32_t)(e->next_ms - now_ms) > (int32_t)EPISODEDELIVERY_RETRY_MS)
+    e->next_ms = now_ms + EPISODEDELIVERY_RETRY_MS;
+}
+
 void Fetcher::retry(uint32_t agent, uint32_t now_ms) {
   E* e = find(agent, true);
   if (e) e->next_ms = now_ms + EPISODEDELIVERY_RETRY_MS;

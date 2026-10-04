@@ -1181,8 +1181,7 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
     // episode render is reading in loop() (EpisodeOrder.h, VectorInbox).
     if (t.payload_len && t.payload[0] == EPISODEORDER_SUBOP_VECTOR)
       gOrderIn.push(t.payload, t.payload_len);
-    else
-      gDelivery.onToot(t.src_node_id, t.payload, t.payload_len);
+    gDelivery.onToot(t.src_node_id, t.payload, t.payload_len);   // all: src is alive
     return;
   }
   if (t.type == toot::TTDB_REQ) {
