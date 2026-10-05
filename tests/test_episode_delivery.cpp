@@ -700,7 +700,7 @@ static void testScaling() {
             cov == 60 - EPISODEDELIVERY_HELD_QUOTA,
         "with the old fixed cap (56): 60 copies trip it, cut before their bar is recorded");
   check(s.cuts(c, 4, false, &cov, &none, &early, heldHardCap(s.authors(), 80)) == 0 && cov == 0,
-        "with the cap scaled to 4 authors (64): nothing is cut early");
+        "with the cap scaled to 4 authors (80): nothing is cut early");
 }
 
 // ---------------------------------------------------------------------------------------
@@ -720,6 +720,22 @@ static void testBarRecord() {
         "it fits in exactly its length + NUL");
   check(renderBar(tight, full, 3, kFrame, 4, v, barDigest(c), 130000) == 0 && tight[0] == '\0',
         "one byte less: nothing written, never truncated");
+
+  const DeliverCounts dc{11599, 132468, 885, 544, 116, 2578, 135, 2828, 2852, 38, 0, 2};
+  char dl[512];
+  const size_t withd = renderBar(dl, sizeof(dl), 3, kFrame, 4, v, barDigest(c), 130000, &dc);
+  check(withd > full && strncmp(dl, out, full) == 0 &&
+            strstr(dl, "**DELIVER** up_s:11599 heap:132468 fetched:885 unanswered:544 broken:116 "
+                       "resumed:2578 empty:135 served:2828 wants:2852 early:38 wantq_drop:0 "
+                       "superseded:2\n"),
+        "DELIVER counters ride after the BAR/HOLDS lines, which stay byte-identical");
+  check(renderBar(dl, withd, 3, kFrame, 4, v, barDigest(c), 130000, &dc) == 0 && dl[0] == '\0',
+        "a DELIVER line that does not fit: nothing written, never truncated");
+  renderBar(dl, sizeof(dl), 3, kFrame, 4, v, barDigest(c), 130000, &dc);
+  BarIndex dix;
+  dix.reset();
+  feedText(dix, std::string(dl) + "\n---\n\n");
+  check(dix.count() == 1 && dix.has(kFrame, 4), "a record carrying DELIVER is still indexed");
 
   BarIndex ix;
   ix.reset();

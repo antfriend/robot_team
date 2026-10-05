@@ -3065,6 +3065,13 @@ BAR_REC_RE = re.compile(
     r"digest:0x([0-9a-fA-F]{8}) settled_ms:(-?\d+)\s*$")
 HOLDS_REC_RE = re.compile(
     r"^\*\*HOLDS\*\* agent:0x([0-9a-fA-F]{8}) n:(\d+) lo:(\d+) hi:(\d+) sum:(\d+)\s*$")
+# Since 2026-10-05 a BAR record may end with the node's cumulative delivery counters, so a
+# board that goes deaf off-cable leaves the trace on its own flash. Optional (older records
+# have none); field order is fixed by firmware renderBar.
+DELIVER_FIELDS = ("up_s", "heap", "fetched", "unanswered", "broken", "resumed", "empty",
+                  "served", "wants", "early", "wantq_drop", "superseded")
+DELIVER_REC_RE = re.compile(
+    r"^\*\*DELIVER\*\* " + " ".join(k + r":(\d+)" for k in DELIVER_FIELDS) + r"\s*$")
 
 
 def bar_episodes(text):
@@ -3120,14 +3127,17 @@ def bar_view(eps, frame, n, bar_ms=BAR_MS, self_id=0):
             "terms": len(bs), "digest": digest, "beliefs": bs, "holds": bar_holds(sel, self_id)}
 
 
-def render_bar_record(ord_, frame, n, view, settled_ms):
-    """The @LAT106 record firmware renderBar() writes for this view, byte for byte."""
+def render_bar_record(ord_, frame, n, view, settled_ms, deliver=None):
+    """The @LAT106 record firmware renderBar() writes for this view, byte for byte.
+    `deliver`: {field: int} over DELIVER_FIELDS, or None for the pre-2026-10-05 form."""
     out = (f"@LAT{BAR_LANE}LON{ord_} | created:0 | updated:0\n\n"
            f"**BAR** frame:{frame} bar:{n} own:{view['own']} held:{view['held']} "
            f"terms:{view['terms']} digest:0x{view['digest']:08x} settled_ms:{settled_ms}\n")
     for a in sorted(view["holds"]):
         c, lo, hi, sm = view["holds"][a]
         out += f"**HOLDS** agent:0x{a:08x} n:{c} lo:{lo} hi:{hi} sum:{sm}\n"
+    if deliver is not None:
+        out += "**DELIVER** " + " ".join(f"{k}:{deliver[k]}" for k in DELIVER_FIELDS) + "\n"
     return out
 
 
@@ -3144,11 +3154,16 @@ def parse_bar_records(text):
                 rec = {"frame": int(m.group(1)), "bar": int(m.group(2)),
                        "own": int(m.group(3)), "held": int(m.group(4)),
                        "terms": int(m.group(5)), "digest": int(m.group(6), 16),
-                       "settled_ms": int(m.group(7)), "holds": {}, "lon": lon}
+                       "settled_ms": int(m.group(7)), "holds": {}, "lon": lon,
+                       "deliver": None}
                 continue
             m = HOLDS_REC_RE.match(l)
             if m and rec is not None:
                 rec["holds"][int(m.group(1), 16)] = tuple(int(m.group(i)) for i in range(2, 6))
+                continue
+            m = DELIVER_REC_RE.match(l)
+            if m and rec is not None:
+                rec["deliver"] = {k: int(m.group(i + 1)) for i, k in enumerate(DELIVER_FIELDS)}
         if rec is not None:
             out.setdefault((rec["frame"], rec["bar"]), rec)
     return out
@@ -3219,6 +3234,41 @@ def bar_records_report(records, views):
     return rows
 
 
+def deliver_rows(recs):
+    """One node's BAR records -> [(frame, bar, deliver, delta)] in bar order, where delta is
+    the change in each counter since the previous record that carried DELIVER (None for the
+    first, or across a reboot: up_s went backwards and the counters restarted)."""
+    rows, prev = [], None
+    for k in sorted(recs):
+        d = recs[k].get("deliver")
+        if d is None:
+            continue
+        delta = None
+        if prev is not None and d["up_s"] >= prev["up_s"]:
+            delta = {f: d[f] - prev[f] for f in DELIVER_FIELDS if f not in ("up_s", "heap")}
+        rows.append((k[0], k[1], d, delta))
+        prev = d
+    return rows
+
+
+def deliver_report(records):
+    """Per node, the delivery counters it wrote with each bar: a board that stopped fetching
+    or serving shows flat deltas here, with no cable attached at the time."""
+    for name, recs in records.items():
+        rows = deliver_rows(recs)
+        if not rows:
+            continue
+        print(f"-- {name}: delivery per bar (from its own @LAT106 DELIVER lines) --")
+        for frame, n, d, delta in rows:
+            if delta is None:
+                tail = "(first, or after a reboot)"
+            else:
+                tail = (f"+fetched {delta['fetched']} +served {delta['served']}/{delta['wants']} "
+                        f"+unanswered {delta['unanswered']} +broken {delta['broken']} "
+                        f"+early {delta['early']} +wantq_drop {delta['wantq_drop']}")
+            print(f"frame {frame} bar {n}: up {d['up_s']}s heap {d['heap']}  {tail}")
+
+
 def bar_cmd(specs, bar_ms=BAR_MS):
     """`fleet.py bar node=pull.md …`: every node's bar views, and whether they agree."""
     stores, records = {}, {}
@@ -3255,6 +3305,7 @@ def bar_cmd(specs, bar_ms=BAR_MS):
     if any(records.values()):
         print("-- BAR records (@LAT106): what each node computed when the bar settled --")
         bar_records_report(records, by_node)
+        deliver_report(records)
     held = {name: sorted({(e['agent'], e['seq']) for e in eps if e['lane'] == HELD_LANE})
             for name, eps in stores.items()}
     for name, h in held.items():

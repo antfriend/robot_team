@@ -686,7 +686,8 @@ BarDigest barDigest(const Consolidator& c) {
 // the BAR record
 // ---------------------------------------------------------------------------------------
 size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
-                 const BarView& v, const BarDigest& d, int64_t settled_ms) {
+                 const BarView& v, const BarDigest& d, int64_t settled_ms,
+                 const DeliverCounts* dc) {
   if (!out || !cap) return 0;
   out[0] = '\0';
   int k = snprintf(out, cap,
@@ -703,6 +704,20 @@ size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar
     k = snprintf(out + n, cap - n, "**HOLDS** agent:0x%08lx n:%u lo:%lu hi:%lu sum:%lu\n",
                  (unsigned long)h.agent, (unsigned)h.n, (unsigned long)h.lo,
                  (unsigned long)h.hi, (unsigned long)h.sum);
+    if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
+    n += (size_t)k;
+  }
+  if (dc) {
+    k = snprintf(out + n, cap - n,
+                 "**DELIVER** up_s:%lu heap:%lu fetched:%lu unanswered:%lu broken:%lu "
+                 "resumed:%lu empty:%lu served:%lu wants:%lu early:%lu wantq_drop:%lu "
+                 "superseded:%lu\n",
+                 (unsigned long)dc->up_s, (unsigned long)dc->heap_free,
+                 (unsigned long)dc->fetched, (unsigned long)dc->unanswered,
+                 (unsigned long)dc->broken, (unsigned long)dc->resumed,
+                 (unsigned long)dc->empty, (unsigned long)dc->served,
+                 (unsigned long)dc->wants, (unsigned long)dc->early,
+                 (unsigned long)dc->wantq_drop, (unsigned long)dc->superseded);
     if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
     n += (size_t)k;
   }

@@ -53,7 +53,7 @@ namespace semantic {
 #define EPISODEDELIVERY_HELD_HARD 56
 #endif
 #ifndef EPISODEDELIVERY_HELD_PER_AUTHOR
-#define EPISODEDELIVERY_HELD_PER_AUTHOR 16     // bar + settle (~12 copies) + fetch backlog
+#define EPISODEDELIVERY_HELD_PER_AUTHOR 20     // 2 bars: a bar + the last one until its settle
 #endif
 #ifndef EPISODEDELIVERY_HELD_HARD_MAX
 #define EPISODEDELIVERY_HELD_HARD_MAX 80
@@ -366,9 +366,19 @@ BarDigest barDigest(const Consolidator& c);
 #endif
 #define EPISODEDELIVERY_BAR_CAP (EPISODEDELIVERY_BAR_QUOTA + EPISODEDELIVERY_BAR_SLACK + 4)
 
+// The node's cumulative delivery counters at the moment it writes a BAR record, so a board
+// that goes deaf off-cable leaves its own trace on flash (2026-10-05: run 8's V4-A stopped
+// fetching and serving with no cable attached, and the serial counters were gone). Optional:
+// a record without it is the pre-2026-10-05 format, and every reader keys on `**BAR**`.
+struct DeliverCounts {
+  uint32_t up_s, heap_free, fetched, unanswered, broken, resumed, empty;
+  uint32_t served, wants, early, wantq_drop, superseded;
+};
+
 // Returns bytes written, or 0 (out[0] = NUL) if it does not fit. Never truncates.
 size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
-                 const BarView& v, const BarDigest& d, int64_t settled_ms);
+                 const BarView& v, const BarDigest& d, int64_t settled_ms,
+                 const DeliverCounts* dc = nullptr);
 
 // Which bars this node has recorded, oldest first. Line-driven at boot (@LAT106 records in
 // file order), appended() for each new one.

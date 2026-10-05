@@ -108,6 +108,24 @@ check(r is not None and r["digest"] == 0xfa9dab24 and r["terms"] == 2 and r["lon
       and r["holds"] == {0x200: (1, 4, 4, 4), 0x300: (1, 1, 1, 1)} and r["settled_ms"] == 120000,
       "parse_bar_records reads it back")
 check(r is not None and r["holds"] == fv["holds"], "its HOLDS rows = the recomputed holds")
+check(r is not None and r["deliver"] is None, "a pre-2026-10-05 record carries no DELIVER")
+
+# The DELIVER line, pinned against the same string in tests/test_episode_delivery.cpp.
+D = dict(zip(c.DELIVER_FIELDS, (11599, 132468, 885, 544, 116, 2578, 135, 2828, 2852, 38, 0, 2)))
+DL = ("**DELIVER** up_s:11599 heap:132468 fetched:885 unanswered:544 broken:116 resumed:2578 "
+      "empty:135 served:2828 wants:2852 early:38 wantq_drop:0 superseded:2\n")
+check(c.render_bar_record(7, 5500, 1, fv, 120000, D) == WANT + DL,
+      "DELIVER rides after the BAR/HOLDS lines, byte-exact (= firmware renderBar)")
+rd = c.parse_bar_records(WANT + DL)[(5500, 1)]
+check(rd["deliver"] == D and rd["holds"] == r["holds"] and rd["digest"] == r["digest"],
+      "parse_bar_records reads DELIVER back, and the rest of the record is unchanged")
+D2 = dict(D, up_s=12199, fetched=925, served=2960, wants=2985)
+D3 = dict(D, up_s=40, fetched=3)                       # rebooted: counters restarted
+dr = c.deliver_rows({(5500, 1): dict(rd), (5500, 2): dict(rd, deliver=D2),
+                     (5500, 3): dict(rd, deliver=D3), (5500, 4): dict(rd, deliver=None)})
+check(len(dr) == 3 and dr[0][3] is None and dr[1][3]["fetched"] == 40 and
+      dr[1][3]["served"] == 132 and dr[2][3] is None,
+      "deliver_rows: per-bar deltas; none for the first, none across a reboot, old records skipped")
 
 # Scoring records: X and Y each record bar 1 and 2 (item-4 stores above).
 xr = "".join(c.render_bar_record(n, F, n, c.bar_view(X, F, n, self_id=0x300), 120000) + "\n---\n\n"

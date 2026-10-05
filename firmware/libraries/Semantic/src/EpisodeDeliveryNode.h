@@ -365,8 +365,12 @@ class Node {
     if (!bars_.has(frame, n)) {
       const int16_t ord = bars_.nextOrdinal();
       const int64_t late = pulse_now - semantic::barLine(frame, EPISODEDELIVERY_BAR_MS, n);
+      const semantic::DeliverCounts dc{
+          millis() / 1000, ESP.getFreeHeap(), st_.fetched, st_.unanswered, st_.broken,
+          st_.resumed, st_.empty, st_.served, st_.wants_heard, st_.cut_early,
+          wants_.dropped(), wants_.superseded()};
       const size_t m = semantic::renderBar(ep_->scratch(), ep_->scratchCap(), ord, frame, n,
-                                           v, d, late);
+                                           v, d, late, &dc);
       if (m && db_->appendRecord(ep_->scratch(), m)) {
         bars_.appended(frame, n, ord);
         ++st_.bars_written;
