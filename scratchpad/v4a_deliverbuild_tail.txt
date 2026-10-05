@@ -1,0 +1,74 @@
+tailing COM6 for 780s (passive)
+     13.7s | [heap] free 127380 maxalloc 77812 up 35s
+     35.3s | [bar] frame 20500 bar 26: 46 episode(s) (own 9, held 37) 8 term(s) digest 0xeb1da612
+     40.0s | [bar] frame 20500 bar 25: 13 episode(s) (own 10, held 3) 0 term(s) digest 0x00000000
+     40.1s | [link] window -> @LAT103LON847 (link live 47/48, TTDB 178947B, heap 127120)
+     40.1s | [entity] window -> @LAT103LON8245 (entity live 45/48, TTDB 179833B)
+     41.8s | [order] seq 803 | regressions 0 overflow 0 malformed 0 dropped 1 | follows: 0x00000011:736 0x00000012:646 0x00000100:732 0x00000200:1420 0x00000300:3466
+     42.0s | [deliver] held 32 | fetched 1 dup 0 refused 0 broken 0 resumed 7 unanswered 6 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 47 | cuts 1 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+     43.8s | [heap] free 132996 maxalloc 81908 up 65s
+     73.8s | [heap] free 127160 maxalloc 86004 up 95s
+    100.1s | [link] window -> @LAT103LON848 (link live 48/48, TTDB 176816B, heap 126916)
+    100.1s | [order] seq 804 | regressions 0 overflow 0 malformed 0 dropped 1 | follows: 0x00000011:737 0x00000012:647 0x00000100:732 0x00000200:1421 0x00000300:3468
+    100.2s | [deliver] held 38 | fetched 7 dup 0 refused 0 broken 1 resumed 27 unanswered 7 empty 0 nomem 0 appendfail 0 | served 16 (empty 3) of 19 want(s) | own link map 48 | cuts 1 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    103.8s | [heap] free 132436 maxalloc 86004 up 125s
+    133.8s | [heap] free 126604 maxalloc 86004 up 155s
+    160.2s | [link] window -> @LAT103LON849 (link live 49/48, TTDB 174704B, heap 126360)
+    160.3s | [order] seq 805 | regressions 0 overflow 0 malformed 0 dropped 1 | follows: 0x00000011:739 0x00000012:648 0x00000100:732 0x00000200:1422 0x00000300:3470
+    160.4s | [deliver] held 35 | fetched 12 dup 0 refused 0 broken 2 resumed 44 unanswered 8 empty 0 nomem 0 appendfail 0 | served 28 (empty 3) of 31 want(s) | own link map 49 | cuts 2 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    163.7s | [heap] free 132972 maxalloc 90100 up 185s
+    193.8s | [heap] free 126824 maxalloc 86004 up 215s
+    220.1s | [link] window -> @LAT103LON850 (link live 41/48, TTDB 173004B, heap 126576)
+    220.3s | [order] seq 806 | regressions 0 overflow 0 malformed 0 dropped 1 | follows: 0x00000011:740 0x00000012:649 0x00000100:732 0x00000200:1423 0x00000300:3472
+    220.4s | [deliver] held 34 | fetched 19 dup 0 refused 0 broken 2 resumed 62 unanswered 11 empty 0 nomem 0 appendfail 0 | served 45 (empty 3) of 48 want(s) | own link map 50 | cuts 3 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    223.7s | [heap] free 133508 maxalloc 90100 up 245s
+    253.8s | [heap] free 127120 maxalloc 81908 up 275s
+    280.1s | [link] window -> @LAT103LON851 (link live 42/48, TTDB 172976B, heap 126616)
+    280.3s | [order] seq 807 | regressions 0 overflow 0 malformed 0 dropped 1 | follows: 0x00000011:741 0x00000012:650 0x00000100:732 0x00000200:1424 0x00000300:3474
+    280.4s | [deliver] held 33 | fetched 26 dup 0 refused 0 broken 2 resumed 70 unanswered 19 empty 2 nomem 0 appendfail 0 | served 53 (empty 3) of 56 want(s) | own link map 51 | cuts 4 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    283.7s | [heap] free 135668 maxalloc 90100 up 305s
+    313.8s | [heap] free 127396 maxalloc 86004 up 335s
+    340.1s | [link] window -> @LAT103LON852 (link live 43/48, TTDB 177004B, heap 126636)
+    340.3s | [order] seq 808 | regressions 0 overflow 0 malformed 0 dropped 2 | follows: 0x00000011:742 0x00000012:651 0x00000100:732 0x00000200:1425 0x00000300:3476
+    340.4s | [deliver] held 35 | fetched 28 dup 0 refused 0 broken 2 resumed 78 unanswered 22 empty 3 nomem 0 appendfail 0 | served 64 (empty 3) of 68 want(s) | own link map 52 | cuts 4 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    343.7s | [heap] free 132704 maxalloc 81908 up 365s
+    373.8s | [heap] free 127384 maxalloc 81908 up 395s
+    400.2s | [link] window -> @LAT103LON853 (link live 44/48, TTDB 175032B, heap 126864)
+    400.3s | [order] seq 809 | regressions 0 overflow 0 malformed 0 dropped 2 | follows: 0x00000011:743 0x00000012:652 0x00000100:732 0x00000200:1426 0x00000300:3478
+    400.4s | [deliver] held 33 | fetched 33 dup 0 refused 0 broken 2 resumed 93 unanswered 23 empty 4 nomem 0 appendfail 0 | served 78 (empty 3) of 81 want(s) | own link map 53 | cuts 5 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    403.8s | [heap] free 132720 maxalloc 81908 up 425s
+    433.8s | [heap] free 127128 maxalloc 86004 up 455s
+    460.1s | [link] window -> @LAT103LON854 (link live 45/48, TTDB 183252B, heap 129556)
+    460.3s | [order] seq 810 | regressions 0 overflow 0 malformed 0 dropped 2 | follows: 0x00000011:744 0x00000012:653 0x00000100:732 0x00000200:1427 0x00000300:3480
+    460.4s | [deliver] held 39 | fetched 39 dup 0 refused 0 broken 3 resumed 111 unanswered 25 empty 5 nomem 0 appendfail 0 | served 87 (empty 3) of 91 want(s) | own link map 54 | cuts 5 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    463.9s | [heap] free 135668 maxalloc 90100 up 485s
+    493.8s | [heap] free 127152 maxalloc 86004 up 515s
+    520.2s | [link] window -> @LAT103LON855 (link live 46/48, TTDB 188324B, heap 126632)
+    520.3s | [order] seq 811 | regressions 0 overflow 0 malformed 0 dropped 2 | follows: 0x00000011:745 0x00000012:654 0x00000100:732 0x00000200:1428 0x00000300:3482
+    520.4s | [deliver] held 42 | fetched 42 dup 0 refused 0 broken 3 resumed 116 unanswered 30 empty 5 nomem 0 appendfail 0 | served 101 (empty 3) of 105 want(s) | own link map 55 | cuts 5 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    523.8s | [heap] free 132720 maxalloc 86004 up 545s
+    553.8s | [heap] free 127104 maxalloc 86004 up 575s
+    580.1s | [link] window -> @LAT103LON856 (link live 47/48, TTDB 195492B, heap 129808)
+    580.3s | [order] seq 812 | regressions 0 overflow 0 malformed 0 dropped 3 | follows: 0x00000011:746 0x00000012:655 0x00000100:732 0x00000200:1429 0x00000300:3484
+    580.4s | [deliver] held 47 | fetched 47 dup 0 refused 0 broken 4 resumed 124 unanswered 32 empty 7 nomem 0 appendfail 0 | served 113 (empty 3) of 117 want(s) | own link map 56 | cuts 5 (fail 0, early 0, cap 80) | bars 17 on flash, 1 written (fail 0) | wantq drop 0 superseded 0
+    583.9s | [heap] free 136516 maxalloc 90100 up 605s
+    592.5s | [wifi] scan: 9 AP(s) folded into @LAT96 window
+    592.5s | [entity] window covered (run 2, core 0)
+    613.8s | [heap] free 129556 maxalloc 86004 up 635s
+    635.0s | [bar] frame 20500 bar 27: 48 episode(s) (own 8, held 40) 8 term(s) digest 0xdf43adec
+    639.5s | [bar] frame 20500 bar 26: 12 episode(s) (own 9, held 3) 0 term(s) digest 0x00000000
+    641.3s | [link] window -> @LAT103LON857 (link live 48/48, TTDB 177747B, heap 126100)
+    641.3s | [order] seq 813 | regressions 0 overflow 0 malformed 0 dropped 3 | follows: 0x00000011:747 0x00000012:656 0x00000100:732 0x00000200:1430 0x00000300:3486
+    641.4s | [deliver] held 32 | fetched 50 dup 0 refused 0 broken 4 resumed 129 unanswered 34 empty 7 nomem 0 appendfail 0 | served 132 (empty 3) of 135 want(s) | own link map 57 | cuts 6 (fail 0, early 0, cap 80) | bars 18 on flash, 2 written (fail 0) | wantq drop 0 superseded 0
+    643.8s | [heap] free 132720 maxalloc 86004 up 665s
+    673.8s | [heap] free 126876 maxalloc 86004 up 695s
+    701.3s | [link] window -> @LAT103LON858 (link live 49/48, TTDB 179827B, heap 126628)
+    703.3s | [order] seq 814 | regressions 0 overflow 0 malformed 0 dropped 3 | follows: 0x00000011:748 0x00000012:657 0x00000100:732 0x00000200:1431 0x00000300:3488
+    703.4s | [deliver] held 33 | fetched 51 dup 0 refused 0 broken 5 resumed 147 unanswered 35 empty 8 nomem 0 appendfail 0 | served 148 (empty 3) of 151 want(s) | own link map 58 | cuts 6 (fail 0, early 0, cap 80) | bars 18 on flash, 2 written (fail 0) | wantq drop 0 superseded 0
+    703.9s | [heap] free 136740 maxalloc 90100 up 725s
+    733.9s | [heap] free 126900 maxalloc 86004 up 755s
+    762.8s | [link] window -> @LAT103LON859 (link live 41/48, TTDB 161145B, heap 129600)
+    763.3s | [order] seq 815 | regressions 0 overflow 0 malformed 0 dropped 4 | follows: 0x00000011:750 0x00000012:658 0x00000100:732 0x00000200:1432 0x00000300:3490
+    763.4s | [deliver] held 32 | fetched 58 dup 0 refused 0 broken 6 resumed 155 unanswered 44 empty 9 nomem 0 appendfail 0 | served 162 (empty 3) of 165 want(s) | own link map 59 | cuts 7 (fail 0, early 0, cap 80) | bars 18 on flash, 2 written (fail 0) | wantq drop 0 superseded 0
+    763.8s | [heap] free 133792 maxalloc 81908 up 785s
+tail done
