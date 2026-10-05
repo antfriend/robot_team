@@ -113,12 +113,15 @@ uint16_t heldHardCap(uint16_t authors, uint16_t board_max);
 #endif
 
 // The bar (design §7.4): 10 min, so a gate fits in an hour; reported once its line is
-// BAR_SETTLE in the past, so a late delivery has landed.
+// BAR_SETTLE in the past, so a late delivery has landed. 2 min -> 5 min (2026-10-05): at six
+// boards, run 10's only set misses were 3 single copies (bars 42, 54, 56, one board each)
+// missing from the record, consistent with arriving after it. Costs ~5 min of copies per author held a little longer (peak ~60 for
+// four authors, under the per-author cap of 20 each).
 #ifndef EPISODEDELIVERY_BAR_MS
 #define EPISODEDELIVERY_BAR_MS 600000UL
 #endif
 #ifndef EPISODEDELIVERY_BAR_SETTLE_MS
-#define EPISODEDELIVERY_BAR_SETTLE_MS 120000UL
+#define EPISODEDELIVERY_BAR_SETTLE_MS 300000UL
 #endif
 
 // ---------------------------------------------------------------------------------------

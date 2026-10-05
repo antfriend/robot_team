@@ -3644,8 +3644,10 @@ void setup() {
   Serial.printf("[order] seq %lu recovered, next episode seq %lu, %u other agent(s) in its "
                 "vector\n", (unsigned long)gOrder.seq(), (unsigned long)gOrder.nextSeq(),
                 (unsigned)gOrder.others());
-  // Held-copy ceiling: this board's TTDB index runs 221/288 (2026-10-04); 64 keeps ~30 free.
-  gDelivery.setHeldHardMax(64);
+  // Held-copy ceiling: this board's TTDB index runs ~200/288 besides held copies (2026-10-05
+  // pull: 232 with 32 held). 68 covers the 5-min settle's peak (~60 for four authors) and
+  // keeps ~20 free. Was 64 under the 2-min settle.
+  gDelivery.setHeldHardMax(68);
   gDelivery.begin(gDb, gEpisodes, gOrder, kNodeId, sendEpisodeToot);
   gDelivery.print(Serial);
 #if USE_WIFI_SCAN
