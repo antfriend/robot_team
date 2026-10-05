@@ -1,9 +1,9 @@
 re-attached after 0.02s
-TTDB loaded: 120962 bytes, 156/288 records indexed (132 free)
-[episode] boot in 2017 ms: 86 live episode(s) replayed, 86 present, maxalloc 106484 B
-[episode] live 86 present 86 dead 0 horizon 755 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L41/48 E45/48 M0/24 A0/24
-[order] seq 635 recovered, next episode seq 636, 5 other agent(s) in its vector
-[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 41 | cuts 0 (fail 0, early 0) | bars 16 on flash, 0 written (fail 0)
+TTDB loaded: 154615 bytes, 158/288 records indexed (130 free)
+[episode] boot in 2451 ms: 88 live episode(s) replayed, 88 present, maxalloc 106484 B
+[episode] live 88 present 88 dead 0 horizon 1034 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L46/48 E42/48 M0/24 A0/24
+[order] seq 934 recovered, next episode seq 935, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 46 | cuts 0 (fail 0, early 0, cap 64) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 RFC globe loaded: 52692 bytes, 44 records
 Feelings globe loaded: 37569 bytes, 48 records
@@ -13,19 +13,20 @@ BLE near-range tier up (advert + passive scan)
 [social] fleet table  self 0x200 ep 4  peers 5 (4 silent)  stale-reports 0
 [social]   0x200  spk:v gps:d wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v   (self)
 [social]   0x100  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
-[social]   0x010  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x010  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
 [social]   0x300  co: 64~  mic:X spk:v imu:X wifi:X ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v   FADED 
-[social]   0x011  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
-[social]   0x012  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x011  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x012  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
 [social]   pose: shape only  (gps exercised 0 of 1 declared)  stillness-witnesses 1  ears 1
 T-Deck console 0x00000200 online (hw on, LoRa off, GPS on)
 [field] armed: 16 cells, half-life 10s, floor 24, rides HELLO (+19 B). Deposits: press 'f' at the step you want.
+[stream] adopted stream=0x3c4214c9 t_ms=28519244 wall=0 from=0x12 offset=0ms
 [social] self ep 4: spk:v gps:d wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
-[intero] pin 2348mV x2.00 = pack 4696mV (255%) | die 40.8C | maxalloc 12K  <- CHECK THE PACK VOLTAGE AGAINST A METER
-[stream] adopted stream=0x3c4214c9 t_ms=11134220 wall=0 from=0x100 offset=0ms
+[intero] pin 2357mV x2.00 = pack 4714mV (255%) | die 41.8C | maxalloc 12K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[scene] scene 0 ALONE (era 16 cond 0x00000300)
+[bar] frame 7000 bar 47: 32 episode(s) (own 10, held 22) 0 term(s) digest 0x00000000
+[bar] frame 7000 bar 46: 16 episode(s) (own 10, held 6) 0 term(s) digest 0x00000000
 [social] self ep 5: spk:v gps:v wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[wifi] scan: 4 AP(s) folded into @LAT96 window
 [social] self ep 6: spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v
-[scene] scene 0 ALONE (era 1 cond 0x00000200)
-[wifi] scan: 8 AP(s) folded into @LAT96 window
-[bar] frame 7000 bar 18: 20 episode(s) (own 10, held 10) 3 term(s) digest 0xd25ff5d5
 

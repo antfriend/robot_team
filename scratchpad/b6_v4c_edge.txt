@@ -1,0 +1,2 @@
+v4c_edge: Sketch uses 1271149 bytes (40%) of program storage space. Maximum is 3145728 bytes.
+v4c_edge: Global variables use 70580 bytes (21%) of dynamic memory, leaving 257100 bytes for local variables. Maximum is 327680 bytes.

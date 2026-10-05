@@ -1,73 +1,22 @@
 re-attached after 0.02s
 [codec] DAC vol reg 0x32 = 0xBF (0xBF = unity/0dB), tone amp 30000/32767
-[mem] heap 192400 free, maxalloc 147444, psram 0
+[mem] heap 191816 free, maxalloc 147444, psram 0
 BMI270 up (motion tier @LAT95 live)
-TTDB loaded: 166429 bytes, 219/288 records indexed (69 free)
-LittleFS: 278528 / 917504 bytes used (638976 free)
-[episode] boot in 1607 ms: 124 live episode(s) replayed, 124 present, maxalloc 106484 B
-[episode] live 124 present 124 dead 0 horizon 1673 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E44/48 M19/24 A16/24
-[episode]   0x00000200 belief: link_stable | espnow | + | 1076 17 | 251 eps:4 carried:yes
-[episode]   0x00000200 belief: link_stable | ble | + | 1147 13 | 252 eps:3 carried:yes
-[episode]   0x00000100 belief: link_stable | espnow | + | 568 6 | 252 eps:3 carried:yes
-[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
-[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
-[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
-[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
-[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
-[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
-[order] seq 1911 recovered, next episode seq 1912, 5 other agent(s) in its vector
-[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 0 (fail 0, early 0) | bars 16 on flash, 0 written (fail 0)
-[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
-RFC globe loaded: 52692 bytes, 44 records
-Feelings globe loaded: 37298 bytes, 48 records
-[social] field: 6 peer trace(s) reloaded from @LAT101 — age unknown, clamped to 64 and FADED until heard (RFC-0010 s5.4)
-Guru Meditation Error: Core  0 panic'ed (Unhandled debug exception). 
-Debug exception reason: Stack canary watchpoint triggered (ipc0) 
-Core  0 register dump:
-PC      : 0x40382b92  PS      : 0x00060336  A0      : 0x4037c0d5  A1      : 0x3fcbd000  
-A2      : 0x00060323  A3      : 0x00000000  A4      : 0x00060320  A5      : 0x3fce9748  
-A6      : 0xffffffff  A7      : 0x00000000  A8      : 0x3fcb75fc  A9      : 0x00000001  
-A10     : 0x00000000  A11     : 0x00000003  A12     : 0x00060323  A13     : 0x00000000  
-A14     : 0x40377fac  A15     : 0x00000000  SAR     : 0x0000001f  EXCCAUSE: 0x00000001  
-EXCVADDR: 0x00000000  LBEG    : 0x00000000  LEND    : 0x00000000  LCOUNT  : 0x00000000  
-
-
-Backtrace: 0x40382b8f:0x3fcbd000 0x4037c0d2:0x3fcbd0d0 0x403871da:0x3fcbd0f0 0x40387374:0x3fcbd110 0x403766cb:0x3fcbd130 0x403766e5:0x3fcbd160 0x4037637d:0x3fcbd180 0x4202b7c5:0x3fcbd1a0 0x4202bb16:0x3fcbd220 0x4202bb31:0x3fcbd250 0x4205d7d1:0x3fcbd280 0x40375b79:0x3fcbd2a0 0x403827d9:0x3fcbd2d0
-
-
-
-
-ELF file SHA256: 03b2deb5e
-
-Rebooting...
-ESP-ROM:esp32s3-20210327
-Build:Mar 27 2021
-rst:0xc (RTC_SW_CPU_RST),boot:0xb (SPI_FAST_FLASH_BOOT)
-Saved PC:0x40381999
-SPIWP:0xee
-mode:DIO, clock div:1
-load:0x3fce2820,len:0x10cc
-load:0x403c8700,len:0xc2c
-load:0x403cb700,len:0x30c0
-entry 0x403c88b8
-[codec] DAC vol reg 0x32 = 0xBF (0xBF = unity/0dB), tone amp 30000/32767
-[mem] heap 192400 free, maxalloc 147444, psram 0
-BMI270 up (motion tier @LAT95 live)
-TTDB loaded: 166429 bytes, 219/288 records indexed (69 free)
-LittleFS: 278528 / 917504 bytes used (638976 free)
-[episode] boot in 1607 ms: 124 live episode(s) replayed, 124 present, maxalloc 106484 B
-[episode] live 124 present 124 dead 0 horizon 1673 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E44/48 M19/24 A16/24
-[episode]   0x00000200 belief: link_stable | espnow | + | 1076 17 | 251 eps:4 carried:yes
-[episode]   0x00000200 belief: link_stable | ble | + | 1147 13 | 252 eps:3 carried:yes
-[episode]   0x00000100 belief: link_stable | espnow | + | 568 6 | 252 eps:3 carried:yes
-[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
-[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
-[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
-[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
-[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
-[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
-[order] seq 1911 recovered, next episode seq 1912, 5 other agent(s) in its vector
-[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 0 (fail 0, early 0) | bars 16 on flash, 0 written (fail 0)
+TTDB loaded: 225944 bytes, 222/288 records indexed (66 free)
+LittleFS: 339968 / 917504 bytes used (577536 free)
+[episode] boot in 2285 ms: 127 live episode(s) replayed, 127 present, maxalloc 106484 B
+[episode] live 127 present 127 dead 0 horizon 1943 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L42/48 E43/48 M20/24 A22/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 1326 26 | 250 eps:5 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 1389 16 | 252 eps:3 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 718 13 | 250 eps:5 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 715 12 | 250 eps:5 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 658 20 | 247 eps:8 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 233 3 | 251 eps:3 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 243 9 | 245 eps:10 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 171 4 | 248 eps:5 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 167 6 | 245 eps:7 carried:yes
+[order] seq 2472 recovered, next episode seq 2473, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 42 | cuts 0 (fail 0, early 0, cap 56) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 RFC globe loaded: 52692 bytes, 44 records
 Feelings globe loaded: 37298 bytes, 48 records
@@ -79,29 +28,28 @@ Cardputer console 0x00000300 online (hw on, codec on, imu on)
 [social]   0x300  mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v   (self)
 [social]   0x100  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
 [social]   0x200  co: 64~  spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v   FADED 
-[social]   0x010  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
-[social]   0x011  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
-[social]   0x012  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x010  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x011  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x012  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
 [social]   0x001  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
 [social]   pose: <=translation  (gps exercised 1 of 1 declared)  stillness-witnesses 0  ears 0
-[intero] pin 2040mV x2.00 = pack 4080mV (88%) | die 42.6C | maxalloc 17K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[intero] pin 1975mV x2.00 = pack 3950mV (70%) | die 44.6C | maxalloc 17K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[stream] adopted stream=0x3c4214c9 t_ms=27963896 wall=0 from=0x100 offset=0ms
 [social] self ep 6: mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
-[episode] live 124 present 124 dead 0 horizon 1673 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E44/48 M19/24 A16/24
-[episode]   0x00000200 belief: link_stable | espnow | + | 1076 17 | 251 eps:4 carried:yes
-[episode]   0x00000200 belief: link_stable | ble | + | 1147 13 | 252 eps:3 carried:yes
-[episode]   0x00000100 belief: link_stable | espnow | + | 568 6 | 252 eps:3 carried:yes
-[episode]   0x00000010 belief: link_stable | ble | + | 534 11 | 249 eps:6 carried:yes
-[episode]   0x00000010 belief: link_stable | espnow | + | 524 18 | 246 eps:9 carried:yes
-[episode]   0x00000011 belief: link_stable | ble | + | 91 0 | 252 eps:1 carried:yes
-[episode]   0x00000011 belief: link_stable | espnow | + | 87 4 | 241 eps:5 carried:yes
-[episode]   0x00000012 belief: link_stable | ble | + | 59 2 | 243 eps:3 carried:yes
-[episode]   0x00000012 belief: link_stable | espnow | + | 57 2 | 242 eps:3 carried:yes
-[order] seq 1911 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:86 0x00000011:48 0x00000012:5 0x00000100:310 0x00000200:640
-[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 0 (fail 0, early 0) | bars 16 on flash, 0 written (fail 0)
-[stream] adopted stream=0x3c4214c9 t_ms=11538755 wall=0 from=0x100 offset=0ms
+[episode] live 127 present 127 dead 0 horizon 1943 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L42/48 E43/48 M20/24 A22/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 1326 26 | 250 eps:5 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 1389 16 | 252 eps:3 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 718 13 | 250 eps:5 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 715 12 | 250 eps:5 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 658 20 | 247 eps:8 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 233 3 | 251 eps:3 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 243 9 | 245 eps:10 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 171 4 | 248 eps:5 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 167 6 | 245 eps:7 carried:yes
+[order] seq 2472 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:293 0x00000011:226 0x00000012:142 0x00000100:496 0x00000200:924
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 42 | cuts 0 (fail 0, early 0, cap 56) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [scene] scene 0 ALONE (era 1 cond 0x00000300)
-[ble] 98 advert(s) handled in the first 5 s of scanning | heap 17932 maxalloc 9716
-[wifi] scan: 9 AP(s) folded into @LAT96 window
-[field] merged peer trace: 1 cell(s) raised, energy 1
-[field] |................| e   1 mine 0 theirs 0
+[ble] 123 advert(s) handled in the first 5 s of scanning | heap 16728 maxalloc 8692
+[wifi] scan: 6 AP(s) folded into @LAT96 window
+[bar] frame 7000 bar 46: 14 episode(s) (own 10, held 4) 9 term(s) digest 0x60c58491
 

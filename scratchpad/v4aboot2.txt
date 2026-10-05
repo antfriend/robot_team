@@ -1,17 +1,19 @@
 re-attached after 0.02s
-TTDB loaded: 45046 bytes, 95/288 records indexed (193 free)
-[episode] boot in 564 ms: 59 live episode(s) replayed, 59 present, maxalloc 212980 B
-[episode] live 59 present 59 dead 0 horizon 134 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L44/48 E15/48 M0/24 A0/24
-[order] seq 89 recovered, next episode seq 90, 5 other agent(s) in its vector
-[deliver] held 0 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 44 | cuts 0 (fail 0, early 0) | bars 3 on flash, 0 written (fail 0)
+TTDB loaded: 131316 bytes, 149/288 records indexed (139 free)
+[episode] boot in 1885 ms: 68 live episode(s) replayed, 68 present, maxalloc 212980 B
+[episode] live 68 present 68 dead 0 horizon 350 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L40/48 E28/48 M0/24 A0/24
+[order] seq 320 recovered, next episode seq 321, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 40 | cuts 0 (fail 0, early 0, cap 64) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 BLE near-range tier up (advert + passive scan)
 V4-A bridge 0x00000010 online (LoRa off, BLE on)
-[heap] free 138664 maxalloc 98292 up 1s
-[stream] adopted stream=0x3c4214c9 t_ms=16413186 wall=0 from=0x200 offset=0ms
-[intero] pin 834mV x4.90 = pack 4086mV (88%) | die 44.8C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
-[bar] frame 7000 bar 27: 1 episode(s) (own 1, held 0) 0 term(s) digest 0x00000000
-[bar] frame 7000 bar 26: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
-[scene] scene 0 ALONE (era 10 cond 0x00000300)
-[wifi] scan: 7 AP(s) folded into @LAT96 window
+[heap] free 138080 maxalloc 94196 up 3s
+[intero] pin 835mV x4.90 = pack 4091mV (89%) | die 50.8C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[stream] adopted stream=0x3c4214c9 t_ms=29413628 wall=0 from=0x11 offset=0ms
+[pulse] beacon era=1 cond=0x00000010 period=500ms scene=0 (conductor)
+[scene] scene 0 ALONE (era 1 cond 0x00000010)
+[wifi] scan: 8 AP(s) folded into @LAT96 window
+[pulse] beacon era=1 cond=0x00000010 period=500ms scene=0 (conductor)
+[bar] frame 7000 bar 48: 10 episode(s) (own 10, held 0) 0 term(s) digest 0x00000000
+[bar] frame 7000 bar 47: 11 episode(s) (own 11, held 0) 0 term(s) digest 0x00000000
 

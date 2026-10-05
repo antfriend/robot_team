@@ -1,0 +1,2 @@
+tdeck_console: Sketch uses 1327813 bytes (42%) of program storage space. Maximum is 3145728 bytes.
+tdeck_console: Global variables use 103396 bytes (31%) of dynamic memory, leaving 224284 bytes for local variables. Maximum is 327680 bytes.

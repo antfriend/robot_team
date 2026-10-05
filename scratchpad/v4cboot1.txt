@@ -1,19 +1,16 @@
 re-attached after 0.02s
-TTDB loaded: 18218 bytes, 44/288 records indexed (244 free)
-[episode] boot in 220 ms: 27 live episode(s) replayed, 27 present, maxalloc 212980 B
-[episode] live 27 present 27 dead 0 horizon none/0 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L23/48 E4/48 M0/24 A0/24
-[order] seq 6 recovered, next episode seq 7, 5 other agent(s) in its vector
-[deliver] held 0 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 5 | cuts 0 (fail 0, early 0) | bars 0 on flash, 0 written (fail 0)
+TTDB loaded: 115548 bytes, 124/288 records indexed (164 free)
+[episode] boot in 1271 ms: 58 live episode(s) replayed, 58 present, maxalloc 212980 B
+[episode] live 58 present 58 dead 0 horizon 143 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L40/48 E18/48 M0/24 A0/24
+[order] seq 181 recovered, next episode seq 182, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 40 | cuts 0 (fail 0, early 0, cap 64) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 BLE near-range tier up (advert + passive scan)
 V4-C edge 0x00000012 online (LoRa off, GNSS off, BLE on)
-[intero] pin 830mV x4.90 = pack 4067mV (86%) | die 37.6C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
-[stream] adopted stream=0x3c4214c9 t_ms=20088059 wall=0 from=0x11 offset=0ms
-[pulse] beacon era=1 cond=0x00000012 period=500ms scene=0 (conductor)
-[scene] scene 0 ALONE (era 1 cond 0x00000012)
-[wifi] scan: 9 AP(s) folded into @LAT96 window
-[pulse] beacon era=1 cond=0x00000012 period=500ms scene=0 (conductor)
-[pulse] beacon era=1 cond=0x00000012 period=500ms scene=0 (conductor)
-[bar] frame 7000 bar 33: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
-[bar] frame 7000 bar 32: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
+[intero] pin 829mV x4.90 = pack 4062mV (86%) | die 54.6C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[stream] adopted stream=0x3c4214c9 t_ms=29956410 wall=0 from=0x100 offset=0ms
+[scene] scene 0 ALONE (era 16 cond 0x00000300)
+[bar] frame 7000 bar 49: 22 episode(s) (own 10, held 12) 9 term(s) digest 0x6c84f4e2
+[bar] frame 7000 bar 48: 10 episode(s) (own 10, held 0) 0 term(s) digest 0x00000000
+[wifi] scan: 8 AP(s) folded into @LAT96 window
 

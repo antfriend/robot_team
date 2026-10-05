@@ -1,26 +1,23 @@
 re-attached after 0.02s
-TTDB loaded: 79430 bytes, 155/288 records indexed (133 free)
-[episode] boot in 2283 ms: 67 live episode(s) replayed, 67 present, maxalloc 253940 B
-[episode] live 67 present 67 dead 0 horizon none/0 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L0/48 E29/48 M20/24 A18/24
-[order] seq 293 recovered, next episode seq 294, 5 other agent(s) in its vector
-[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 0 | cuts 1 (fail 0, early 0) | bars 14 on flash, 0 written (fail 0)
+TTDB loaded: 116417 bytes, 170/288 records indexed (118 free)
+[episode] boot in 2717 ms: 78 live episode(s) replayed, 78 present, maxalloc 249844 B
+[episode] live 78 present 78 dead 0 horizon none/0 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L0/48 E41/48 M20/24 A17/24
+[order] seq 511 recovered, next episode seq 512, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 0 | cuts 1 (fail 0, early 0, cap 80) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 [tilt] @LAT95/@LAT93 up: SC7A20H @0x19 via the board task, 10 Hz, 1.0 mg/LSB, moving>60 mg
 [mic] @LAT94 up: I2S_NUM_0 RX 16000 Hz, 128-frame blocks (the fleet's SECOND ear -- TDoA needs two)
 [view] boot view 0 EYE (no local button: CMD_SET_VIEW is the only way this screen changes)
 K10 percept node 0x00000100 online
-[intero] die 41.6C | maxalloc 215K | no battery sense on this board
+[intero] die 44.2C | maxalloc 215K | no battery sense on this board
 [cycle] cursor @LAT10LON0 match=1 led=agent
+[bar] frame 7000 bar 47: 5 episode(s) (own 0, held 5) 9 term(s) digest 0xe16cec6b
+[bar] frame 7000 bar 46: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
+[stream] adopted stream=0x3c4214c9 t_ms=28811506 wall=0 from=0x11 offset=0ms
+[scene] scene 0 ALONE (era 16 cond 0x00000300)
+[tilt] resting pose -33 1045 -291 mg | rest |a| 1085 mg over 2 samples -> @LAT95 null x0.9210
+[wifi] scan: 6 AP(s) folded into @LAT96 window
 [cycle] cursor @LAT10LON0 match=1 led=agent
-[tilt] resting pose -37 1055 -277 mg | rest |a| 1090 mg over 16 samples -> @LAT95 null x0.9170
-[cycle] cursor @LAT10LON0 match=1 led=agent
-[wifi] scan: 4 AP(s) folded into @LAT96 window
-[pulse] beacon era=1 cond=0x00000100 period=500ms scene=0
-[scene] scene 0 ALONE (era 6 cond 0x00000300)
-[cycle] cursor @LAT10LON0 match=1 led=agent
-[bar] frame 7000 bar 17: 20 episode(s) (own 0, held 20) 3 term(s) digest 0xbfc8f19f
-[bar] frame 7000 bar 16: 4 episode(s) (own 0, held 4) 3 term(s) digest 0x7b72b84e
-[stream] adopted stream=0x3c4214c9 t_ms=10521243 wall=0 from=0x300 offset=0ms
 [cycle] cursor @LAT10LON0 match=1 led=agent
 [cycle] cursor @LAT10LON0 match=1 led=agent
 [cycle] cursor @LAT10LON0 match=1 led=agent

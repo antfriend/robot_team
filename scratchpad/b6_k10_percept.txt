@@ -1,0 +1,2 @@
+k10_percept: Sketch uses 1103609 bytes (21%) of program storage space. Maximum is 5242880 bytes.
+k10_percept: Global variables use 77112 bytes (23%) of dynamic memory, leaving 250568 bytes for local variables. Maximum is 327680 bytes.

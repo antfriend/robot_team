@@ -1,17 +1,16 @@
 re-attached after 0.02s
-TTDB loaded: 33491 bytes, 73/288 records indexed (215 free)
-[episode] boot in 498 ms: 49 live episode(s) replayed, 49 present, maxalloc 212980 B
-[episode] live 49 present 49 dead 0 horizon 26 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L41/48 E8/48 M0/24 A0/24
-[order] seq 48 recovered, next episode seq 49, 4 other agent(s) in its vector
-[deliver] held 2 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 41 | cuts 0 (fail 0, early 0) | bars 2 on flash, 0 written (fail 0)
+TTDB loaded: 128620 bytes, 138/288 records indexed (150 free)
+[episode] boot in 2009 ms: 70 live episode(s) replayed, 70 present, maxalloc 212980 B
+[episode] live 70 present 70 dead 0 horizon 215 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L48/48 E22/48 M0/24 A0/24
+[order] seq 258 recovered, next episode seq 259, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 48 | cuts 0 (fail 0, early 0, cap 64) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
 [entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
 BLE near-range tier up (advert + passive scan)
 V4-B relay 0x00000011 online (LoRa off, forward off, BLE on)
-[stream] adopted stream=0x3c4214c9 t_ms=17673671 wall=0 from=0x200 offset=0ms
-[intero] pin 825mV x4.90 = pack 4042mV (84%) | die 39.2C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
-[scene] scene 0 ALONE (era 10 cond 0x00000300)
-[bar] frame 7000 bar 29: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
-[bar] frame 7000 bar 28: 0 episode(s) (own 0, held 0) 0 term(s) digest 0x00000000
-[wifi] scan: 7 AP(s) folded into @LAT96 window
-[order] now 5 other agent(s) in the vector
+[intero] pin 827mV x4.90 = pack 4052mV (85%) | die 53.2C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[scene] scene 0 ALONE (era 16 cond 0x00000300)
+[bar] frame 7000 bar 49: 31 episode(s) (own 10, held 21) 9 term(s) digest 0x0e07397c
+[bar] frame 7000 bar 48: 14 episode(s) (own 10, held 4) 9 term(s) digest 0xf710a191
+[stream] adopted stream=0x3c4214c9 t_ms=29729259 wall=0 from=0x12 offset=0ms
+[wifi] scan: 8 AP(s) folded into @LAT96 window
 
