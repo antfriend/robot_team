@@ -1,0 +1,14 @@
+tailing COM6 for 120s (passive)
+      1.0s | [heap] free 126608 maxalloc 86004 up 14350s
+      3.0s | [order] seq 779 | regressions 0 overflow 0 malformed 0 dropped 361 | follows: 0x00000011:712 0x00000012:622 0x00000100:732 0x00000200:1397 0x00000300:3418
+      3.1s | [deliver] held 36 | fetched 1068 dup 0 refused 0 broken 134 resumed 3142 unanswered 651 empty 157 nomem 0 appendfail 0 | served 3441 (empty 35) of 3481 want(s) | own link map 72 | cuts 124 (fail 0, early 38, cap 64) | bars 19 on flash, 23 written (fail 0) | wantq drop 3 superseded 22
+     20.5s | [link] window -> @LAT103LON827 (link live 45/48, TTDB 177709B, heap 129324)
+     31.0s | [heap] free 127348 maxalloc 86004 up 14380s
+     61.0s | [heap] free 129304 maxalloc 86004 up 14410s
+     63.0s | [order] seq 780 | regressions 0 overflow 0 malformed 0 dropped 363 | follows: 0x00000011:713 0x00000012:623 0x00000100:732 0x00000200:1398 0x00000300:3420
+     63.1s | [deliver] held 39 | fetched 1076 dup 0 refused 0 broken 134 resumed 3153 unanswered 656 empty 159 nomem 0 appendfail 0 | served 3449 (empty 35) of 3489 want(s) | own link map 72 | cuts 125 (fail 0, early 38, cap 64) | bars 19 on flash, 23 written (fail 0) | wantq drop 3 superseded 22
+     80.6s | [link] window -> @LAT103LON828 (link live 46/48, TTDB 183983B, heap 125916)
+     86.8s | [wifi] scan: 7 AP(s) folded into @LAT96 window
+     86.9s | [entity] window -> @LAT103LON8243 (entity live 43/48, TTDB 184980B)
+     91.1s | [heap] free 127112 maxalloc 81908 up 14440s
+tail done
