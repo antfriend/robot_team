@@ -25,14 +25,16 @@ first, every session. When something here is wrong or stale, fix *this file*.
 > [docs/log/](docs/log/) (one file per month); §6 holds only what is true now and
 > what to do next. This file is the brain; `docs/log/` is the logbook.
 
-## Where things stand — 2026-09-30
+## Where things stand — 2026-10-05
 
 **Act III is underway** ([ACT-III.md](ACT-III.md) is the plan of record). The hypothesis
-is now **autonomous fleet** (§1). Phase A (RFC sync) is done **bar one board**; Phase B
-(this reorganization) is in progress.
+is now **autonomous fleet** (§1). Phases A and B are done. **Phase C is in its last stretch:**
+every board writes episodes and nothing on any board refuses a write. C4 stage 2 (episode
+delivery + the bar view) runs on all six boards. On the last run, the five authors' episode
+sets matched on 13 of 16 bars, each miss a single copy.
 
-**Next:** flash the Cardputer's filesystem — pull it first — then Phase C, the memory that
-never refuses a write.
+**Next:** score run 11 (all six on the 5-min settle build, started 2026-10-05 ~17:25). If the
+sets match on every bar, C4 stage 2 passes at six boards and C4 item 5 is what's left of Phase C.
 
 → Detail, caveats and the banked evidence: **§6**. Dated findings: [docs/log/](docs/log/).
 This box is a pointer, not a copy; when it disagrees with §6, §6 wins.
@@ -398,9 +400,14 @@ If a fact lives in one of these, link to it from here — don't copy it.
    one-episode-per-round-trip throughput, at capacity with four authors. ✅ The digest now
    spans 8–9 terms from four authors (the V4s write `percept:`), but it is coarser than the
    set, so only the HOLDS rows catch this.
-   **Next:** an operator choice among: size the cap to the authors, fetch several episodes per
-   WANT, a longer settle ([docs/log/2026-10.md](docs/log/2026-10.md)); then item 5
-   ([docs/log/2026-10.md](docs/log/2026-10.md)).
+   ✅ **Delivery scaled (2026-10-04/05):** a 5-slot WANT queue at the author, a held cap of
+   20 per author, and every BAR record carries the node's delivery counters (`**DELIVER**`), so
+   a board that goes deaf off-cable leaves the trace on its own flash. **Run 10 (2026-10-05):
+   digests agree 16/16, sets 13/16 bars**, each miss one copy on one board. V4-A ran 5 h
+   off-cable without the run-8 stall, which has not recurred (cause unknown, see the log).
+   ✅ Bar settle 2 → 5 min, all six flashed (each 5/5 clean boots).
+   **Next:** score run 11 by pulling every board ([docs/log/2026-10.md](docs/log/2026-10.md)).
+   Then C4 item 5.
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257
