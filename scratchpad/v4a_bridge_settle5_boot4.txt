@@ -1,0 +1,18 @@
+re-attached after 0.02s
+TTDB loaded: 167234 bytes, 173/288 records indexed (115 free)
+[episode] boot in 2514 ms: 91 live episode(s) replayed, 91 present, maxalloc 212980 B
+[episode] live 91 present 91 dead 0 horizon 1160 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L48/48 E43/48 M0/24 A0/24
+[order] seq 1180 recovered, next episode seq 1181, 5 other agent(s) in its vector
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 48 | cuts 1 (fail 0, early 0, cap 80) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
+[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
+BLE near-range tier up (advert + passive scan)
+V4-A bridge 0x00000010 online (LoRa off, BLE on)
+[heap] free 137580 maxalloc 94196 up 6s
+[stream] adopted stream=0xa0be1a79 t_ms=37821993 wall=0 from=0x200 offset=0ms
+[intero] pin 835mV x4.90 = pack 4091mV (89%) | die 50.8C | maxalloc 91K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[pulse] beacon era=1 cond=0x00000010 period=500ms scene=0 (conductor)
+[scene] scene 0 ALONE (era 1 cond 0x00000010)
+[wifi] scan: 5 AP(s) folded into @LAT96 window
+[pulse] beacon era=1 cond=0x00000010 period=500ms scene=0 (conductor)
+[bar] frame 20500 bar 62: 24 episode(s) (own 10, held 14) 0 term(s) digest 0x00000000
+
