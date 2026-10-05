@@ -33,7 +33,7 @@ every board writes episodes and nothing on any board refuses a write. C4 stage 2
 delivery + the bar view) runs on all six boards. On the last run, the five authors' episode
 sets matched on 13 of 16 bars, each miss a single copy.
 
-**Next:** score run 11 (all six on the 5-min settle build, started 2026-10-05 ~17:25). If the
+**Next:** run 11, restarting the morning of 2026-10-06 (all six already on the 5-min settle build; the 10-05 evening attempt was powered down after ~40 min and is not scored). If the
 sets match on every bar, C4 stage 2 passes at six boards and C4 item 5 is what's left of Phase C.
 
 → Detail, caveats and the banked evidence: **§6**. Dated findings: [docs/log/](docs/log/).
