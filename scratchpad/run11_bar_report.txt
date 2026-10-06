@@ -1,0 +1,164 @@
+-- recomputed from the copies still on flash --
+frame 8000 bar 1: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 2: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 3: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 4: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 5: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 6: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 7: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 8: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 9: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 10: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 11: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 12: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 13: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 14: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 0 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 15: DIFFER  cardputer_1: own 7 held 0 9t 0xefe4f897  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 9 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 6 held 0 0t 0x00000000  v4c_edge: own 0 held 0 0t 0x00000000
+frame 8000 bar 16: DIFFER  cardputer_1: own 10 held 0 9t 0x8fff28fa  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 10 held 0 0t 0x00000000  v4a_bridge: own 1 held 0 0t 0x00000000  v4b_relay: own 10 held 0 0t 0x00000000  v4c_edge: own 9 held 0 0t 0x00000000
+frame 8000 bar 17: DIFFER  cardputer_1: own 10 held 0 9t 0x5345e039  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 10 held 0 0t 0x00000000  v4a_bridge: own 10 held 0 0t 0x00000000  v4b_relay: own 10 held 0 0t 0x00000000  v4c_edge: own 10 held 0 0t 0x00000000
+frame 8000 bar 18: DIFFER  cardputer_1: own 10 held 12 9t 0xabc37525  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 10 held 0 0t 0x00000000  v4a_bridge: own 10 held 0 0t 0x00000000  v4b_relay: own 10 held 0 0t 0x00000000  v4c_edge: own 10 held 0 0t 0x00000000
+frame 8000 bar 19: DIFFER  cardputer_1: own 6 held 20 9t 0x640668fb  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 10 held 7 9t 0xca1ef82d  v4a_bridge: own 10 held 5 9t 0xae3f33f1  v4b_relay: own 10 held 2 9t 0x7a48ba73  v4c_edge: own 10 held 2 8t 0xf26dc294
+frame 8000 bar 20: DIFFER  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 35 9t 0x42aec2dd  tdeck_1: own 8 held 31 9t 0x2f9eb949  v4a_bridge: own 10 held 28 9t 0xd52a067d  v4b_relay: own 10 held 34 9t 0x5072a583  v4c_edge: own 10 held 33 9t 0x5072a583
+frame 8000 bar 21: AGREE  cardputer_1: own 0 held 0 0t 0x00000000  k10_1: own 0 held 0 0t 0x00000000  tdeck_1: own 0 held 0 0t 0x00000000  v4a_bridge: own 0 held 0 0t 0x00000000  v4b_relay: own 1 held 1 0t 0x00000000  v4c_edge: own 2 held 1 0t 0x00000000
+-- BAR records (@LAT106): what each node computed when the bar settled --
+frame 8000 bar 1: DIFFER, SETS DIFFER  cardputer_1: own 9 held 14 9t 0x66684c5a +300s [not on flash]  tdeck_1: own 11 held 36 9t 0x66684c5a +300s [not on flash]  v4a_bridge: own 9 held 16 9t 0xeb296af1 +300s [not on flash]  v4b_relay: own 9 held 37 9t 0x66684c5a +300s [not on flash]  v4c_edge: own 9 held 16 9t 0xeb296af1 +300s [not on flash]
+frame 8000 bar 2: DIFFER, SETS DIFFER  cardputer_1: own 10 held 22 9t 0x220c70f5 +300s [not on flash]  tdeck_1: own 10 held 30 9t 0x47f86880 +300s [not on flash]  v4a_bridge: own 10 held 12 9t 0xe1bd0f81 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x220c70f5 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x220c70f5 +300s [not on flash]
+frame 8000 bar 3: AGREE, same set  cardputer_1: own 10 held 40 9t 0xec649483 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0xec649483 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0xec649483 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0xec649483 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0xec649483 +300s [not on flash]
+frame 8000 bar 4: AGREE, same set  cardputer_1: own 10 held 40 9t 0x161a9dd7 +300s [not on flash]  k10_1: own 0 held 50 9t 0x161a9dd7 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x161a9dd7 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x161a9dd7 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x161a9dd7 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x161a9dd7 +300s [not on flash]
+frame 8000 bar 5: AGREE, same set  cardputer_1: own 10 held 40 9t 0x14f3b7aa +300s [not on flash]  k10_1: own 0 held 50 9t 0x14f3b7aa +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x14f3b7aa +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x14f3b7aa +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x14f3b7aa +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x14f3b7aa +300s [not on flash]
+frame 8000 bar 6: AGREE, same set  cardputer_1: own 10 held 40 9t 0x604cc9d2 +300s [not on flash]  k10_1: own 0 held 50 9t 0x604cc9d2 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x604cc9d2 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x604cc9d2 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x604cc9d2 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x604cc9d2 +300s [not on flash]
+frame 8000 bar 7: AGREE, same set  cardputer_1: own 10 held 40 9t 0x8f8983eb +300s [not on flash]  k10_1: own 0 held 50 9t 0x8f8983eb +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x8f8983eb +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x8f8983eb +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x8f8983eb +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x8f8983eb +300s [not on flash]
+frame 8000 bar 8: AGREE, same set  cardputer_1: own 10 held 40 9t 0x6cf5f785 +300s [not on flash]  k10_1: own 0 held 50 9t 0x6cf5f785 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x6cf5f785 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x6cf5f785 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x6cf5f785 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x6cf5f785 +300s [not on flash]
+frame 8000 bar 9: AGREE, same set  cardputer_1: own 10 held 40 9t 0x30d90ae0 +300s [not on flash]  k10_1: own 0 held 50 9t 0x30d90ae0 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x30d90ae0 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x30d90ae0 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x30d90ae0 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x30d90ae0 +300s [not on flash]
+frame 8000 bar 10: AGREE, same set  cardputer_1: own 10 held 40 9t 0x40588064 +300s [not on flash]  k10_1: own 0 held 50 9t 0x40588064 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x40588064 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x40588064 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x40588064 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x40588064 +300s [not on flash]
+frame 8000 bar 11: AGREE, same set  cardputer_1: own 10 held 40 9t 0xa1cf7219 +300s [not on flash]  k10_1: own 0 held 50 9t 0xa1cf7219 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0xa1cf7219 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0xa1cf7219 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0xa1cf7219 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0xa1cf7219 +300s [not on flash]
+frame 8000 bar 12: AGREE, same set  cardputer_1: own 10 held 40 9t 0x9c7c5137 +300s [not on flash]  k10_1: own 0 held 50 9t 0x9c7c5137 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x9c7c5137 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x9c7c5137 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x9c7c5137 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x9c7c5137 +300s [not on flash]
+frame 8000 bar 13: AGREE, same set  cardputer_1: own 10 held 40 9t 0x45949f72 +300s [not on flash]  k10_1: own 0 held 50 9t 0x45949f72 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x45949f72 +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x45949f72 +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x45949f72 +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x45949f72 +300s [not on flash]
+frame 8000 bar 14: AGREE, same set  cardputer_1: own 10 held 40 9t 0x4b93e0ea +300s [not on flash]  k10_1: own 0 held 50 9t 0x4b93e0ea +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x4b93e0ea +300s [not on flash]  v4a_bridge: own 10 held 40 9t 0x4b93e0ea +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x4b93e0ea +300s [not on flash]  v4c_edge: own 10 held 40 9t 0x4b93e0ea +300s [not on flash]
+frame 8000 bar 15: AGREE, same set  cardputer_1: own 10 held 40 9t 0x033334fc +300s [trimmed (7 of 50 left)]  k10_1: own 0 held 50 9t 0x033334fc +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x033334fc +300s [trimmed (9 of 50 left)]  v4a_bridge: own 10 held 40 9t 0x033334fc +300s [not on flash]  v4b_relay: own 10 held 40 9t 0x033334fc +300s [trimmed (6 of 50 left)]  v4c_edge: own 10 held 40 9t 0x033334fc +300s [not on flash]
+frame 8000 bar 16: AGREE, same set  cardputer_1: own 10 held 40 9t 0x8fff28fa +300s [trimmed (10 of 50 left)]  k10_1: own 0 held 50 9t 0x8fff28fa +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x8fff28fa +300s [trimmed (10 of 50 left)]  v4a_bridge: own 10 held 40 9t 0x8fff28fa +300s [trimmed (1 of 50 left)]  v4b_relay: own 10 held 40 9t 0x8fff28fa +300s [trimmed (10 of 50 left)]  v4c_edge: own 10 held 40 9t 0x8fff28fa +300s [trimmed (9 of 50 left)]
+frame 8000 bar 17: AGREE, same set  cardputer_1: own 10 held 40 9t 0x5345e039 +300s [trimmed (10 of 50 left)]  k10_1: own 0 held 50 9t 0x5345e039 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0x5345e039 +300s [trimmed (10 of 50 left)]  v4a_bridge: own 10 held 40 9t 0x5345e039 +300s [trimmed (10 of 50 left)]  v4b_relay: own 10 held 40 9t 0x5345e039 +300s [trimmed (10 of 50 left)]  v4c_edge: own 10 held 40 9t 0x5345e039 +300s [trimmed (10 of 50 left)]
+frame 8000 bar 18: AGREE, same set  cardputer_1: own 10 held 40 9t 0xabc37525 +301s [trimmed (22 of 50 left)]  k10_1: own 0 held 50 9t 0xabc37525 +300s [not on flash]  tdeck_1: own 10 held 40 9t 0xabc37525 +300s [trimmed (10 of 50 left)]  v4a_bridge: own 10 held 40 9t 0xabc37525 +300s [trimmed (10 of 50 left)]  v4b_relay: own 10 held 40 9t 0xabc37525 +300s [trimmed (10 of 50 left)]  v4c_edge: own 10 held 40 9t 0xabc37525 +300s [trimmed (10 of 50 left)]
+frame 8000 bar 19: AGREE, same set  k10_1: own 0 held 48 9t 0xb5144cb4 +300s [not on flash]  tdeck_1: own 10 held 38 9t 0xb5144cb4 +300s [trimmed (17 of 48 left)]  v4a_bridge: own 10 held 38 9t 0xb5144cb4 +300s [trimmed (15 of 48 left)]  v4b_relay: own 10 held 38 9t 0xb5144cb4 +300s [trimmed (12 of 48 left)]  v4c_edge: own 10 held 38 9t 0xb5144cb4 +300s [trimmed (12 of 48 left)]
+-- cardputer_1: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 1: up 905s heap 10804  (first, or after a reboot)
+frame 8000 bar 2: up 1503s heap 11056  +fetched 50 +served 170/216 +unanswered 37 +broken 7 +early 26 +wantq_drop 1
+frame 8000 bar 3: up 2102s heap 10804  +fetched 41 +served 176/224 +unanswered 15 +broken 10 +early 0 +wantq_drop 0
+frame 8000 bar 4: up 2704s heap 14052  +fetched 39 +served 169/202 +unanswered 36 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 5: up 3303s heap 11120  +fetched 41 +served 188/238 +unanswered 21 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3901s heap 14048  +fetched 40 +served 155/199 +unanswered 13 +broken 3 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4504s heap 13484  +fetched 41 +served 170/218 +unanswered 21 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5101s heap 14300  +fetched 39 +served 162/213 +unanswered 13 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5707s heap 10556  +fetched 39 +served 165/200 +unanswered 25 +broken 11 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6301s heap 10776  +fetched 41 +served 169/211 +unanswered 16 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 11: up 6906s heap 10812  +fetched 39 +served 187/234 +unanswered 18 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 12: up 7503s heap 14020  +fetched 40 +served 169/207 +unanswered 13 +broken 12 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8102s heap 14588  +fetched 42 +served 205/234 +unanswered 20 +broken 10 +early 0 +wantq_drop 0
+frame 8000 bar 14: up 8701s heap 11060  +fetched 39 +served 183/222 +unanswered 26 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9305s heap 11324  +fetched 39 +served 154/193 +unanswered 18 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9901s heap 11612  +fetched 40 +served 178/214 +unanswered 19 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10501s heap 13732  +fetched 42 +served 181/225 +unanswered 15 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 18: up 11109s heap 14008  +fetched 40 +served 166/211 +unanswered 13 +broken 5 +early 0 +wantq_drop 0
+-- k10_1: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 4: up 2671s heap 225996  (first, or after a reboot)
+frame 8000 bar 5: up 3277s heap 225996  +fetched 50 +served 0/53 +unanswered 24 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3871s heap 225996  +fetched 50 +served 0/57 +unanswered 13 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4472s heap 225996  +fetched 50 +served 0/50 +unanswered 15 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5077s heap 225996  +fetched 50 +served 0/55 +unanswered 28 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5671s heap 225996  +fetched 50 +served 0/56 +unanswered 33 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6277s heap 225996  +fetched 50 +served 0/50 +unanswered 9 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 11: up 6877s heap 225996  +fetched 50 +served 0/53 +unanswered 5 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 12: up 7474s heap 225996  +fetched 49 +served 0/59 +unanswered 17 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8079s heap 225972  +fetched 50 +served 0/54 +unanswered 35 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 14: up 8671s heap 225996  +fetched 51 +served 0/59 +unanswered 22 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9274s heap 225996  +fetched 50 +served 0/53 +unanswered 5 +broken 1 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9877s heap 225996  +fetched 50 +served 0/54 +unanswered 12 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10470s heap 223172  +fetched 50 +served 0/52 +unanswered 23 +broken 0 +early 0 +wantq_drop 0
+frame 8000 bar 18: up 11074s heap 225996  +fetched 50 +served 0/53 +unanswered 15 +broken 2 +early 0 +wantq_drop 0
+frame 8000 bar 19: up 11673s heap 222972  +fetched 49 +served 0/52 +unanswered 27 +broken 1 +early 0 +wantq_drop 0
+-- tdeck_1: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 1: up 910s heap 9072  (first, or after a reboot)
+frame 8000 bar 2: up 1516s heap 5204  +fetched 39 +served 226/230 +unanswered 24 +broken 4 +early 12 +wantq_drop 0
+frame 8000 bar 3: up 2114s heap 6244  +fetched 41 +served 158/163 +unanswered 27 +broken 5 +early 0 +wantq_drop 2
+frame 8000 bar 4: up 2710s heap 9612  +fetched 40 +served 184/185 +unanswered 27 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 5: up 3310s heap 8844  +fetched 40 +served 153/153 +unanswered 25 +broken 11 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3911s heap 9344  +fetched 38 +served 132/132 +unanswered 30 +broken 10 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4515s heap 6016  +fetched 41 +served 172/175 +unanswered 28 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5113s heap 8528  +fetched 41 +served 139/142 +unanswered 34 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5718s heap 9456  +fetched 39 +served 144/144 +unanswered 25 +broken 12 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6317s heap 5972  +fetched 40 +served 152/153 +unanswered 25 +broken 10 +early 0 +wantq_drop 0
+frame 8000 bar 11: up 6912s heap 9352  +fetched 40 +served 115/116 +unanswered 22 +broken 3 +early 0 +wantq_drop 1
+frame 8000 bar 12: up 7517s heap 6236  +fetched 38 +served 163/163 +unanswered 25 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8117s heap 7152  +fetched 39 +served 195/199 +unanswered 27 +broken 10 +early 0 +wantq_drop 2
+frame 8000 bar 14: up 8710s heap 9084  +fetched 44 +served 181/182 +unanswered 31 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9315s heap 5232  +fetched 39 +served 172/174 +unanswered 29 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9915s heap 5500  +fetched 40 +served 176/178 +unanswered 26 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10515s heap 8176  +fetched 41 +served 170/170 +unanswered 39 +broken 4 +early 0 +wantq_drop 3
+frame 8000 bar 18: up 11116s heap 8444  +fetched 39 +served 174/176 +unanswered 25 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 19: up 11714s heap 5204  +fetched 36 +served 141/141 +unanswered 28 +broken 6 +early 0 +wantq_drop 0
+-- v4a_bridge: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 1: up 879s heap 122316  (first, or after a reboot)
+frame 8000 bar 2: up 1477s heap 124992  +fetched 46 +served 141/143 +unanswered 26 +broken 10 +early 36 +wantq_drop 0
+frame 8000 bar 3: up 2078s heap 124964  +fetched 40 +served 124/130 +unanswered 17 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 4: up 2677s heap 122564  +fetched 37 +served 139/141 +unanswered 19 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 5: up 3278s heap 122288  +fetched 42 +served 159/163 +unanswered 22 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3877s heap 125760  +fetched 41 +served 154/158 +unanswered 26 +broken 2 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4481s heap 122568  +fetched 39 +served 145/151 +unanswered 26 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5080s heap 124948  +fetched 40 +served 131/136 +unanswered 21 +broken 9 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5680s heap 122280  +fetched 40 +served 129/133 +unanswered 23 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6279s heap 125016  +fetched 41 +served 154/156 +unanswered 35 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 11: up 6876s heap 122588  +fetched 36 +served 145/148 +unanswered 24 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 12: up 7481s heap 122828  +fetched 40 +served 133/133 +unanswered 22 +broken 9 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8080s heap 123352  +fetched 39 +served 189/189 +unanswered 18 +broken 9 +early 0 +wantq_drop 0
+frame 8000 bar 14: up 8676s heap 122812  +fetched 44 +served 144/146 +unanswered 26 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9280s heap 122556  +fetched 37 +served 114/117 +unanswered 28 +broken 9 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9879s heap 122808  +fetched 42 +served 140/141 +unanswered 21 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10478s heap 122552  +fetched 39 +served 128/128 +unanswered 24 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 18: up 11078s heap 122044  +fetched 42 +served 148/154 +unanswered 27 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 19: up 11681s heap 122296  +fetched 38 +served 111/111 +unanswered 24 +broken 11 +early 0 +wantq_drop 0
+-- v4b_relay: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 1: up 889s heap 122888  (first, or after a reboot)
+frame 8000 bar 2: up 1487s heap 122888  +fetched 40 +served 142/148 +unanswered 27 +broken 8 +early 18 +wantq_drop 0
+frame 8000 bar 3: up 2086s heap 123412  +fetched 39 +served 140/145 +unanswered 37 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 4: up 2685s heap 120224  +fetched 40 +served 152/152 +unanswered 29 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 5: up 3286s heap 119968  +fetched 39 +served 134/134 +unanswered 28 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3885s heap 123376  +fetched 42 +served 152/152 +unanswered 23 +broken 3 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4489s heap 119692  +fetched 37 +served 126/126 +unanswered 20 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5084s heap 119944  +fetched 42 +served 136/136 +unanswered 28 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5689s heap 120436  +fetched 39 +served 180/183 +unanswered 36 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6284s heap 122900  +fetched 42 +served 162/164 +unanswered 21 +broken 3 +early 0 +wantq_drop 1
+frame 8000 bar 11: up 6888s heap 120204  +fetched 38 +served 143/143 +unanswered 25 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 12: up 7488s heap 120416  +fetched 41 +served 184/184 +unanswered 22 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8088s heap 120448  +fetched 39 +served 191/191 +unanswered 40 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 14: up 8687s heap 120452  +fetched 40 +served 158/158 +unanswered 31 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9288s heap 123384  +fetched 42 +served 185/187 +unanswered 22 +broken 9 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9887s heap 123204  +fetched 39 +served 129/129 +unanswered 31 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10488s heap 122344  +fetched 41 +served 151/151 +unanswered 21 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 18: up 11086s heap 120708  +fetched 37 +served 132/136 +unanswered 25 +broken 12 +early 0 +wantq_drop 0
+frame 8000 bar 19: up 11686s heap 120200  +fetched 41 +served 131/133 +unanswered 38 +broken 7 +early 0 +wantq_drop 0
+-- v4c_edge: delivery per bar (from its own @LAT106 DELIVER lines) --
+frame 8000 bar 1: up 886s heap 123052  (first, or after a reboot)
+frame 8000 bar 2: up 1486s heap 120072  +fetched 40 +served 153/159 +unanswered 24 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 3: up 2085s heap 120364  +fetched 40 +served 174/178 +unanswered 32 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 4: up 2688s heap 120096  +fetched 37 +served 143/143 +unanswered 31 +broken 8 +early 0 +wantq_drop 0
+frame 8000 bar 5: up 3289s heap 119836  +fetched 42 +served 161/162 +unanswered 29 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 6: up 3889s heap 122800  +fetched 41 +served 143/148 +unanswered 18 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 7: up 4488s heap 123040  +fetched 41 +served 120/127 +unanswered 27 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 8: up 5087s heap 119556  +fetched 38 +served 148/150 +unanswered 11 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 9: up 5686s heap 119508  +fetched 39 +served 160/166 +unanswered 27 +broken 2 +early 0 +wantq_drop 0
+frame 8000 bar 10: up 6285s heap 119260  +fetched 41 +served 137/140 +unanswered 20 +broken 4 +early 0 +wantq_drop 0
+frame 8000 bar 11: up 6885s heap 123064  +fetched 42 +served 155/155 +unanswered 23 +broken 3 +early 0 +wantq_drop 0
+frame 8000 bar 12: up 7489s heap 121160  +fetched 39 +served 172/177 +unanswered 28 +broken 5 +early 0 +wantq_drop 0
+frame 8000 bar 13: up 8089s heap 120644  +fetched 40 +served 171/174 +unanswered 29 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 14: up 8688s heap 120328  +fetched 40 +served 186/191 +unanswered 30 +broken 7 +early 0 +wantq_drop 0
+frame 8000 bar 15: up 9286s heap 119840  +fetched 36 +served 138/142 +unanswered 31 +broken 11 +early 0 +wantq_drop 0
+frame 8000 bar 16: up 9887s heap 120080  +fetched 43 +served 166/166 +unanswered 41 +broken 6 +early 0 +wantq_drop 0
+frame 8000 bar 17: up 10488s heap 119548  +fetched 41 +served 143/146 +unanswered 28 +broken 2 +early 0 +wantq_drop 0
+frame 8000 bar 18: up 11086s heap 119308  +fetched 40 +served 122/126 +unanswered 16 +broken 10 +early 0 +wantq_drop 0
+frame 8000 bar 19: up 11688s heap 120108  +fetched 34 +served 146/148 +unanswered 39 +broken 8 +early 0 +wantq_drop 0
+cardputer_1: holds 32 copies from ['0x00000010', '0x00000011', '0x00000012', '0x00000200']
+k10_1: holds 35 copies from ['0x00000010', '0x00000011', '0x00000012', '0x00000200', '0x00000300']
+tdeck_1: holds 39 copies from ['0x00000010', '0x00000011', '0x00000012', '0x00000300']
+v4a_bridge: holds 34 copies from ['0x00000011', '0x00000012', '0x00000200', '0x00000300']
+v4b_relay: holds 37 copies from ['0x00000010', '0x00000012', '0x00000200', '0x00000300']
+v4c_edge: holds 36 copies from ['0x00000010', '0x00000011', '0x00000200', '0x00000300']
