@@ -2490,11 +2490,14 @@ static const float SAC_GAMMA   = 0.60f;
 
 // The representor is a set of views now, not just the eye (§4). `gFaceOn` is whether it
 // holds the screen at all (vs the inherited globes); `gFaceView` is which sense is
-// showing. The EPS arbiter (§7 S1) will eventually own gFaceView; until it does, the
-// keyboard does. (`FaceView` itself is declared at the top of the sketch — see the note
-// there about arduino-cli's generated prototypes.)
+// showing. The EPS arbiter (§3, S1) owns gFaceView unless a view is PINNED: any number key
+// or ENTER pins, `0` releases (§5). A pin matters more than it looks — the arbiter only ever
+// shows the loudest sense, so without one there is no way to watch a quiet one. (`FaceView`
+// itself is declared at the top of the sketch — see the note there about arduino-cli's
+// generated prototypes.)
 static bool     gFaceOn = true;               // boot into the resting face (§1)
 static FaceView gFaceView = FACE_EYE;
+static bool     gViewPinned = false;          // false = the arbiter chooses (boot default)
 static const char* faceViewName(FaceView v) {
   return (v == FACE_SCOPE)  ? "REPRESENTOR (oscilloscope)"
        : (v == FACE_INTERO) ? "REPRESENTOR (interoception)"
@@ -2759,13 +2762,14 @@ static void renderEye(uint32_t now) {
   if (m > 1.0f) { ex /= m; ey /= m; }
 
   // Pupil dilation carries TWO things at once: how aroused the node is, and where the
-  // band is in the bar. Arousal is a STAND-IN for the arbiter's summed EPS (§3.1,
-  // phase S1) — two raw terms, each already against its own baseline; when the arbiter
-  // lands this becomes one line reading its total.
-  float want = gSndHot;
-  float mot = (float)gDevMg / 400.0f;
-  if (mot > 1.0f) mot = 1.0f;
-  if (mot > want) want = mot;
+  // band is in the bar. Arousal is the arbiter's summed EPS (§3.1) — every sense, already
+  // explained by `conf`. PLUS raw loudness, on purpose: the arbiter deliberately has no
+  // sustained-sound term (a quiet room seized the screen with one, S1), but an eye that
+  // widens while you talk to it is right — a pupil is allowed to be a meter, a screen
+  // arbiter is not.
+  float want = (float)gAttn.total(now) / 255.0f;
+  if (want > 1.0f) want = 1.0f;
+  if (gSndHot > want) want = gSndHot;
   gArousal = (want > gArousal) ? want : gArousal * 0.88f;
 
   // The beat rides on top as a swing that decays across the pulse window. With nothing
@@ -3541,10 +3545,8 @@ static void setFace(bool on) {
   Serial.printf("[face] %s\n", on ? faceViewName(gFaceView) : "globe views");
 }
 
-// Switch between representor views. Until the EPS arbiter lands (§7 S1) this is the
-// only thing that chooses a view, which is why §5 reserves the number keys for it: the
-// arbiter by definition only ever shows you the LOUDEST sense, so without a manual
-// selection there is no way to watch a quiet one.
+// Switch between representor views. Two callers: the arbiter (serviceAttention, only while
+// nothing is pinned) and the keyboard (which pins). This function does not know which.
 static void setFaceView(FaceView v) {
 #if !(USE_MIC && USE_CARD_HW)
   if (v == FACE_SCOPE) v = FACE_EYE;          // no mic, no scope
@@ -3554,6 +3556,25 @@ static void setFaceView(FaceView v) {
   if (!gFaceOn) { setFace(true); return; }    // setFace lays the new view's chrome down
   enterFaceView();                            // the two views share no chrome at all
   Serial.printf("[face] %s\n", faceViewName(gFaceView));
+}
+
+// A key chose this view: it holds until `0` (§5).
+static void pinFaceView(FaceView v) {
+  if (!gViewPinned) Serial.printf("[face] view PINNED (0 releases it to the arbiter)\n");
+  gViewPinned = true;
+  setFaceView(v);
+}
+
+// The arbiter's half (§3): which view a winning sense gets. `neighbour` has no view of its
+// own until the console (§4.3, S3), so it leaves the screen where it is rather than
+// pretending the eye or the scope is about neighbours.
+static void arbitrateView() {
+  if (!gFaceOn || gViewPinned) return;
+  switch (gAttn.winner()) {
+    case attention::MOD_SOUND:     setFaceView(FACE_SCOPE); break;
+    case attention::MOD_NEIGHBOUR: break;
+    default:                       setFaceView(FACE_EYE); break;   // motion, idle
+  }
 }
 #endif  // USE_CARD_HW
 
@@ -3901,6 +3922,9 @@ static void serviceAttention(uint32_t now) {
                 (unsigned long)heldMs, gAttn.epsAt(attention::MOD_MOTION, now),
                 gAttn.epsAt(attention::MOD_SOUND, now),
                 gAttn.epsAt(attention::MOD_NEIGHBOUR, now));
+#if USE_CARD_HW
+  arbitrateView();                  // the screen follows the winner unless a key pinned it
+#endif
 }
 
 void loop() {
@@ -4372,35 +4396,43 @@ void loop() {
       // ENTER cycles globes when the globes hold the screen, and representor views when
       // the representor does — one key, whichever stack you are actually looking at (§5).
       case KEY_ENTER_C:
-        if (gFaceOn) setFaceView((FaceView)((gFaceView + 1) % FACE_VIEW_COUNT));
+        if (gFaceOn) { pinFaceView((FaceView)((gFaceView + 1) % FACE_VIEW_COUNT)); }
         else         toggleGlobeView();
         break;
+      // `0` releases the pin: the arbiter chooses again, starting now (§5).
+      case '0':
+        if (gFaceOn && gViewPinned) {
+          gViewPinned = false;
+          Serial.printf("[face] pin released: the arbiter chooses (%s)\n",
+                        attention::modalityName(gAttn.winner()));
+          arbitrateView();
+        }
+        break;
       case 't': setFace(!gFaceOn); break;
-      // §5's direct modality pins. With no arbiter yet these ARE the arbiter; when S1
-      // lands they become the pin that overrides it, which is the same binding.
+      // §5's direct modality pins: each one PINS the view against the arbiter until `0`.
       // 1 and 2 mean whichever stack you are actually looking at — the same rule ENTER
       // already follows above. With the FACE up they are §5's direct modality pins; with
       // the GLOBES up there is no face to pin, and what the reader needs instead is a way
       // through a record body that does not fit in four lines. 3 stays the modality pin in
       // both stacks, so there is always one key that takes you back into the face.
       case '1':
-        if (gFaceOn) { setFaceView(FACE_EYE); }
+        if (gFaceOn) { pinFaceView(FACE_EYE); }
         else { gRecPage = (gRecPage + 1) % (gRecPages > 0 ? gRecPages : 1);
                gBottomDirty = gScreenDirty = true; }
         break;
       case '2':
-        if (gFaceOn) { setFaceView(FACE_SCOPE); }
+        if (gFaceOn) { pinFaceView(FACE_SCOPE); }
         else { gRecPage = (gRecPage + (gRecPages > 0 ? gRecPages : 1) - 1)
                           % (gRecPages > 0 ? gRecPages : 1);
                gBottomDirty = gScreenDirty = true; }
         break;
-      case '3': setFaceView(FACE_INTERO); break;
+      case '3': pinFaceView(FACE_INTERO); break;
       // 4 is the belief view. Like 3 it works from either stack, because it is the only
       // way to see the @LAT91 lane at all — the globes exclude it by the lat < 90 bound.
-      case '4': setFaceView(FACE_BELIEF); break;
+      case '4': pinFaceView(FACE_BELIEF); break;
       // '5' is the trace field. Like '3' and '4' it works from either stack, because
       // the field is not a place on a globe and has no globe to be reached from.
-      case '5': setFaceView(FACE_FIELD); break;
+      case '5': pinFaceView(FACE_FIELD); break;
       // `w` — who is here and what can they do. Serial only for now, and deliberately so:
       // this is stage 1, and its whole job is to be observable enough to decide whether
       // the staleness machinery is needed at all. A screen view is stage 5's business.

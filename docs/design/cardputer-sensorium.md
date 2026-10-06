@@ -395,7 +395,7 @@ first, since "take the screen once" is a salience claim.
 | `1` / `2` | — | force eyeball / oscilloscope | ✅ built |
 | `3` | — | force **interoception** (§4.5) | ✅ built |
 | `4`–`5` | — | force console / constellation | ⏳ needs those views |
-| `0` | — | release the pin, return to automatic arbitration | ⏳ S1 is headless; needs the arbiter to own the view |
+| `0` | — | release the pin, return to automatic arbitration | ✅ built 2026-10-06 (`1`–`5` and ENTER now PIN) |
 
 A **pin** matters more than it looks: without it there is no way to *watch* a quiet
 sense, because by definition the arbiter only shows you the loud one.
@@ -494,6 +494,17 @@ raised when the tone returned. Those blocks were logged as transients and a T-De
 no beep transient, a clap still wins. S0's 34-beep pass used USB beeps, which run in `loop()`.
 
 **Phase S2 — eyeball + scope.** The two views in the brief, plus gyro saccades.
+✅ **The arbiter owns the screen (2026-10-06)**, operator-verified at the deck: a clap → scope
+and back to the eye ~2 s later; a tilt stays on the eye; `3` pins interoception through claps;
+`0` releases and the arbiter takes over at once. Mapping: `sound`→scope, `motion`/`idle`→eye,
+`neighbour`→**no change** (no console view until S3; showing the eye or scope for a neighbour
+event would claim they were about it). The pupil now reads `gAttn.total()` — max'd with raw
+loudness on purpose, since the arbiter has no sustained-sound term but an eye that widens while
+you talk is right (a pupil may be a meter; a screen arbiter may not). Switching costs nothing
+measurable: worst pass 56 ms in the window holding five switches, the same 54–57 ms the boot
+window shows with none. ⚠ That 56 ms is itself over §3.4's ≤40 ms, and the eye's 31 ms entry
+frame is the widest render in it. The arbiter now pays that entry frame on every return to
+idle rather than only on a key press.
 ✅ **The eyeball is built, flashed and measured (2026-07-28)**, ahead of the arbiter rather
 than after it — because the resting face is the one view that needs no arbiter to be correct.
 Gaze, gyro saccade, tap + idle blink, and pupil dilation from a two-term stand-in for EPS.
