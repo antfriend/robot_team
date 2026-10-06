@@ -17,7 +17,7 @@ import fleet as c  # noqa: E402
 port = sys.argv[1] if len(sys.argv) > 1 else "COM14"
 total = float(sys.argv[2]) if len(sys.argv) > 2 else 360.0
 beep_s = float(sys.argv[3]) if len(sys.argv) > 3 else 150.0
-target = c.NODE_IDS["cardputer_1"]
+target = c.NODE_IDS[os.environ.get("NODE", "cardputer_1")]
 
 ser = c.open_serial_no_reset(port, 115200)
 t0 = time.time()

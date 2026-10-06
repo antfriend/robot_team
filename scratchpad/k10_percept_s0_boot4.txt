@@ -1,0 +1,31 @@
+re-attached after 0.02s
+TTDB loaded: 169885 bytes, 214/288 records indexed (74 free)
+[episode] boot in 2318 ms: 86 live episode(s) replayed, 86 present, maxalloc 249844 B
+[episode] live 86 present 86 dead 0 horizon none/0 terms 0 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L0/48 E41/48 M24/24 A21/24
+[order] seq 1086 recovered, next episode seq 1087, 5 other agent(s) in its vector
+[grammar] 0xfe169cb3
+[deliver] held 71 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 0 | cuts 0 (fail 0, early 0, cap 80) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
+[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
+[tilt] @LAT95/@LAT93 up: SC7A20H @0x19 via the board task, 10 Hz, 1.0 mg/LSB, moving>60 mg
+[mic] @LAT94 up: I2S_NUM_0 RX 16000 Hz, 128-frame blocks (the fleet's SECOND ear -- TDoA needs two)
+[view] boot view 0 EYE (no local button: CMD_SET_VIEW is the only way this screen changes)
+K10 percept node 0x00000100 online
+[intero] die 35.5C | maxalloc 215K | no battery sense on this board
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[tilt] resting pose -24 1016 -347 mg | rest |a| 1071 mg over 16 samples -> @LAT95 null x0.9329
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[wifi] scan: 3 AP(s) folded into @LAT96 window
+[pulse] beacon era=1 cond=0x00000100 period=500ms scene=0 (conductor)
+[scene] scene 0 ALONE (era 1 cond 0x00000100)
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[stream] adopted stream=0xed9951d6 t_ms=1206456 wall=0 from=0x300 offset=0ms
+[pulse] beacon era=1 cond=0x00000100 period=500ms scene=0 (conductor)
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[cycle] cursor @LAT10LON0 match=1 led=agent
+[scene] scene 3 ORDEAL (era 4 cond 0x00000300)
+

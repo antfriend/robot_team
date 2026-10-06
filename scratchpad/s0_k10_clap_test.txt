@@ -1,0 +1,4 @@
+held COM3; beeping every 5 s until +0s, then SILENT (clap then), until +150s
+    58.0s [quiet/clap, 0 beeps sent] [acoustic] window transients 0 self_blocks 0
+   118.0s [quiet/clap, 0 beeps sent] [acoustic] window transients 0 self_blocks 0
+done

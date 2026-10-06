@@ -1506,7 +1506,15 @@ static void serviceMic(uint32_t now) {
     // straddled the mute boundary would put half a note into a window, and the sample
     // rate was 8 kHz for that half anyway. Dropping is honest — the window simply has
     // fewer blocks in it, which `blocks:` already reports.
-    if ((int32_t)(now - gToneUntilMs) < 0) { gMicCarryN = 0; return; }
+    // Counted, though (S0, 2026-10-06): each tier-sized block's worth goes in as `self`, so
+    // the record's `self_blocks:` says how much of the window was our own voice instead of
+    // reading 0 and claiming the node never heard itself. The samples are not used.
+    if ((int32_t)(now - gToneUntilMs) < 0) {
+      for (size_t k = 0; k + MIC_TIER_FRAMES <= frames; k += MIC_TIER_FRAMES)
+        gAcousticLog.addBlock(block, MIC_TIER_FRAMES, 0, now, true);
+      gMicCarryN = 0;
+      return;
+    }
 
     // De-interleave to mono by taking the left slot. Both slots carry the same capsule on
     // this board, as they do on the Cardputer.
@@ -2395,9 +2403,12 @@ void loop() {
   if (gAcousticLog.due(millis())) {
     const uint32_t anow = millis();
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ACOUSTIC);
+    const long heardTrans = (long)gAcousticLog.transients();   // buildRecord() resets these
+    const long selfBlocks = (long)gAcousticLog.selfBlocks();
     const size_t m = gAcousticLog.buildRecord(gEpisodes.scratch(), ACOUSTICPERCEPT_RECORD_BUF,
                                               ord, gStreamWallSec, gStamp, anow, MIC_RATE);
     if (m) appendEpisode(ord, m, "acoustic window", "acousticpercept", anow);
+    Serial.printf("[acoustic] window transients %ld self_blocks %ld\n", heardTrans, selfBlocks);
   }
 #endif
 
