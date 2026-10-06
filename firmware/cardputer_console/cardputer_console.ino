@@ -1373,9 +1373,19 @@ static size_t recordingObject(const uint8_t** out) {
   return toot::RECHDR_LEN + (size_t)n * 2;
 }
 // Our own speaker is sounding until here. The node has a mic AND sings, so without a
-// gate every note it plays is a stimulus to itself (§3.3). This gate covers the FACE
-// only — phase S0 still owes the same gate to the @LAT94 transient log.
+// gate every note it plays is a stimulus to itself (§3.3). This gate covers the FACE.
 static uint32_t gToneUntilMs = 0;
+// ...and THIS one the @LAT94 log (phase S0, 2026-10-06): a mic block processed before it
+// was captured while our own speaker sounded, so the tier marks it `self` (fully
+// explained: no transient, no TDoA datum, no baseline). It is longer than the face's gate
+// because the log sees audio LATE, twice over: toneI2S() returns while up to a full TX DMA
+// ring (6 x 240 frames = 180 ms at 8 kHz) is still to play, and serviceMic() reads one RX
+// descriptor per 30 ms, so it can run up to a full RX ring (another 180 ms) behind the
+// room. The face's `ms / 4 + 50` covers neither. ⚠ The same RX backlog also makes a
+// block's fleet-clock timestamp up to ~180 ms late after any blocking tone (log 10-06).
+static const uint32_t MIC_SELF_TAIL_MS = 180 + 180 + 40;   // TX ring + RX ring + margin
+static uint32_t gMicSelfUntilMs = 0;
+static uint32_t gToneEndMs = 0;        // when toneI2S() last returned (S0 instrument)
 
 // --- audio, keyboard, IMU, screen (all gated on the real board) --------------
 #if USE_CARD_HW
@@ -1411,6 +1421,8 @@ static void toneI2S(float freq, uint32_t ms, float amp = 30000.0f) {
   // The write is buffered, so the speaker is still sounding after this returns; hold
   // the self-noise gate open a little past the end of the note (§3.3).
   gToneUntilMs = millis() + ms / 4 + 50;
+  gMicSelfUntilMs = millis() + MIC_SELF_TAIL_MS;
+  gToneEndMs = millis();
 }
 
 // The fleet's shared boot voice: two rising toots, C4 -> G4. Scaled with the new default
@@ -1781,10 +1793,12 @@ static void serviceMic(uint32_t now) {
   // STREAM rather than the wall clock: two nodes agreeing with each other is what
   // makes a cross-correlation possible, and knowing the date is not.
   const uint64_t t_ms = gStamp.t_ms ? gStamp.t_ms : (uint64_t)now;
+  // Our own voice is fully explained (S0): signed compare so a millis() wrap can't stick it.
+  const bool self = (int32_t)(now - gMicSelfUntilMs) < 0;
   while (gMicCarryN >= MIC_TIER_FRAMES) {
     size_t rest = gMicCarryN - MIC_TIER_FRAMES;
     uint64_t blk_t = t_ms - (uint64_t)((rest * 1000) / I2S_RATE);
-    gAcousticLog.addBlock(gMicCarry, MIC_TIER_FRAMES, blk_t, now);
+    gAcousticLog.addBlock(gMicCarry, MIC_TIER_FRAMES, blk_t, now, self);
     memmove(gMicCarry, gMicCarry + MIC_TIER_FRAMES, rest * sizeof(int16_t));
     gMicCarryN = rest;
   }
@@ -1797,6 +1811,11 @@ static void serviceMic(uint32_t now) {
   {
     int32_t tc = gAcousticLog.transients();
     if (tc > gTransCount && now >= gToneUntilMs) gTransAt = now;   // not our own voice
+    // S0 instrument: where a logged transient sits relative to our last tone, so a leak
+    // past the self gate is measured, not guessed. Transients are rare; one line each.
+    if (tc > gTransCount)
+      Serial.printf("[acoustic] transient +%lu ms after own tone (gate %lu ms)\n",
+                    (unsigned long)(now - gToneEndMs), (unsigned long)MIC_SELF_TAIL_MS);
     gTransCount = tc;
   }
 
@@ -4145,6 +4164,8 @@ void loop() {
     // simply dropped by the wrap. No `percept:` lines — nothing on the node or laptop
     // computes over this lane yet; the trace field reads gAcousticLog live.
     const int16_t ord = gEpisodes.nextOrdinal(semantic::TIER_ACOUSTIC);
+    const long heardTrans = (long)gAcousticLog.transients();   // buildRecord() resets these
+    const long selfBlocks = (long)gAcousticLog.selfBlocks();
     const size_t m = gAcousticLog.buildRecord(gEpisodes.scratch(), ACOUSTICPERCEPT_RECORD_BUF,
                                               ord, gStreamWallSec, gStamp, now, I2S_RATE);
     if (m) {
@@ -4154,8 +4175,9 @@ void loop() {
                                       gStreamWallSec)) {
         // The fleet's only ear, on the record — same rule as before: the append.
         gSocial.table().exercise(social::CAP_MIC);
-        Serial.printf("[acoustic] window -> @LAT%dLON%d (acoustic live %u/%u)\n",
-                      SEMANTIC_EPISODE_LANE, (int)ord,
+        Serial.printf("[acoustic] window -> @LAT%dLON%d transients %ld self_blocks %ld "
+                      "(acoustic live %u/%u)\n",
+                      SEMANTIC_EPISODE_LANE, (int)ord, heardTrans, selfBlocks,
                       (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).live(),
                       (unsigned)gEpisodes.tiers().ring(semantic::TIER_ACOUSTIC).capacity());
         gEpisodes.service(now, gStreamWallSec);

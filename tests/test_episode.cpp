@@ -1205,6 +1205,57 @@ static void testAcousticEpisode() {
         "ACOUSTICWIN, ACOUSTIC and TRANSIENT each become one said: line; no percept: line");
 }
 
+// Phase S0 (docs/design/cardputer-sensorium.md §7): the node's own voice is fully explained.
+// Done when a CMD_BEEP produces NO @LAT94 transient while a clap still does.
+static void testAcousticSelfGate() {
+  printf("acoustic self-noise gate (S0)\n");
+  int16_t quiet[128], loud[128], clap[128];
+  for (int i = 0; i < 128; ++i) {
+    quiet[i] = (int16_t)((i & 1) ? 120 : -120);
+    loud[i] = (int16_t)((i & 1) ? 20000 : -20000);    // the beep
+    clap[i] = (int16_t)((i & 1) ? 6000 : -6000);      // a real event, quieter than the beep
+  }
+  timestream::Stamp st;
+  st.t_ms = 1000;
+  st.stream_id = 0x1234;
+  st.wall = false;
+  static char rec[ACOUSTICPERCEPT_RECORD_BUF];
+
+  acousticpercept::Log lg;
+  uint32_t now = 0;
+  for (int b = 0; b < 20; ++b) { lg.addBlock(quiet, 128, 1000 + b, now); now += 16; }
+  for (int b = 0; b < 20; ++b) { lg.addBlock(loud, 128, 2000 + b, now, true); now += 16; }
+  check(lg.transients() == 0 && lg.selfBlocks() == 20 && lg.loudestTMs() == 0,
+        "a beep (our own voice, flagged self) is no transient and no TDoA datum");
+  lg.addBlock(clap, 128, 5555, now);
+  now += 16;
+  check(lg.transients() == 1 && lg.loudestTMs() == 5555,
+        "a clap right after it still is, judged against the room, not the beep");
+  size_t m = lg.buildRecord(rec, sizeof(rec), 1, 1, st, now + ACOUSTICPERCEPT_FLUSH_MS, 8000);
+  std::string r(rec, m);
+  check(m > 0 && r.find(" transients:1 self_blocks:20\n") != std::string::npos &&
+            r.find("**TRANSIENT** ") != std::string::npos,
+        "the record counts the self blocks beside the one transient heard");
+
+  acousticpercept::Log same;              // control: the SAME loud blocks, not flagged
+  now = 0;
+  for (int b = 0; b < 20; ++b) { same.addBlock(quiet, 128, 1000 + b, now); now += 16; }
+  for (int b = 0; b < 20; ++b) { same.addBlock(loud, 128, 2000 + b, now); now += 16; }
+  check(same.transients() > 0 && same.loudestTMs() >= 2000 && same.loudestTMs() < 2020,
+        "control: unflagged, the beep IS logged as a transient (the bug S0 removes)");
+
+  acousticpercept::Log all;               // a window that was nothing but our own voice
+  now = 0;
+  for (int b = 0; b < 10; ++b) { all.addBlock(loud, 128, 3000 + b, now, true); now += 16; }
+  check(all.due(now + ACOUSTICPERCEPT_FLUSH_MS), "an all-self window still closes");
+  m = all.buildRecord(rec, sizeof(rec), 2, 1, st, now + ACOUSTICPERCEPT_FLUSH_MS, 8000);
+  r.assign(rec, m);
+  check(m > 0 && r.find(" blocks:0 ") != std::string::npos &&
+            r.find(" transients:0 self_blocks:10\n") != std::string::npos &&
+            r.find("**TRANSIENT**") == std::string::npos,
+        "and says so: 0 heard blocks, 10 self, no TRANSIENT line");
+}
+
 static void testBands() {
   printf("bands\n");
   const Band e = tierBand(TIER_ENTITY);
@@ -1447,6 +1498,7 @@ int main() {
   testTransitionEpisode();
   testLongCoveredLine();
   testAcousticEpisode();
+  testAcousticSelfGate();
   testBuilder();
   testReader();
   testCheckpoint();

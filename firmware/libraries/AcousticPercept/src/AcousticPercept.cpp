@@ -27,6 +27,7 @@ void Log::reset(uint32_t now_ms) {
   rms_max_ = 0;
   peak_ = 0;
   transients_ = 0;
+  self_blocks_ = 0;
   ambient_ = 0;
   loudest_t_ms_ = 0;
   loudest_rms_ = 0;
@@ -34,9 +35,13 @@ void Log::reset(uint32_t now_ms) {
 }
 
 void Log::addBlock(const int16_t* samples, size_t n, uint64_t t_ms,
-                   uint32_t now_ms) {
+                   uint32_t now_ms, bool self) {
   (void)now_ms;
   if (!samples || n == 0) return;
+  if (self) {                // fully explained: our own voice is not something we heard
+    self_blocks_++;
+    return;
+  }
 
   uint64_t sq = 0;
   int32_t pk = 0;
@@ -74,7 +79,7 @@ void Log::addBlock(const int16_t* samples, size_t n, uint64_t t_ms,
 }
 
 bool Log::due(uint32_t now_ms) const {
-  if (blocks_ == 0) return false;
+  if (blocks_ == 0 && self_blocks_ == 0) return false;
   return (uint32_t)(now_ms - window_start_ms_) >= (uint32_t)ACOUSTICPERCEPT_FLUSH_MS;
 }
 
@@ -86,7 +91,7 @@ int32_t Log::rmsMean() const {
 size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
                         const timestream::Stamp& ts, uint32_t now_ms,
                         uint32_t sample_rate) {
-  if (blocks_ == 0) {
+  if (blocks_ == 0 && self_blocks_ == 0) {   // a window that was all our voice still says so
     reset(now_ms);
     return 0;
   }
@@ -99,11 +104,12 @@ size_t Log::buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
                    "relates:hears@LAT0LON0\n\n"
                    "**ACOUSTICWIN** %s window_ms:%lu blocks:%ld "
                    "rate:%lu\n"
-                   "**ACOUSTIC** rms_mean:%ld rms_max:%ld peak:%ld transients:%ld\n",
+                   "**ACOUSTIC** rms_mean:%ld rms_max:%ld peak:%ld transients:%ld "
+                   "self_blocks:%ld\n",
                    lane_n, (unsigned long)t_sec, (unsigned long)t_sec,
                    stamp, (unsigned long)window_ms, (long)blocks_,
                    (unsigned long)sample_rate, (long)rmsMean(), (long)rms_max_,
-                   (long)peak_, (long)transients_);
+                   (long)peak_, (long)transients_, (long)self_blocks_);
   if (m < 0 || (size_t)m >= cap - w) {
     reset(now_ms);
     return 0;

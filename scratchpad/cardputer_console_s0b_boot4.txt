@@ -1,0 +1,55 @@
+re-attached after 0.02s
+[codec] DAC vol reg 0x32 = 0xBF (0xBF = unity/0dB), tone amp 30000/32767
+[mem] heap 191616 free, maxalloc 147444, psram 0
+BMI270 up (motion tier @LAT95 live)
+TTDB loaded: 240488 bytes, 230/288 records indexed (58 free)
+LittleFS: 352256 / 917504 bytes used (565248 free)
+[episode] boot in 2639 ms: 135 live episode(s) replayed, 135 present, maxalloc 106484 B
+[episode] live 135 present 135 dead 0 horizon 3050 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E47/48 M21/24 A22/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 2305 38 | 251 eps:4 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 2408 27 | 252 eps:3 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 1173 15 | 252 eps:3 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 1718 16 | 253 eps:2 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 1687 31 | 250 eps:5 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 1253 8 | 253 eps:2 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 1179 27 | 249 eps:6 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 1170 9 | 253 eps:2 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 1155 9 | 253 eps:2 carried:yes
+[order] seq 4811 recovered, next episode seq 4812, 5 other agent(s) in its vector
+[grammar] 0xfe169cb3
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 0 (fail 0, early 0, cap 68) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
+[entity] @LAT96 build: max_run:6 core:3-of-5 scan:600s
+RFC globe loaded: 52692 bytes, 44 records
+Feelings globe loaded: 37298 bytes, 48 records
+[social] field: 6 peer trace(s) reloaded from @LAT101 — age unknown, clamped to 64 and FADED until heard (RFC-0010 s5.4)
+BLE near-range tier up (advert + passive scan)
+Cardputer console 0x00000300 online (hw on, codec on, imu on)
+[field] armed: 16 cells, half-life 10s, floor 24, rides HELLO (+19 B). Deposit needs a mic transient at lvl >= 900. '5' shows it; there '-'/'=' tune that, DEL clears the field fleet-wide.
+[social] fleet table  self 0x300 ep 6  peers 6 (5 silent)  stale-reports 0
+[social]   0x300  mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v   (self)
+[social]   0x100  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x200  co: 64~  spk:v gps:X wifi:d ble:v lora:d disp:v keys:v store:v batt:v temp:v wall:d cond:v   FADED 
+[social]   0x010  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x011  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x012  co: 64~  mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   0x001  co:  0   mic:? spk:? imu:? gps:? wifi:? ble:? lora:? disp:? keys:? store:? batt:? temp:? wall:? cond:? brdg:?   FADED (no digest: capabilities UNKNOWN, not absent)
+[social]   pose: <=translation  (gps exercised 1 of 1 declared)  stillness-witnesses 0  ears 0
+[intero] pin 2011mV x2.00 = pack 4022mV (82%) | die 43.6C | maxalloc 16K  <- CHECK THE PACK VOLTAGE AGAINST A METER
+[social] self ep 6: mic:v spk:v imu:v wifi:d ble:v disp:v keys:v store:v batt:v temp:v wall:d cond:v
+[episode] live 135 present 135 dead 0 horizon 3050 terms 9 reclaimed 0 | appended 0 (fail 0) commits 0 (fail 0 nomem 0) cuts 0 (fail 0 last 'ok') malformed 0 | tiers L45/48 E47/48 M21/24 A22/24
+[episode]   0x00000200 belief: link_stable | espnow | + | 2305 38 | 251 eps:4 carried:yes
+[episode]   0x00000200 belief: link_stable | ble | + | 2408 27 | 252 eps:3 carried:yes
+[episode]   0x00000100 belief: link_stable | espnow | + | 1173 15 | 252 eps:3 carried:yes
+[episode]   0x00000010 belief: link_stable | ble | + | 1718 16 | 253 eps:2 carried:yes
+[episode]   0x00000010 belief: link_stable | espnow | + | 1687 31 | 250 eps:5 carried:yes
+[episode]   0x00000011 belief: link_stable | ble | + | 1253 8 | 253 eps:2 carried:yes
+[episode]   0x00000011 belief: link_stable | espnow | + | 1179 27 | 249 eps:6 carried:yes
+[episode]   0x00000012 belief: link_stable | ble | + | 1170 9 | 253 eps:2 carried:yes
+[episode]   0x00000012 belief: link_stable | espnow | + | 1155 9 | 253 eps:2 carried:yes
+[order] seq 4811 | regressions 0 overflow 0 malformed 0 dropped 0 | follows: 0x00000010:1484 0x00000011:1429 0x00000012:1342 0x00000100:1082 0x00000200:2120
+[deliver] held 32 | fetched 0 dup 0 refused 0 broken 0 resumed 0 unanswered 0 empty 0 nomem 0 appendfail 0 | served 0 (empty 0) of 0 want(s) | own link map 45 | cuts 0 (fail 0, early 0, cap 68) | bars 16 on flash, 0 written (fail 0) | wantq drop 0 superseded 0
+[scene] scene 0 ALONE (era 1 cond 0x00000300)
+[ble] 80 advert(s) handled in the first 5 s of scanning | heap 17688 maxalloc 9716
+[stream] origin stream=0x58a1b4d9 t_ms=0 wall=0 from=0x300 offset=0ms
+[wifi] scan: 5 AP(s) folded into @LAT96 window
+

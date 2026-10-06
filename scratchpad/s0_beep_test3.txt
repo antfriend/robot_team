@@ -1,0 +1,7 @@
+held COM14; beeping every 5 s until +140s, then SILENT (clap then), until +170s
+     4.8s [BEEP, 0 beeps sent] [acoustic] transient +106189 ms after own tone (gate 400 ms)
+     5.2s [BEEP, 0 beeps sent] [acoustic] transient +106609 ms after own tone (gate 400 ms)
+    27.0s [BEEP, 1 beeps sent] [acoustic] window -> @LAT103LON27482 transients 3 self_blocks 26 (acoustic live 18/24)
+    87.0s [BEEP, 3 beeps sent] [acoustic] window -> @LAT103LON27483 transients 0 self_blocks 54 (acoustic live 19/24)
+   147.0s [quiet/clap, 4 beeps sent] [acoustic] window -> @LAT103LON27484 transients 0 self_blocks 27 (acoustic live 20/24)
+done

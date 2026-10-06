@@ -68,7 +68,13 @@ class Log {
   // nodes, so pass the stream value whenever there is one and make sure the same
   // stream id reaches buildRecord: an instant is worthless without the clock it was
   // read from. `now_ms` is local millis() for window bookkeeping.
-  void addBlock(const int16_t* samples, size_t n, uint64_t t_ms, uint32_t now_ms);
+  // `self` = the node's own speaker was sounding when this block was captured (Phase S0,
+  // docs/design/cardputer-sensorium.md §7). Such a block is FULLY EXPLAINED: it is counted
+  // (self_blocks) but is never a transient, never the loudest-transient datum, and never
+  // feeds the ambient baseline, so a clap right after a beep is judged against the room,
+  // not against the beep. Our own voice in the TDoA datum would correlate against itself.
+  void addBlock(const int16_t* samples, size_t n, uint64_t t_ms, uint32_t now_ms,
+                bool self = false);
 
   bool due(uint32_t now_ms) const;
 
@@ -77,6 +83,7 @@ class Log {
   int32_t rmsMax() const { return rms_max_; }
   int32_t peak() const { return peak_; }
   int32_t transients() const { return transients_; }
+  int32_t selfBlocks() const { return self_blocks_; }
   // Timestamp + level of the loudest transient this window (0 if none) — the TDoA
   // datum: the same real-world event, timestamped independently by several nodes.
   uint64_t loudestTMs() const { return loudest_t_ms_; }
@@ -85,7 +92,8 @@ class Log {
   // Render a complete TTDB record block and start a new window:
   //   \n---\n\n@LAT94LON<lane_n> | created:<t_sec> | ... | relates:hears@LAT0LON0
   //   \n\n**ACOUSTICWIN** t_ms:.. stream:0x<id> wall:<0|1> window_ms:.. blocks:.. rate:..
-  //   \n**ACOUSTIC** rms_mean:.. rms_max:.. peak:.. transients:..
+  //   \n**ACOUSTIC** rms_mean:.. rms_max:.. peak:.. transients:.. self_blocks:..
+  //   (rms_*, peak, transients are over HEARD blocks; self_blocks were our own voice)
   //   \n**TRANSIENT** t_ms:.. stream:0x<id> wall:<0|1> rms:..   (only when one was heard)
   // Returns bytes written, or 0 if the window was empty (still resets).
   size_t buildRecord(char* out, size_t cap, int lane_n, uint32_t t_sec,
@@ -100,7 +108,8 @@ class Log {
   int32_t rms_max_;
   int32_t peak_;          // largest |sample| seen
   int32_t transients_;
-  int32_t ambient_;       // slow-moving RMS baseline the transient test rides on
+  int32_t self_blocks_;   // blocks captured while our own speaker sounded (not heard)
+  int32_t ambient_;      // slow-moving RMS baseline the transient test rides on
   uint64_t loudest_t_ms_;
   int32_t loudest_rms_;
   uint32_t window_start_ms_;
