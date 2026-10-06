@@ -1386,6 +1386,7 @@ static uint32_t gToneUntilMs = 0;
 static const uint32_t MIC_SELF_TAIL_MS = 180 + 180 + 40;   // TX ring + RX ring + margin
 static uint32_t gMicSelfUntilMs = 0;
 static uint32_t gToneEndMs = 0;        // when toneI2S() last returned (S0 instrument)
+static uint32_t gMicReadGap = 0;       // ms between the last two mic reads (S0 instrument)
 
 // --- audio, keyboard, IMU, screen (all gated on the real board) --------------
 #if USE_CARD_HW
@@ -1762,6 +1763,7 @@ static void serviceMic(uint32_t now) {
   if (!gCodecOk) return;
   static uint32_t lastRead = 0;
   if (now - lastRead < MIC_POLL_MS) return;
+  gMicReadGap = now - lastRead;            // S0 instrument: a stalled loop shows here
   lastRead = now;
   static int16_t block[MIC_DMA_FRAMES * 2];
   size_t got = gI2S.readBytes((char*)block, sizeof(block));
@@ -1814,8 +1816,11 @@ static void serviceMic(uint32_t now) {
     // S0 instrument: where a logged transient sits relative to our last tone, so a leak
     // past the self gate is measured, not guessed. Transients are rare; one line each.
     if (tc > gTransCount)
-      Serial.printf("[acoustic] transient +%lu ms after own tone (gate %lu ms)\n",
-                    (unsigned long)(now - gToneEndMs), (unsigned long)MIC_SELF_TAIL_MS);
+      Serial.printf("[acoustic] transient +%lu ms after own tone (gate %lu ms) rms %ld "
+                    "ambient %ld blocks %ld read-gap %lu ms\n",
+                    (unsigned long)(now - gToneEndMs), (unsigned long)MIC_SELF_TAIL_MS,
+                    (long)gAcousticLog.lastRms(), (long)gAcousticLog.ambient(),
+                    (long)gAcousticLog.blocks(), (unsigned long)gMicReadGap);
     gTransCount = tc;
   }
 

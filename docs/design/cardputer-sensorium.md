@@ -459,11 +459,11 @@ the script change as one atomic commit.
 Each phase ends with something that runs and is verified, and **every phase re-checks
 the loop budget (§3.4)** — that is the gate this node has already failed once.
 
-**Phase S0 — the self-noise gate.** *(half done)* Mark acoustic samples taken while our own
+**Phase S0 — the self-noise gate.** ✅ *(done 2026-10-06: both halves; see docs/log/2026-10.md)* Mark acoustic samples taken while our own
 speaker sounds as fully explained; stop logging them as transients.
 ✅ The **display** half is in: `toneI2S()` sets `gToneUntilMs`, and the face's sound term is
 suppressed while it holds, so the node's own notes cannot dilate its own pupil.
-⏳ **Still owed: the `@LAT94` log itself.** Our voice is still eligible to be logged as a
+✅ **The `@LAT94` log half is in too (2026-10-06):** `addBlock(..., self)` marks blocks captured within 400 ms of our own tone (TX + RX DMA rings) as fully explained; 34 beeps → 0 transients, claps still logged. *Was:* still owed — Our voice is still eligible to be logged as a
 transient, which is a live data-quality bug in the tier the TDoA idea rests on.
 *Done when:* a `CMD_BEEP` produces **no** `@LAT94` transient, while a clap still does.
 

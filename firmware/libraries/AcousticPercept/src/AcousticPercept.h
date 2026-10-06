@@ -84,6 +84,9 @@ class Log {
   int32_t peak() const { return peak_; }
   int32_t transients() const { return transients_; }
   int32_t selfBlocks() const { return self_blocks_; }
+  // Diagnostics: the last HEARD block's RMS and the baseline it was judged against.
+  int32_t lastRms() const { return last_rms_; }
+  int32_t ambient() const { return ambient_; }
   // Timestamp + level of the loudest transient this window (0 if none) — the TDoA
   // datum: the same real-world event, timestamped independently by several nodes.
   uint64_t loudestTMs() const { return loudest_t_ms_; }
@@ -109,6 +112,7 @@ class Log {
   int32_t peak_;          // largest |sample| seen
   int32_t transients_;
   int32_t self_blocks_;   // blocks captured while our own speaker sounded (not heard)
+  int32_t last_rms_ = 0;  // diagnostics only (survives reset(); ambient_ does NOT)
   int32_t ambient_;      // slow-moving RMS baseline the transient test rides on
   uint64_t loudest_t_ms_;
   int32_t loudest_rms_;

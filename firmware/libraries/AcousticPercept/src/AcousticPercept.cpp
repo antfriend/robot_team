@@ -52,6 +52,7 @@ void Log::addBlock(const int16_t* samples, size_t n, uint64_t t_ms,
     if (a > pk) pk = a;
   }
   int32_t rms = (int32_t)isqrt64(sq / (uint64_t)n);
+  last_rms_ = rms;
 
   blocks_++;
   rms_sum_ += (uint64_t)rms;
