@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src -I$(LIB)/Attention/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -126,6 +126,9 @@ EO_SRCS := test_episode_order.cpp $(LIB)/Semantic/src/EpisodeOrder.cpp \
 ED_SRCS := test_episode_delivery.cpp $(LIB)/Semantic/src/EpisodeDelivery.cpp \
         $(LIB)/Semantic/src/EpisodeOrder.cpp $(LIB)/Semantic/src/Episode.cpp \
         $(LIB)/Semantic/src/FleetTime.cpp $(LIB)/Semantic/src/Semantic.cpp
+# Sensorium Phase S1: the EPS arbiter (decay, dwell, margin), neighbour novelty, motion
+# salience, and S1's done-condition as four scenarios. Portable, self-contained.
+ATT_SRCS := test_attention.cpp $(LIB)/Attention/src/Attention.cpp
 
 test: build
 	./test_toot
@@ -148,8 +151,9 @@ test: build
 	./test_fleettime
 	./test_episode_order
 	./test_episode_delivery
+	./test_attention
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -170,6 +174,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(FT_SRCS) -o test_fleettime
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EO_SRCS) -o test_episode_order
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ED_SRCS) -o test_episode_delivery
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ATT_SRCS) -o test_attention
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -188,6 +193,6 @@ clean:
 	      test_semantic test_semantic.exe \
 	      test_episode test_episode.exe test_fleettime test_fleettime.exe \
 	      test_episode_order test_episode_order.exe \
-	      test_episode_delivery test_episode_delivery.exe
+	      test_episode_delivery test_episode_delivery.exe \n	      test_attention test_attention.exe
 
 .PHONY: test build clean

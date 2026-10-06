@@ -31,7 +31,7 @@ PY="${PY:-python}"
 LIB=firmware/libraries
 INC="-I$LIB/Toot/src -I$LIB/TTDB/src -I$LIB/LinkPercept/src -I$LIB/EntityPercept/src -I$LIB/AcousticPercept/src
      -I$LIB/MotionPercept/src -I$LIB/PerceptLearn/src -I$LIB/Gps/src -I$LIB/Pulse/src
-     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/Social/src -I$LIB/Semantic/src"
+     -I$LIB/TraceField/src -I$LIB/TimeStream/src -I$LIB/Social/src -I$LIB/Semantic/src -I$LIB/Attention/src"
 FLAGS="-std=c++11 -Wall -Wextra -O2"
 TS="$LIB/TimeStream/src/TimeStream.cpp"
 
@@ -40,7 +40,7 @@ TS="$LIB/TimeStream/src/TimeStream.cpp"
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
                   symmetric_edges nmea pulse timestream
                   tracefield social sid citation ttdb_index semantic episode fleettime episode_order
-                  episode_delivery)
+                  episode_delivery attention)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [linkpercept]="$TS $LIB/LinkPercept/src/LinkPercept.cpp"
@@ -58,6 +58,7 @@ declare -A SRCS=(
   [citation]="$LIB/TTDB/src/TtdbParse.cpp"
   [ttdb_index]="$LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [semantic]="$LIB/Semantic/src/Semantic.cpp"
+  [attention]="$LIB/Attention/src/Attention.cpp"
   [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp $LIB/AcousticPercept/src/AcousticPercept.cpp $LIB/LinkPercept/src/LinkPercept.cpp $LIB/MotionPercept/src/MotionPercept.cpp"
   [fleettime]="$LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
   [episode_delivery]="$LIB/Semantic/src/EpisodeDelivery.cpp $LIB/Semantic/src/EpisodeOrder.cpp $LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"

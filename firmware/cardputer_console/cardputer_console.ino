@@ -60,6 +60,7 @@
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
 #include <TimeStreamNode.h>  // the team time stream (its @LAT90 log: legacy build only)
 #include <SocialNode.h>      // the default network: who is here and what can they do
+#include <Attention.h>       // sensorium S1: the EPS arbiter — which sense is most activated
 #include <RobotTeamConfig.h>
 #include <Preferences.h>     // NVS: remember the song on/off across a power-cycle
 
@@ -342,6 +343,22 @@ static void onBleObserve(uint32_t peer, int rssi) {
 #endif
 
 static const uint32_t kNodeId = NODE_CARDPUTER_1;
+
+// --- the EPS arbiter (docs/design/cardputer-sensorium.md §3, §7 Phase S1) -----------------
+// HEADLESS: it ranks the senses and prints the winner; it owns no view yet (that is S2/S3).
+// The senses feed it from where they already run — the IMU poll, the mic read, the radio
+// callback — and `serviceAttention()` re-ranks once per loop pass. `conf` is what makes it
+// an arbiter rather than a meter: our own tone explains a sound, a key press explains a
+// jolt and a click, and a routine HELLO explains a neighbour (Novelty returns 0 for it).
+static attention::Arbiter        gAttn;
+static attention::Novelty        gNovelty;     // loop-side only
+static attention::Inbox          gAttnInbox;   // radio callback -> loop: copy only
+#if USE_IMU
+static attention::MotionSalience gMotionSal;
+#endif
+static uint32_t gKeyAt = 0;                    // millis() of the last key press (0 = none)
+static const uint32_t KEY_EXPLAINS_MS = 300;   // a press explains the jolt/click around it
+static bool keyExplains(uint32_t now) { return gKeyAt && now - gKeyAt < KEY_EXPLAINS_MS; }
 static const char* kTtdbPath = "/ttdb.md";
 static const char* kBeliefPath = "/belief.md";
 static const char* kRfcTtdbPath = "/rfc.ttdb.md";
@@ -1159,6 +1176,8 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   // SP0 link percept: an authenticated frame is a distance measurement in disguise.
   // Logged BEFORE dedup — a retried duplicate is a real reception.
   gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
+  // S1 neighbour novelty: same rule — a reception is a reception, dup or not. COPY ONLY.
+  if (t.src_node_id && t.src_node_id != kNodeId) gAttnInbox.push(t.src_node_id);
   if (t.chunk_total > 1) return;            // no chunked consumer on the console
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {
     // TTN-RFC-0007 §5: re-ACK a lost-ACK dup — but REPLAY THE FIRST EXECUTION'S ANSWER,
@@ -1404,6 +1423,13 @@ static uint32_t gMicReadGap = 0;       // ms between the last two mic reads (S0 
 // no reason. The other 6.5 dB came from the codec (Es8311.h, DAC_VOL_0DB).
 static void toneI2S(float freq, uint32_t ms, float amp = 30000.0f) {
   if (!gCodecOk) return;
+  // ⚠ RAISE THE SELF GATES BEFORE THE FIRST SAMPLE, not only after the last. A CMD_BEEP
+  // that arrives over ESP-NOW runs this in the radio callback, so loop() keeps reading the
+  // mic WHILE we sing; with the gates set only on return, those blocks were unflagged and
+  // logged as @LAT94 transients (2026-10-06: a T-Deck `b` won the S1 arbiter's `sound`).
+  // S0's 34-beep pass missed it because USB beeps run in loop(), which isn't reading then.
+  gToneUntilMs = millis() + ms + 50;
+  gMicSelfUntilMs = millis() + ms + MIC_SELF_TAIL_MS;
   const int N = 256;
   int16_t buf[N * 2];
   uint32_t total = (uint32_t)((uint64_t)I2S_RATE * ms / 1000);
@@ -1600,6 +1626,10 @@ static void serviceImu(uint32_t now) {
   float mag = sqrtf((float)ax * ax + (float)ay * ay + (float)az * az);
   gDevMg = (int)fabsf(mag - 1000.0f);
   if (gDevMg > TAP_MG) gTapAt = now;
+  // S1: every 50 Hz sample is a motion stimulus. Typing on the deck shakes it, so a key
+  // press explains the jolt (conf 230, not 255: a hard knock while typing still shows).
+  gAttn.observe(attention::MOD_MOTION, gMotionSal.feed(ax, ay, az),
+                keyExplains(now) ? 230 : 0, now, (uint32_t)gDevMg);
   gSacX = gSacX * SAC_DECAY + gImu.data.gyroY * SAC_GAIN + hpX * ACC_KICK;
   gSacY = gSacY * SAC_DECAY + gImu.data.gyroX * SAC_GAIN + hpY * ACC_KICK;
   if (gSacX >  0.85f) gSacX =  0.85f;
@@ -1813,6 +1843,17 @@ static void serviceMic(uint32_t now) {
   {
     int32_t tc = gAcousticLog.transients();
     if (tc > gTransCount && now >= gToneUntilMs) gTransAt = now;   // not our own voice
+    // S1: a transient the @LAT94 log recorded is the sound stimulus — the tier's own
+    // definition (>= 3x ambient), never a second threshold here. Salience grows from 160
+    // at the threshold to 255 at ~7x ambient. Already self-gated by S0.
+    if (gTransAt == now) {
+      const int32_t amb = gAcousticLog.ambient() > 0 ? gAcousticLog.ambient() : 1;
+      const int32_t r8 = (gAcousticLog.lastRms() * 8) / amb;      // ratio in eighths
+      int32_t sal = 160 + (r8 > 24 ? (r8 - 24) * 3 : 0);
+      if (sal > 255) sal = 255;
+      gAttn.observe(attention::MOD_SOUND, (uint8_t)sal, keyExplains(now) ? 255 : 0, now,
+                    (uint32_t)gAcousticLog.lastRms());
+    }
     // S0 instrument: where a logged transient sits relative to our last tone, so a leak
     // past the self gate is measured, not guessed. Transients are rare; one line each.
     if (tc > gTransCount)
@@ -1894,6 +1935,12 @@ static void serviceMic(uint32_t now) {
     if (over > 1.0f) over = 1.0f;
     gSndHot = (over > gSndHot) ? over : gSndHot * 0.85f;   // fast attack, slow release
   }
+  // S1: NO sustained-sound term, on purpose. The first build fed `gSndHot * 128` here and
+  // a quiet room alone drove it to EPS 32-40, just over the idle floor: `sound` took the
+  // screen every 2-4 s with nothing happening (2026-10-06, on hardware). `gSndHot` is a
+  // ratio over the room baseline, not "units of its own noise" (§3.1) — the same flaw the
+  // trace field's deposit gate documents above. Speech/music salience needs a
+  // noise-normalised loudness first; until then only @LAT94's transients count.
 }
 #endif
 
@@ -3816,6 +3863,46 @@ void setup() {
   serviceIntero(millis());
 }
 
+// S1 — the arbiter's loop half. Drain the receptions the radio callback copied into
+// neighbour novelty, notice a peer going quiet, re-rank, and SAY SO on serial: the winner
+// on every change (S1's done-condition is read off these lines), and each neighbour event,
+// because a rejoin can land while `neighbour` already holds the screen and then the winner
+// line alone would not show it.
+static void serviceAttention(uint32_t now) {
+  uint32_t peer, gap;
+  attention::Novelty::Event ev;
+  while (gAttnInbox.pop(peer)) {
+    const uint8_t s = gNovelty.heard(peer, now, ev, gap);
+    if (!s) continue;
+    gAttn.observe(attention::MOD_NEIGHBOUR, s, 0, now, peer);
+    if (ev == attention::Novelty::EV_NEW)
+      Serial.printf("[attend] neighbour 0x%03lx NEW (sal %u)\n", (unsigned long)peer, s);
+    else
+      Serial.printf("[attend] neighbour 0x%03lx RETURNED after %lu ms (sal %u)\n",
+                    (unsigned long)peer, (unsigned long)gap, s);
+  }
+  const uint8_t q = gNovelty.quiet(now, peer, gap);
+  if (q) {
+    gAttn.observe(attention::MOD_NEIGHBOUR, q, 0, now, peer);
+    Serial.printf("[attend] neighbour 0x%03lx QUIET for %lu ms (typ %lu, sal %u)\n",
+                  (unsigned long)peer, (unsigned long)gap,
+                  (unsigned long)gNovelty.typicalGap(peer), q);
+  }
+  const uint8_t was = gAttn.winner();
+  const uint32_t heldMs = now - gAttn.heldSince();
+  if (!gAttn.tick(now)) return;
+  const uint8_t w = gAttn.winner();
+  Serial.printf("[attend] %s -> %s", attention::modalityName(was),
+                attention::modalityName(w));
+  if (w != attention::MOD_IDLE)
+    Serial.printf(" eps %u (sal %u conf %u det %lu)", gAttn.epsAt(w, now), gAttn.sal(w),
+                  gAttn.conf(w), (unsigned long)gAttn.detail(w));
+  Serial.printf(" | held %lu ms | motion %u sound %u neighbour %u\n",
+                (unsigned long)heldMs, gAttn.epsAt(attention::MOD_MOTION, now),
+                gAttn.epsAt(attention::MOD_SOUND, now),
+                gAttn.epsAt(attention::MOD_NEIGHBOUR, now));
+}
+
 void loop() {
   const uint32_t now = millis();
   gSectN = 0;
@@ -4197,6 +4284,8 @@ void loop() {
   }
 #endif
 
+  serviceAttention(now);            // S1: re-rank the senses (µs; billed to "mic")
+
   sectMark();                       // [5] end of "mic": ES8311 read + @LAT94 tier
 
 #if USE_CARD_HW
@@ -4235,6 +4324,7 @@ void loop() {
   //   g = play the song (whole band)   x = stop   o = onward a scene   r = restart
   //   +/= zoom in      -/_ zoom out
   char k = readKey();
+  if (k) gKeyAt = now;              // S1: a press explains the jolt and click it makes
   // In the representor the globe-navigation keys have nothing to steer. The fleet keys
   // (n/p/b/s/g/x/o/r) still work, so the face is never a dead end. ENTER is NOT filtered
   // here — §5 gives it the second job of cycling representor views, and the switch below

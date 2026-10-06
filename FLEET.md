@@ -410,6 +410,12 @@ If a fact lives in one of these, link to it from here — don't copy it.
    boards in all 16 scored bars, digests 16/16, 0 contradictions, no cable, no reboot.
    ⚠ T-Deck heap at bar-write 5.2–9.6 KB (thinnest margin; see the log).
    ✅ **C4 item 5 PASSED 2026-10-06:** a grammar hash (a probe of the episode/held/bar mapping) rides the VECTOR; a salted V4-C was recorded as a split by all six boards, then cleared. **C4 and Phase C are COMPLETE.** **Next:** Phase D (ACT-III §6).
+- ✅ **Sensorium S1 (the EPS arbiter, D4's data source) PASSES on the Cardputer, headless
+  (2026-10-06).** `firmware/libraries/Attention` + `test_attention` (69 checks). On hardware:
+  tilt → `motion`, clap → `sound`, T-Deck power-cycle → `QUIET` then `RETURNED` → `neighbour`,
+  each back to `idle` in 2.0–3.3 s; a quiet room prints nothing. It also found an S0 hole: a
+  **radio** `CMD_BEEP` played unflagged (fixed: gates rise at tone start)
+  ([docs/log/2026-10.md](docs/log/2026-10.md)). **Next:** give it the screen (S2/S3, then D4).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257

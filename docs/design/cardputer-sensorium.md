@@ -395,7 +395,7 @@ first, since "take the screen once" is a salience claim.
 | `1` / `2` | — | force eyeball / oscilloscope | ✅ built |
 | `3` | — | force **interoception** (§4.5) | ✅ built |
 | `4`–`5` | — | force console / constellation | ⏳ needs those views |
-| `0` | — | release the pin, return to automatic arbitration | ⏳ needs S1 |
+| `0` | — | release the pin, return to automatic arbitration | ⏳ S1 is headless; needs the arbiter to own the view |
 
 A **pin** matters more than it looks: without it there is no way to *watch* a quiet
 sense, because by definition the arbiter only shows you the loud one.
@@ -463,7 +463,7 @@ the loop budget (§3.4)** — that is the gate this node has already failed once
 speaker sounds as fully explained; stop logging them as transients.
 ✅ The **display** half is in: `toneI2S()` sets `gToneUntilMs`, and the face's sound term is
 suppressed while it holds, so the node's own notes cannot dilate its own pupil.
-✅ **The `@LAT94` log half is in too (2026-10-06):** `addBlock(..., self)` marks blocks captured within 400 ms of our own tone (TX + RX DMA rings) as fully explained; 34 beeps → 0 transients, claps still logged. *Was:* still owed — Our voice is still eligible to be logged as a
+✅ **The `@LAT94` log half is in too (2026-10-06; radio-beep hole closed the same day under S1):** `addBlock(..., self)` marks blocks captured within 400 ms of our own tone (TX + RX DMA rings) as fully explained; 34 beeps → 0 transients, claps still logged. *Was:* still owed — Our voice is still eligible to be logged as a
 transient, which is a live data-quality bug in the tier the TDoA idea rests on.
 *Done when:* a `CMD_BEEP` produces **no** `@LAT94` transient, while a clap still does.
 
@@ -471,6 +471,27 @@ transient, which is a live data-quality bug in the tier the TDoA idea rests on.
 hysteresis. No new rendering; print the winning modality to serial.
 *Done when:* tilting, clapping, and a neighbour rejoining each print the right winner,
 and the winner decays back to `idle` within ~3 s.
+✅ **PASSES on the Cardputer, 2026-10-06** (docs/log/2026-10.md). The arbiter is a
+portable library, `firmware/libraries/Attention` (native: `test_attention`, which pins the
+four S1 scenarios plus decay/dwell/margin): half-life 800 ms, idle floor EPS 32, dwell 1.5 s,
+margin 25%. Sources: **motion** = fast-vs-slow pose difference (so a HELD tilt fades) max'd
+with shake, every 50 Hz IMU sample; **sound** = only the transients `@LAT94` itself logs (salience
+160 at its 3× threshold, 255 by ~7×); **neighbour** = novelty, each peer late after 3× its own
+inter-arrival (floor 4 s, *below* Social's 10 s fade, because a reboot is often shorter);
+a **key press** explains the jolt and click it makes (`conf` 230/255). Serial: `[attend] a -> b
+eps … | held … ms | motion m sound s neighbour n`, plus a line per neighbour event.
+✅ Tilt, clap and a neighbour REJOINING (T-Deck off ~10 s: `QUIET` at 6 s, `RETURNED` at
+9.9 s, eps 168) each printed the right winner and went back to `idle` in 2.0–3.3 s; an
+untouched deck printed nothing for 45 s.
+⚠ **A sustained-loudness term was built and removed the same hour:** `gSndHot × 128` let a quiet
+room alone reach EPS 32–40 and take the screen every 2–4 s. `gSndHot` is a ratio over the room
+baseline, not "units of its own noise" (§3.1). Speech/music salience needs a noise-normalised
+loudness first.
+⚠ **S1 found a hole in S0:** a `CMD_BEEP` arriving over **ESP-NOW** runs `toneI2S()` in the
+radio callback, so `loop()` reads the mic WHILE the node sings — and the self gates were only
+raised when the tone returned. Those blocks were logged as transients and a T-Deck `b` won
+`sound`. Fixed by raising both gates before the first sample; re-run: beeps → `self_blocks`,
+no beep transient, a clap still wins. S0's 34-beep pass used USB beeps, which run in `loop()`.
 
 **Phase S2 — eyeball + scope.** The two views in the brief, plus gyro saccades.
 ✅ **The eyeball is built, flashed and measured (2026-07-28)**, ahead of the arbiter rather
