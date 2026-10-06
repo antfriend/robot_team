@@ -72,8 +72,10 @@
 //
 // What this file does NOT do: §4.6's scene = grammar hash. These episodes are sensor
 // windows read by a fixed mapping (Episode.h renderLinkEpisode), not prose read through
-// grammar records, so there is nothing to hash yet. If the mapping ever becomes data, its
-// hash is the scene; until then a split cannot occur and a check for one would read zero.
+// grammar records, so the grammar is the COMPILED mapping, and two builds can differ. That
+// is hashed by behaviour in EpisodeDelivery (grammarHash, 2026-10-06), carried as a trailer
+// on the VECTOR toot, and recorded per bar as **GRAMMAR**/**SPLIT**, not in the pulse
+// chart's scene_id (which on this fleet already names the song's scene).
 #ifndef SEMANTIC_FLEETTIME_H
 #define SEMANTIC_FLEETTIME_H
 

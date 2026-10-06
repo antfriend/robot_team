@@ -776,6 +776,107 @@ static void testNotBeliefs() {
   check(beliefsOf(ey) != "", "...while the same text on @LAT103 does");
 }
 
+// ---------------------------------------------------------------------------------------
+// TTG-0004 §4.8 item 5: a fleet with two grammar hashes reports the split.
+// The grammar hash of this build (see testGrammar). Measured 2026-10-06; the boards must
+// print the same at boot (`[grammar] 0x...`), or the native probe is not the boards' probe.
+static const uint32_t kGrammarPin = 0xfe169cb3u;
+
+static void testGrammar() {
+  printf("11. the grammar (item 5)\n");
+  // --- the hash: the probe's behaviour, deterministic, pinned ---
+  static Consolidator c;
+  static char scratch[SEMANTIC_ENTITY_EPISODE_BUF];
+  const uint32_t g1 = grammarHash(c, scratch, sizeof(scratch));
+  const uint32_t g2 = grammarHash(c, scratch, sizeof(scratch));
+  check(g1 != 0 && g1 == g2, "grammarHash: nonzero and the same on every run");
+  printf("    grammar = 0x%08lx\n", (unsigned long)g1);
+  check(c.termCount() > 0, "the probe reaches the consolidator (the read path is hashed too)");
+  check(grammarHash(c, scratch, SEMANTIC_LINK_EPISODE_BUF) == 0,
+        "a scratch too small for the probe claims no grammar (0), never a wrong one");
+  // ⚠ PINNED. This changes exactly when the link episode, held copy, percept reading or BAR
+  // record format changes, i.e. when two builds would read the same episodes differently.
+  // Update it deliberately, then flash the whole fleet: a mixed fleet will report a split.
+  check(g1 == kGrammarPin, "grammarHash equals the pinned value (a grammar change is an edit here)");
+
+  // --- the wire: the trailer rides the VECTOR, and older payloads still parse ---
+  VectorClock vc;
+  vc.begin(0x200);
+  vc.committed(4);
+  uint8_t w[EPISODEORDER_VECTOR_MAX];
+  size_t n = vc.encode(w, sizeof(w));
+  uint32_t g = 0;
+  check(n == 2 + 8 && !vectorGrammar(w, n, &g), "no grammar set: no trailer, none read");
+  vc.setGrammar(g1);
+  n = vc.encode(w, sizeof(w));
+  check(n == 2 + 8 + 4 && vectorGrammar(w, n, &g) && g == g1, "the trailer carries the hash");
+  check(vc.encode(w, 2 + 8 + 3) == 0, "a buffer one short of the trailer: nothing encoded");
+  VectorClock rx;
+  rx.begin(0x300);
+  check(rx.mergeWire(w, n) && rx.malformed() == 0, "a trailer does not upset mergeWire");
+  check(!vectorGrammar(w, n - 1, &g), "a cut-short trailer is no grammar");
+  for (uint32_t a = 0; a < FLEETTIME_MAX_AGENTS; ++a) vc.mergeEntry(0x1000 + a, 1);
+  n = vc.encode(w, sizeof(w));
+  check(n == EPISODEORDER_VECTOR_MAX && vectorGrammar(w, n, &g) && g == g1,
+        "a full vector plus the trailer is exactly VECTOR_MAX (the inbox copies it whole)");
+
+  // --- the table: same, split, stale, and old firmware not counted ---
+  GrammarPeers p;
+  p.begin(g1);
+  const uint32_t other = g1 ^ 0x5a5a5a5au;
+  check(p.push(0x10, g1) && p.push(0x300, other) && p.push(0x12, g1), "three announcements");
+  p.drain(1000);
+  GrammarView v = p.view(1000);
+  check(v.self == g1 && v.same == 2 && v.split == 1 && v.agent[0] == 0x300 &&
+            v.hash[0] == other,
+        "two peers agree, one runs another grammar: split 1, named");
+  p.push(0x300, g1);                    // 0x300 reflashed onto this grammar
+  p.drain(2000);
+  v = p.view(2000);
+  check(v.same == 3 && v.split == 0, "a peer that changes grammar moves from split to same");
+  v = p.view(2000 + EPISODEDELIVERY_GRAMMAR_FRESH_MS + 1);
+  check(v.same == 0 && v.split == 0, "peers not heard for a bar are not counted");
+  check(!p.push(0x10, 0) && !p.push(0, g1), "no grammar, or no sender: not an announcement");
+  GrammarPeers full;
+  full.begin(g1);
+  for (int i = 0; i < EPISODEDELIVERY_GRAMMAR_INBOX - 1; ++i) full.push(0x100 + i, g1);
+  check(!full.push(0x999, g1) && full.dropped() == 1, "a full inbox drops and counts");
+  GrammarPeers many;
+  many.begin(g1);
+  for (uint32_t i = 0; i < EPISODEDELIVERY_GRAMMAR_PEERS + 2; ++i) {
+    many.push(0x100 + i, other);
+    many.drain(100 * i);
+  }
+  v = many.view(100 * (EPISODEDELIVERY_GRAMMAR_PEERS + 2));
+  check(v.split == EPISODEDELIVERY_GRAMMAR_PEERS && v.agent[0] == 0x102,
+        "past the table, the stalest peers make room");
+
+  // --- the record: GRAMMAR + SPLIT after the rest, still indexed ---
+  Consolidator ec;
+  ec.begin();
+  BarView bv(ec, kFrame, 0, 1, 0x300);
+  bv.finish();
+  GrammarView gv = p.view(1000);         // fresh as of t=1000 is the table after 0x300 moved
+  gv.self = 0x11111111u;
+  gv.same = 1;
+  gv.split = 1;
+  gv.agent[0] = 0x300;
+  gv.hash[0] = 0x22222222u;
+  char out[512];
+  const size_t m = renderBar(out, sizeof(out), 3, kFrame, 4, bv, barDigest(ec), 130000,
+                             nullptr, &gv);
+  check(m > 0 && strstr(out, "**GRAMMAR** hash:0x11111111 same:1 split:1\n"
+                             "**SPLIT** agent:0x00000300 grammar:0x22222222\n"),
+        "the BAR record carries GRAMMAR and one SPLIT per differing peer");
+  check(renderBar(out, m, 3, kFrame, 4, bv, barDigest(ec), 130000, nullptr, &gv) == 0,
+        "a SPLIT line that does not fit: nothing written");
+  renderBar(out, sizeof(out), 3, kFrame, 4, bv, barDigest(ec), 130000, nullptr, &gv);
+  BarIndex ix;
+  ix.reset();
+  feedText(ix, std::string(out) + "\n---\n\n");
+  check(ix.count() == 1 && ix.has(kFrame, 4), "a record carrying GRAMMAR is still indexed");
+}
+
 int main() {
   testWire();
   testInflight();
@@ -787,6 +888,7 @@ int main() {
   testNotBeliefs();
   testBarRecord();
   testScaling();
+  testGrammar();
   printf("\n%d checks, %d failures\n", gChecks, gFails);
   return gFails ? 1 : 0;
 }

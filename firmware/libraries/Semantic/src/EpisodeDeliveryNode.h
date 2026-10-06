@@ -55,6 +55,24 @@ class Node {
              SendFn send) {
     db_ = &db; ep_ = &ep; vc_ = &vc; self_ = self; send_ = send;
     fetch_.begin(self);
+    // The grammar (TTG-0004 §4.8 item 5): hash this build's episode/held/bar mapping once, at
+    // boot (radios down, heap free), and carry it on every VECTOR this node sends.
+    uint32_t g = 0;
+    semantic::Consolidator* c = new (std::nothrow) semantic::Consolidator();
+    if (c) {
+      g = semantic::grammarHash(*c, ep.scratch(), ep.scratchCap());
+      delete c;
+    }
+    vc.setGrammar(g);
+    grammar_.begin(g);
+    Serial.printf("[grammar] 0x%08lx%s%s\n", (unsigned long)g,
+                  g ? "" : "  <- NOT COMPUTED (nomem or probe did not fit): no grammar claimed",
+#ifdef EPISODEDELIVERY_GRAMMAR_TEST_SALT
+                  "  <- TEST SALT BUILD (a deliberate split; reflash without it)"
+#else
+                  ""
+#endif
+    );
     held_.reset();
     for (int i = 0; i < db.recordCount(); ++i)          // file order = age order
       if (db.record(i).lat == EPISODEDELIVERY_HELD_LANE)
@@ -77,7 +95,10 @@ class Node {
   void onToot(uint32_t src, const uint8_t* p, size_t len) {
     if (src && src != self_) heard_src_ = src;
     if (!p || !len) return;
-    if (p[0] == EPISODEORDER_SUBOP_WANT) {
+    if (p[0] == EPISODEORDER_SUBOP_VECTOR) {
+      uint32_t g;
+      if (src && src != self_ && semantic::vectorGrammar(p, len, &g)) grammar_.push(src, g);
+    } else if (p[0] == EPISODEORDER_SUBOP_WANT) {
       semantic::Want w;
       if (semantic::decodeWant(p, len, w) && w.to == self_ && w.agent == self_ && src &&
           src != self_)
@@ -105,6 +126,17 @@ class Node {
     if (h) {
       heard_src_ = 0;
       fetch_.heard(h, now);
+    }
+    grammar_.drain(now);
+    const semantic::GrammarView gv = grammar_.view(now);
+    if (gv.split != last_split_) {        // change-only, like the other receipt logs
+      last_split_ = gv.split;
+      Serial.printf("[grammar] mine 0x%08lx | same %u | SPLIT %u", (unsigned long)gv.self,
+                    (unsigned)gv.same, (unsigned)gv.split);
+      for (uint8_t i = 0; i < gv.split; ++i)
+        Serial.printf(" 0x%08lx:0x%08lx", (unsigned long)gv.agent[i],
+                      (unsigned long)gv.hash[i]);
+      Serial.println();
     }
     serve(now);
     fetch(now);
@@ -369,8 +401,9 @@ class Node {
           millis() / 1000, ESP.getFreeHeap(), st_.fetched, st_.unanswered, st_.broken,
           st_.resumed, st_.empty, st_.served, st_.wants_heard, st_.cut_early,
           wants_.dropped(), wants_.superseded()};
+      const semantic::GrammarView gv = grammar_.view(millis());
       const size_t m = semantic::renderBar(ep_->scratch(), ep_->scratchCap(), ord, frame, n,
-                                           v, d, late, &dc);
+                                           v, d, late, &dc, &gv);
       if (m && db_->appendRecord(ep_->scratch(), m)) {
         bars_.appended(frame, n, ord);
         ++st_.bars_written;
@@ -398,6 +431,8 @@ class Node {
   uint8_t stalled_ = 0;
 
   semantic::WantQueue wants_;
+  semantic::GrammarPeers grammar_;
+  uint8_t last_split_ = 0;
   volatile uint32_t heard_src_ = 0;
   uint16_t hard_max_ = EPISODEDELIVERY_HELD_HARD_MAX;
 

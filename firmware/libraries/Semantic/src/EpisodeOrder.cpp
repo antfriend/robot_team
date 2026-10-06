@@ -81,7 +81,8 @@ bool VectorClock::mergeWire(const uint8_t* p, size_t len) {
 
 size_t VectorClock::encode(uint8_t* p, size_t cap) const {
   const uint8_t n = (uint8_t)(n_ + (seq_ ? 1 : 0));
-  const size_t need = EPISODEORDER_VECTOR_HDR + (size_t)n * EPISODEORDER_VECTOR_ENTRY;
+  const size_t body = EPISODEORDER_VECTOR_HDR + (size_t)n * EPISODEORDER_VECTOR_ENTRY;
+  const size_t need = body + (grammar_ ? EPISODEORDER_VECTOR_GRAMMAR : 0);
   if (!p || cap < need) return 0;
   p[0] = EPISODEORDER_SUBOP_VECTOR;
   p[1] = n;
@@ -91,7 +92,20 @@ size_t VectorClock::encode(uint8_t* p, size_t cap) const {
     putU32(q, e_[i].agent);
     putU32(q + 4, e_[i].seq);
   }
+  if (grammar_) putU32(p + body, grammar_);
   return need;
+}
+
+bool vectorGrammar(const uint8_t* p, size_t len, uint32_t* g) {
+  if (!p || len < EPISODEORDER_VECTOR_HDR || p[0] != EPISODEORDER_SUBOP_VECTOR ||
+      p[1] > FLEETTIME_MAX_AGENTS)
+    return false;
+  const size_t body = EPISODEORDER_VECTOR_HDR + (size_t)p[1] * EPISODEORDER_VECTOR_ENTRY;
+  if (len < body + EPISODEORDER_VECTOR_GRAMMAR) return false;
+  const uint32_t v = getU32(p + body);
+  if (!v) return false;
+  if (g) *g = v;
+  return true;
 }
 
 uint8_t VectorClock::follows(Follows* out, uint8_t max) const {

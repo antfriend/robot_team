@@ -687,7 +687,7 @@ BarDigest barDigest(const Consolidator& c) {
 // ---------------------------------------------------------------------------------------
 size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
                  const BarView& v, const BarDigest& d, int64_t settled_ms,
-                 const DeliverCounts* dc) {
+                 const DeliverCounts* dc, const GrammarView* gv) {
   if (!out || !cap) return 0;
   out[0] = '\0';
   int k = snprintf(out, cap,
@@ -721,7 +721,150 @@ size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar
     if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
     n += (size_t)k;
   }
+  if (gv) {
+    k = snprintf(out + n, cap - n, "**GRAMMAR** hash:0x%08lx same:%u split:%u\n",
+                 (unsigned long)gv->self, (unsigned)gv->same, (unsigned)gv->split);
+    if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
+    n += (size_t)k;
+    for (uint8_t i = 0; i < gv->split && i < EPISODEDELIVERY_GRAMMAR_PEERS; ++i) {
+      k = snprintf(out + n, cap - n, "**SPLIT** agent:0x%08lx grammar:0x%08lx\n",
+                   (unsigned long)gv->agent[i], (unsigned long)gv->hash[i]);
+      if (k < 0 || (size_t)k >= cap - n) { out[0] = '\0'; return 0; }
+      n += (size_t)k;
+    }
+  }
   return n;
+}
+
+// ---------------------------------------------------------------------------------------
+// the grammar
+// ---------------------------------------------------------------------------------------
+static uint32_t fnvBytes(uint32_t h, const char* p, size_t n) {
+  for (size_t i = 0; i < n; ++i) h = (h ^ (uint8_t)p[i]) * 0x01000193u;
+  return h;
+}
+
+// Feed rendered record text to a BarView line by line (it wants NUL-terminated lines).
+static void feedRecord(BarView& v, const char* p, size_t n) {
+  char line[256];
+  size_t i = 0;
+  while (i < n) {
+    size_t j = i;
+    while (j < n && p[j] != '\n') ++j;
+    size_t m = j - i;
+    if (m >= sizeof(line)) m = sizeof(line) - 1;
+    memcpy(line, p + i, m);
+    line[m] = '\0';
+    v.line(line);
+    i = j + 1;
+  }
+}
+
+uint32_t grammarHash(Consolidator& c, char* buf, size_t cap) {
+  // The probe: one window, three claims covering both verdicts and two protocols, stamped
+  // inside bar 1 of a fixed frame, with an order block naming two peers.
+  static const LinkClaim kProbe[] = {
+      {0x00000010u, "espnow", LINK_MET, -40, -42},
+      {0x00000200u, "ble", LINK_VIOLATED, -60, -81},
+      {0x00000300u, "espnow", LINK_MET, -55, -50},
+  };
+  const uint64_t frame = 5500;
+  const int64_t t = (int64_t)frame + 61000;
+  const size_t half = cap / 2;
+  if (!buf || half < SEMANTIC_LINK_EPISODE_BUF) return 0;
+  char at[64];
+  snprintf(at, sizeof(at), "%lld \xC2\xB1%u frame:%llu", (long long)t, 7u,
+           (unsigned long long)frame);
+  const char* order = "seq: 3\nfollows: 0x00000010:7 0x00000200:9\n";
+  const size_t n = renderLinkEpisode(kProbe, 3, 5, (uint32_t)(t / 1000), at, buf, half, order);
+  if (!n) return 0;
+  uint32_t h = fnvBytes(0x811c9dc5u, buf, n);
+  const size_t m = renderHeld(buf, n, 0x00000300u, 3, 6, buf + half, cap - half);
+  if (!m) return 0;
+  h = fnvBytes(h, buf + half, m);
+  // The read path: both records through a bar view, as printBar() reads the store.
+  c.begin();
+  BarView v(c, frame, barLine(frame, EPISODEDELIVERY_BAR_MS, (int64_t)0),
+            barLine(frame, EPISODEDELIVERY_BAR_MS, (int64_t)1), 0x00000010u);
+  feedRecord(v, buf, n);
+  feedRecord(v, buf + half, m);
+  v.finish();
+  for (size_t i = 0; i < c.termCount(); ++i) {
+    const Term* tm = c.term(i);
+    char b[128];
+    if (!tm || !c.beliefLine(*tm, b, sizeof(b))) continue;
+    h = fnvBytes(h, tm->subject, strlen(tm->subject));
+    h = fnvBytes(h, b, strlen(b));
+  }
+  const size_t r = renderBar(buf, half, 0, frame, 1, v, barDigest(c), 0);
+  if (!r) return 0;
+  h = fnvBytes(h, buf, r);
+#ifdef EPISODEDELIVERY_GRAMMAR_TEST_SALT
+  // ⚠ TEST BUILD ONLY: perturbs this board's hash so a fleet can be shown a split (item 5's
+  // hardware gate). The board declares it at boot; never leave a board on it.
+  h = (h ^ (uint32_t)(EPISODEDELIVERY_GRAMMAR_TEST_SALT)) * 0x01000193u;
+#endif
+  return h ? h : 1u;                    // 0 means "no grammar claimed"
+}
+
+void GrammarPeers::begin(uint32_t mine) {
+  mine_ = mine;
+  head_ = tail_ = 0;
+  n_ = 0;
+  dropped_ = 0;
+}
+
+bool GrammarPeers::push(uint32_t src, uint32_t g) {
+  const uint8_t next = (uint8_t)((head_ + 1) % EPISODEDELIVERY_GRAMMAR_INBOX);
+  if (!src || !g || next == tail_) {
+    ++dropped_;
+    return false;
+  }
+  q_[head_] = Q{src, g};
+  head_ = next;                        // publish last
+  return true;
+}
+
+void GrammarPeers::drain(uint32_t now_ms) {
+  while (tail_ != head_) {
+    const Q q = q_[tail_];
+    tail_ = (uint8_t)((tail_ + 1) % EPISODEDELIVERY_GRAMMAR_INBOX);
+    uint8_t i = 0;
+    while (i < n_ && e_[i].agent != q.src) ++i;
+    if (i == n_) {
+      if (n_ < EPISODEDELIVERY_GRAMMAR_PEERS) {
+        ++n_;
+      } else {                         // full: the stalest entry makes room
+        i = 0;
+        for (uint8_t j = 1; j < n_; ++j)
+          if ((uint32_t)(now_ms - e_[j].last_ms) > (uint32_t)(now_ms - e_[i].last_ms)) i = j;
+      }
+    }
+    e_[i] = E{q.src, q.g, now_ms};
+  }
+}
+
+GrammarView GrammarPeers::view(uint32_t now_ms) const {
+  GrammarView v;
+  memset(&v, 0, sizeof(v));
+  v.self = mine_;
+  for (uint8_t i = 0; i < n_; ++i) {
+    if ((uint32_t)(now_ms - e_[i].last_ms) > EPISODEDELIVERY_GRAMMAR_FRESH_MS) continue;
+    if (e_[i].g == mine_) {
+      ++v.same;
+    } else {
+      uint8_t k = v.split;             // ascending agent, like HOLDS
+      while (k > 0 && v.agent[k - 1] > e_[i].agent) {
+        v.agent[k] = v.agent[k - 1];
+        v.hash[k] = v.hash[k - 1];
+        --k;
+      }
+      v.agent[k] = e_[i].agent;
+      v.hash[k] = e_[i].g;
+      ++v.split;
+    }
+  }
+  return v;
 }
 
 // Decimal digits -> value; *end past them. No sscanf: it pulls newlib's scanf (~10 KB) into

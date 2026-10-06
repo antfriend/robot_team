@@ -42,12 +42,17 @@ namespace semantic {
 #define EPISODEORDER_SUBOP_WANT   1   // reserved: stage 2 (delivery)
 #define EPISODEORDER_SUBOP_DATA   2   // reserved: stage 2 (delivery)
 
-// VECTOR payload: sub-op u8 | n u8 | n × { agent u32 LE, seq u32 LE }. The sender's own
-// entry is included (first). ≤ 66 B: one unchunked frame.
-#define EPISODEORDER_VECTOR_HDR   2
-#define EPISODEORDER_VECTOR_ENTRY 8
-#define EPISODEORDER_VECTOR_MAX \
-  (EPISODEORDER_VECTOR_HDR + EPISODEORDER_VECTOR_ENTRY * FLEETTIME_MAX_AGENTS)
+// VECTOR payload: sub-op u8 | n u8 | n × { agent u32 LE, seq u32 LE } [| grammar u32 LE].
+// The sender's own entry is included (first). ≤ 70 B: one unchunked frame.
+// The grammar trailer (2026-10-06, TTG-0004 §4.8 item 5) is the sender's grammarHash(): a
+// decoder that predates it reads the entries and ignores the rest (mergeWire checks len >=,
+// not ==), and a payload without it says nothing about the sender's grammar.
+#define EPISODEORDER_VECTOR_HDR     2
+#define EPISODEORDER_VECTOR_ENTRY   8
+#define EPISODEORDER_VECTOR_GRAMMAR 4
+#define EPISODEORDER_VECTOR_MAX                                                 \
+  (EPISODEORDER_VECTOR_HDR + EPISODEORDER_VECTOR_ENTRY * FLEETTIME_MAX_AGENTS + \
+   EPISODEORDER_VECTOR_GRAMMAR)
 
 // Other agents a vector can hold (own entry is kept apart, as `seq`).
 #define EPISODEORDER_OTHERS (FLEETTIME_MAX_AGENTS - 1)
@@ -85,9 +90,13 @@ class VectorClock {
   // A VECTOR payload (sub-op byte included). False = malformed (nothing merged).
   bool mergeWire(const uint8_t* p, size_t len);
 
-  // VECTOR payload for the toot: own entry first (when seq > 0), then every other.
-  // Returns bytes, or 0 if cap is short.
+  // VECTOR payload for the toot: own entry first (when seq > 0), then every other, then the
+  // grammar trailer when one is set. Returns bytes, or 0 if cap is short.
   size_t encode(uint8_t* p, size_t cap) const;
+
+  // This node's grammarHash(), carried on every VECTOR. 0 = none (no trailer is sent).
+  void setGrammar(uint32_t g) { grammar_ = g; }
+  uint32_t grammar() const { return grammar_; }
 
   // The other agents with seq > 0, sorted by agent id. Returns the count.
   uint8_t follows(Follows* out, uint8_t max) const;
@@ -108,7 +117,7 @@ class VectorClock {
  private:
   Follows  e_[EPISODEORDER_OTHERS];   // sorted by agent
   uint8_t  n_ = 0;
-  uint32_t self_ = 0, seq_ = 0;
+  uint32_t self_ = 0, seq_ = 0, grammar_ = 0;
   uint32_t regressions_ = 0, overflow_ = 0, malformed_ = 0;
   bool     dirty_ = false, ever_sent_ = false;
   uint32_t last_sent_ms_ = 0;
@@ -142,6 +151,9 @@ class VectorInbox {
 // ---------------------------------------------------------------------------------------
 // `seq: <u32>` → true + value. Anything else (including `seq: 0`) → false.
 bool parseSeqLine(const char* line, uint32_t* seq);
+// A VECTOR payload's grammar trailer -> true + the sender's grammarHash(). False when the
+// payload is not a VECTOR, is short, or carries no trailer (a sender that predates it).
+bool vectorGrammar(const uint8_t* p, size_t len, uint32_t* g);
 // `follows: 0x<hex>:<u32> …` → entries written (≤ max). `*ok` false on any malformed token
 // (the entries before it are still returned; a reader decides whether to trust them).
 uint8_t parseFollowsLine(const char* line, Follows* out, uint8_t max, bool* ok = 0);

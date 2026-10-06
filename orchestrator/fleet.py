@@ -3072,6 +3072,11 @@ DELIVER_FIELDS = ("up_s", "heap", "fetched", "unanswered", "broken", "resumed", 
                   "served", "wants", "early", "wantq_drop", "superseded")
 DELIVER_REC_RE = re.compile(
     r"^\*\*DELIVER\*\* " + " ".join(k + r":(\d+)" for k in DELIVER_FIELDS) + r"\s*$")
+# Since 2026-10-06 (TTG-0004 §4.8 item 5): the node's grammar hash (firmware grammarHash, a
+# probe of its episode/held/bar mapping), how many fresh peers announced the same, and one
+# SPLIT line per peer that announced another. Optional, after DELIVER.
+GRAMMAR_REC_RE = re.compile(r"^\*\*GRAMMAR\*\* hash:0x([0-9a-fA-F]{8}) same:(\d+) split:(\d+)\s*$")
+SPLIT_REC_RE = re.compile(r"^\*\*SPLIT\*\* agent:0x([0-9a-fA-F]{8}) grammar:0x([0-9a-fA-F]{8})\s*$")
 
 
 def bar_episodes(text):
@@ -3127,9 +3132,10 @@ def bar_view(eps, frame, n, bar_ms=BAR_MS, self_id=0):
             "terms": len(bs), "digest": digest, "beliefs": bs, "holds": bar_holds(sel, self_id)}
 
 
-def render_bar_record(ord_, frame, n, view, settled_ms, deliver=None):
+def render_bar_record(ord_, frame, n, view, settled_ms, deliver=None, grammar=None):
     """The @LAT106 record firmware renderBar() writes for this view, byte for byte.
-    `deliver`: {field: int} over DELIVER_FIELDS, or None for the pre-2026-10-05 form."""
+    `deliver`: {field: int} over DELIVER_FIELDS, or None for the pre-2026-10-05 form.
+    `grammar`: {hash, same, splits: {agent: hash}}, or None for the pre-2026-10-06 form."""
     out = (f"@LAT{BAR_LANE}LON{ord_} | created:0 | updated:0\n\n"
            f"**BAR** frame:{frame} bar:{n} own:{view['own']} held:{view['held']} "
            f"terms:{view['terms']} digest:0x{view['digest']:08x} settled_ms:{settled_ms}\n")
@@ -3138,6 +3144,12 @@ def render_bar_record(ord_, frame, n, view, settled_ms, deliver=None):
         out += f"**HOLDS** agent:0x{a:08x} n:{c} lo:{lo} hi:{hi} sum:{sm}\n"
     if deliver is not None:
         out += "**DELIVER** " + " ".join(f"{k}:{deliver[k]}" for k in DELIVER_FIELDS) + "\n"
+    if grammar is not None:
+        sp = grammar["splits"]
+        out += (f"**GRAMMAR** hash:0x{grammar['hash']:08x} same:{grammar['same']} "
+                f"split:{len(sp)}\n")
+        for a in sorted(sp):
+            out += f"**SPLIT** agent:0x{a:08x} grammar:0x{sp[a]:08x}\n"
     return out
 
 
@@ -3155,7 +3167,7 @@ def parse_bar_records(text):
                        "own": int(m.group(3)), "held": int(m.group(4)),
                        "terms": int(m.group(5)), "digest": int(m.group(6), 16),
                        "settled_ms": int(m.group(7)), "holds": {}, "lon": lon,
-                       "deliver": None}
+                       "deliver": None, "grammar": None}
                 continue
             m = HOLDS_REC_RE.match(l)
             if m and rec is not None:
@@ -3164,6 +3176,15 @@ def parse_bar_records(text):
             m = DELIVER_REC_RE.match(l)
             if m and rec is not None:
                 rec["deliver"] = {k: int(m.group(i + 1)) for i, k in enumerate(DELIVER_FIELDS)}
+                continue
+            m = GRAMMAR_REC_RE.match(l)
+            if m and rec is not None:
+                rec["grammar"] = {"hash": int(m.group(1), 16), "same": int(m.group(2)),
+                                  "split": int(m.group(3)), "splits": {}}
+                continue
+            m = SPLIT_REC_RE.match(l)
+            if m and rec is not None and rec["grammar"] is not None:
+                rec["grammar"]["splits"][int(m.group(1), 16)] = int(m.group(2), 16)
         if rec is not None:
             out.setdefault((rec["frame"], rec["bar"]), rec)
     return out
@@ -3251,6 +3272,40 @@ def deliver_rows(recs):
     return rows
 
 
+def grammar_split(records):
+    """TTG-0004 §4.8 item 5 over pulled BAR records -> (by_node, splits).
+    by_node: {name: grammar hash of its newest record carrying one}. splits: sorted list of
+    (frame, bar, name, agent, hash) from every SPLIT line, i.e. what the boards themselves
+    saw. A fleet is split when by_node holds more than one hash OR any board recorded one."""
+    by_node, splits = {}, []
+    for name, recs in records.items():
+        for k in sorted(recs):
+            g = recs[k].get("grammar")
+            if g is None:
+                continue
+            by_node[name] = g["hash"]
+            for a, h in g["splits"].items():
+                splits.append((k[0], k[1], name, a, h))
+    return by_node, sorted(splits)
+
+
+def grammar_report(records):
+    """Print the fleet's grammar state; returns True when it is split."""
+    by_node, splits = grammar_split(records)
+    if not by_node:
+        return False
+    hashes = sorted(set(by_node.values()))
+    split = len(hashes) > 1 or bool(splits)
+    print(f"-- grammar (TTG-0004 §4.6): {'SPLIT' if split else 'one grammar'} --")
+    for h in hashes:
+        print(f"  0x{h:08x}: {', '.join(n for n, v in sorted(by_node.items()) if v == h)}")
+    if splits:
+        print("  split as the boards saw it (frame bar: board <- peer grammar):")
+        for frame, bar, name, a, h in splits:
+            print(f"    frame {frame} bar {bar}: {name} <- 0x{a:08x} runs 0x{h:08x}")
+    return split
+
+
 def deliver_report(records):
     """Per node, the delivery counters it wrote with each bar: a board that stopped fetching
     or serving shows flat deltas here, with no cable attached at the time."""
@@ -3306,6 +3361,7 @@ def bar_cmd(specs, bar_ms=BAR_MS):
         print("-- BAR records (@LAT106): what each node computed when the bar settled --")
         bar_records_report(records, by_node)
         deliver_report(records)
+        grammar_report(records)
     held = {name: sorted({(e['agent'], e['seq']) for e in eps if e['lane'] == HELD_LANE})
             for name, eps in stores.items()}
     for name, h in held.items():

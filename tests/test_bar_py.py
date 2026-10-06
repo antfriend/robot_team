@@ -127,6 +127,41 @@ check(len(dr) == 3 and dr[0][3] is None and dr[1][3]["fetched"] == 40 and
       dr[1][3]["served"] == 132 and dr[2][3] is None,
       "deliver_rows: per-bar deltas; none for the first, none across a reboot, old records skipped")
 
+import io, contextlib  # noqa: E402
+# TTG-0004 §4.8 item 5: a fleet with two grammar hashes reports the split. Same strings as
+# tests/test_episode_delivery.cpp's testGrammar.
+G = {"hash": 0x11111111, "same": 1, "splits": {0x300: 0x22222222}}
+GL = ("**GRAMMAR** hash:0x11111111 same:1 split:1\n"
+      "**SPLIT** agent:0x00000300 grammar:0x22222222\n")
+check(c.render_bar_record(7, 5500, 1, fv, 120000, D, G) == WANT + DL + GL,
+      "GRAMMAR + SPLIT ride after DELIVER, byte-exact (= firmware renderBar)")
+rg = c.parse_bar_records(WANT + DL + GL)[(5500, 1)]
+check(rg["grammar"] == {"hash": 0x11111111, "same": 1, "split": 1, "splits": {0x300: 0x22222222}}
+      and rg["deliver"] == D and rg["holds"] == r["holds"],
+      "parse_bar_records reads GRAMMAR/SPLIT back; the rest of the record is unchanged")
+check(r["grammar"] is None, "a pre-2026-10-06 record carries no grammar")
+one = {"x": c.parse_bar_records(c.render_bar_record(1, 5500, 1, fv, 1, None,
+                                                    {"hash": 0xAA, "same": 1, "splits": {}})),
+       "y": c.parse_bar_records(c.render_bar_record(1, 5500, 1, fv, 1, None,
+                                                    {"hash": 0xAA, "same": 1, "splits": {}}))}
+by, sp = c.grammar_split(one)
+check(by == {"x": 0xAA, "y": 0xAA} and sp == [], "one grammar across the fleet: no split")
+two = {"x": one["x"],
+       "y": c.parse_bar_records(c.render_bar_record(1, 5500, 1, fv, 1, None,
+                                                    {"hash": 0xBB, "same": 0,
+                                                     "splits": {0x300: 0xAA}}))}
+by, sp = c.grammar_split(two)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    is_split = c.grammar_report(two)
+check(by == {"x": 0xAA, "y": 0xBB} and sp == [(5500, 1, "y", 0x300, 0xAA)] and is_split
+      and "SPLIT" in buf.getvalue(),
+      "two grammar hashes: the fleet check reports the split, and what the boards saw")
+quiet = io.StringIO()
+with contextlib.redirect_stdout(quiet):
+    check(c.grammar_report({"x": c.parse_bar_records(WANT)}) is False and quiet.getvalue() == "",
+          "records with no GRAMMAR line: nothing reported, no split claimed")
+
 # Scoring records: X and Y each record bar 1 and 2 (item-4 stores above).
 xr = "".join(c.render_bar_record(n, F, n, c.bar_view(X, F, n, self_id=0x300), 120000) + "\n---\n\n"
              for n in (1, 2))

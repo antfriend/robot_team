@@ -378,10 +378,67 @@ struct DeliverCounts {
   uint32_t served, wants, early, wantq_drop, superseded;
 };
 
+// ---------------------------------------------------------------------------------------
+// the grammar (TTG-0004 §4.6 / §4.8 item 5, 2026-10-06)
+// ---------------------------------------------------------------------------------------
+// Item 4 holds only between nodes that read episodes the same way. On this fleet the grammar
+// is not records in the store but the compiled mapping: how a link window becomes an episode,
+// its held copy, the percepts the consolidator reads back, and the BAR record. So the hash is
+// of that mapping's BEHAVIOUR: a fixed probe window is rendered, copied, read and recorded,
+// and every byte produced is hashed (FNV-1a). Any change that alters those bytes changes the
+// hash with nothing to remember to bump. ⚠ Blind spot: a sketch's own said-text, and any tier
+// the probe does not exercise. The native test pins the value, so a grammar change is a
+// deliberate edit there.
+// `buf` is scratch (>= 2 x SEMANTIC_LINK_EPISODE_BUF); `c` is reset and left holding the probe.
+// Returns 0 only if the probe did not fit (no grammar is claimed then).
+uint32_t grammarHash(Consolidator& c, char* buf, size_t cap);
+
+#ifndef EPISODEDELIVERY_GRAMMAR_PEERS
+#define EPISODEDELIVERY_GRAMMAR_PEERS 8
+#endif
+#ifndef EPISODEDELIVERY_GRAMMAR_FRESH_MS
+#define EPISODEDELIVERY_GRAMMAR_FRESH_MS EPISODEDELIVERY_BAR_MS   // a peer counts for a bar
+#endif
+#define EPISODEDELIVERY_GRAMMAR_INBOX 5   // 4 usable
+
+// What a node knows of the fleet's grammars when it writes a bar: its own, how many fresh
+// peers announced the same, and each that announced another (a split, §4.6: a convergence
+// failure, not cosmetic). Peers that announce none (older firmware) are not counted.
+struct GrammarView {
+  uint32_t self;
+  uint8_t same, split;
+  uint32_t agent[EPISODEDELIVERY_GRAMMAR_PEERS];
+  uint32_t hash[EPISODEDELIVERY_GRAMMAR_PEERS];
+};
+
+class GrammarPeers {
+ public:
+  void begin(uint32_t mine);
+  // recv callback: copy only (single producer; head_ published last). False = dropped.
+  bool push(uint32_t src, uint32_t g);
+  // loop(): fold queued announcements into the table.
+  void drain(uint32_t now_ms);
+  GrammarView view(uint32_t now_ms) const;
+  uint32_t mine() const { return mine_; }
+  uint32_t dropped() const { return dropped_; }
+
+ private:
+  struct Q { uint32_t src, g; };
+  struct E { uint32_t agent, g, last_ms; };
+  Q q_[EPISODEDELIVERY_GRAMMAR_INBOX];
+  volatile uint8_t head_ = 0, tail_ = 0;
+  E e_[EPISODEDELIVERY_GRAMMAR_PEERS];
+  uint8_t n_ = 0;
+  uint32_t mine_ = 0, dropped_ = 0;
+};
+
 // Returns bytes written, or 0 (out[0] = NUL) if it does not fit. Never truncates.
+// Optional tail lines, in this order: DELIVER, then GRAMMAR (+ one SPLIT per differing peer):
+//   **GRAMMAR** hash:0x<8 hex> same:<n> split:<k>
+//   **SPLIT** agent:0x<8 hex> grammar:0x<8 hex>
 size_t renderBar(char* out, size_t cap, int16_t ord, uint64_t frame, int64_t bar,
                  const BarView& v, const BarDigest& d, int64_t settled_ms,
-                 const DeliverCounts* dc = nullptr);
+                 const DeliverCounts* dc = nullptr, const GrammarView* gv = nullptr);
 
 // Which bars this node has recorded, oldest first. Line-driven at boot (@LAT106 records in
 // file order), appended() for each new one.
