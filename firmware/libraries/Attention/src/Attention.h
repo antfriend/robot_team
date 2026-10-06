@@ -121,8 +121,13 @@ class Arbiter {
 #ifndef ATTENTION_SAL_NEW
 #define ATTENTION_SAL_NEW 200
 #endif
+// ⚠ BELOW THE IDLE FLOOR ON PURPOSE (S3, 2026-10-06). A reboot is ONE event, but at 96 it
+// took the screen twice: once when the peer went quiet (~6 s) and again when it RETURNED
+// (~10 s). S3's done-condition is "a neighbour power-cycling seizes the screen exactly
+// once". Going quiet is still observed (it feeds the pupil and the console's amber row and
+// event line); only the return seizes.
 #ifndef ATTENTION_SAL_QUIET
-#define ATTENTION_SAL_QUIET 96
+#define ATTENTION_SAL_QUIET 24
 #endif
 
 class Novelty {
@@ -175,27 +180,80 @@ class MotionSalience {
   int   tilt_mg_ = 0, shake_mg_ = 0;
 };
 
+// One reception, as the radio callback saw it.
+struct Reception {
+  uint32_t peer = 0;
+  int8_t   rssi = 0;     // dBm; 0 = unknown
+  uint8_t  type = 0;     // toot::Type
+};
+
 // Callback -> loop handoff for receptions: copy only. Single producer (the radio callback),
 // single consumer (loop). Full = drop the newest; a lost presence costs at most one
 // spurious "late", and the next reception corrects it.
 class Inbox {
  public:
-  void push(uint32_t peer) {
+  void push(uint32_t peer, int8_t rssi = 0, uint8_t type = 0) {
     const uint8_t h = head_, n = (uint8_t)((h + 1) % ATTENTION_INBOX);
     if (n == tail_) { ++dropped_; return; }
-    q_[h] = peer; head_ = n;
+    peer_[h] = peer; rssi_[h] = rssi; type_[h] = type;
+    head_ = n;                                 // publish last
   }
-  bool pop(uint32_t& peer) {
+  bool pop(Reception& r) {
     const uint8_t t = tail_;
     if (t == head_) return false;
-    peer = q_[t]; tail_ = (uint8_t)((t + 1) % ATTENTION_INBOX);
+    r.peer = peer_[t]; r.rssi = rssi_[t]; r.type = type_[t];
+    tail_ = (uint8_t)((t + 1) % ATTENTION_INBOX);
     return true;
   }
   uint32_t dropped() const { return dropped_; }
  private:
-  volatile uint32_t q_[ATTENTION_INBOX] = {};
+  volatile uint32_t peer_[ATTENTION_INBOX] = {};
+  volatile int8_t   rssi_[ATTENTION_INBOX] = {};
+  volatile uint8_t  type_[ATTENTION_INBOX] = {};
   volatile uint8_t head_ = 0, tail_ = 0;
   volatile uint32_t dropped_ = 0;
+};
+
+// The CONSOLE's model (§4.3, Phase S3): who is around, what they last said, how loud, how
+// long ago, and an RSSI SPARKLINE in fixed time buckets — so you can watch a node get
+// closer, and a reboot shows as a GAP rather than being smoothed over. Plus the last
+// novelty event per peer, which the view turns into colour. Loop-side only.
+//
+// Rows are ordered by node id, not by recency: a list that re-sorts on every HELLO would
+// repaint every row every second, and make the eye chase a moving line.
+#ifndef ATTENTION_SPARK_N
+#define ATTENTION_SPARK_N 32
+#endif
+#ifndef ATTENTION_SPARK_MS
+#define ATTENTION_SPARK_MS 2000u               // 32 x 2 s = the last ~minute
+#endif
+
+class Roster {
+ public:
+  struct Row {
+    uint32_t node = 0;
+    int8_t   rssi = 0;                         // last reception
+    uint8_t  type = 0;
+    uint32_t last_ms = 0;
+    uint8_t  event = 0;                        // Novelty::Event, latest
+    uint32_t event_ms = 0;
+    int8_t   spark[ATTENTION_SPARK_N] = {};    // max dBm per bucket, oldest first; 0 = silent
+    uint32_t bucket = 0;                       // absolute bucket index of spark[N-1]
+  };
+
+  void heard(const Reception& r, uint32_t now_ms);
+  void mark(uint32_t peer, uint8_t event, uint32_t now_ms);
+  uint8_t count() const { return n_; }
+  const Row& row(uint8_t i) const { return rows_[i]; }
+  // The sparkline aligned to `now_ms` — oldest first, the newest bucket last — without
+  // mutating: a peer that has gone silent still scrolls left on screen.
+  void sparkAt(uint8_t i, uint32_t now_ms, int8_t out[ATTENTION_SPARK_N]) const;
+
+ private:
+  Row* find(uint32_t peer, uint32_t now_ms, bool create);
+  static void advance(Row& r, uint32_t bucket);
+  Row     rows_[ATTENTION_MAX_PEERS];
+  uint8_t n_ = 0;
 };
 
 }  // namespace attention

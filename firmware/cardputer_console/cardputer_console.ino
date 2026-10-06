@@ -91,7 +91,8 @@
 // insertion point. (`enum Pane` below gets away with sitting mid-file only because
 // nothing takes one as an argument.)
 enum FaceView : uint8_t { FACE_EYE = 0, FACE_SCOPE = 1, FACE_INTERO = 2,
-                          FACE_BELIEF = 3, FACE_FIELD = 4, FACE_VIEW_COUNT = 5 };
+                          FACE_BELIEF = 3, FACE_FIELD = 4, FACE_CONSOLE = 5,
+                          FACE_VIEW_COUNT = 6 };
 
 // --- Cardputer ADV pin map (M5Stack K132-Adv, Stamp-S3A) ---------------------
 // Documented here and in docs/hardware/hardware_specs.md. Three peripherals share ONE I2C bus
@@ -359,6 +360,12 @@ static attention::MotionSalience gMotionSal;
 static uint32_t gKeyAt = 0;                    // millis() of the last key press (0 = none)
 static const uint32_t KEY_EXPLAINS_MS = 300;   // a press explains the jolt/click around it
 static bool keyExplains(uint32_t now) { return gKeyAt && now - gKeyAt < KEY_EXPLAINS_MS; }
+// The console's model (§4.3, S3) and its last few novelty events, newest last. Fed only
+// from serviceAttention(), i.e. loop-side.
+static attention::Roster gRoster;
+static const int CON_EV_LINES = 3;
+static char     gConEv[CON_EV_LINES][40] = {{0}};
+static uint32_t gConEvGen = 0;                 // bumps on every event: the view's dirty bit
 static const char* kTtdbPath = "/ttdb.md";
 static const char* kBeliefPath = "/belief.md";
 static const char* kRfcTtdbPath = "/rfc.ttdb.md";
@@ -1177,7 +1184,12 @@ static ESPNOW_RECV_CB_INFO(onEspNowRecv, info, data, len) {
   // Logged BEFORE dedup — a retried duplicate is a real reception.
   gLinkLog.add(t.src_node_id, tootEspNowRssi(info), linkpercept::PROTO_ESPNOW);
   // S1 neighbour novelty: same rule — a reception is a reception, dup or not. COPY ONLY.
-  if (t.src_node_id && t.src_node_id != kNodeId) gAttnInbox.push(t.src_node_id);
+  if (t.src_node_id && t.src_node_id != kNodeId) {
+    int rs = tootEspNowRssi(info);
+    if (rs < -128) rs = -128;
+    if (rs > 0) rs = 0;
+    gAttnInbox.push(t.src_node_id, (int8_t)rs, t.type);
+  }
   if (t.chunk_total > 1) return;            // no chunked consumer on the console
   if (gDedup.seen(t.src_node_id, t.toot_seq)) {
     // TTN-RFC-0007 §5: re-ACK a lost-ACK dup — but REPLAY THE FIRST EXECUTION'S ANSWER,
@@ -2503,6 +2515,7 @@ static const char* faceViewName(FaceView v) {
        : (v == FACE_INTERO) ? "REPRESENTOR (interoception)"
        : (v == FACE_BELIEF) ? "REPRESENTOR (link beliefs)"
        : (v == FACE_FIELD)  ? "TRACE FIELD (stigmergy)"
+       : (v == FACE_CONSOLE) ? "REPRESENTOR (console: neighbours)"
                             : "REPRESENTOR (eyeball)";
 }
 
@@ -3235,6 +3248,193 @@ static void renderIntero(uint32_t now) {
   gInPainted = true;
 }
 
+// --- FACE_CONSOLE: the neighbours (docs/design/cardputer-sensorium.md §4.3, Phase S3) ----
+//
+// Who is around, what they last said, how loud, how long ago — one row per peer, ordered by
+// node id so rows never jump — and an RSSI SPARKLINE per peer: the last ~minute in 2 s
+// buckets (`attention::Roster`), so you can watch a node get closer and a reboot shows as a
+// GAP. Under the rows, the last three novelty events. The arbiter brings this view up only
+// when a neighbour is NEWS (joined / returned); routine HELLOs never do (S3's done-when).
+//
+// Rendering is interoception's, not the scope's: almost nothing changes per frame, so each
+// row's TEXT is compared as a rendered string, and each sparkline column against what is
+// already on the panel. A steady mesh repaints one age string per row per second, and the
+// whole sparkline once per 2 s bucket.
+static const int CON_ROWS     = 5;
+static const int CON_ROW_Y0   = 14, CON_ROW_DY = 17;
+static const int CON_TXT_X    = 3;
+static const int CON_SPK_X    = 138;                  // 32 cols x 3 px = 96 px -> 234
+static const int CON_SPK_COL  = 3, CON_SPK_W = 2, CON_SPK_H = 14;
+static const int CON_EV_Y     = 104, CON_EV_DY = 10;
+
+static const uint16_t CON_COL_TITLE = rgb565(70, 110, 140);
+static const uint16_t CON_COL_OK    = rgb565(40, 210, 120);   // heard, on time
+static const uint16_t CON_COL_NEWS  = rgb565(255, 255, 255);  // joined/returned, just now
+static const uint16_t CON_COL_QUIET = rgb565(240, 175, 40);   // late: gone quiet
+static const uint16_t CON_COL_STALE = rgb565(90, 100, 115);   // not heard for 30 s+
+static const uint16_t CON_COL_SPARK = rgb565(60, 190, 225);
+static const uint16_t CON_COL_EV    = rgb565(140, 155, 175);
+static const uint16_t CON_COL_FRAME = rgb565(48, 62, 80);
+static const uint32_t CON_NEWS_MS  = 4000;            // how long "just returned" glows
+static const uint32_t CON_STALE_MS = 30000;
+
+static bool     gConPainted = false;
+static char     gConTxt[CON_ROWS][24];                // last row strings on the panel
+static uint16_t gConCol[CON_ROWS];
+static int8_t   gConSpk[CON_ROWS][ATTENTION_SPARK_N]; // last sparkline columns on the panel
+static uint32_t gConEvShown = 0;                      // gConEvGen last painted
+static char     gConCount[12] = {0};
+
+static void peerLabel(uint32_t id, char* out, size_t n) {
+  const char* nm = nodeName(id);
+  if (nm[0] == '?') snprintf(out, n, "%03lx", (unsigned long)id);
+  else snprintf(out, n, "%s", nm);
+}
+
+static const char* tootTypeShort(uint8_t t) {
+  switch (t) {
+    case toot::HELLO:     return "HELLO";
+    case toot::PERCEPT:   return "PRCPT";
+    case toot::BELIEF:    return "BELF";
+    case toot::CMD:       return "CMD";
+    case toot::ACK:       return "ACK";
+    case toot::RELAY:     return "RELAY";
+    case toot::TTDB_REQ:  return "T-REQ";
+    case toot::TTDB_DATA: return "T-DAT";
+    case toot::TIME_SYNC: return "SYNC";
+    case toot::TIME_REQ:  return "TREQ";
+    case toot::TIME_RESP: return "TRSP";
+    case toot::TTDB_PUT:  return "T-PUT";
+    case toot::PULSE:     return "PULSE";
+    case toot::EPISODE:   return "EPIS";
+    default:              return "?";
+  }
+}
+
+// A novelty event for the console's bottom lines (and nothing else: serial already has its
+// own `[attend]` line). `m:ss` of uptime, so the three lines can be read against each other.
+static void consoleEvent(uint32_t now, uint32_t peer, const char* verb, uint32_t gap_ms) {
+  char nm[8];
+  peerLabel(peer, nm, sizeof(nm));
+  for (int i = 0; i + 1 < CON_EV_LINES; ++i) memcpy(gConEv[i], gConEv[i + 1], sizeof(gConEv[i]));
+  const uint32_t s = now / 1000;
+  if (gap_ms)
+    snprintf(gConEv[CON_EV_LINES - 1], sizeof(gConEv[0]), "%lu:%02lu %s %s after %lu.%lus",
+             (unsigned long)(s / 60), (unsigned long)(s % 60), nm, verb,
+             (unsigned long)(gap_ms / 1000), (unsigned long)((gap_ms % 1000) / 100));
+  else
+    snprintf(gConEv[CON_EV_LINES - 1], sizeof(gConEv[0]), "%lu:%02lu %s %s",
+             (unsigned long)(s / 60), (unsigned long)(s % 60), nm, verb);
+  ++gConEvGen;
+}
+
+// The chrome: painted once on entry (a key press or an arbiter switch).
+static void consoleChrome() {
+  gTft.fillScreen(ST77XX_BLACK);
+  gTft.setTextSize(1);
+  gTft.setTextColor(CON_COL_TITLE);
+  gTft.setCursor(CON_TXT_X, 2);
+  gTft.print("NEIGHBOURS");
+  gTft.drawFastHLine(0, CON_EV_Y - 4, SCR_W, CON_COL_FRAME);
+  gConPainted = false;
+  for (int i = 0; i < CON_ROWS; ++i) {
+    gConTxt[i][0] = 0;
+    gConCol[i] = 0;
+    for (int k = 0; k < ATTENTION_SPARK_N; ++k) gConSpk[i][k] = 0;   // panel is black = 0
+  }
+  gConEvShown = gConEvGen - 1;                        // force the events to paint
+  gConCount[0] = 0;
+}
+
+static bool consoleFrameDue(uint32_t now) {
+  static uint32_t last = 0;
+  if (!gConPainted) { last = now; return true; }
+  if (now - last < 200) return false;                 // 5 Hz: ages tick in seconds
+  last = now;
+  return true;
+}
+
+static void conText(int x, int y, uint16_t col, const char* s) {
+  gTft.setTextColor(col);                              // transparent over a black box
+  gTft.setCursor(x, y);
+  gTft.print(s);
+}
+
+static void renderConsole(uint32_t now) {
+  gTft.setTextSize(1);
+  const int n = gRoster.count();
+
+  // Title: how many we know of, and a "+N" when the rows cannot show them all.
+  char cnt[12];
+  if (n > CON_ROWS) snprintf(cnt, sizeof(cnt), "%d (+%d)", n, n - CON_ROWS);
+  else              snprintf(cnt, sizeof(cnt), "%d", n);
+  if (strcmp(cnt, gConCount) != 0) {
+    gTft.fillRect(72, 2, 66, 8, ST77XX_BLACK);
+    conText(72, 2, CON_COL_EV, cnt);
+    snprintf(gConCount, sizeof(gConCount), "%s", cnt);
+  }
+
+  for (int i = 0; i < CON_ROWS; ++i) {
+    const int y = CON_ROW_Y0 + i * CON_ROW_DY;
+    char txt[24] = {0};
+    uint16_t col = 0;
+    int8_t spk[ATTENTION_SPARK_N];
+    if (i < n) {
+      const attention::Roster::Row& r = gRoster.row((uint8_t)i);
+      char nm[8], age[6];
+      peerLabel(r.node, nm, sizeof(nm));
+      const uint32_t a = (now - r.last_ms) / 1000;
+      if (a < 1)         snprintf(age, sizeof(age), "<1s");
+      else if (a < 100)  snprintf(age, sizeof(age), "%lus", (unsigned long)a);
+      else if (a < 6000) snprintf(age, sizeof(age), "%lum", (unsigned long)(a / 60));
+      else               snprintf(age, sizeof(age), "%luh", (unsigned long)(a / 3600));
+      snprintf(txt, sizeof(txt), "%-6.6s %-5s %4d %4s", nm, tootTypeShort(r.type),
+               (int)r.rssi, age);
+      const bool news = (r.event == attention::Novelty::EV_NEW ||
+                         r.event == attention::Novelty::EV_RETURNED) &&
+                        now - r.event_ms < CON_NEWS_MS;
+      col = news ? CON_COL_NEWS
+          : (now - r.last_ms > CON_STALE_MS) ? CON_COL_STALE
+          : (r.event == attention::Novelty::EV_QUIET) ? CON_COL_QUIET
+          : CON_COL_OK;
+      gRoster.sparkAt((uint8_t)i, now, spk);
+    } else {
+      for (int k = 0; k < ATTENTION_SPARK_N; ++k) spk[k] = 0;
+    }
+
+    if (col != gConCol[i] || strcmp(txt, gConTxt[i]) != 0) {
+      gTft.fillRect(CON_TXT_X, y + 3, CON_SPK_X - CON_TXT_X - 4, 8, ST77XX_BLACK);
+      if (txt[0]) conText(CON_TXT_X, y + 3, col, txt);
+      snprintf(gConTxt[i], sizeof(gConTxt[i]), "%s", txt);
+      gConCol[i] = col;
+    }
+
+    // Sparkline: only the columns that differ from the panel. -95 dBm is the floor, -30
+    // the ceiling; a heard bucket is always at least 1 px, so "weak" and "silent" differ.
+    for (int k = 0; k < ATTENTION_SPARK_N; ++k) {
+      if (spk[k] == gConSpk[i][k]) continue;
+      int h = 0;
+      if (spk[k] < 0) {
+        h = 1 + ((int)spk[k] + 95) * (CON_SPK_H - 1) / 65;
+        if (h < 1) h = 1;
+        if (h > CON_SPK_H) h = CON_SPK_H;
+      }
+      const int x = CON_SPK_X + k * CON_SPK_COL;
+      if (h < CON_SPK_H) gTft.fillRect(x, y, CON_SPK_W, CON_SPK_H - h, ST77XX_BLACK);
+      if (h) gTft.fillRect(x, y + CON_SPK_H - h, CON_SPK_W, h, CON_COL_SPARK);
+      gConSpk[i][k] = spk[k];
+    }
+  }
+
+  if (gConEvShown != gConEvGen) {
+    gTft.fillRect(0, CON_EV_Y, SCR_W, CON_EV_LINES * CON_EV_DY, ST77XX_BLACK);
+    for (int i = 0; i < CON_EV_LINES; ++i)
+      if (gConEv[i][0]) conText(CON_TXT_X, CON_EV_Y + i * CON_EV_DY, CON_COL_EV, gConEv[i]);
+    gConEvShown = gConEvGen;
+  }
+  gConPainted = true;
+}
+
 // --- FACE_BELIEF: what this node has CONCLUDED about its own links -----------------
 //
 // The `@LAT91` lane holds the only records on this fleet that carry a TBEW `[ew]` block,
@@ -3524,6 +3724,7 @@ static void enterFaceView() {
   if (gFaceView == FACE_INTERO) { interoChrome(); return; }
   if (gFaceView == FACE_BELIEF) { beliefChrome(); return; }
   if (gFaceView == FACE_FIELD)  { fieldChrome();  return; }
+  if (gFaceView == FACE_CONSOLE) { consoleChrome(); return; }
 #if USE_MIC && USE_CARD_HW
   if (gFaceView == FACE_SCOPE) { scopeChrome(); return; }
 #endif
@@ -3572,7 +3773,7 @@ static void arbitrateView() {
   if (!gFaceOn || gViewPinned) return;
   switch (gAttn.winner()) {
     case attention::MOD_SOUND:     setFaceView(FACE_SCOPE); break;
-    case attention::MOD_NEIGHBOUR: break;
+    case attention::MOD_NEIGHBOUR: setFaceView(FACE_CONSOLE); break;
     default:                       setFaceView(FACE_EYE); break;   // motion, idle
   }
 }
@@ -3892,10 +4093,16 @@ void setup() {
 static void serviceAttention(uint32_t now) {
   uint32_t peer, gap;
   attention::Novelty::Event ev;
-  while (gAttnInbox.pop(peer)) {
-    const uint8_t s = gNovelty.heard(peer, now, ev, gap);
+  attention::Reception rx;
+  while (gAttnInbox.pop(rx)) {
+    gRoster.heard(rx, now);                   // the console's model sees every reception
+    const uint8_t s = gNovelty.heard(rx.peer, now, ev, gap);
     if (!s) continue;
+    peer = rx.peer;
     gAttn.observe(attention::MOD_NEIGHBOUR, s, 0, now, peer);
+    gRoster.mark(peer, ev, now);
+    consoleEvent(now, peer, ev == attention::Novelty::EV_NEW ? "joined" : "returned",
+                 ev == attention::Novelty::EV_NEW ? 0 : gap);
     if (ev == attention::Novelty::EV_NEW)
       Serial.printf("[attend] neighbour 0x%03lx NEW (sal %u)\n", (unsigned long)peer, s);
     else
@@ -3905,6 +4112,8 @@ static void serviceAttention(uint32_t now) {
   const uint8_t q = gNovelty.quiet(now, peer, gap);
   if (q) {
     gAttn.observe(attention::MOD_NEIGHBOUR, q, 0, now, peer);
+    gRoster.mark(peer, attention::Novelty::EV_QUIET, now);
+    consoleEvent(now, peer, "quiet", gap);
     Serial.printf("[attend] neighbour 0x%03lx QUIET for %lu ms (typ %lu, sal %u)\n",
                   (unsigned long)peer, (unsigned long)gap,
                   (unsigned long)gNovelty.typicalGap(peer), q);
@@ -4433,6 +4642,9 @@ void loop() {
       // '5' is the trace field. Like '3' and '4' it works from either stack, because
       // the field is not a place on a globe and has no globe to be reached from.
       case '5': pinFaceView(FACE_FIELD); break;
+      // '6' is the console (§4.3): who is around. Pinnable like the rest, because the
+      // arbiter only shows it when a neighbour is NEWS, and a quiet mesh is worth watching.
+      case '6': pinFaceView(FACE_CONSOLE); break;
       // `w` — who is here and what can they do. Serial only for now, and deliberately so:
       // this is stage 1, and its whole job is to be observable enough to decide whether
       // the staleness machinery is needed at all. A screen view is stage 5's business.
@@ -4704,6 +4916,7 @@ void loop() {
       // change-driven rather than clocked — it asks for a frame and then goes quiet.
       case FACE_BELIEF: due = beliefFrameDue(now); break;
       case FACE_FIELD:  due = fieldFrameDue(now);  break;
+      case FACE_CONSOLE: due = consoleFrameDue(now); break;
       default:          due = eyeFrameDue(now);    break;
     }
     if (due) {
@@ -4713,11 +4926,13 @@ void loop() {
       else if (gFaceView == FACE_INTERO) renderIntero(now);
       else if (gFaceView == FACE_BELIEF) renderBelief(now);
       else if (gFaceView == FACE_FIELD)  renderField(now);
+      else if (gFaceView == FACE_CONSOLE) renderConsole(now);
       else                               renderEye(now);
 #else
       if (gFaceView == FACE_INTERO)      renderIntero(now);
       else if (gFaceView == FACE_BELIEF) renderBelief(now);
       else if (gFaceView == FACE_FIELD)  renderField(now);
+      else if (gFaceView == FACE_CONSOLE) renderConsole(now);
       else                               renderEye(now);
 #endif
       gLastRenderMs = gPassRenderMs = millis() - r0;

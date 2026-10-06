@@ -140,6 +140,69 @@ uint8_t Novelty::quiet(uint32_t now_ms, uint32_t& peer, uint32_t& gap_ms) {
   return 0;
 }
 
+// ---- Roster ----------------------------------------------------------------------
+
+void Roster::advance(Row& r, uint32_t bucket) {
+  if (bucket <= r.bucket) return;              // same bucket, or a clock that went back
+  const uint32_t shift = bucket - r.bucket;
+  if (shift >= ATTENTION_SPARK_N) {
+    for (int k = 0; k < ATTENTION_SPARK_N; ++k) r.spark[k] = 0;
+  } else {
+    for (int k = 0; k + (int)shift < ATTENTION_SPARK_N; ++k) r.spark[k] = r.spark[k + shift];
+    for (int k = ATTENTION_SPARK_N - (int)shift; k < ATTENTION_SPARK_N; ++k) r.spark[k] = 0;
+  }
+  r.bucket = bucket;
+}
+
+Roster::Row* Roster::find(uint32_t peer, uint32_t now_ms, bool create) {
+  uint8_t at = 0;
+  for (; at < n_; ++at) {
+    if (rows_[at].node == peer) return &rows_[at];
+    if (rows_[at].node > peer) break;          // sorted: this is where it would go
+  }
+  if (!create || !peer) return nullptr;
+  if (n_ == ATTENTION_MAX_PEERS) {
+    // Full: drop the longest-unheard, then look for the insertion point again.
+    uint8_t old = 0;
+    for (uint8_t i = 1; i < n_; ++i)
+      if (now_ms - rows_[i].last_ms > now_ms - rows_[old].last_ms) old = i;
+    for (uint8_t i = old; i + 1 < n_; ++i) rows_[i] = rows_[i + 1];
+    --n_;
+    for (at = 0; at < n_ && rows_[at].node < peer; ++at) {}
+  }
+  for (uint8_t i = n_; i > at; --i) rows_[i] = rows_[i - 1];
+  rows_[at] = Row();
+  rows_[at].node = peer;
+  rows_[at].last_ms = now_ms;
+  rows_[at].bucket = now_ms / ATTENTION_SPARK_MS;
+  ++n_;
+  return &rows_[at];
+}
+
+void Roster::heard(const Reception& r, uint32_t now_ms) {
+  Row* row = find(r.peer, now_ms, true);
+  if (!row) return;
+  row->rssi = r.rssi;
+  row->type = r.type;
+  row->last_ms = now_ms;
+  advance(*row, now_ms / ATTENTION_SPARK_MS);
+  int8_t& s = row->spark[ATTENTION_SPARK_N - 1];
+  if (r.rssi < 0 && (s == 0 || r.rssi > s)) s = r.rssi;   // the bucket's strongest
+}
+
+void Roster::mark(uint32_t peer, uint8_t event, uint32_t now_ms) {
+  Row* row = find(peer, now_ms, false);
+  if (!row) return;
+  row->event = event;
+  row->event_ms = now_ms;
+}
+
+void Roster::sparkAt(uint8_t i, uint32_t now_ms, int8_t out[ATTENTION_SPARK_N]) const {
+  Row r = rows_[i];                            // a copy: reading must not scroll the model
+  advance(r, now_ms / ATTENTION_SPARK_MS);
+  for (int k = 0; k < ATTENTION_SPARK_N; ++k) out[k] = r.spark[k];
+}
+
 // ---- MotionSalience --------------------------------------------------------------
 
 static uint8_t ramp(int v, int floor, int span) {
