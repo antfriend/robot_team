@@ -33,7 +33,7 @@ every board writes episodes and nothing on any board refuses a write. C4 stage 2
 delivery + the bar view) runs on all six boards. On the last run, the five authors' episode
 sets matched on 13 of 16 bars, each miss a single copy.
 
-✅ **2026-10-06: C4 stage 2 PASSED at six boards (run 11)**: same episode set on all six boards in all 16 scored bars, no laptop and no cable. **Next:** C4 item 5 (a two-hash fleet reports the split), which closes Phase C. Then Phase D. If the
+✅ **2026-10-06: Phase C is COMPLETE.** C4 stage 2 passed at six boards (run 11: same episode set on all six boards in all 16 scored bars, no cable), and C4 item 5 passed the same day (a deliberately split fleet recorded and reported the split on every board, then cleared). **Next:** Phase D, one way to draw (ACT-III §6). If the
 sets match on every bar, C4 stage 2 passes at six boards and C4 item 5 is what's left of Phase C.
 
 → Detail, caveats and the banked evidence: **§6**. Dated findings: [docs/log/](docs/log/).
@@ -409,7 +409,7 @@ If a fact lives in one of these, link to it from here — don't copy it.
    ✅ **Run 11 (2026-10-06): GATE PASSED at six boards.** Episode sets identical on all six
    boards in all 16 scored bars, digests 16/16, 0 contradictions, no cable, no reboot.
    ⚠ T-Deck heap at bar-write 5.2–9.6 KB (thinnest margin; see the log).
-   **Next:** C4 item 5 ([docs/log/2026-10.md](docs/log/2026-10.md)), then Phase D.
+   ✅ **C4 item 5 PASSED 2026-10-06:** a grammar hash (a probe of the episode/held/bar mapping) rides the VECTOR; a salted V4-C was recorded as a split by all six boards, then cleared. **C4 and Phase C are COMPLETE.** **Next:** Phase D (ACT-III §6).
    📌 Reproduce the consolidator comparison any time with
    `python scratchpad/consolidator_compare.py`.
 2. ⚠ **The laptop currently holds the fleet's ONLY copy of its only beliefs** — 257

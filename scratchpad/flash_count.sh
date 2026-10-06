@@ -13,3 +13,4 @@ for i in 1 2 3 4 5; do
   echo "boot $i: $(grep -a -c "$B" "scratchpad/${S}_${T}_boot$i.txt") banner, $(grep -a -c -E 'abort|panic|Guru|Backtrace|canary' "scratchpad/${S}_${T}_boot$i.txt") crash"
 done
 grep -a -E "TTDB loaded|@LAT96 build|cap [0-9]+" "scratchpad/${S}_${T}_boot5.txt" | grep -o -E "TTDB loaded: [^(]*\([0-9]+ free\)|max_run:[0-9]+|cap [0-9]+" | head -3
+grep -a -o -E "\[grammar\] 0x[0-9a-f]+.*" "scratchpad/${S}_${T}_boot5.txt" | head -1
