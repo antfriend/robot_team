@@ -17,6 +17,8 @@ gain, screen or radio behaviour changes.
 | D4 | **`conf = min(240, 16 × floor(log2(1 + n)))`**, integer log2, floored | The RFC's formula does not say how to round; floor is exact in integers. Recorded as an RFC gap |
 | D5 | **Gate = exact equality** (§6) | — |
 | D6 | Gate pulls go to **`tools/stage3/pulls/`**, never `master/` | Brief: never write to `master/` |
+| D3b | **Taken 2026-11-22 after run 1 (§9): the synchronous fold measured 141–288 ms, over D3's 100 ms budget.** The fold becomes a job, spec in §5.1 | D3's own rule, applied as registered |
+| D7 | **Added 2026-11-22 after run 1 (§9): also write when the fold's `from` differs from the on-flash record's `from`** (§4) | Run 1 showed a record kept by the Δ-rule outliving its own episodes: UNVERIFIABLE by construction |
 
 ## 2. Where it runs
 
@@ -104,7 +106,15 @@ touched:<t>
   `pe` on a `@PERCEPT` before/after pair. This fold, like PW-1, uses the previous window as
   the prediction. That divergence goes back to the RFC as a candidate `lat 98` belief.
 - **Write rule:** write when no `@LAT108` record exists at that LON, or when
-  `|π − π_on_flash| > 8` (`prec_write_delta`). The old `rev` and `created` come from the old
+  `|π − π_on_flash| > 8` (`prec_write_delta`), **or (D7) when the fold's `from` differs from
+  the `from:` on the on-flash record's `**FOLD**` line** (an on-flash record whose `from:`
+  will not parse counts as differing). Why D7: the quota cuts a tier's oldest episodes, so a
+  record kept by the Δ-rule alone soon cites episodes that are no longer on flash, and the
+  gate can never check it again. The calmer the channel, the sooner that happens. With D7 a
+  record always names a range that was wholly on flash when it was written. Cost: about one
+  write per channel per rotation (12 min) while its tier is at quota, 58–122 ms each (§9).
+  `prec_write_delta` still keeps a channel from writing when its window has not moved.
+  The old `rev` and `created` come from the old
   record (`ttdbParseEw()`, stage 1's first real use) and its `**PRECISION**` line. On a write,
   `rev = old + 1` (0 on the first write) and `created` is kept.
 - **Replacement:** `removeCuts({108, k, k})` and then `appendRecord`. No whole-lane rewrite,
@@ -134,6 +144,44 @@ touched:<t>
   per 12 minutes. Over budget means D3b.
 - Compile size is reported against a HEAD build of the same sketch.
 
+### 5.1 D3b: the fold as a job (normative from 2026-11-22)
+
+- **Start:** a Stage D cycle starts a job for the next channel in the rotation (§2). If the
+  previous job has not finished, the cycle starts nothing, prints `[prec] busy`, and does
+  not advance the rotation.
+- **Step:** every loop pass, a running job folds **at most 2** episodes of its band. It
+  visits the index in file order from a cursor, so non-band records cost only an in-RAM
+  index lookup. The pass reads each episode into `EpisodeNode::scratch()` and parses it into
+  the `Fold`. No raw text is kept between passes, so the scratch buffer is free again for
+  the other tiers before the pass ends.
+- **Cursor:** the cursor is an index position plus the LON of the last episode folded.
+  Cuts and appends re-index the Ttdb, so every pass first checks that the record before
+  the cursor still has that LON. If it doesn't, the pass rescans for it. If that episode
+  is gone, the job is **aborted**. That is safe because episodes are never rewritten in
+  place: appends go to the end, rewrites keep order, and delivered episodes live in
+  `@LAT105` (Episode.h). So an episode found after the cursor has not been folded.
+- **Finish:** the job finishes when the cursor reaches the end of the index. If its
+  `from` episode is no longer on flash, it is **aborted**: the record would be
+  unverifiable at birth. Otherwise the write rule (§4) is applied in that pass. An episode
+  appended to the band mid-job is folded if it lands after the cursor, and `through` and
+  `episodes` cover it. The gate is unchanged.
+- **An abort** prints `[prec] chan:<c> ABORTED (<reason>)`, writes nothing, and leaves
+  that channel to the next rotation. The count of aborts is printed with every `[prec]`
+  line.
+- **State:** the `Fold` (1,248 B) and the cursor now persist across passes, so they become
+  a **static member of `precision::Node`**. That is about **+1.3 KB of `.bss`**, against
+  the 5.6 KB static that boot-looped this board (docs/log/2026-10.md). That cost is why D3
+  tried the stack first. Heap is the risk, so it is measured (below).
+- **Budget (unchanged in value): the worst job pass ≤ 100 ms, write passes excluded.** The
+  finishing pass reports its fold part and its write part separately. Each finished job
+  prints `[prec] … passes:<p> worst_pass_ms:<w> total_ms:<t> ms_write:<m> aborts:<a>`.
+  The budget is read over **≥ 9 finished jobs** on one held connection.
+- **Health, added to the stage pass:** no reset over the whole run, from flash through the
+  second pull. The `[mem]` boot line and the `[loop] … heap` lines are recorded against
+  run 1's (boot: heap 190,392, maxalloc 147,444; running: 15.6–19.0 KB free, maxalloc
+  7–10 K). There is no heap threshold, because no number exists that I could justify; a
+  reset fails the run.
+
 ## 6. The gate (pass condition fixed before the flash)
 
 `tools/stage3/stage3_gate.py <pull.md>`, read-only over the pull:
@@ -159,6 +207,15 @@ Before hardware, a **rehearsal**: the native C++ fold run over an existing Cardp
 must equal the gate tool's fold over the same file, channel by channel. That is code
 against code, with no threshold, so it reads `master/` as a fixture, not as an experiment.
 
+**Run 2 onward (after D3b and D7):** the same two-pull condition, with two additions.
+For each channel in the second pull, one of two things must be true:
+- its record has a **higher `rev`** than in the first pull (a new write), or
+- its `from` is still **the oldest episode of its band in that pull**. A record like that
+  is what D7 would leave unrewritten, because its window has not moved.
+
+Run 1's second pull failed both. The gate tool reports which case holds, so the
+condition is checked, not eyeballed. And the §5.1 health condition must hold.
+
 ## 7. Tests (native, in `tests/run-all`)
 
 - pw1's hand-worked 5-residual case (`var` 4090, `π` 170), ported.
@@ -177,3 +234,28 @@ against code, with no threshold, so it reads `master/` as a fixture, not as an e
 
 §3.4 (gain), any reader of `@LAT108`, other nodes, the `@LAT109` workspace, and any change to
 `tools/pw1` / `tools/pw1b`. Flashing needs Dan at the bench; each flash is asked for first.
+
+## 9. Run 1 (2026-11-22, build `424873b`, synchronous fold): stage NOT PASSED
+
+The Cardputer was flashed with firmware only (FS untouched) and held on one connection for
+15 minutes from reset. Boot: `TTDB loaded: 183824 bytes, 264/288`, `heap 190392 free,
+maxalloc 147444`.
+
+| `[prec]` fold | n | var | π | conf | episodes | ms (fold) | write | ms_write | stack_free |
+|---|---|---|---|---|---|---|---|---|---|
+| link | 62 | 91 | 252 | 80 | 40 | **288** | yes (first) | 122 | 3400 |
+| entity | 35 | 2272 | 199 | 80 | 40 | **187** | yes (first) | 69 | 2712 |
+| motion | 244 | 0 | 255 | 112 | 23 (4 excl.) | **141** | yes (first) | 58 | 2712 |
+| acoustic | 21 | 19 | 254 | 64 | 24 | **178** | yes (first) | 69 | 2712 |
+| link | 62 | 91 | 252 | 80 | 40 | **175** | no (Δ 0) | 0 | 2712 |
+
+- **D3 budget: FAILED.** All five folds exceed 100 ms. The profiler's `linkperc` worst pass
+  reads 182–412 ms on the fold passes, against single digits to tens of ms otherwise. Hence
+  D3b.
+- **Gate, pull 1** (12:49 pm, `tools/stage3/pulls/cardputer_20261122_1249_g1.md`): **MATCH × 4**.
+  The firmware's records equal pw1's arithmetic on the board's own flash.
+- **Gate, pull 2** (1:02 pm, `…_1302_g2.md`): link, entity, motion MATCH; **acoustic
+  UNVERIFIABLE** (`@LAT103LON27924..27947` partly cut). No record had been rewritten
+  (every Δ ≤ 8), so pull 2 re-checked pull 1's records rather than new ones. Hence D7 and
+  the §6 run-2 condition.
+- Stack held: 2,712 B was the lowest free mark. No reset; running heap was 15.6–19.0 KB free.
