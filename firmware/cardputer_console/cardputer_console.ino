@@ -3934,6 +3934,7 @@ void setup() {
   gOrder.begin(kNodeId);
   gEpisodes.attachOrder(&gOrder);      // BEFORE begin(): boot recovers seq + vector
   gDelivery.attach(gEpisodes);       // BEFORE begin(): boot lines -> its seq map
+  gPrecision.attach(gDb, gEpisodes);   // BEFORE begin(): a boot cut carries the @LAT108 rider (D8)
   gEpisodes.begin(gDb);
   Serial.printf("[episode] boot in %lu ms: %u live episode(s) replayed, %u present, "
                 "maxalloc %u B\n",
@@ -4323,8 +4324,7 @@ void loop() {
     }
   }
   // D3b: <= 2 episodes per pass; `[prec] … worst_pass_ms:` is the budget (<= 100 ms).
-  gPrecision.service(gDb, gEpisodes.scratch(), gEpisodes.scratchCap(), kNodeId,
-                     gStreamWallSec, gStamp, Serial);
+  gPrecision.service(kNodeId, gStreamWallSec, gStamp, Serial);
 
   sectMark();                       // [2] end of "linkperc": the @LAT97 tier
 

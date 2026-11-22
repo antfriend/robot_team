@@ -26,6 +26,10 @@
 #include "Episode.h"
 #include "EpisodeOrder.h"
 
+#ifndef SEMANTIC_RIDER_CUTS_MAX
+#define SEMANTIC_RIDER_CUTS_MAX 4   // a cut rider's extra ranges (one per @LAT108 channel)
+#endif
+
 namespace episodenode {
 
 // TtdbCut and semantic::Cut are declared as twins so Semantic never includes <FS.h>.
@@ -130,6 +134,18 @@ class Node {
   void attachBootSink(void (*fn)(void*, const char*), void* ctx) {
     boot_sink_ = fn;
     boot_sink_ctx_ = ctx;
+  }
+  // CUT RIDER (RFC-0011 stage 3, docs/design/rfc0011-stage3.md §11 D8). A lane whose records
+  // are DERIVED from episodes adds its own deletions to THIS cut, so they leave flash in
+  // the same single rewrite as the episodes they cite, never in a rewrite of their own.
+  // `extra(ctx, cuts, n, out, cap)` sees this cut's ranges and returns how many extra
+  // ranges it wrote to `out` (<= cap); `done(ctx, ok)` is told whether removeCuts
+  // succeeded. Attach BEFORE begin(), so a boot-time cut carries the rider too.
+  void attachCutRider(uint8_t (*extra)(void*, const TtdbCut*, uint8_t, TtdbCut*, uint8_t),
+                      void (*done)(void*, bool), void* ctx) {
+    rider_extra_ = extra;
+    rider_done_ = done;
+    rider_ctx_ = ctx;
   }
   // The last LINK episode this node appended, and a counter that moves with each one.
   uint32_t linkAppends() const { return link_gen_; }
@@ -360,11 +376,18 @@ class Node {
     const uint8_t n = tiers_.cuts(cs, SEMANTIC_TIER_CUTS_MAX);
     if (!n) return true;
     (void)boot;
-    TtdbCut tc[SEMANTIC_TIER_CUTS_MAX];
+    TtdbCut tc[SEMANTIC_TIER_CUTS_MAX + SEMANTIC_RIDER_CUTS_MAX];
     for (uint8_t i = 0; i < n; ++i) tc[i] = TtdbCut{cs[i].lat, cs[i].lon_lo, cs[i].lon_hi};
+    uint8_t all = n;
+    if (rider_extra_) {
+      const uint8_t x = rider_extra_(rider_ctx_, tc, n, tc + n, SEMANTIC_RIDER_CUTS_MAX);
+      all = (uint8_t)(n + (x > SEMANTIC_RIDER_CUTS_MAX ? SEMANTIC_RIDER_CUTS_MAX : x));
+    }
     const uint16_t dead = tiers_.dead();
     db_->clearRewriteErr();
-    if (!db_->removeCuts(tc, n)) {
+    const bool cut_ok = db_->removeCuts(tc, all);
+    if (rider_done_) rider_done_(rider_ctx_, cut_ok);
+    if (!cut_ok) {
       ++st_.cut_failed;
       st_.last_cut_err = db_->lastRewriteErr();
       // ⚠ RENAME means the TTDB is in `<path>.tmp` and the index is stale; anything but
@@ -383,6 +406,9 @@ class Node {
   semantic::VectorClock* order_ = nullptr;
   uint32_t pending_seq_ = 0;
   void (*boot_sink_)(void*, const char*) = nullptr;
+  uint8_t (*rider_extra_)(void*, const TtdbCut*, uint8_t, TtdbCut*, uint8_t) = nullptr;
+  void (*rider_done_)(void*, bool) = nullptr;
+  void* rider_ctx_ = nullptr;
   void* boot_sink_ctx_ = nullptr;
   uint32_t link_gen_ = 0, last_link_seq_ = 0;
   int16_t last_link_ord_ = 0;

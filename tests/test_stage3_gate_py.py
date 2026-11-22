@@ -94,6 +94,23 @@ def main():
         check(same.get("acoustic") == "UNMOVED",
               f"same rev, from still the band's oldest -> UNMOVED (got {same})")
 
+        # 5b. D9: an episode missing from this pull is read from the earlier one; one that
+        #     differs between pulls FAILs; one in no pull is UNVERIFIABLE.
+        cut = store.split("\n---\n\n@LAT103LON24577 ", 1)
+        if len(cut) == 2:
+            rest = cut[1].split("\n---\n\n", 1)
+            thin = cut[0] + ("\n---\n\n" + rest[1] if len(rest) == 2 else "")
+            r = G.gate(thin, (store,))
+            check(len(r) == 1 and r[0][1] == "MATCH" and "1 from earlier pull" in r[0][2],
+                  f"D9: a missing episode is read from the earlier pull (got {r})")
+            r = G.gate(thin, ("",))
+            check(len(r) == 1 and r[0][1] == "UNVERIFIABLE", f"D9: in no pull -> UNVERIFIABLE (got {r})")
+            r = G.gate(store, (store.replace("rms_mean:1036", "rms_mean:1037", 1),))
+            check(len(r) == 1 and r[0][1] == "FAIL" and "differs" in r[0][2],
+                  f"D9: an episode that changed between pulls FAILs (got {r})")
+        else:
+            check(False, "job store holds @LAT103LON24577")
+
     # 6. run 1's own two pulls (committed evidence): acoustic was NOT-INDEPENDENT, the
     #    other three UNMOVED — the finding that motivated D7.
     pulls = os.path.join(HERE, "..", "tools", "stage3", "pulls")

@@ -132,9 +132,20 @@ def _succ(lon):
     return k * TIER_SPAN + ((lon - k * TIER_SPAN + 1) % TIER_SPAN)
 
 
-def gate(text):
-    """-> [(chan, verdict, detail)] for every @LAT108 record in a pull."""
+def gate(text, earlier=()):
+    """-> [(chan, verdict, detail)] for every @LAT108 record in a pull.
+
+    `earlier`: texts of earlier pulls (design §11 D9). Episodes are immutable, so a range
+    episode missing from this pull may be read from an earlier one; one present in both
+    with DIFFERENT text FAILs the record (an immutable record changed)."""
     recs = records(text)
+    old = {}
+    for e in earlier:
+        for lat, lon, t in records(e):
+            if lat == 103:
+                old.setdefault(lon, t)
+    if earlier:
+        return _gate_d9(recs, old)
     out = []
     for lat, lon, t in recs:
         if lat != 108:
@@ -169,6 +180,71 @@ def gate(text):
         diff = {k: (want[k], got[k]) for k in want if want[k] != got[k]}
         detail = 'n %d var %d prec %d conf %d over %d episodes%s' % (
             got['n'], got['var'], got['prec'], got['conf'], got['episodes'],
+            '' if got['pw1_grouping_same'] else '; ⚠ pw1 grouping would differ')
+        out.append((chan, 'FAIL' if diff else 'MATCH',
+                    detail if not diff else 'record vs refold: ' + ', '.join(
+                        '%s %s != %s' % (k, w, g) for k, (w, g) in diff.items())))
+    return out
+
+
+def _norm(t):
+    return t.replace('\r\n', '\n').rstrip()
+
+
+def _gate_d9(recs, old):
+    """gate() with episodes also drawn from earlier pulls (D9): the range is walked BY
+    ORDINAL from `from` to `through` (wrapping at 8192) and must be `episodes:` long."""
+    cur = {lon: t for lat, lon, t in recs if lat == 103}
+    out = []
+    for lat, lon, t in recs:
+        if lat != 108:
+            continue
+        p = parse_precision(t)
+        if p is None or p.get('chan') not in CHANS:
+            out.append(('?', 'FAIL', 'unparseable @LAT108LON%d' % lon))
+            continue
+        chan = p['chan']
+        if int(p.get('skipped', 0)):
+            out.append((chan, 'FAIL', 'skipped:%s episodes the node could not read' % p['skipped']))
+            continue
+        lo = int(p['from'].split('LON')[1])
+        hi = int(p['through'].split('LON')[1])
+        want_n = int(p['episodes'])
+        sl, from_old, changed, missing = [], 0, None, None
+        o = lo
+        for _ in range(want_n):
+            a, b = cur.get(o), old.get(o)
+            if a is not None and b is not None and _norm(a) != _norm(b):
+                changed = o
+                break
+            if a is None and b is None:
+                missing = o
+                break
+            if a is None:
+                from_old += 1
+            sl.append((o, a if a is not None else b))
+            if o == hi:
+                break
+            o = _succ(o)
+        if changed is not None:
+            out.append((chan, 'FAIL', 'episode @LAT103LON%d differs between pulls' % changed))
+            continue
+        if missing is not None:
+            out.append((chan, 'UNVERIFIABLE', 'episode @LAT103LON%d in no pull' % missing))
+            continue
+        if len(sl) != want_n or sl[-1][0] != hi:
+            out.append((chan, 'UNVERIFIABLE', 'range @LAT103LON%d..%d is not episodes:%d long' % (
+                lo, hi, want_n)))
+            continue
+        got = fold(chan, sl)
+        want = {'var': int(p['var']), 'n': int(p['n']), 'prec': int(p['prec']),
+                'conf': int(p['ew_conf']) if p['ew_conf'] else None,
+                'episodes': want_n, 'excluded': int(p['excluded']),
+                'segments': int(p['segments'])}
+        diff = {k: (want[k], got[k]) for k in want if want[k] != got[k]}
+        detail = 'n %d var %d prec %d conf %d over %d episodes%s%s' % (
+            got['n'], got['var'], got['prec'], got['conf'], got['episodes'],
+            ' (%d from earlier pull)' % from_old if from_old else '',
             '' if got['pw1_grouping_same'] else '; ⚠ pw1 grouping would differ')
         out.append((chan, 'FAIL' if diff else 'MATCH',
                     detail if not diff else 'record vs refold: ' + ', '.join(
@@ -282,7 +358,8 @@ def main(argv=None):
             print('%s %s' % (chan, ' '.join('%s:%d' % (k, r[k]) for k in EXPECT_KEYS)))
         return 0
     text = open(a.pull, encoding='utf-8', errors='replace').read()
-    res = gate(text)
+    prev = open(a.previous, encoding='utf-8', errors='replace').read() if a.previous else None
+    res = gate(text, (prev,) if prev is not None else ())   # D9: episodes from the earlier pull
     for chan, v, d in res:
         print('%-8s %-12s %s' % (chan, v, d))
     chans = {c for c, v, _ in res if v == 'MATCH'}
@@ -290,7 +367,6 @@ def main(argv=None):
     print('GATE (this pull): %s — %d record(s), MATCH on %s' % (
         'MATCH x4' if allok else 'NOT YET', len(res), ', '.join(sorted(chans)) or 'none'))
     if a.previous:
-        prev = open(a.previous, encoding='utf-8', errors='replace').read()
         ind = independence(prev, text)
         for chan, v, d in ind:
             print('%-8s %-15s %s' % (chan, v, d))
