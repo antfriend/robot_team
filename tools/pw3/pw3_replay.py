@@ -213,8 +213,8 @@ def report(series, log, tot, per, sweep):
           '- The airtime criterion is not the problem: the gate sends %.1f%% of records and saves %.1f%% of bytes. The disagreement criterion decides the verdict.' % (100 * tot['tx'] / tot['records'], 100 * tot['fall']),
           '- Disagreement is concentrated in entity (%d of %d beliefs) and link (%d of %d). Acoustic and motion, which are smooth, agree throughout.' % (
               ent['disagree'], ent['beliefs'], lnk['disagree'], lnk['beliefs']),
-          '- Entity BSSID sets and per-peer RSSI jitter window to window while the gate stays closed (π is low on these channels, §8.1, so ε stays under θ_tx). A receiver that hears from the sender only at its rare surprises holds a body that was right when sent and is stale at the end. No heartbeat or peer request is specified in §6.3, so none was modelled.',
-          '- The sweep shows disagreement rising as θ_tx rises (30.2%% → 52.4%%), so no θ_tx in the swept range meets the 5%% criterion with this gate and metric. A heartbeat or periodic refresh would be a different mechanism and a new pre-registered experiment, not a re-run of this one.']
+          '- On entity and link, individual window-to-window changes stay under θ_tx (ε = pe·π/255 is small) while the cumulative change does not: a receiver that hears from the sender only at its rare surprises holds a body that was right when sent and is stale at the end. No heartbeat or peer request is specified in §6.3, so none was modelled.',
+          '- The sweep shows disagreement rising as θ_tx rises (30.2%-52.4%), so no θ_tx in the swept range meets the 5% criterion with this gate and metric. A heartbeat or periodic refresh would be a different mechanism and a new pre-registered experiment, not a re-run of this one.']
     L += ['', '## θ_tx sweep (descriptive; no verdict, not used to choose θ_tx)', '',
           '| θ_tx | tx share | disagreement | airtime fall |', '|---|---|---|---|']
     for th, t in sweep:

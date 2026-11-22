@@ -19,8 +19,8 @@ Protocol and constants: `PW3-PROTOCOL.md`, `pw3_constants.py` (committed f3eab94
 
 - The airtime criterion is not the problem: the gate sends 1.4% of records and saves 97.9% of bytes. The disagreement criterion decides the verdict.
 - Disagreement is concentrated in entity (6 of 6 beliefs) and link (18 of 53). Acoustic and motion, which are smooth, agree throughout.
-- Entity BSSID sets and per-peer RSSI jitter window to window while the gate stays closed (π is low on these channels, §8.1, so ε stays under θ_tx). A receiver that hears from the sender only at its rare surprises holds a body that was right when sent and is stale at the end. No heartbeat or peer request is specified in §6.3, so none was modelled.
-- The sweep shows disagreement rising as θ_tx rises (30.2%% → 52.4%%), so no θ_tx in the swept range meets the 5%% criterion with this gate and metric. A heartbeat or periodic refresh would be a different mechanism and a new pre-registered experiment, not a re-run of this one.
+- On entity and link, individual window-to-window changes stay under θ_tx (ε = pe·π/255 is small) while the cumulative change does not: a receiver that hears from the sender only at its rare surprises holds a body that was right when sent and is stale at the end. No heartbeat or peer request is specified in §6.3, so none was modelled.
+- The sweep shows disagreement rising as θ_tx rises (30.2%-52.4%), so no θ_tx in the swept range meets the 5% criterion with this gate and metric. A heartbeat or periodic refresh would be a different mechanism and a new pre-registered experiment, not a re-run of this one.
 
 ## θ_tx sweep (descriptive; no verdict, not used to choose θ_tx)
 
