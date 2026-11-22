@@ -222,9 +222,52 @@ def fill_vectors(path):
     print('filled %d case(s)' % len(cases))
 
 
+def _p108(text):
+    """chan -> (rev, from_lon) for each @LAT108 record of a pull."""
+    out = {}
+    for lat, _lon, t in records(text):
+        if lat != 108:
+            continue
+        p = parse_precision(t)
+        if not p or 'chan' not in p:
+            continue
+        ew = fleet.parse_ew(t)
+        m = re.match(r'@LAT103LON(\d+)$', p.get('from', ''))
+        out[p['chan']] = (ew['rev'] if ew['has_rev'] else None, int(m.group(1)) if m else None)
+    return out
+
+
+def independence(prev_text, text):
+    """Design §6, run 2 onward: is each channel's record in `text` an INDEPENDENT check
+    against the pull before it? -> [(chan, verdict, detail)], verdict one of
+    NEW-WRITE (higher rev), UNMOVED (from is still the band's oldest episode in this pull,
+    i.e. what D7 leaves unrewritten), NOT-INDEPENDENT, or MISSING."""
+    before, now = _p108(prev_text), _p108(text)
+    recs = records(text)
+    out = []
+    for chan in CHANS:
+        if chan not in now:
+            out.append((chan, 'MISSING', 'no @LAT108 record in this pull'))
+            continue
+        rev, frm = now[chan]
+        prev_rev = before.get(chan, (None, None))[0]
+        eps = band(recs, chan)
+        oldest = eps[0][0] if eps else None
+        if rev is not None and (prev_rev is None or rev > prev_rev):
+            out.append((chan, 'NEW-WRITE', 'rev %s -> %s' % (prev_rev, rev)))
+        elif frm is not None and frm == oldest:
+            out.append((chan, 'UNMOVED', 'rev %s, from @LAT103LON%d is the oldest' % (rev, frm)))
+        else:
+            out.append((chan, 'NOT-INDEPENDENT',
+                        'rev %s unchanged, from %s but oldest is %s' % (rev, frm, oldest)))
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('pull', nargs='?')
+    ap.add_argument('--previous', help='the earlier pull: also check design §6 run-2 '
+                    'independence (each record a new write, or its window unmoved)')
     ap.add_argument('--replay', help='fold every tier band of this file (no @LAT108 needed)')
     ap.add_argument('--fill-vectors')
     a = ap.parse_args(argv)
@@ -246,6 +289,15 @@ def main(argv=None):
     allok = res and all(v == 'MATCH' for _, v, _ in res) and chans == set(CHANS)
     print('GATE (this pull): %s — %d record(s), MATCH on %s' % (
         'MATCH x4' if allok else 'NOT YET', len(res), ', '.join(sorted(chans)) or 'none'))
+    if a.previous:
+        prev = open(a.previous, encoding='utf-8', errors='replace').read()
+        ind = independence(prev, text)
+        for chan, v, d in ind:
+            print('%-8s %-15s %s' % (chan, v, d))
+        indep = all(v in ('NEW-WRITE', 'UNMOVED') for _, v, _ in ind)
+        print('INDEPENDENCE (vs %s): %s' % (os.path.basename(a.previous),
+                                             'OK x4' if indep else 'NOT INDEPENDENT'))
+        allok = allok and indep
     return 0 if allok else 1
 
 

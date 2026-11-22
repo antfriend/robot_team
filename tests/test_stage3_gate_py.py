@@ -86,6 +86,26 @@ def main():
               f"the job-written record (rev 1, from moved) gates MATCH (got {res})")
         check("rev:1" in store and "from:@LAT103LON24577" in store,
               "the job store holds the D7 rewrite (rev 1, from @LAT103LON24577)")
+        # 5. design §6 run-2 independence: a higher rev is a NEW-WRITE
+        ind = dict((c, v) for c, v, _ in G.independence(store.replace("rev:1", "rev:0", 1), store))
+        check(ind.get("acoustic") == "NEW-WRITE", f"rev 0 -> 1 is NEW-WRITE (got {ind})")
+        check(ind.get("link") == "MISSING", "a channel with no record is MISSING")
+        same = dict((c, v) for c, v, _ in G.independence(store, store))
+        check(same.get("acoustic") == "UNMOVED",
+              f"same rev, from still the band's oldest -> UNMOVED (got {same})")
+
+    # 6. run 1's own two pulls (committed evidence): acoustic was NOT-INDEPENDENT, the
+    #    other three UNMOVED — the finding that motivated D7.
+    pulls = os.path.join(HERE, "..", "tools", "stage3", "pulls")
+    p1 = os.path.join(pulls, "cardputer_20261122_1249_g1.md")
+    p2 = os.path.join(pulls, "cardputer_20261122_1302_g2.md")
+    if os.path.exists(p1) and os.path.exists(p2):
+        r = dict((c, v) for c, v, _ in G.independence(open(p1, encoding="utf-8").read(),
+                                                      open(p2, encoding="utf-8").read()))
+        check(r == {"link": "UNMOVED", "entity": "UNMOVED", "motion": "UNMOVED",
+                    "acoustic": "NOT-INDEPENDENT"}, f"run 1 independence reproduces (got {r})")
+    else:
+        check(False, "run 1 pulls present in tools/stage3/pulls/")
 
     print(f"stage3_gate: {len(cases)} vector case(s), {fails} failure(s)")
     return 1 if fails else 0
