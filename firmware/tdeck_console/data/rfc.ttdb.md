@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. This checkout remains the only one holding @LAT10LON9/@LAT10LON10 (TTDB-RFC-0009/-0010) and @LAT98LON5/@LAT98LON6; those are pushed outward, not merged in."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work."
 ```
 
 ---
@@ -325,6 +325,38 @@ correct for recency, wrong for a duration.
 
 ---
 
+@LAT10LON11 | created:1795305600 | updated:1795305600 | relates:depends_on@LAT10LON5,depends_on@LAT10LON6,depends_on@LAT10LON7,depends_on@LAT10LON10,refines@LAT10LON5
+[ew]
+conf:120
+rev:0
+sal:200
+touched:1795305600
+[/ew]
+
+**TTDB-RFC-0011 — Precision Weighting and the Ignition Filter** (Proposed; stage-2 replays PW-1, PW-2 and PW-4 passed as pre-registered, PW-3 falsified the §6.3 broadcast gate as specified, §8.1-§8.3; nothing else run, `@LAT108`/`@LAT109` unwritten)
+src: TTDB-RFC-0011-Precision-Weighting-and-the-Ignition-Filter.md
+
+TBEW has one precision (`conf`, the belief's); active inference needs two. `prec` (π) joins `[ew]`
+as the precision of the channel that reported, and the gain `K = 255·π/(π+conf)` replaces
+fixed confidence steps: reliable evidence against a shaky belief rewrites it; a contradiction
+with `K < k_revise` only lowers `conf` and sets `contradiction_flag` — `rev` now counts
+contradictions that won. Symbolic `pe` is the contradicted belief's `conf`, so the agent
+notices what it declines to believe.
+
+`ε = pe·π/255` ignites into a capacity-`W` workspace at `@LAT109` (FIELD, KEY, every
+TTDB-RFC-0010 §5 rule) with hysteresis; the system MUST answer identically with it empty.
+`π` is learned at `@LAT108` (EVIDENCE, KEY) from `@PERCEPT` residuals in Replay only.
+Precisions sum only across heterogeneous channels (√N is the independent-error limit).
+Every percept is logged whatever its `ε`. Received `π` is capped by local trust. Action picks
+the look maximizing `EPS × π`. Attention and valence shift ignition, never `K` or `conf`.
+Grimoire profile is read-only over `contradicts`/`supersedes` notes. Falsifier PW-1: if
+learned `π` does not separate channels on the archive, stop.
+Named for and inspired by Dehaene's global neuronal workspace: subliminal / preconscious /
+conscious access (Dehaene et al. 2006) map to below-threshold / eligible-but-unadmitted /
+ignited. Aim: synthesize ignition experimentally; PW-6 tests for the all-or-none signature.
+
+---
+
 @LAT20LON1 | created:1775001600 | updated:1775001600 | relates:default_log@LAT10LON1
 [ew]
 conf:210
@@ -526,12 +558,12 @@ byte-for-byte, not just trust the CRC.
 
 ---
 
-@LAT20LON10 | created:1782432000 | updated:1783296000 | relates:depends_on@LAT20LON8
+@LAT20LON10 | created:1782432000 | updated:1789344000 | relates:depends_on@LAT20LON8
 [ew]
 conf:240
-rev:1
+rev:2
 sal:170
-touched:1783296000
+touched:1789344000
 [/ew]
 
 **TTN-RFC-0010 — Fleet Pulse (Band Time-Base)** (Implemented ✅ end-to-end 2026-06-26 → 07-06)
@@ -540,10 +572,12 @@ src: TTN-RFC-0010-Fleet-Pulse.md
 Share the tempo, glance at the conductor: the beat is computed, never received. Each
 node keeps `gPulseOffsetMs` (independent of the laptop wall clock — the band survives
 without the laptop) and derives beat_count/phase from the chart: downbeat_epoch u64,
-beat_period_ms u16, meter_beats u8, era + conductor_id. `PULSE` (type 13, 28 B,
-broadcast, deliberately NOT want_ack — reliability is repetition) is the only
-traffic, paced to measured drift (~1–2/min), zero per-beat frames; a joiner gets an
-event-driven extra beacon on HELLO. Election: first-up conducts and keeps conducting;
+beat_period_ms u16, meter_beats u8, era + conductor_id, and (v2) scene_id u16 — the
+band's place in a multi-part song, on the chart so it survives conductor handoff; only
+the conductor authors a scene, and a v1 28-byte payload still reads as scene 0.
+`PULSE` (type 13, 30 B, broadcast, deliberately NOT want_ack — reliability is
+repetition) is the only traffic, paced to measured drift (~1–2/min), zero per-beat
+frames; a joiner gets an event-driven extra beacon on HELLO. Election: first-up conducts and keeps conducting;
 a joiner falls into sync and never coups; id is only a tie-break, via the adoption
 order (higher era, then lower conductor_id); conductor loss → timeout 4× resync
 period, successor increments era and keeps the same grid so the beat never lurches.
@@ -907,7 +941,7 @@ corpus change reads differently and writes nothing until the owner takes it.
 
 ---
 
-@LAT98LON0 | created:1783468800 | updated:1785542400 | relates:contradicts@LAT40LON4
+@LAT98LON0 | created:1783468800 | updated:1785542400 | relates:contradicts@LAT40LON4,refines@LAT40LON1
 
 **BELIEF — Build system: the A32 RFCs say PlatformIO; robot_team uses arduino-cli.**
 

@@ -88,7 +88,9 @@ int main(int argc, char** argv) {
   // A32 node implements them and naming the bounded-store divergence from
   // TTG-RFC-0003 §2. This constant failing is the intended behaviour of a corpus
   // edit; update it deliberately, never to make the suite quiet.
-  const size_t kExpectedRecords = 44;
+  // 44 -> 45 on 2026-11-22 (two-way sync with toot-toot-engineering): +@LAT10LON11,
+  // TTDB-RFC-0011 (Precision Weighting and the Ignition Filter).
+  const size_t kExpectedRecords = 45;
   CHECK(recs.size() == kExpectedRecords, "pass-1 scan indexes %zu records (got %zu)",
         kExpectedRecords, recs.size());
   CHECK(recs.size() <= TTDB_MAX_RECORDS, "fits TTDB_MAX_RECORDS (%d)", TTDB_MAX_RECORDS);
