@@ -302,7 +302,7 @@ def deciding(a):
 
 
 # ---------------------------------------------------------------- report
-def table(a, series, mode):
+def table(a):
     out = ['| node | channel | n | π (EWMA) | π (mean) | π₁ | π₂ | drift |', '|---|---|---|---|---|---|---|---|']
     for (node, ch), r in a['rows'].items():
         out.append('| %s | %s | %d | %d | %d | %s | %s | %s |' % (
@@ -328,7 +328,7 @@ def checks(a):
     return out
 
 
-def report(root, series, log, ex, un):
+def report(series, log, ex, un):
     L = []
     L.append('PW-1: %s — %s' % (ex['verdict'], deciding(ex)))
     L.append('')
@@ -354,8 +354,8 @@ def report(root, series, log, ex, un):
           '- Primary scalars used: acoustic `rms_mean`; motion `dev_mean_mg`; link `rssi_med` per (peer, proto), pooled per node; entity = set of `ENTITY id`.']
     L += ['', '## Checks — runs expanded (verdict)', ''] + checks(ex)
     L += ['', '## Checks — runs not expanded', ''] + checks(un)
-    L += ['', '## Series — runs expanded', ''] + table(ex, series, 'exp')
-    L += ['', '## Series — runs not expanded', ''] + table(un, series, 'unexp')
+    L += ['', '## Series — runs expanded', ''] + table(ex)
+    L += ['', '## Series — runs not expanded', ''] + table(un)
     m8 = ex['median'][K.PI_SCALE]
     sat = sorted(c for c, v in m8.items() if v >= 250)
     L += ['', '## Reading the result (descriptive; no threshold was changed)', '',
@@ -393,7 +393,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     series, log = load_archive(args.root)
     ex, un = analyze(series, 'exp'), analyze(series, 'unexp')
-    txt = report(args.root, series, log, ex, un)
+    txt = report(series, log, ex, un)
     if args.report:
         with open(args.report, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(txt)
