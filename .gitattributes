@@ -20,3 +20,7 @@ master/*.md           eol=lf
 # a rule the flashed bytes differ from the committed bytes -- which is the whole reason
 # the two rules above exist, and why the canonical source needs one too.
 replicate/RFCs/*.md   eol=lf
+
+# Shared C++/Python test vectors. tests/vectors/ew_vectors.txt flags its CRLF cases
+# explicitly; a CRLF checkout would turn EVERY case into one and test nothing.
+tests/vectors/*       eol=lf

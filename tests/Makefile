@@ -129,6 +129,11 @@ ED_SRCS := test_episode_delivery.cpp $(LIB)/Semantic/src/EpisodeDelivery.cpp \
 # Sensorium Phase S1: the EPS arbiter (decay, dwell, margin), neighbour novelty, motion
 # salience, and S1's done-condition as four scenarios. Portable, self-contained.
 ATT_SRCS := test_attention.cpp $(LIB)/Attention/src/Attention.cpp
+# TTDB-RFC-0011 stage 1: the first [ew] reader (ttdbParseEw), with `prec`. The laptop half
+# is test_ew_py.py; both read tests/vectors/ew_vectors.txt and MUST agree.
+EW_SRCS := test_ew.cpp \
+        $(LIB)/PerceptLearn/src/PerceptLearn.cpp $(TS) \
+        $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
 
 test: build
 	./test_toot
@@ -152,8 +157,9 @@ test: build
 	./test_episode_order
 	./test_episode_delivery
 	./test_attention
+	./test_ew
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS) $(EW_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -175,6 +181,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EO_SRCS) -o test_episode_order
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ED_SRCS) -o test_episode_delivery
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ATT_SRCS) -o test_attention
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EW_SRCS) -o test_ew
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -193,6 +200,8 @@ clean:
 	      test_semantic test_semantic.exe \
 	      test_episode test_episode.exe test_fleettime test_fleettime.exe \
 	      test_episode_order test_episode_order.exe \
-	      test_episode_delivery test_episode_delivery.exe \n	      test_attention test_attention.exe
+	      test_episode_delivery test_episode_delivery.exe \
+	      test_attention test_attention.exe \
+	      test_ew test_ew.exe
 
 .PHONY: test build clean

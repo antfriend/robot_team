@@ -169,3 +169,81 @@ TtdbCitation ttdbResolveCitation(const TtdbEdge& e, const char* target_header) {
   if (!ttdbHeaderSid(target_header, now)) return TTDB_CITATION_UNVERIFIABLE;
   return (now == e.target_sid) ? TTDB_CITATION_FRESH : TTDB_CITATION_STALE;
 }
+
+// ---- [ew] (TTDB-RFC-0005 §3-§4, + TTDB-RFC-0011 §3.1 prec) ---------------------------
+// The laptop twin is fleet.parse_ew(); both are pinned by tests/vectors/ew_vectors.txt.
+
+// [p, e) is one line with any trailing '\r' already removed.
+static bool line_is(const char* p, const char* e, const char* lit) {
+  const size_t n = strlen(lit);
+  return (size_t)(e - p) == n && memcmp(p, lit, n) == 0;
+}
+
+// `key:value` per RFC-0005 §4.2. Returns false for anything that is not a field line, in
+// which case the caller skips it (forward compatibility). The value saturates rather than
+// wrapping, so §4.3's clamp also covers a number too long for 32 bits.
+static bool ew_field(const char* p, const char* e, char* key, size_t key_cap,
+                     uint32_t& val) {
+  const char* c = p;
+  size_t k = 0;
+  if (c >= e || *c < 'a' || *c > 'z') return false;
+  while (c < e && *c != ':') {
+    const char ch = *c;
+    if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_')) return false;
+    if (k + 1 >= key_cap) return false;          // longer than 16: not a field
+    key[k++] = ch;
+    ++c;
+  }
+  key[k] = 0;
+  if (c >= e || *c != ':') return false;
+  ++c;
+  if (c >= e) return false;                       // "prec:" — no value
+  if (*c == '0' && c + 1 < e) return false;       // leading zero (only "0" itself)
+  uint64_t v = 0;
+  for (; c < e; ++c) {
+    if (*c < '0' || *c > '9') return false;       // "0.75", "-1", "12a", " 12"
+    v = v * 10 + (uint64_t)(*c - '0');
+    if (v > 0xFFFFFFFFull) v = 0xFFFFFFFFull + 1; // saturate; clamped below
+  }
+  val = v > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)v;
+  return true;
+}
+
+bool ttdbParseEw(const char* rec, size_t len, TtdbEw& out) {
+  out = TtdbEw();
+  if (!rec) return false;
+  const char* hs;
+  const char* he;
+  if (!headerLineSpan(rec, len, hs, he)) return false;
+  const char* end = rec + len;
+  if (he >= end) return false;                    // header is the last line
+  const char* p = he + 1;                         // the line immediately after the header
+  const char* nl = (const char*)memchr(p, '\n', (size_t)(end - p));
+  const char* le = nl ? nl : end;
+  const char* lt = (le > p && le[-1] == '\r') ? le - 1 : le;
+  if (!line_is(p, lt, "[ew]")) return false;      // no block, or [ew] not right after it
+
+  TtdbEw w;                                        // filled only if the block terminates
+  while (nl) {
+    p = nl + 1;
+    nl = (const char*)memchr(p, '\n', (size_t)(end - p));
+    le = nl ? nl : end;
+    lt = (le > p && le[-1] == '\r') ? le - 1 : le;
+    if (line_is(p, lt, "[/ew]")) {
+      w.present = true;
+      out = w;
+      return true;
+    }
+    char key[17];
+    uint32_t v;
+    if (!ew_field(p, lt, key, sizeof(key), v)) continue;     // §4.2: skip, don't fail
+    // §4.3: clamp to each field's range. Last occurrence of a key wins.
+    if (!strcmp(key, "conf"))         { w.conf = v > 255 ? 255 : (uint8_t)v; w.has_conf = true; }
+    else if (!strcmp(key, "rev"))     { w.rev = v > 65535 ? 65535 : (uint16_t)v; w.has_rev = true; }
+    else if (!strcmp(key, "sal"))     { w.sal = v > 255 ? 255 : (uint8_t)v; w.has_sal = true; }
+    else if (!strcmp(key, "touched")) { w.touched = v; w.has_touched = true; }
+    else if (!strcmp(key, "prec"))    { w.prec = v > 255 ? 255 : (uint8_t)v; w.has_prec = true; }
+    // anything else: an unknown field, ignored (§4.1)
+  }
+  return false;                                    // no [/ew]: treated as no block
+}

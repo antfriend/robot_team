@@ -81,6 +81,47 @@ enum TtdbCitation : uint8_t {
 // `target_header` is the header line of the record now at the edge's coordinate.
 TtdbCitation ttdbResolveCitation(const TtdbEdge& e, const char* target_header);
 
+// A record's TBEW `[ew]` block (TTDB-RFC-0005 §3-§4), plus `prec` (TTDB-RFC-0011 §3.1).
+//
+// Like the sid, this is a free function over text the caller already holds, never a field
+// on TtdbRecord (see the warning there). It is ~20 bytes of stack, read on demand.
+//
+// Defaults are what RFC-0005 §4.1 says an ABSENT block means, and `prec`'s is RFC-0011's
+// "unassessed" 128. `prec:0` is a real value (ignore this record as evidence), so a reader
+// that must tell "absent" from "0" checks `has_prec`, never the number itself — the same
+// rule as `gBatSampled` vs `gBatMv != 0`.
+//
+// ⚠ THE LAPTOP HALF IS `fleet.parse_ew()` AND THE TWO MUST AGREE. Both are driven by the
+// same vectors, tests/vectors/ew_vectors.txt (TTDB-RFC-0010 §7.2: test the pair, not each
+// side). Change one, change both, and add the case to that file.
+struct TtdbEw {
+  uint8_t  conf = 128;      // RFC-0005 §4.1 default
+  uint16_t rev = 0;
+  uint8_t  sal = 0;
+  uint32_t touched = 0;
+  uint8_t  prec = 128;      // RFC-0011 §3.1 default: unassessed
+  bool     present = false; // a terminated [ew] block sits on the line after the header
+  bool     has_conf = false, has_rev = false, has_sal = false, has_touched = false,
+           has_prec = false;
+};
+
+// Parse the `[ew]` block of the record in `rec[0..len)`. `rec` may begin before the header
+// (rendered records start "\n---\n\n@LAT…"); the header is the first line starting '@',
+// exactly as for ttdbHeaderSid. Always fills `out` (with defaults when there is no block)
+// and returns `out.present`.
+//   * The block counts only on the line IMMEDIATELY after the header (RFC-0005 §3.1); an
+//     `[ew]` anywhere else is body text.
+//   * A field line is `key:value`, key 1-16 chars of a-z0-9_ starting a-z, value a non-negative
+//     decimal with no leading zero (§4.2). Anything else — `conf: 0.75`, `prec:-1`,
+//     `prec:012`, `Prec:5` — is SKIPPED, so the field keeps its default.
+//   * Unknown keys are ignored (§4.1); out-of-range values CLAMP (§4.3), including a value
+//     too long for 32 bits.
+//   * ⚠ Two rules RFC-0005 leaves open, decided here and pinned by the vectors: a repeated
+//     key — the LAST occurrence wins; a block with no `[/ew]` before the body ends — the
+//     record has NO block (all defaults, present=false), because a reader that guessed
+//     where it ended could read body lines as weights.
+bool ttdbParseEw(const char* rec, size_t len, TtdbEw& out);
+
 // Index of the record nearest (Euclidean on the lat/lon grid) to (lat,lon),
 // or -1 if n <= 0.
 int ttdbNearest(const TtdbRecord* recs, int n, int16_t lat, int16_t lon);

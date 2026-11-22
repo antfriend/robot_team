@@ -1973,6 +1973,49 @@ def header_sid(header):
     return int(m.group(1), 16) if m else None
 
 
+# A TBEW field line (TTDB-RFC-0005 §4.2): lowercase key, no spaces around the colon, a
+# non-negative decimal with no leading zero. fullmatch, never `$`, which would also accept
+# a trailing newline.
+EW_FIELD_RE = re.compile(r"([a-z][a-z0-9_]{0,15}):(0|[1-9][0-9]*)", re.ASCII)
+EW_MAX = {"conf": 255, "rev": 65535, "sal": 255, "touched": 0xFFFFFFFF, "prec": 255}
+EW_DEFAULTS = {"conf": 128, "rev": 0, "sal": 0, "touched": 0, "prec": 128}
+
+
+def parse_ew(record):
+    """A record's [ew] block -> {present, conf, rev, sal, touched, prec, has_<field>...}.
+
+    The laptop twin of firmware `ttdbParseEw()` (TtdbParse.cpp); both are driven by
+    tests/vectors/ew_vectors.txt and MUST agree, so a rule changes in both or neither.
+    Defaults are RFC-0005 §4.1's, plus `prec` 128 (TTDB-RFC-0011 §3.1, "unassessed").
+    `prec:0` is a real value meaning *ignore*: tell it from "absent" with `has_prec`.
+    * The block counts only on the line right after the header (the first line starting
+      '@'); `[ew]` anywhere else is body text.
+    * Lines that are not `key:value` are skipped (`conf: 0.75`, `prec:012`, `Prec:5`), so
+      the field keeps its default; unknown keys are ignored; values clamp (§4.3).
+    * Decided where RFC-0005 is silent: the LAST occurrence of a key wins, and a block
+      with no `[/ew]` is no block at all (present False, all defaults).
+    ⚠ Not for fleet.py's own `conf: 0.75` free-text fields — those are a different shape
+    outside any [ew] block, read by their own regexes."""
+    out = dict(EW_DEFAULTS, present=False)
+    out.update({"has_" + k: False for k in EW_DEFAULTS})
+    lines = [ln[:-1] if ln.endswith("\r") else ln for ln in record.split("\n")]
+    hdr = next((i for i, ln in enumerate(lines) if ln.startswith("@")), None)
+    if hdr is None or hdr + 1 >= len(lines) or lines[hdr + 1] != "[ew]":
+        return out
+    got = {}
+    for ln in lines[hdr + 2:]:
+        if ln == "[/ew]":
+            for k, v in got.items():
+                out[k] = min(v, EW_MAX[k])
+                out["has_" + k] = True
+            out["present"] = True
+            return out
+        m = EW_FIELD_RE.fullmatch(ln)
+        if m and m.group(1) in EW_MAX:
+            got[m.group(1)] = int(m.group(2))
+    return dict(EW_DEFAULTS, present=False, **{"has_" + k: False for k in EW_DEFAULTS})
+
+
 def parse_prune_markers(text):
     """-> [{lane, gen, removed, last_lon, t_ms, stream, wall, synced}] for the
     @LAT100 lane, oldest first. An empty list means this node has never pruned —

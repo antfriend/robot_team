@@ -1,0 +1,257 @@
+# ew_vectors.txt — shared vectors for the TBEW [ew] reader, C++ and Python.
+#
+# Read by tests/test_ew.cpp (ttdbParseEw, firmware/libraries/TTDB) AND tests/test_ew_py.py
+# (fleet.parse_ew). TTDB-RFC-0010 §7.2's lesson: test the PAIR, not each side — the two
+# readers are only known to agree on the inputs listed here, so a new rule goes in this
+# file, never in one test.
+#
+# Rules: TTDB-RFC-0005 §3.1, §4.1-§4.3; `prec` from TTDB-RFC-0011 §3.1 (stage 1, readers).
+#
+# Format (line-oriented, no escapes):
+#   === <name> [crlf]     starts a case. Every following line up to `--- expect` is the
+#                         record text, joined with "\n" (or "\r\n" if `crlf`) and ending
+#                         with one newline unless the case is flagged `noeol`.
+#   --- expect k:v ...    the parsed result. ALL eleven keys are required, so no case can
+#                         quietly stop checking a field: present conf rev sal touched prec
+#                         has_conf has_rev has_sal has_touched has_prec
+# Lines starting with '#' are comments only OUTSIDE a case.
+# ⚠ This file is pinned eol=lf in .gitattributes: on a CRLF checkout every case would
+# silently become a CRLF case, and the `crlf` flag would test nothing.
+
+=== pre_rfc_lat91_archive
+@LAT91LON0 | sid:ab8f77ba | created:0 | updated:0 | relates:believes_about@LAT0LON0,reconciles@LAT92LON0,derived_from@LAT97LON0
+[ew]
+conf:134
+rev:3
+sal:0
+touched:0
+[/ew]
+
+**LINK-STABLE** peer:0x00000100 proto:espnow node:0x300
+**TOUCHED** t_ms:9816012 stream:0x92fb56ae wall:0 unix_s:0
+**TALLY** met:3 violated:0 unobserved:0 baseline_conf:128 rule:+2/-16 max_streak:0 contradiction:0
+--- expect present:1 conf:134 rev:3 sal:0 touched:0 prec:128 has_conf:1 has_rev:1 has_sal:1 has_touched:1 has_prec:0
+
+=== perceptlearn_render_leading_separator
+
+---
+
+@LAT91LON2 | sid:00000000 | created:1795000000 | updated:1795000000 | relates:believes_about@LAT0LON0
+[ew]
+conf:200
+rev:1
+sal:8
+touched:1795000000
+[/ew]
+
+**LINK-STABLE** peer:0x00000200 proto:espnow node:0x300
+--- expect present:1 conf:200 rev:1 sal:8 touched:1795000000 prec:128 has_conf:1 has_rev:1 has_sal:1 has_touched:1 has_prec:0
+
+=== rfc0011_section_3_1_example
+@LAT95LON12 | created:1795000000 | updated:1795000000 | relates:observed_by@LAT0LON3
+[ew]
+conf:96
+rev:0
+sal:4
+touched:1795000000
+prec:210
+[/ew]
+Motion window: 3 transients, run 4.
+--- expect present:1 conf:96 rev:0 sal:4 touched:1795000000 prec:210 has_conf:1 has_rev:1 has_sal:1 has_touched:1 has_prec:1
+
+=== rfc0011_example_crlf crlf
+@LAT95LON12 | created:1795000000 | updated:1795000000 | relates:observed_by@LAT0LON3
+[ew]
+conf:96
+rev:0
+sal:4
+touched:1795000000
+prec:210
+[/ew]
+Motion window: 3 transients, run 4.
+--- expect present:1 conf:96 rev:0 sal:4 touched:1795000000 prec:210 has_conf:1 has_rev:1 has_sal:1 has_touched:1 has_prec:1
+
+=== prec_zero_means_ignore
+@LAT0LON1 | created:0 | updated:0
+[ew]
+conf:180
+prec:0
+[/ew]
+A held saying: kept as evidence, never moves a belief.
+--- expect present:1 conf:180 rev:0 sal:0 touched:0 prec:0 has_conf:1 has_rev:0 has_sal:0 has_touched:0 has_prec:1
+
+=== prec_255
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:255
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:255 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:1
+
+=== prec_out_of_range_clamps
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:300
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:255 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:1
+
+=== all_fields_clamp
+@LAT0LON1 | created:0 | updated:0
+[ew]
+conf:256
+rev:70000
+sal:999
+touched:99999999999
+prec:4294967296
+[/ew]
+--- expect present:1 conf:255 rev:65535 sal:255 touched:4294967295 prec:255 has_conf:1 has_rev:1 has_sal:1 has_touched:1 has_prec:1
+
+=== prec_malformed_space_after_colon
+@LAT0LON1 | created:0 | updated:0
+[ew]
+conf:90
+prec: 12
+[/ew]
+--- expect present:1 conf:90 rev:0 sal:0 touched:0 prec:128 has_conf:1 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_negative
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:-5
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_leading_zero
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:012
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_empty_value
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_trailing_junk
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:12a
+prec:1.5
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_uppercase_key
+@LAT0LON1 | created:0 | updated:0
+[ew]
+Prec:12
+PREC:13
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== prec_malformed_space_before_colon
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec :12
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== repeated_key_last_wins
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:10
+conf:5
+prec:20
+[/ew]
+--- expect present:1 conf:5 rev:0 sal:0 touched:0 prec:20 has_conf:1 has_rev:0 has_sal:0 has_touched:0 has_prec:1
+
+=== malformed_repeat_does_not_erase_good_value
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:40
+prec:4x
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:40 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:1
+
+=== unknown_fields_ignored
+@LAT0LON1 | created:0 | updated:0
+[ew]
+contradiction_flag:1
+foo:7
+abcdefghijklmnopq:5
+conf:77
+just some text
+[/ew]
+--- expect present:1 conf:77 rev:0 sal:0 touched:0 prec:128 has_conf:1 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== zero_values_are_values
+@LAT0LON1 | created:0 | updated:0
+[ew]
+conf:0
+sal:0
+[/ew]
+--- expect present:1 conf:0 rev:0 sal:0 touched:0 prec:128 has_conf:1 has_rev:0 has_sal:1 has_touched:0 has_prec:0
+
+=== empty_block
+@LAT0LON1 | created:0 | updated:0
+[ew]
+[/ew]
+Body.
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== absent_block_defaults
+@LAT0LON1 | created:0 | updated:0
+Body with no weights at all.
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== ew_not_immediately_after_header_is_body
+@LAT0LON1 | created:0 | updated:0
+
+[ew]
+conf:9
+prec:9
+[/ew]
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== ew_token_inside_body_is_body
+@LAT0LON1 | created:0 | updated:0
+Some prose that mentions
+[ew]
+conf:9
+[/ew]
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== unterminated_block_is_no_block
+@LAT0LON1 | created:0 | updated:0
+[ew]
+conf:50
+prec:9
+And then the body starts without a closing tag.
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== fleet_py_free_text_fields_are_not_ew
+@LAT0LON3 | created:0 | updated:0
+x_m: 1.00
+conf: 0.75
+touched: 2026-11-22T00:00:00Z
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== fleet_py_shape_inside_ew_is_skipped
+@LAT0LON3 | created:0 | updated:0
+[ew]
+conf: 0.75
+touched: 2026-11-22T00:00:00Z
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== header_only_no_newline noeol
+@LAT0LON1 | created:0 | updated:0
+--- expect present:0 conf:128 rev:0 sal:0 touched:0 prec:128 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:0
+
+=== closing_tag_last_line_noeol noeol
+@LAT0LON1 | created:0 | updated:0
+[ew]
+prec:33
+[/ew]
+--- expect present:1 conf:128 rev:0 sal:0 touched:0 prec:33 has_conf:0 has_rev:0 has_sal:0 has_touched:0 has_prec:1
