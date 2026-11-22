@@ -1,4 +1,4 @@
-PW-3: KILL — belief disagreement 38.1% (kill > 5%), airtime fall 97.9% (kill < 30%), 63 beliefs
+PW-3: FALSIFIED — belief disagreement 38.1% (falsified > 5%), airtime fall 97.9% (falsified < 30%), 63 beliefs
 
 Protocol and constants: `PW3-PROTOCOL.md`, `pw3_constants.py` (committed f3eab94 before this code existed). Verdict uses θ_tx = 96.
 

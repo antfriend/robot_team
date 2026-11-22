@@ -328,7 +328,7 @@ def pw2(series):
     if len(coh) < C.PW2_MIN_COHORT:
         verdict = 'INCONCLUSIVE'
     elif f_gain >= f_fixed:
-        verdict = 'KILL'
+        verdict = 'FALSIFIED'
     elif f_gain <= C.PW2_PASS_RATIO * f_fixed:
         verdict = 'PASS'
     else:
@@ -369,7 +369,7 @@ def pw4(series):
     can, _ = run_all(series, 'gain', True, True, canary=True)
     canary_caught = store_hash(off) != store_hash(can)
     if not pairs:
-        verdict = 'KILL'
+        verdict = 'FALSIFIED'
     elif C.PW4_CANARY_REQUIRED and not canary_caught:
         verdict = 'INCONCLUSIVE'
     else:
@@ -380,7 +380,7 @@ def pw4(series):
 # ------------------------------------------------------------------ report
 def report(series, log, a, b):
     L = []
-    L.append('PW-2: %s — gain-scaled flips %d vs fixed-step %d on %d high-conf beliefs (pass ≤ %.1f, kill ≥ %d)' % (
+    L.append('PW-2: %s — gain-scaled flips %d vs fixed-step %d on %d high-conf beliefs (pass ≤ %.1f, falsified ≥ %d)' % (
         a['verdict'], a['flips_gain'], a['flips_fixed'], a['cohort'], C.PW2_PASS_RATIO * a['flips_fixed'], a['flips_fixed']))
     L.append('PW-4: %s — %d of %d workspace on/off pairs identical; canary %s; %d ignitions' % (
         b['verdict'], sum(1 for r in b['rows'] if r[2]), len(b['rows']),

@@ -184,14 +184,14 @@ def verdict(tot):
     if tot['beliefs'] < C3.MIN_SERIES:
         return 'INCONCLUSIVE'
     if tot['disagree_rate'] > C3.DISAGREE_MAX or tot['fall'] < C3.AIRTIME_FALL_MIN:
-        return 'KILL'
+        return 'FALSIFIED'
     return 'PASS'
 
 
 # ------------------------------------------------------------------ report
 def report(series, log, tot, per, sweep):
     v = verdict(tot)
-    L = ['PW-3: %s — belief disagreement %.1f%% (kill > %d%%), airtime fall %.1f%% (kill < %d%%), %d beliefs' % (
+    L = ['PW-3: %s — belief disagreement %.1f%% (falsified > %d%%), airtime fall %.1f%% (falsified < %d%%), %d beliefs' % (
         v, 100 * tot['disagree_rate'], int(100 * C3.DISAGREE_MAX), 100 * tot['fall'], int(100 * C3.AIRTIME_FALL_MIN), tot['beliefs']),
         '', 'Protocol and constants: `PW3-PROTOCOL.md`, `pw3_constants.py` (committed f3eab94 before this code existed). Verdict uses θ_tx = %d.' % C3.THETA_TX,
         '', '## Result (θ_tx = %d)' % C3.THETA_TX, '',

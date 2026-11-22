@@ -1,4 +1,4 @@
-PW-2: PASS — gain-scaled flips 139 vs fixed-step 8217 on 41 high-conf beliefs (pass ≤ 4108.5, kill ≥ 8217)
+PW-2: PASS — gain-scaled flips 139 vs fixed-step 8217 on 41 high-conf beliefs (pass ≤ 4108.5, falsified ≥ 8217)
 PW-4: PASS — 4 of 4 workspace on/off pairs identical; canary caught; 1446 ignitions
 
 Protocol and constants: `PW2-PW4-PROTOCOL.md`, `pw2_constants.py` (committed e3835e3 before this code existed).

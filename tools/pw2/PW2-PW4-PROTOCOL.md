@@ -28,7 +28,7 @@ has its own `π`, folded online from its own residuals.
 **Cohort.** Beliefs with `conf ≥ 192` at window 60 under *both* rules (so both rules are
 tested on beliefs each considers settled). Flips are counted after window 60, summed over cohort.
 
-**Verdict.** PASS if `flips_gain ≤ 0.5 · flips_fixed`; KILL if `flips_gain ≥ flips_fixed`;
+**Verdict.** PASS if `flips_gain ≤ 0.5 · flips_fixed`; FALSIFIED if `flips_gain ≥ flips_fixed`;
 otherwise INCONCLUSIVE; INCONCLUSIVE too if the cohort has fewer than 5 beliefs.
 
 **Reported, no verdict.** (a) the same replay with no injection, to show whether §3.4 still
@@ -45,12 +45,12 @@ contradictions it takes to revise a cohort belief, so "protection" is not mistak
 
 Every replay above (and one plain archive replay) is run twice, workspace disabled vs enabled
 (§5: ignition at `θ_ign`, capacity `W`, decay, hysteresis). The key is the SHA-256 of the final
-sorted belief store. PASS iff all pairs are identical; KILL on any difference.
+sorted belief store. PASS iff all pairs are identical; FALSIFIED on any difference.
 
 **Canary.** A third variant deliberately lets the update path read workspace state. It must
 produce a different hash. If it does not, the test cannot fail and PW-4 is INCONCLUSIVE.
 
 ## Guardrails (as PW-1)
 Read-only on `master/`; no threshold changed after data; every exclusion logged; surprises
-reported as candidate `lat 98` divergence beliefs; a KILL is written back to the RFC as a
+reported as candidate `lat 98` divergence beliefs; a falsification is written back to the RFC as a
 result.

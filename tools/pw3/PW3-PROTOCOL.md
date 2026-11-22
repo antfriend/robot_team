@@ -7,7 +7,7 @@ dedup are PW-1's: all `master/**/*.md`, deduplicated, lanes 94–97 only, never 
 
 **Claim.** A node that transmits a percept-derived toot only when `ε ≥ θ_tx` saves airtime
 without costing the receiver its beliefs.
-**Kills the RFC if** belief disagreement with ungated consolidation exceeds 5 % of beliefs, or
+**Falsified if** belief disagreement with ungated consolidation exceeds 5 % of beliefs, or
 airtime falls by less than 30 %. **Passes** if neither. INCONCLUSIVE if fewer than 20 beliefs.
 
 ## Units
@@ -45,4 +45,4 @@ Disagreement and airtime fall at `θ_tx` ∈ {64, 96, 128}, per channel; the ver
 
 ## Guardrails
 Read-only on `master/`; thresholds fixed in advance; exclusions logged; surprises reported as
-candidate `lat 98` divergence beliefs; a KILL is written back to the RFC as a result.
+candidate `lat 98` divergence beliefs; a falsification is written back to the RFC as a result.

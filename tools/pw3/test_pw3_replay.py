@@ -49,8 +49,8 @@ class Verdict(unittest.TestCase):
     def test_rules(self):
         c = lambda **k: dict({'beliefs': 50, 'disagree_rate': 0.0, 'fall': 0.5}, **k)
         self.assertEqual(R.verdict(c()), 'PASS')
-        self.assertEqual(R.verdict(c(disagree_rate=0.06)), 'KILL')
-        self.assertEqual(R.verdict(c(fall=0.29)), 'KILL')
+        self.assertEqual(R.verdict(c(disagree_rate=0.06)), 'FALSIFIED')
+        self.assertEqual(R.verdict(c(fall=0.29)), 'FALSIFIED')
         self.assertEqual(R.verdict(c(beliefs=10)), 'INCONCLUSIVE')
 
 

@@ -275,11 +275,11 @@ def analyze(series, mode):
     ranks = {sc: tuple(sorted(m, key=lambda c: (m[c], c))) for sc, m in med.items()}
     rob_same = len(set(ranks.values())) == 1
     ties = [sc for sc, m in med.items() if len(set(m.values())) < len(m)]
-    sep_v = 'PASS' if sep > K.SEP_PASS else ('KILL' if sep <= K.SEP_KILL else 'MID')
-    stab_v = 'PASS' if (both and stab >= K.STAB_PASS) else ('KILL' if stab < K.STAB_KILL else 'MID')
+    sep_v = 'PASS' if sep > K.SEP_PASS else ('FALSIFIED' if sep <= K.SEP_FALSIFIED else 'MID')
+    stab_v = 'PASS' if (both and stab >= K.STAB_PASS) else ('FALSIFIED' if stab < K.STAB_FALSIFIED else 'MID')
     rob_v = 'PASS' if rob_same and chans else 'FAIL'
-    if sep_v == 'KILL' or stab_v == 'KILL':
-        verdict = 'KILL'
+    if sep_v == 'FALSIFIED' or stab_v == 'FALSIFIED':
+        verdict = 'FALSIFIED'
     elif sep_v == 'PASS' and stab_v == 'PASS' and rob_v == 'PASS':
         verdict = 'PASS'
     else:
@@ -290,12 +290,12 @@ def analyze(series, mode):
 
 
 def deciding(a):
-    if a['verdict'] == 'KILL':
+    if a['verdict'] == 'FALSIFIED':
         bits = []
-        if a['sep_v'] == 'KILL':
-            bits.append('separation %d <= %d' % (a['sep'], K.SEP_KILL))
-        if a['stab_v'] == 'KILL':
-            bits.append('stability %.1f%% < %d%%' % (100 * a['stab'], int(100 * K.STAB_KILL)))
+        if a['sep_v'] == 'FALSIFIED':
+            bits.append('separation %d <= %d' % (a['sep'], K.SEP_FALSIFIED))
+        if a['stab_v'] == 'FALSIFIED':
+            bits.append('stability %.1f%% < %d%%' % (100 * a['stab'], int(100 * K.STAB_FALSIFIED)))
         return '; '.join(bits)
     return 'separation %d (pass > %d), stability %.1f%% (pass >= %d%%), robustness %s' % (
         a['sep'], K.SEP_PASS, 100 * a['stab'], int(100 * K.STAB_PASS), a['rob_v'])
@@ -344,7 +344,7 @@ def report(series, log, ex, un):
           '| pe entity | Jaccard × 255 | already 0–1 |',
           '| PI_SCALE | %d (robustness %s) | brief |' % (K.PI_SCALE, K.PI_SCALES_ROBUSTNESS),
           '| thresholds | sep >%d / ≤%d; stab ≥%d%% / <%d%%, tol %d; min n %d | brief |' % (
-              K.SEP_PASS, K.SEP_KILL, 100 * K.STAB_PASS, 100 * K.STAB_KILL, K.STAB_TOL, K.MIN_RESIDUALS)]
+              K.SEP_PASS, K.SEP_FALSIFIED, 100 * K.STAB_PASS, 100 * K.STAB_FALSIFIED, K.STAB_TOL, K.MIN_RESIDUALS)]
     L += ['', '## Scope', '',
           '- Files under `master/` (`**/*.md`): **%d** (the RFC assumed 78; the archive has grown). Deduplicated on (node, lane, stream, t_ms, body digest).' % log['files'],
           '- Distinct records kept: ' + ', '.join('@LAT%d %d' % (k, v) for k, v in sorted(log['records'].items())),

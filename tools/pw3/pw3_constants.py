@@ -4,8 +4,8 @@ Committed BEFORE any replay code exists. Do not change after seeing data.
 Protocol prose: PW3-PROTOCOL.md (same directory). Reuses pw2_constants for the rule values.
 """
 # RFC section 8 PW-3 thresholds (already pre-committed there)
-DISAGREE_MAX = 0.05          # KILL if more than 5 % of beliefs disagree
-AIRTIME_FALL_MIN = 0.30      # KILL if airtime falls by less than 30 %
+DISAGREE_MAX = 0.05          # FALSIFIED if more than 5 % of beliefs disagree
+AIRTIME_FALL_MIN = 0.30      # FALSIFIED if airtime falls by less than 30 %
 MIN_SERIES = 20              # fewer beliefs than this -> INCONCLUSIVE
 
 # Gate, RFC 6.3 / 9.1

@@ -20,9 +20,9 @@ PI_SCALES_ROBUSTNESS = (4096, 8192, 16384)
 # Decision rule
 MIN_RESIDUALS = 30         # per series, and per half for the stability check
 DRIFT_FLAG = 24            # |pi_ewma - pi_mean| above this flags the series as drifting
-SEP_PASS, SEP_KILL = 32, 16          # range of per-channel median pi across nodes: pass >, kill <=
+SEP_PASS, SEP_FALSIFIED = 32, 16          # range of per-channel median pi across nodes: pass >, falsified <=
 STAB_TOL = 24                        # |pi1 - pi2| <=
-STAB_PASS, STAB_KILL = 0.70, 0.50    # share of series: pass >=, kill <
+STAB_PASS, STAB_FALSIFIED = 0.70, 0.50    # share of series: pass >=, falsified <
 
 # Archive scope (decided 2026-11-22): all master/**/*.md, deduplicated on
 # (node, lane, stream, t_ms, body digest); node = filename prefix up to first '_' ;

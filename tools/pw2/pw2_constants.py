@@ -38,13 +38,13 @@ PW2_NOISE_FRACTION_NUM = 3    # noise magnitude uniform in [0, span * 3 / 5), ra
 PW2_NOISE_FRACTION_DEN = 5    # observation clamped to the channel's valid range
 # Verdict (flips = body rewrites counted as rev increments after INJECT_AT, summed over cohort):
 PW2_PASS_RATIO = 0.5          # PASS if flips_gain <= 0.5 * flips_fixed
-                              # KILL if flips_gain >= flips_fixed (RFC section 8)
+                              # FALSIFIED if flips_gain >= flips_fixed (RFC section 8)
 PW2_MIN_COHORT = 5            # fewer cohort beliefs than this -> INCONCLUSIVE
 
 # --- PW-4 design ----------------------------------------------------------------------
 # Every replay (PW-2 both rules, plus a plain archive replay) is run twice: workspace
 # disabled/empty vs enabled. Verdict key = SHA-256 of the final belief store (sorted).
-# PASS iff every pair is byte-identical. KILL on any difference. A canary variant that
+# PASS iff every pair is byte-identical. FALSIFIED on any difference. A canary variant that
 # deliberately reads the workspace in the update path MUST be detected as different, else
 # the test is vacuous and the verdict is INCONCLUSIVE.
 PW4_CANARY_REQUIRED = True
