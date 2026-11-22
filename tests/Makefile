@@ -139,6 +139,10 @@ EW_SRCS := test_ew.cpp \
 PREC_SRCS := test_precision.cpp \
         $(LIB)/Precision/src/Precision.cpp \
         $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
+# Stage 3 D3b: the fold JOB (PrecisionJob.h) against the REAL Ttdb through tests/shim/, the
+# store cut and appended between passes. Leaves test_precision_job.out.md for the gate test.
+PJOB_SRCS := test_precision_job.cpp         $(LIB)/Precision/src/Precision.cpp $(LIB)/TTDB/src/TTDB.cpp         $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
+PJOB_FLAGS := -I shim
 
 test: build
 	./test_toot
@@ -164,8 +168,9 @@ test: build
 	./test_attention
 	./test_ew
 	./test_precision
+	./test_precision_job
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS) $(EW_SRCS) $(PREC_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS) $(EW_SRCS) $(PREC_SRCS) $(PJOB_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -189,6 +194,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ATT_SRCS) -o test_attention
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EW_SRCS) -o test_ew
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PREC_SRCS) -o test_precision
+	$(CXX) $(CXXFLAGS) $(PJOB_FLAGS) $(INCLUDES) $(PJOB_SRCS) -o test_precision_job
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -210,6 +216,6 @@ clean:
 	      test_episode_delivery test_episode_delivery.exe \
 	      test_attention test_attention.exe \
 	      test_ew test_ew.exe \
-	      test_precision test_precision.exe
+	      test_precision test_precision.exe 	      test_precision_job test_precision_job.exe
 
 .PHONY: test build clean

@@ -4316,12 +4316,15 @@ void loop() {
         Serial.println();
         gDelivery.print(Serial);
       }
-      // RFC-0011 stage 3: "fold in Replay" = fold here (design §2). One channel per cycle;
-      // its `[prec] … ms:` line is the D3 budget measurement (fold <= 100 ms).
-      gPrecision.serviceCycle(gDb, gEpisodes.scratch(), gEpisodes.scratchCap(), kNodeId,
-                              gStreamWallSec, gStamp, Serial);
+      // RFC-0011 stage 3: "fold in Replay" = fold here (design §2). One channel per cycle,
+      // STARTED here and folded as a job below (D3b, §5.1: the synchronous fold measured
+      // 141-288 ms in run 1, over D3's 100 ms budget).
+      gPrecision.startCycle(Serial);
     }
   }
+  // D3b: <= 2 episodes per pass; `[prec] … worst_pass_ms:` is the budget (<= 100 ms).
+  gPrecision.service(gDb, gEpisodes.scratch(), gEpisodes.scratchCap(), kNodeId,
+                     gStreamWallSec, gStamp, Serial);
 
   sectMark();                       // [2] end of "linkperc": the @LAT97 tier
 

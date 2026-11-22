@@ -297,6 +297,15 @@ void Fold::note(int32_t lon) {
   ++episodes_;
 }
 
+void Fold::reset(uint8_t chan) {
+  chan_ = chan;
+  var_ = 0;
+  n_ = episodes_ = excluded_ = segments_ = peers_absent_ = skipped_ = 0;
+  from_ = through_ = -1;
+  have_prev_ = false;
+  prev_.why = cur_.why = OK;
+}
+
 void Fold::skip(int32_t lon) {
   note(lon);
   ++skipped_;
@@ -400,11 +409,27 @@ void readOnFlash(const char* rec, size_t len, OnFlash& out) {
   out.prec = (uint8_t)(p > 255 ? 255 : p);
   out.rev = ew.has_rev ? ew.rev : 0;
   out.created = (uint32_t)(created > 0xFFFFFFFFull ? 0xFFFFFFFFu : created);
+  // **FOLD** ... from:@LAT103LON<a>   (design D7). Absent or malformed -> has_from false.
+  const char* fl = findIn(rec, end, "**FOLD**");
+  if (fl) {
+    const char* fe = (const char*)memchr(fl, '\n', (size_t)(end - fl));
+    if (!fe) fe = end;
+    static const char kNeedle[] = " from:@LAT103LON";
+    const char* q = findIn(fl, fe, kNeedle);
+    if (q) {
+      q += sizeof(kNeedle) - 1;
+      int32_t v = 0;
+      int digits = 0;
+      while (q < fe && *q >= '0' && *q <= '9' && digits < 6) { v = v * 10 + (*q++ - '0'); ++digits; }
+      if (digits > 0 && (q == fe || *q == ' ' || *q == '\r')) { out.has_from = true; out.from = v; }
+    }
+  }
 }
 
 bool shouldWrite(const OnFlash& old, const Fold& f) {
   if (f.n() == 0) return false;
   if (!old.present) return true;
+  if (!old.has_from || old.from != f.from()) return true;   // D7: the window moved
   const int d = (int)f.prec() - (int)old.prec;
   return (d < 0 ? -d : d) > PRECISION_WRITE_DELTA;
 }

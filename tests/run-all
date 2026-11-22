@@ -40,7 +40,7 @@ TS="$LIB/TimeStream/src/TimeStream.cpp"
 declare -a NAMES=(toot linkpercept entitypercept motionpercept perceptlearn rfc_ttdb
                   symmetric_edges nmea pulse timestream
                   tracefield social sid citation ttdb_index semantic episode fleettime episode_order
-                  episode_delivery attention ew precision)
+                  episode_delivery attention ew precision precision_job)
 declare -A SRCS=(
   [toot]="$LIB/Toot/src/Toot.cpp $LIB/Toot/src/TootCrypto.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [linkpercept]="$TS $LIB/LinkPercept/src/LinkPercept.cpp"
@@ -60,6 +60,7 @@ declare -A SRCS=(
   [semantic]="$LIB/Semantic/src/Semantic.cpp"
   [attention]="$LIB/Attention/src/Attention.cpp"
   [precision]="$LIB/Precision/src/Precision.cpp $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
+  [precision_job]="$LIB/Precision/src/Precision.cpp $LIB/TTDB/src/TTDB.cpp $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [ew]="$TS $LIB/PerceptLearn/src/PerceptLearn.cpp $LIB/TTDB/src/Sid.cpp $LIB/TTDB/src/TtdbParse.cpp"
   [episode]="$LIB/Semantic/src/Episode.cpp $LIB/Semantic/src/Semantic.cpp $LIB/TTDB/src/TtdbParse.cpp $TS $LIB/EntityPercept/src/EntityPercept.cpp $LIB/AcousticPercept/src/AcousticPercept.cpp $LIB/LinkPercept/src/LinkPercept.cpp $LIB/MotionPercept/src/MotionPercept.cpp"
   [fleettime]="$LIB/Semantic/src/FleetTime.cpp $LIB/Semantic/src/Semantic.cpp"
@@ -68,7 +69,7 @@ declare -A SRCS=(
 )
 # ttdb_index drives the REAL Ttdb through tests/shim/ (stand-ins for <Arduino.h>/<FS.h>)
 # with a small cap so index saturation is reachable in a fixture, not at 289 records.
-declare -A XFLAGS=( [ttdb_index]="-I shim -DTTDB_MAX_RECORDS=16" )
+declare -A XFLAGS=( [ttdb_index]="-I shim -DTTDB_MAX_RECORDS=16" [precision_job]="-I shim" )
 
 [ $# -gt 0 ] && NAMES=("$@")
 

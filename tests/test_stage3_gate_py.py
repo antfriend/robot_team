@@ -74,6 +74,19 @@ def main():
         # gate() on a pull with only one channel is not the stage pass (main() says NOT YET)
         check(G.main([_tmp(sample)]) == 1, "one channel of four is not a gate pass")
 
+    # 4. a record the D3b JOB wrote through the real Ttdb (append + removeCuts, rev 1 after
+    #    the oldest episode was cut: design D7). test_precision_job leaves the store behind.
+    jout = os.path.join(HERE, "test_precision_job.out.md")
+    check(os.path.exists(jout), "tests/test_precision_job.out.md exists (run test_precision_job first)")
+    if os.path.exists(jout):
+        with open(jout, encoding="utf-8", newline="") as fh:
+            store = fh.read()
+        res = G.gate(store)
+        check(len(res) == 1 and res[0][1] == "MATCH",
+              f"the job-written record (rev 1, from moved) gates MATCH (got {res})")
+        check("rev:1" in store and "from:@LAT103LON24577" in store,
+              "the job store holds the D7 rewrite (rev 1, from @LAT103LON24577)")
+
     print(f"stage3_gate: {len(cases)} vector case(s), {fails} failure(s)")
     return 1 if fails else 0
 

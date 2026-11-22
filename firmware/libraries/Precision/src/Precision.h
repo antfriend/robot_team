@@ -77,11 +77,13 @@ struct Window {
 // Parse one episode record (`said: N | ` prefixes stripped line by line). Always fills `w`.
 void parseWindow(uint8_t chan, const char* text, size_t len, Window& w);
 
-// The fold over one channel, fed episodes in FILE ORDER. ~1 KB (two Windows): keep it on the
-// stack of the function that runs the fold, never static (docs/design §5).
+// The fold over one channel, fed episodes in FILE ORDER. 1 248 B (two Windows). Since D3b
+// (docs/design §5.1) it lives in the static precision::Job and is reset() per job; reset()
+// clears in place because a `*this = Fold(c)` would put a second 1.2 KB copy on the stack.
 class Fold {
  public:
-  explicit Fold(uint8_t chan) : chan_(chan) {}
+  explicit Fold(uint8_t chan = CH_LINK) : chan_(chan) {}
+  void reset(uint8_t chan);
   // `lon` = the episode's LON. Every episode of the band is passed, parsed or not.
   void add(const char* text, size_t len, int32_t lon);
   void skip(int32_t lon);              // an episode the caller could not read whole
@@ -126,11 +128,14 @@ struct OnFlash {
   uint8_t prec = 0;
   uint16_t rev = 0;
   uint32_t created = 0;
+  bool has_from = false;    // the **FOLD** line's from:@LAT103LON<a> parsed (design D7)
+  int32_t from = -1;
 };
 void readOnFlash(const char* rec, size_t len, OnFlash& out);
 
-// Design §4: write when nothing is on flash or |π - π_flash| > PRECISION_WRITE_DELTA; never
-// when n == 0.
+// Design §4: write when nothing is on flash, or |π - π_flash| > PRECISION_WRITE_DELTA, or
+// (D7) the fold's `from` differs from the on-flash record's (an unparseable from: differs);
+// never when n == 0.
 bool shouldWrite(const OnFlash& old, const Fold& f);
 
 }  // namespace precision

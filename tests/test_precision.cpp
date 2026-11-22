@@ -245,6 +245,17 @@ int main(int argc, char** argv) {
     readOnFlash(rec, m, of);
     CHECK(of.present && of.prec == f.prec() && of.rev == 3 && of.created == 1790000000u,
           "readOnFlash: prec %u rev %u created %lu", of.prec, of.rev, (unsigned long)of.created);
+    CHECK(of.has_from && of.from == 16384 && of.from == f.from(),
+          "readOnFlash: from %ld = the fold's from (D7)", (long)of.from);
+    {  // a mangled from: reads as absent, and absent counts as moved (D7)
+      std::string bad(rec, m);
+      const size_t at = bad.find("from:@LAT103LON");
+      bad.replace(at, 15, "from:@LAT103LOX");
+      OnFlash ob;
+      readOnFlash(bad.data(), bad.size(), ob);
+      CHECK(ob.present && !ob.has_from, "an unparseable from: -> has_from false");
+      CHECK(shouldWrite(ob, f), "an unparseable from: -> write (D7)");
+    }
     CHECK(strstr(rec, "predictor:previous_window") && strstr(rec, "from:@LAT103LON16384") &&
               strstr(rec, "through:@LAT103LON16385") && strstr(rec, "pe_span:60") &&
               strstr(rec, "**STAMP** t_ms:120000"),
@@ -271,10 +282,41 @@ int main(int argc, char** argv) {
     CHECK(shouldWrite(absent, f), "nothing on flash -> write");
     OnFlash near;
     near.present = true;
+    near.has_from = true;
+    near.from = f.from();
     near.prec = 247;
-    CHECK(!shouldWrite(near, f), "|255 - 247| = 8 -> no write");
+    CHECK(!shouldWrite(near, f), "|255 - 247| = 8, same from -> no write");
     near.prec = 246;
     CHECK(shouldWrite(near, f), "|255 - 246| = 9 -> write");
+    // D7: the window moved -> write even at delta 0; no from on flash -> write
+    near.prec = 255;
+    CHECK(!shouldWrite(near, f), "delta 0, same from -> no write");
+    near.from = f.from() + 1;
+    CHECK(shouldWrite(near, f), "delta 0, from moved -> write (D7)");
+    near.from = f.from();
+    near.has_from = false;
+    CHECK(shouldWrite(near, f), "delta 0, no from on flash -> write (D7)");
+    CHECK(!shouldWrite(near, none), "n = 0 never writes, even with the window moved");
+    // reset() in place == a fresh Fold (D3b reuses one static Fold)
+    Fold r(CH_LINK);
+    r.add(a, strlen(a), 5);
+    r.skip(6);
+    r.add(b, strlen(b), 7);
+    CHECK(r.n() == 1, "pre-reset fold has a residual");
+    r.reset(CH_LINK);
+    CHECK(r.chan() == CH_LINK && r.n() == 0 && r.var() == 0 && r.episodes() == 0 &&
+              r.skipped() == 0 && r.excluded() == 0 && r.segments() == 0 && r.from() == -1 &&
+              r.through() == -1,
+          "reset() clears every counter");
+    // LATER t_ms than b: with the same t, a carried prev would break the segment anyway
+    // and hide (mutation-tested 2026-11-22: that version of this check let it through).
+    const char* c3 =
+        "@LAT103LON2 | x\n**LINKWIN** t_ms:3 stream:0x1\n**LINK** peer:0x1 proto:ble rssi_med:-40\n";
+    r.add(c3, strlen(c3), 2);   // a carried prev window (b) would give a residual here
+    CHECK(r.n() == 0 && r.segments() == 1 && r.from() == 2,
+          "a reset Fold carries no previous window (n %lu)", (unsigned long)r.n());
+    r.reset(CH_MOTION);
+    CHECK(r.chan() == CH_MOTION, "reset() sets the channel");
     // overflow EXCLUDES the window; it never truncates it
     std::string many = "@LAT103LON0 | x\n**LINKWIN** t_ms:1 stream:0x1\n";
     for (int i = 0; i < PRECISION_MAX_LINK_KEYS + 1; ++i) {
