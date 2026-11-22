@@ -356,6 +356,14 @@ def report(root, series, log, ex, un):
     L += ['', '## Checks — runs not expanded', ''] + checks(un)
     L += ['', '## Series — runs expanded', ''] + table(ex, series, 'exp')
     L += ['', '## Series — runs not expanded', ''] + table(un, series, 'unexp')
+    m8 = ex['median'][K.PI_SCALE]
+    sat = sorted(c for c, v in m8.items() if v >= 250)
+    L += ['', '## Reading the result (descriptive; no threshold was changed)', '',
+          '- Channels whose median π is >= 250 (saturated near the 255 ceiling): %s. Of the %d channels, the separation figure is the gap between the lowest median (%s, %d) and the highest (%s, %d).' % (
+              ', '.join(sat) or 'none', len(m8), min(m8, key=lambda c: (m8[c], c)), min(m8.values()),
+              max(m8, key=lambda c: (m8[c], c)), max(m8.values())),
+          '- Saturated channels are mutually indistinguishable at this resolution, and the robustness check ties on them; the rank order among them rests on name tie-breaking. The pre-registered rule is met as written, but a pass resting on one channel separating from the rest is weaker evidence for per-channel gain than separation spread across all four.',
+          '- Series flagged DRIFT (EWMA vs mean π differ by > %d): %s.' % (K.DRIFT_FLAG, ', '.join('%s/%s' % k for k, r in ex['rows'].items() if r['drift']) or 'none')]
     L += ['', '## Exclusions and notes', '']
     short = sorted((k, len(s['exp'])) for k, s in series.items() if len(s['exp']) < K.MIN_RESIDUALS)
     L.append('- Series below %d residuals (excluded): %s' % (K.MIN_RESIDUALS, '; '.join('%s/%s n=%d' % (k[0], k[1], n) for k, n in short) or 'none'))
