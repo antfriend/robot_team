@@ -55,6 +55,7 @@
 #include <PerceptLearn.h>    // Learning from Action Rules 1+2: predict, then testify -> @LAT92
 #include <EpisodeDeliveryNode.h>  // C4 stage 2: fetch peers' link episodes into @LAT105 + the bar view
 #include <EpisodeNode.h>     // ACT-III §C2: every percept tier -> @LAT103 episodes, @LAT104 folds
+#include <PrecisionNode.h>   // TTDB-RFC-0011 stage 3: π per channel -> @LAT108, observed only
 #include <FleetTime.h>       // ACT-III §C4: `at: <pulse> ±<bound>` (TTG-RFC-0004 §4.3)
 #include <TraceFieldNode.h>  // stigmergy you can hear: deposits decay, peers merge on HELLO
 #include <AcousticPercept.h> // SP0 acoustic tier: what did it hear? -> @LAT94
@@ -163,6 +164,11 @@ static perceptlearn::Loop gLearn;
 // @LAT94-97 outright; the PHASEC_EPISODES kill switch that kept the old path for the A/B
 // was deleted with the caps in Phase C0 (2026-10-02).
 static episodenode::Node gEpisodes;
+// TTDB-RFC-0011 stage 3 (docs/design/rfc0011-stage3.md): each Stage D cycle refolds ONE
+// channel's π from the @LAT103 episodes on flash into @LAT108. OBSERVED ONLY — nothing reads
+// @LAT108, so no belief or behaviour changes. Holds a rotation byte; it borrows gEpisodes'
+// scratch and keeps its fold on the stack (no new static buffer: docs/log/2026-10.md).
+static precision::Node gPrecision;
 // ACT-III §C4 (docs/design/episode-order.md): this node's per-agent `seq` and the vector of
 // every other node's it has heard of. gOrderIn is the ONLY thing the recv callback touches;
 // loop() drains it into gOrder, which gEpisodes reads at every render.
@@ -4310,6 +4316,10 @@ void loop() {
         Serial.println();
         gDelivery.print(Serial);
       }
+      // RFC-0011 stage 3: "fold in Replay" = fold here (design §2). One channel per cycle;
+      // its `[prec] … ms:` line is the D3 budget measurement (fold <= 100 ms).
+      gPrecision.serviceCycle(gDb, gEpisodes.scratch(), gEpisodes.scratchCap(), kNodeId,
+                              gStreamWallSec, gStamp, Serial);
     }
   }
 

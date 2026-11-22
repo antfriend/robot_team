@@ -119,8 +119,11 @@ touched:<t>
   Cardputer, starving BLE). Episodes are read into, and the record is rendered into,
   `EpisodeNode::scratch()`. Nothing else uses it during Stage D: the link window has
   already been appended, and the other tiers flush later in the pass.
-- **Fold state on the stack**, ~250 B: at most 12 link keys and 24 BSSIDs × 2 sets.
-  An overflow is counted as `excluded` with reason `overflow`, never truncated silently.
+- **Fold state on the stack: 1 248 B, measured** (`sizeof(precision::Fold)`: two parsed
+  windows of 600 B, each holding ≤ 10 link keys and ≤ 16 BSSIDs of ≤ 16 hex). The first
+  draft of this doc said ~250 B; that was an estimate, and it was wrong by 5×. The `[prec]` line
+  prints the loop task's stack high-water mark (`stack_free:`), so the margin is read on
+  hardware. An overflow is counted as `excluded` with reason `overflow`, never truncated.
 - **Static state:** a rotation counter only. The old `π`/`rev` are re-read from flash at
   each write decision, so the record stays the only source.
 - **Time:** unmeasured. Each fold prints

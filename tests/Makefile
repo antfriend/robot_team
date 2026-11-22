@@ -4,7 +4,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -O2
 LIB := ../firmware/libraries
-INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src -I$(LIB)/Attention/src
+INCLUDES := -I$(LIB)/Toot/src -I$(LIB)/TTDB/src -I$(LIB)/LinkPercept/src -I$(LIB)/EntityPercept/src -I$(LIB)/AcousticPercept/src -I$(LIB)/MotionPercept/src -I$(LIB)/PerceptLearn/src -I$(LIB)/Gps/src -I$(LIB)/Pulse/src -I$(LIB)/TraceField/src -I$(LIB)/TimeStream/src -I$(LIB)/Social/src -I$(LIB)/Semantic/src -I$(LIB)/Attention/src -I$(LIB)/Precision/src
 SRCS := test_toot.cpp \
         $(LIB)/Toot/src/Toot.cpp \
         $(LIB)/Toot/src/TootCrypto.cpp \
@@ -134,6 +134,11 @@ ATT_SRCS := test_attention.cpp $(LIB)/Attention/src/Attention.cpp
 EW_SRCS := test_ew.cpp \
         $(LIB)/PerceptLearn/src/PerceptLearn.cpp $(TS) \
         $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
+# TTDB-RFC-0011 stage 3: the @LAT108 fold (docs/design/rfc0011-stage3.md). Its other half is
+# tools/stage3/test_stage3_gate.py; both read tests/vectors/precision_vectors.txt.
+PREC_SRCS := test_precision.cpp \
+        $(LIB)/Precision/src/Precision.cpp \
+        $(LIB)/TTDB/src/Sid.cpp $(LIB)/TTDB/src/TtdbParse.cpp
 
 test: build
 	./test_toot
@@ -158,8 +163,9 @@ test: build
 	./test_episode_delivery
 	./test_attention
 	./test_ew
+	./test_precision
 
-build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS) $(EW_SRCS)
+build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRCS) $(NMEA_SRCS) $(PULSE_SRCS) $(TF_SRCS) $(TSTREAM_SRCS) $(SOC_SRCS) $(SID_SRCS) $(CIT_SRCS) $(IDX_SRCS) $(SEM_SRCS) $(EPI_SRCS) $(FT_SRCS) $(EO_SRCS) $(ED_SRCS) $(ATT_SRCS) $(EW_SRCS) $(PREC_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SRCS) -o test_toot
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LP_SRCS) -o test_linkpercept
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EP_SRCS) -o test_entitypercept
@@ -182,6 +188,7 @@ build: $(SRCS) $(LP_SRCS) $(EP_SRCS) $(MP_SRCS) $(PL_SRCS) $(RFC_SRCS) $(SYM_SRC
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ED_SRCS) -o test_episode_delivery
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(ATT_SRCS) -o test_attention
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(EW_SRCS) -o test_ew
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(PREC_SRCS) -o test_precision
 
 clean:
 	rm -f test_toot test_toot.exe test_linkpercept test_linkpercept.exe \
@@ -202,6 +209,7 @@ clean:
 	      test_episode_order test_episode_order.exe \
 	      test_episode_delivery test_episode_delivery.exe \
 	      test_attention test_attention.exe \
-	      test_ew test_ew.exe
+	      test_ew test_ew.exe \
+	      test_precision test_precision.exe
 
 .PHONY: test build clean
