@@ -259,3 +259,39 @@ maxalloc 147444`.
   (every Δ ≤ 8), so pull 2 re-checked pull 1's records rather than new ones. Hence D7 and
   the §6 run-2 condition.
 - Stack held: 2,712 B was the lowest free mark. No reset; running heap was 15.6–19.0 KB free.
+
+## 10. Run 2 (2026-11-22, build `3b86d6f`, D3b + D7): stage NOT PASSED
+
+Firmware only (FS untouched). One held connection for 40 minutes from reset, then pull 1, then
+pull 2 thirteen minutes later. One boot banner and no reset over the held window. Boot:
+`heap 189104 free, maxalloc 147444`.
+
+- **D3b budget: PASSED.** Across 14 finished jobs (≥ 3 per channel), `worst_pass_ms` was
+  **8–17 ms** against 100 ms. Totals were 63–362 ms spread over 9–24 passes. No `ABORTED`,
+  no `busy`. Stack was 2,956 B free at worst; heap 16.6–22.3 KB free.
+- **D7 worked as designed:** motion rewrote once (`from moved 16546->16555`) and acoustic
+  three times (27924→28023→28041→28059). Link and entity windows did not move, so they did
+  not rewrite (d = 0, 4, 6).
+- **⚠ A rewrite costs about 3 s, not 58–122 ms.** The four rewrites took `ms_write` 2,889–3,028 ms,
+  and each shows as a `linkperc` worst pass of 2.9–3.0 s. Run 1's 58–122 ms were **first
+  writes** (append only). A rewrite is `removeCuts`, a whole-file rewrite of a ~185 KB TTDB.
+  Writes were outside the budget by design (§5), but on this run they **doubled the rate of
+  whole-file rewrites** (4 from `@LAT108` against 2 episode cuts and 1 delivery cut).
+- **Gate, pull 1** (3:04 pm, `tools/stage3/pulls/cardputer_20261122_1504_r2g1.md`): **MATCH × 4**.
+- **Gate, pull 2** (3:17 pm, `…_1517_r2g2.md`): link, entity, motion MATCH; **acoustic
+  UNVERIFIABLE** again. Its record (rev 3, `@LAT103LON28059..28075`) had been cut **past its
+  `through`** (oldest on flash: 28077). Independence: link, entity and motion UNMOVED;
+  acoustic NOT-INDEPENDENT.
+- **Unexplained:** the acoustic job should have run at least once between the two pulls.
+  Rotation runs every 3 minutes, whether or not the pull reset the board. It would have
+  moved `from` and rewritten. Pull 2 still holds rev 3. With no serial capture between the
+  pulls, the candidates (an abort, `FAILED (removeCuts)` under low heap, `busy`) cannot be
+  told apart. Next instrument: hold the port **without reset** between the two pulls.
+- **Acoustic churns faster than one rotation.** From 27924 to 28077 is about 150 episodes in
+  roughly 2.5 h, about 1 a minute, against a quota of 24 with batched cuts. So a record that is
+  12 minutes old can lose its whole range. D7 makes a record verifiable when it is written;
+  it cannot keep it verifiable until an arbitrary pull.
+
+Correctness so far: every record that could be checked is MATCH. That is 14 MATCH, 0 FAIL
+over 4 pulls and 2 builds. The failures are verifiability (acoustic) and write cost, not the
+fold.
