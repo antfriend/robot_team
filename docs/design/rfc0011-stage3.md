@@ -19,6 +19,7 @@ gain, screen or radio behaviour changes.
 | D6 | Gate pulls go to **`tools/stage3/pulls/`**, never `master/` | Brief: never write to `master/` |
 | D3b | **Taken 2026-11-22 after run 1 (§9): the synchronous fold measured 141–288 ms, over D3's 100 ms budget.** The fold becomes a job, spec in §5.1 | D3's own rule, applied as registered |
 | D7 | **Added 2026-11-22 after run 1 (§9): also write when the fold's `from` differs from the on-flash record's `from`** (§4) | Run 1 showed a record kept by the Δ-rule outliving its own episodes: UNVERIFIABLE by construction |
+| D8–D10 | **Added 2026-11-22 after run 2 (§10), spec in §11:** D8 delete `@LAT108` records only inside the episode tier's own cut (never a rewrite of our own); D9 the gate may read episodes from an earlier pull; D10 the port is held without reset between the two pulls | A rewrite measured ~3 s; acoustic's range was cut before any pull could check it; the gap between pulls had no serial |
 
 ## 2. Where it runs
 
@@ -295,3 +296,79 @@ pull 2 thirteen minutes later. One boot banner and no reset over the held window
 Correctness so far: every record that could be checked is MATCH. That is 14 MATCH, 0 FAIL
 over 4 pulls and 2 builds. The failures are verifiability (acoustic) and write cost, not the
 fold.
+
+## 11. Run 3 changes: D8, D9, D10 (normative from 2026-11-22; supersede §4's replacement rule)
+
+### D8. A record leaves flash only with the episodes it was folded from
+
+The only thing that removes `@LAT103` episodes is the episode tier's cut (`EpisodeNode::cut`;
+delivery cuts touch `@LAT105`/`@LAT106` only). So:
+
+- **Rider cut.** `EpisodeNode` gets a *cut rider* (a function-pointer pair plus a context,
+  like its boot sink). Just before its one `removeCuts`, it asks the rider for extra cuts
+  and appends them to the same call, so there is **one whole-file rewrite**, not two. For
+  each channel that has a `@LAT108` record on flash, the rider adds `{108, k, k}` when
+  either of these holds:
+  - this cut touches band `k` (any `@LAT103` cut whose `lon_lo` falls in band `k`), or
+  - the channel is marked **stale** (below).
+
+  Before cutting, it reads that record's `rev` and `created` into RAM (a 4-entry **carry**).
+  After the cut, it is told whether `removeCuts` succeeded.
+- **After a cut that succeeds:** each deleted channel is **queued for an immediate refold**.
+  Queued channels start ahead of the Stage D rotation as soon as no job is running, and the
+  rotation itself does not move. The refold finds no record on flash and **appends**, the
+  cheap path (58–122 ms in run 1), with `rev = carry.rev + 1` and the carried `created`. A
+  queued job that aborts stays queued. **After a cut that fails:** nothing changed on flash,
+  so the carry is dropped and the channel's stale mark is kept.
+- **The write rule, replacing §4 and D7.** If there is no record on flash and `n > 0`, it
+  appends. If there is a record, `|Δπ| > 8` or a `from` that differs from the fold's no
+  longer writes. It marks the channel **stale** and prints `deferred to next cut`, and the
+  next episode cut removes the record. A differing `from` is now an **invariant breach**:
+  under D8 a record's first episode can only go in the same rewrite as the record. The one
+  legitimate exception is a record written before D8, so it is printed as `(invariant)`.
+  **Precision never calls `removeCuts` itself.**
+- **Consequences:**
+  - The invariant: **every `@LAT108` record on flash names a range that is wholly on flash.**
+    The gate can check that directly.
+  - The cost: `@LAT108` adds **no rewrites**, only appends and up to 4 extra cut ranges in
+    a rewrite that was happening anyway.
+  - The price: between a cut and its refold, a few seconds, the channel has **no record**.
+    The gate reports that as `MISSING`, which is "pull again", never a pass. A `|Δπ| > 8`
+    change waits for the next cut, which comes every ~20 min (run 2: 2 episode cuts in
+    40 min). That is acceptable while `π` is observed and not yet used.
+- **State in RAM** (D1 still holds for the fold itself): a stale mask, a refold mask, and
+  the 4-entry carry (`rev`, `created`). That is about 30 B. The fold is still
+  recomputed from flash every time.
+- **Setup order:** the rider is attached **before** `gEpisodes.begin()`, so a boot-time cut
+  also removes the records whose episodes it takes.
+
+### D9. The gate may read episodes from an earlier pull
+
+Episodes are immutable once written (§5.1). So `stage3_gate.py <pull> --previous <earlier>`
+looks each episode of a record's range up in the current pull first, then in the earlier
+one. If an episode appears in both with **different text**, the record **FAILs**: an
+immutable record changed. A record verified partly from the earlier pull is MATCH with
+`(k from earlier pull)` in its detail. UNVERIFIABLE now means no pull saw the whole range.
+The range is walked by ordinal from `from` to `through` (wrapping at 8192). Its length must
+equal `episodes:`.
+
+### D10. The port is held, without reset, between the two pulls
+
+`tools/stage3/holdlog.py <port> <secs> [--reset]` writes serial **line by line, flushed**.
+`catchboot.py` buffers everything until it exits, which is why both runs' live watches saw
+nothing. `--reset` does catchboot's esptool reset and re-attach. Without it, the port is
+opened with DTR/RTS deasserted (`open_serial_no_reset`). Run 3 is:
+1. Flash.
+2. `holdlog --reset` for ≥ 40 min.
+3. Pull 1 and gate.
+4. `holdlog` (no reset) until pull 2, ≥ 12 min.
+5. Pull 2, gated with `--previous` pull 1.
+
+The gap that run 2 could not explain is then on record.
+
+**Run 3 pass condition:** as §6, plus:
+- the independence condition with `--previous`;
+- the §5.1 health condition;
+- **no `ms_write` over 200 ms**, because an append is the only write left;
+- **no `(invariant)` line after the first cut**, since any record written before D8 must be
+  gone by then.
