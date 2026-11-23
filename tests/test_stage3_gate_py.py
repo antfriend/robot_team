@@ -105,6 +105,12 @@ def main():
                   f"D9: a missing episode is read from the earlier pull (got {r})")
             r = G.gate(thin, ("",))
             check(len(r) == 1 and r[0][1] == "UNVERIFIABLE", f"D9: in no pull -> UNVERIFIABLE (got {r})")
+            # run 3's false FAIL: the same episode as the LAST record of the earlier pull
+            # (no trailing separator) and mid-file in this one must compare EQUAL
+            last = "\n---\n\n@LAT103LON24577 " + rest[0]
+            r = G.gate(store, (last,))
+            check(len(r) == 1 and r[0][1] == "MATCH",
+                  f"D9: an episode that ENDS the earlier pull compares equal (got {r})")
             r = G.gate(store, (store.replace("rms_mean:1036", "rms_mean:1037", 1),))
             check(len(r) == 1 and r[0][1] == "FAIL" and "differs" in r[0][2],
                   f"D9: an episode that changed between pulls FAILs (got {r})")

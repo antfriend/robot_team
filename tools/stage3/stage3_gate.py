@@ -188,7 +188,14 @@ def gate(text, earlier=()):
 
 
 def _norm(t):
-    return t.replace('\r\n', '\n').rstrip()
+    """An episode's text for the D9 comparison. ⚠ records() runs each record to the NEXT
+    header, so a record followed by another carries that record's `---` separator and the
+    file's LAST record does not. Run 3's pull 1 ended on @LAT103LON28198 and pull 2 did not,
+    so the identical episode compared as changed (a false FAIL). Strip the separator."""
+    t = t.replace('\r\n', '\n').rstrip()
+    while t.endswith('---'):
+        t = t[:-3].rstrip()
+    return t
 
 
 def _gate_d9(recs, old):

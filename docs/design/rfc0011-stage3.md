@@ -372,3 +372,34 @@ The gap that run 2 could not explain is then on record.
 - **no `ms_write` over 200 ms**, because an append is the only write left;
 - **no `(invariant)` line after the first cut**, since any record written before D8 must be
   gone by then.
+
+## 12. Run 3 (2026-11-22, build `7059962`, D8–D10): every condition met with a corrected gate tool
+
+Firmware only. `holdlog --reset` ran 40 min. Pull 1 at 5:04 pm, then `holdlog` with no
+reset for 13 min, then pull 2 at 5:18 pm.
+
+| Condition (§6, §5.1, §11) | Result |
+|---|---|
+| Pull 1 (`…_1704_r3g1.md`), all four channels | **MATCH × 4** |
+| Pull 2 (`…_1718_r3g2.md`) with `--previous` pull 1 | **as run: acoustic FAIL**; corrected gate: **MATCH × 4** (below) |
+| Independence (`--previous`) | **OK × 4**: entity rev 3→4 and acoustic 9→11 NEW-WRITE; link and motion UNMOVED |
+| D3b budget, worst job pass ≤ 100 ms over ≥ 9 jobs | **19 ms** worst over **25** finished jobs |
+| No `ms_write` > 200 ms | max **186 ms** (the acoustic append at heap 15.6 KB); others 51–65 ms |
+| No `(invariant)` after the first cut | **none at all** |
+| Health: no reset | one banner per hold; the second is the pull's own reset at 11.8 s. No crash. Stack 2,972 B free at worst, heap 15.7–22.6 KB |
+
+- **The as-run FAIL was a gate-tool defect, not an episode change.** `@LAT103LON28198`
+  is **byte-identical** in both pulls. Pull 1 ended on it, though, and `records()` gives each
+  record everything up to the next header. So in pull 2 that episode carried the following
+  record's `---` separator, and D9's comparison, which stripped only whitespace, counted it as
+  changed. The fix strips the separator. A test reproduces exactly this case: it fails on the
+  old comparison and passes on the new one. The pass condition itself is unchanged. **Whether
+  run 3 counts as the stage-3 pass under a corrected tool is Dan's call.**
+- **D8 seen working:** six rider cuts deleted records and refolded them by append, carrying
+  `rev` 2, 8, 9, 10, 4 and 11. Every refold started within 0.2 s of its cut. No precision
+  rewrite ran, and no `linkperc` stall near 3 s appeared.
+- **D10 captured the gap between pulls.** The pull reset the board; acoustic refolded at
+  12 s after a boot cut; entity and acoustic refolded again at 663 s. That is the step
+  run 2 could not see.
+- ⚠ **186 ms is within 14 ms of the write limit**, and it happened at the lowest heap of
+  the run. An append's cost is not fixed; read it again on any later run.
