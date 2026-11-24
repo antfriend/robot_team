@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it. Sync 2026-11-24 (later) from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.7 and TTG-RFC-0006 0.2, inheritance between constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.8 and TTG-RFC-0006 0.3, constructions with several parents; 46 records still; sal kept as re-scored here. Sync 2026-11-26 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.4, abstract constructions; 46 records still; sal kept as re-scored here."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it. Sync 2026-11-24 (later) from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.7 and TTG-RFC-0006 0.2, inheritance between constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.8 and TTG-RFC-0006 0.3, constructions with several parents; 46 records still; sal kept as re-scored here. Sync 2026-11-26 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.4, abstract constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-27 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.5, a verbish name tied to its verbs; 46 records still; sal kept as re-scored here."
 ```
 
 ---
@@ -977,15 +977,15 @@ in the speaker's own form already has its subject.
 
 ---
 
-@LAT60LON6 | created:1795478400 | updated:1795737600 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5
+@LAT60LON6 | created:1795478400 | updated:1795824000 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5
 [ew]
 conf:140
-rev:4
+rev:5
 sal:90
-touched:1795737600
+touched:1795824000
 [/ew]
 
-**TTG-RFC-0006 — Constructions: Shapes That Carry Meaning** (Draft, 0.4)
+**TTG-RFC-0006 — Constructions: Shapes That Carry Meaning** (Draft, 0.5)
 src: TTG-RFC-0006-Constructions.md
 
 A pattern can mean what none of its words do. A `constructions` grammar record pairs a
@@ -1003,8 +1003,9 @@ child names its parent (`| is_a caused motion`), says what its ancestors say, ov
 inherited atom on the same vector and things (a `not_` atom denies), and is tried before
 them. 0.3: several parents, one `is_a` part each; what they say alike is said once, and
 what they dispute is held unless the child says it. 0.4: abstract constructions, with an
-empty shape, never matched, only inherited from. Draft: implemented in the reference
-runtime; tying a verbish name to one word and matching inside a clause open.
+empty shape, never matched, only inherited from. 0.5: a verbish name tied to its verbs by
+lemma (`{V=knock}`), so a one-verb child inherits `V X Y`. Draft: implemented in the
+reference runtime; tied nounish names and matching inside a clause open.
 
 ---
 
