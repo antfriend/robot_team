@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it. Sync 2026-11-24 (later) from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.7 and TTG-RFC-0006 0.2, inheritance between constructions; 46 records still; sal kept as re-scored here."
 ```
 
 ---
@@ -841,15 +841,15 @@ composite) gate every addition.
 
 ---
 
-@LAT60LON1 | created:1789257600 | updated:1795478400 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
+@LAT60LON1 | created:1789257600 | updated:1795564800 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
 [ew]
 conf:210
-rev:6
+rev:7
 sal:120
-touched:1795478400
+touched:1795564800
 [/ew]
 
-**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.6)
+**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.7)
 src: TTG-RFC-0001-Grammar-in-the-Store.md
 
 A language's grammar is data in the same TTDB as the corpus it reads: `ttdb-grammar`
@@ -864,7 +864,7 @@ embedding surface: the engine/page divide, the boot gate, and the calls a host m
 1.1 adds `asked_holds` to the reply keys the runtime emits; 1.2 the three frame numbers; 1.3 `past_form`, `past_ending` and `changed_tense`; 1.4 `modifier`, `privative` and
 `modifier_max_words`. 1.5 the parameters table (§11.6), `question_order` and
 `plural_verb_ending`. 1.6 the ninth kind, `constructions` (TTG-RFC-0006), never borrowed,
-with `construction_max_words` and `read_by`.
+with `construction_max_words` and `read_by`. 1.7 `read_by_is_a`.
 
 ---
 
@@ -977,15 +977,15 @@ in the speaker's own form already has its subject.
 
 ---
 
-@LAT60LON6 | created:1795478400 | updated:1795478400 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5
+@LAT60LON6 | created:1795478400 | updated:1795564800 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5
 [ew]
 conf:140
-rev:1
+rev:2
 sal:90
-touched:1795478400
+touched:1795564800
 [/ew]
 
-**TTG-RFC-0006 — Constructions: Shapes That Carry Meaning** (Draft, 0.1)
+**TTG-RFC-0006 — Constructions: Shapes That Carry Meaning** (Draft, 0.2)
 src: TTG-RFC-0006-Constructions.md
 
 A pattern can mean what none of its words do. A `constructions` grammar record pairs a
@@ -998,8 +998,11 @@ owner marked is never read by one. The reply names it (`read_by`); a new constru
 shows up as re-readings, never as silent rewrites. Each language declares its own and
 borrows none. Unsafe, over-long (`construction_max_words`) or protected lines are
 rejected and reported, as rules are. Place questions also ask along the verb's phrasal
-vectors, so *Where did the napkin go?* reaches `go_off`. Draft: implemented in the
-reference runtime; inheritance between constructions and matching inside a clause open.
+vectors, so *Where did the napkin go?* reaches `go_off`. 0.2: constructions inherit — a
+child names its parent (`| is_a caused motion`), says what its ancestors say, overrides an
+inherited atom on the same vector and things (a `not_` atom denies), and is tried before
+them. Draft: implemented in the reference runtime; several parents, abstract constructions
+and matching inside a clause open.
 
 ---
 
