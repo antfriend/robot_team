@@ -232,7 +232,7 @@ orchestrates them live:
 | Spent handoff documents (history, not guidance) | [docs/handoffs/](docs/handoffs/) |
 | Design docs: sensorium, network, default network, stigmergy | [docs/design/](docs/design/) |
 | Board specs, wiring, solar | [docs/hardware/](docs/hardware/) |
-| Toot Toot Grammar — what Act III consolidates toward | `replicate/RFCs/TTG-RFC-000{1..5}` |
+| Toot Toot Grammar — what Act III consolidates toward | `replicate/RFCs/TTG-RFC-000{1..6}` |
 
 If a fact lives in one of these, link to it from here — don't copy it.
 

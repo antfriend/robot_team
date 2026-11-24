@@ -1,6 +1,6 @@
 # TTG-RFC-0003: Beliefs, Vector Reasoning and Grounded Response
 
-**Version:** 1.0
+**Version:** 1.6
 **Status:** Stable — implemented in the personal_grimoire reference runtime
 **RFC Number:** 0003
 **Project:** toot-toot-engineering
@@ -28,6 +28,7 @@ in the corpus, and how a reply is built from grounds.
 For each triple (subject, vector, object) over all non-comention, non-held percepts of the
 episodes on the episode lane (TTG-RFC-0002 §5.1):
 
+- a saying changed by a later one in the present tense is not counted (TTG-RFC-0004 §3.7);
 - per episode, `plus` = the largest weight of its `+` percepts, `minus` = the largest weight of
   its `-` percepts, where weight is `weight_partial` for quantifier `~` and 1 otherwise;
 - `for` = Σ plus, `against` = Σ minus, over episodes;
@@ -38,7 +39,8 @@ episodes on the episode lane (TTG-RFC-0002 §5.1):
 
 This is TTDB-RFC-0007's replay made deterministic: counting replaces random walks, the count
 is atemporal as §3.2 there requires, and the formation threshold is the same. A contested
-belief is kept, never resolved by recency. Order enters only through `exclusive` vectors, which
+belief is kept, never resolved by recency; the owner's own tense is not recency, and a
+change it says is read (TTG-RFC-0004 §3.7). Order enters only through `exclusive` vectors, which
 retire facts without touching consolidation (TTG-RFC-0004 §3).
 
 Beliefs are derived. A conforming implementation MUST be able to recompute every belief line
@@ -147,13 +149,33 @@ a VECTOR begins with its verb lemma plus `phrasal_join`. Words without purchase 
 | `wh_reason` + yes/no shape | verify |
 | `wh` + `cop` + (`wh_place` → objects along the place vector) / (`prep` → subjects) / noun phrases → describe | as stated |
 | `wh` + `aux`/`modal` + subject + verb | objects; with `wh_place`, the phrasal, bare and place vectors |
+| `wh_place` + verb + subject, under `question_order: verb_subject` | objects of the subject along the phrasal, bare and place vectors, the verb moved behind the subject |
+| `wh` + a verb in the speaker's own form (TTG-RFC-0005 §3, dropped subjects) and no thing after it | objects of the speaker; with `wh_place`, along the place vectors |
+| `wh` + verb + a thing that agrees with the verb in number (`plural_verb_ending`) and is not object-marked | objects of that thing |
 | `wh` + anything else | subjects |
 | `aux`/`modal`/`cop`/`hav` first, with a percept after moving it behind the subject | verify |
+| under `question_order: verb_subject`, a verb first and a subject after it, ending in `question_mark` | verify, the verb moved behind the subject |
 | an `about` word first | describe the following noun phrases |
 | a predicate yielding percepts | verify if it ends with `question_mark` (checking no mention), else perceive — unless the input is one segment alone (TTG-RFC-0005 §3), which is perceived only as the next row says |
 | one segment, ending in a `sentence_end` that is not `question_mark` | perceive: a mention (TTG-RFC-0005 §3) |
 | no predicate, content words ≤ `describe_max_words`, some with purchase | describe |
 | otherwise | search |
+
+**A verb's phrasal vectors.** A place question's vectors are, in order: the verb with the
+place's preposition, the bare verb, every vector the store names that is the verb joined to a
+particle by `phrasal_join`, and the place vector. So *Where did the napkin go?* reaches
+`napkin | go_off | table`, which a construction wrote (TTG-RFC-0006 §7). This adds answers the
+store already holds and removes none.
+
+**A subject behind its verb.** Where a verb comes before its subject, the subject is the first
+noun phrase after it that is not prepositional; in a grammar whose phrases are headed first
+(`head: first`) it ends at its head, so what follows is the object: *¿Cazan los gatos ratones?*
+is `gato cazar ratón`. Agreement tells a subject from an object behind the verb, as the third
+`wh` row says: *¿qué cazan los gatos?* asks for the object (*gatos* agrees with *cazan*), *¿qué
+caza ratones?* for the subject (*ratones* does not agree with *caza*), and an `object_mark`
+word rules a thing out as the subject. A grammar that declares no `plural_verb_ending` never
+reads a subject behind its verb that way. These rows are the `question_order` parameter
+(TTG-RFC-0001 §11.6); under `subject_verb` the second and last rows do not apply.
 
 Question shapes are parsed by the clause parser itself, with a slot token standing for the
 asked-about thing and the moved cue word restored behind the subject.
@@ -173,7 +195,11 @@ then notes: `exception`, `contradicts` (when a new percept opposes a decided bel
 `supersedes` (when a new episode retires a fact), `noted_held` and `noted_readings` (what a
 tell held, and the readings of a sentence it read two ways), `asked_held` and
 `asked_readings` (each held saying a question meets when its grounds do not answer it — never
-a ground, and the verdict stands; TTG-RFC-0005 §3),
+a ground, and the verdict stands; TTG-RFC-0005 §3), `asked_holds` (for an objects question
+whose subject and vector are a stance percept's, what each of its holds lines links, with the
+saying — never a ground, and `nothing_found` is not given when one is named; TTG-RFC-0005 §3),
+`changed_tense` (a change in the owner's tense, in place of `contradicts` on a tell, and with a
+question's grounds; TTG-RFC-0004 §3.7),
 `no_purchase`, and `suggest` for the purchased THING with the highest EPS at or above
 `suggest_eps_min`. Search results are ranked by Σ log(1 + N/df) over matched lemmas across
 all `said` lines.
@@ -190,13 +216,17 @@ All constants named here are keys of the `numbers` kind (TTG-RFC-0001 §9). The 
 values are `prior_for 1`, `prior_against 1`, `weight_partial 0.5`,
 `belief_conf_threshold 128`, `inherit_decay 0.85`, `max_hops 4`, `answer_max_items 6`,
 `search_max_items 5`, `suggest_eps_min 40`, `with_max_pairs 3`, `said_max_chars 400`,
-`rule_max_body 3`.
+`rule_max_body 3`, and, for what a verb takes (TTG-RFC-0005 §3, verb frames),
+`frame_min_episodes 1`, `frame_grammar_weight 1`, `frame_preempt_ratio 0`, and, for
+modifiers (TTG-RFC-0005 §3), `modifier_max_words 2`, and, for constructions
+(TTG-RFC-0006 §6), `construction_max_words 8`.
 
 ---
 
 ## 6. Open Questions
 
-1. **Change of mind vs contradiction.** Consolidation cannot tell them apart. A recency
+1. **Change of mind vs contradiction.** Consolidation cannot tell them apart unless the
+   owner's tense does (TTG-RFC-0004 §3.7). A recency
    window would be a claim about the owner; a `revises` percept marker (*I used to…*) would
    be a claim about the language. The `exclusive` flag (TTG-RFC-0004) is a third kind, a claim
    about a relation, and settles only changes of object, never of polarity.
@@ -219,5 +249,11 @@ values are `prior_for 1`, `prior_against 1`, `weight_partial 0.5`,
 | 2026-09-21 | §2: held percepts (polarity `?`, TTG-RFC-0005 0.2) count for neither side; a tell names them in a `noted_held` note. |
 | 2026-09-22 | §4: a question its grounds cannot answer names the held sayings it meets, and a sentence's two readings together (`asked_held`, `asked_readings`, `noted_readings`; TTG-RFC-0005 0.7). |
 | 2026-09-22 | 1.0: stable. Implemented in full by the personal_grimoire reference runtime and checked by its tests; the open questions stand as open. |
+| 2026-11-23 | 1.1: §4, the `asked_holds` note: an objects question after a stance names what the stance holds (TTG-RFC-0005 1.1 §3). Implemented by the personal_grimoire reference runtime (antfriend.github.io `7071c80`). |
+| 2026-11-23 | 1.2: §5, the reference values of the three frame numbers (TTG-RFC-0005 1.2 §3). |
+| 2026-11-23 | 1.3: §2, a saying changed by a later present one does not count; §4, the `changed_tense` note; §6.1 narrowed (TTG-RFC-0004 1.1 §3.7). Implemented by the personal_grimoire reference runtime (antfriend.github.io `64dcfc5`). |
+| 2026-11-23 | 1.4: §5, the reference value of `modifier_max_words` (TTG-RFC-0005 1.4 §3). |
+| 2026-11-23 | 1.5: §4, the intent rows for a verb before its subject under `question_order: verb_subject` (place questions, yes/no questions), a verb in the speaker's own form, and agreement behind the verb — the last read by the reference runtime since TTG-RFC-0005 0.5, and stated here for the first time; a subject behind its verb ends at its head in a head-first grammar. Implemented by the personal_grimoire reference runtime (antfriend.github.io `bf261e8`). |
+| 2026-11-24 | 1.6: §4, a place question also asks along the verb's phrasal vectors; §5, the reference value of `construction_max_words` (TTG-RFC-0006). Implemented by the personal_grimoire reference runtime (antfriend.github.io `ea1bc58`). |
 
 *License: CC0*

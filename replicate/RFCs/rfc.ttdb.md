@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it."
 ```
 
 ---
@@ -841,62 +841,70 @@ composite) gate every addition.
 
 ---
 
-@LAT60LON1 | created:1789257600 | updated:1790035200 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
+@LAT60LON1 | created:1789257600 | updated:1795478400 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
 [ew]
 conf:210
-rev:0
+rev:6
 sal:120
-touched:1790726400
+touched:1795478400
 [/ew]
 
-**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.0)
+**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.6)
 src: TTG-RFC-0001-Grammar-in-the-Store.md
 
 A language's grammar is data in the same TTDB as the corpus it reads: `ttdb-grammar`
-blocks of eight kinds (lexicon, morphology, seed, vectors, questions, responses,
-numbers, rules) and a `ttdb-sphere` block of lanes and roles. The runtime contract:
+blocks of nine kinds (lexicon, morphology, seed, vectors, questions, responses,
+numbers, rules, constructions) and a `ttdb-sphere` block of lanes and roles. The runtime contract:
 the interpreter holds no natural-language word, reply phrase or tuning number —
 delete the grammar records and it sees only word order and has no words of its own;
 a test greps the runtime for every word the grammar lists. A second language is more
 records tagged `lang:`; each sentence picks the grammar that recognises most of its
 words, and later languages borrow the numbers, rules and vector algebra. §10 is the
 embedding surface: the engine/page divide, the boot gate, and the calls a host makes.
+1.1 adds `asked_holds` to the reply keys the runtime emits; 1.2 the three frame numbers; 1.3 `past_form`, `past_ending` and `changed_tense`; 1.4 `modifier`, `privative` and
+`modifier_max_words`. 1.5 the parameters table (§11.6), `question_order` and
+`plural_verb_ending`. 1.6 the ninth kind, `constructions` (TTG-RFC-0006), never borrowed,
+with `construction_max_words` and `read_by`.
 
 ---
 
 @LAT60LON2 | created:1789257600 | updated:1795392000 | relates:depends_on@LAT60LON1,depends_on@LAT10LON1,depends_on@LAT10LON3,depends_on@LAT10LON4,depends_on@LAT10LON5,depends_on@LAT10LON6
 [ew]
 conf:210
-rev:2
+rev:6
 sal:180
 touched:1795392000
 [/ew]
 
-**TTG-RFC-0002 — Semantic Percepts, Episodes and Terms** (Stable, 1.2)
+**TTG-RFC-0002 — Semantic Percepts, Episodes and Terms** (Stable, 1.6)
 src: TTG-RFC-0002-Semantic-Percepts.md
 
 A sentence becomes percepts: `percept: n | subject | vector | object or - | polarity |
 quantifier`, with polarity `+`, `-`, or held `?` / `?-`, and an optional seventh column
 naming one reading of two. Episodes on the episode lane hold the owner's words —
-`said:`, `shape:` and `percept:` lines — written once and never modified; a block of
+`said:`, `shape:`, `percept:`, `holds:`, `gap:` and `tense:` lines — written once and never modified; a block of
 the same tag anywhere else is checked, never believed. THING and VECTOR terms are
 records placed on the grammar sphere beside the terms that introduced them.
 Malformed percept lines are skipped, counted and reported; write-back is byte-stable.
 Stated divergence from TTDB-RFC-0006: the pair is subject→object, not before→after.
 Collisions use TTDB-RFC-0004's `southeast_step` (1.1; 1.0 had stepped latitude down;
-the reference runtime conforms since 1.2).
+the reference runtime conforms since 1.2). 1.3: a `holds:` line links a stance percept
+to the held percepts it takes, by ordinal; malformed ones are skipped and counted. 1.4: a
+`gap:` line marks the percepts the grammar read at a gap, and a vector's record shows its
+`frames:`. 1.5: a `tense:` line marks the percepts said in the past. 1.6: the modifiers open question
+narrowed.
 
 ---
 
-@LAT60LON3 | created:1789257600 | updated:1790035200 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT10LON2,depends_on@LAT10LON5,depends_on@LAT10LON7
+@LAT60LON3 | created:1789257600 | updated:1795478400 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT10LON2,depends_on@LAT10LON5,depends_on@LAT10LON7
 [ew]
 conf:210
-rev:0
+rev:6
 sal:180
-touched:1790726400
+touched:1795478400
 [/ew]
 
-**TTG-RFC-0003 — Beliefs, Vector Reasoning and Grounded Response** (Stable, 1.0)
+**TTG-RFC-0003 — Beliefs, Vector Reasoning and Grounded Response** (Stable, 1.6)
 src: TTG-RFC-0003-Beliefs-Reasoning-Response.md
 
 Beliefs are derived from episodes, never written by hand: per triple, episodes (not
@@ -907,19 +915,22 @@ inheritance with decay), Datalog-style rules derived to a fixpoint in memory, an
 specificity — the nearest ancestor overrides. Intent comes from the input's shape. A
 reply is a verdict, then grounds of one kind each — said (quoted), inferred (the
 chain), contested (both sayings), superseded — never printed alike; what was held is
-a note, never a ground.
+a note, never a ground. 1.1: a question after a stance (*What do I doubt?*) names what
+the stance holds, as a note (`asked_holds`). 1.2: the frame numbers' reference values. 1.3: a saying changed by a later present one is
+not counted, and the reply names the change (`changed_tense`). 1.4: `modifier_max_words`. 1.5: questions with the verb before its subject, under
+`question_order: verb_subject`. 1.6: a place question asks along the verb's phrasal vectors.
 
 ---
 
-@LAT60LON4 | created:1789344000 | updated:1790035200 | relates:depends_on@LAT60LON3,depends_on@LAT20LON10,depends_on@LAT10LON7,depends_on@LAT20LON7,depends_on@LAT20LON8,depends_on@LAT20LON9,depends_on@LAT10LON4
+@LAT60LON4 | created:1789344000 | updated:1795392000 | relates:depends_on@LAT60LON3,depends_on@LAT20LON10,depends_on@LAT10LON7,depends_on@LAT20LON7,depends_on@LAT20LON8,depends_on@LAT20LON9,depends_on@LAT10LON4
 [ew]
 conf:170
-rev:0
+rev:1
 sal:220
-touched:1790726400
+touched:1795392000
 [/ew]
 
-**TTG-RFC-0004 — Time: the Order of Sayings, Supersession, a Fleet's Shared Clock** (Stable §2–3, 1.0; §4 Proposed)
+**TTG-RFC-0004 — Time: the Order of Sayings, Supersession, a Fleet's Shared Clock** (Stable §2–3, 1.1; §4 Proposed)
 src: TTG-RFC-0004-Time-and-the-Fleet.md
 
 Order is position, not a clock: a saying is later when its episode sits later on the
@@ -927,21 +938,23 @@ lane, then by sentence number, and `at:` is never compared. Along an `exclusive`
 vector a subject holds one object at a time: a later saying, or a rule's conclusion,
 retires an earlier one unless both lie on one chain, and the retired fact is kept in
 memory as a `superseded` ground beside what retired it, never written. Consolidation
-stays atemporal — a polarity flip is still contested. §4, proposed and unimplemented:
+stays atemporal — a polarity flip is still contested, unless the owner's own tense says it
+changed (1.1, §3.7: a past saying a later present one contradicts is kept, quoted and
+uncounted). §4, proposed and unimplemented:
 a fleet of hearing agents orders sayings on the TTN-RFC-0010 pulse, stamps carry drift
 bounds, overlapping bounds are contested, and the scene is the grammar hash.
 
 ---
 
-@LAT60LON5 | created:1789948800 | updated:1790035200 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT60LON3,depends_on@LAT10LON1,depends_on@LAT10LON4
+@LAT60LON5 | created:1789948800 | updated:1795392000 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT60LON3,depends_on@LAT10LON1,depends_on@LAT10LON4
 [ew]
 conf:210
-rev:0
+rev:5
 sal:130
-touched:1790726400
+touched:1795392000
 [/ew]
 
-**TTG-RFC-0005 — Shapes, Lists, Mentions and Amendments** (Stable, 1.0)
+**TTG-RFC-0005 — Shapes, Lists, Mentions and Amendments** (Stable, 1.5)
 src: TTG-RFC-0005-Shapes-and-Amendments.md
 
 A clause is any alternating run of nounish and verbish segments, each verb relating
@@ -953,6 +966,40 @@ one-segment sentence is a mention. The shape (`[things] {vectors}`) is written b
 each sentence and overrules the parser when typed; a correction to a said sentence is
 an amendment beside its episode, never in it. A re-reading reports what a grammar or
 corpus change reads differently and writes nothing until the owner takes it.
+1.1: a held clause a stance takes is linked to its stance percept by a `holds:` line —
+five holder rules, ordinals, malformed lines — carried by amendments and compared by
+re-readings, so a question after the stance can name what it holds. 1.2: what a verb takes
+is counted in episodes, the grammar's guesses at a gap marked (`gap:`) and weighed apart
+from the owner's words, with optional preemption. 1.3: a hedge holds its clause, and a
+`tense:` line marks the past. 1.4: with `modifier: subclass`, a modified phrase is a
+subclass of its head (`black_cat is_a cat`); off by default. 1.5: a question whose verb is
+in the speaker's own form already has its subject.
+
+---
+
+@LAT60LON6 | created:1795478400 | updated:1795478400 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5
+[ew]
+conf:140
+rev:1
+sal:90
+touched:1795478400
+[/ew]
+
+**TTG-RFC-0006 — Constructions: Shapes That Carry Meaning** (Draft, 0.1)
+src: TTG-RFC-0006-Constructions.md
+
+A pattern can mean what none of its words do. A `constructions` grammar record pairs a
+shape, written in the owner's segment marks (`[X] {V} [Y] off [Z]`), with atoms written
+as a rule's are (`V X Y, go_off Y Z | caused motion`). A clause the shape covers
+exactly is read by it instead of the chain: nounish names bind phrase heads, verbish
+names the verb, other words match themselves; the most specific shape wins, ties to the
+first written; the verb's denial, tense and hold carry to every atom; a clause the
+owner marked is never read by one. The reply names it (`read_by`); a new construction
+shows up as re-readings, never as silent rewrites. Each language declares its own and
+borrows none. Unsafe, over-long (`construction_max_words`) or protected lines are
+rejected and reported, as rules are. Place questions also ask along the verb's phrasal
+vectors, so *Where did the napkin go?* reaches `go_off`. Draft: implemented in the
+reference runtime; inheritance between constructions and matching inside a clause open.
 
 ---
 
