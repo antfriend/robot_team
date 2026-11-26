@@ -405,6 +405,15 @@ handheld and builds like the T-Deck — `esp32:esp32:esp32s3:CDCOnBoot=cdc` on *
 plus `FlashSize=8M` (the ADV has 8 MB; huge_app only describes the first 4 MB, which is
 deliberate so its FS offset matches the T-Deck's). Flash its FS with
 **`scripts/Upload-Cardputer-FS.ps1`** (spiffs @0x310000) — same three globes as the T-Deck.
+🛑 **ON A LIVE BOARD, NEVER RUN EITHER HANDHELD'S `Upload-*-FS.ps1` TO UPDATE A GLOBE.** They image
+the whole `data/` dir, and its `ttdb.md` is the 3.6 KB SEED — the board's live `ttdb.md` (166 KB
+of episodes, checkpoints, carried tallies on 2026-11-26) would be replaced and its memory gone.
+To change one file (e.g. `rfc.ttdb.md` after an RFC sync), swap it inside the partition with the
+chip held in its bootloader the whole time (docs/log/2026-11.md, "corpus re-flashed WITHOUT"):
+`esptool --after no-reset read-flash 0x310000 0xE0000` → `mklittlefs -u` → replace the file →
+`mklittlefs -c … -s 0xE0000` → unpack again and `cmp` every other file → `esptool --before
+no-reset --after hard-reset write-flash 0x310000`. Then check `TTDB loaded:` bytes = the
+unpacked `ttdb.md`.
 Unlike the T-Deck its **auto-reset works**: plain `arduino-cli compile --upload -p COMx` with
 no BOOT/RST dance. Board-specific rules:
 1. **Everything hangs off one I2C bus** (SDA 8 / SCL 9): keyboard **0x34**, codec **0x18**,
