@@ -55,7 +55,7 @@ static std::string linkEp(VectorClock& vc, int16_t ord, int64_t t, uint32_t b,
   vc.renderBlock(blk, sizeof(blk));
   static char buf[SEMANTIC_LINK_EPISODE_BUF];
   size_t n = renderLinkEpisode(k.data(), (int)k.size(), ord, (uint32_t)(t / 1000), at, buf,
-                               sizeof(buf), blk);
+                               sizeof(buf), 0x300u, blk);
   vc.committed(vc.nextSeq());
   return std::string(buf, n);
 }
@@ -478,10 +478,10 @@ static void testSeqMap() {
 
 // ---------------------------------------------------------------------------------------
 static BarDigest digestOf(const std::string& store, int64_t n, uint16_t* own = nullptr,
-                          uint16_t* hld = nullptr) {
+                          uint16_t* hld = nullptr, uint32_t self = 0) {
   static Consolidator c;
   c.begin();
-  BarView v(c, kFrame, barLine(kFrame, kBar, n - 1), barLine(kFrame, kBar, n));
+  BarView v(c, kFrame, barLine(kFrame, kBar, n - 1), barLine(kFrame, kBar, n), self);
   feedText(v, store);
   if (own) *own = v.own();
   if (hld) *hld = v.held();
@@ -630,16 +630,36 @@ static void testItem4() {
       "@LAT105LON0 | created:0 | updated:0\n\n**link window**\n\n```ttdb-episode\n"
       "held: 0x00000200\nsource: perceptlearn\nat: 125500 \xC2\xB1" "50 frame:5500\nseq: 4\n"
       "percept: 1 | 0x00000010 | link_stable | espnow | + | ~\n```\n";
+  // The fixture is in the LEGACY link format (`<peer> | link_stable | <proto>`) on purpose:
+  // read by node 0x300, its own lines are 0x300's and the held copy's are 0x200's, so the
+  // view is three directed edges — and EXACTLY the view of the same evidence written new.
+  // Before the observer joined the percept this was 2 terms (0xfa9dab24): the held copy's
+  // saying about 0x10 merged into 0x300's.
+  const std::string nx =
+      "@LAT103LON0 | created:0 | updated:0\n\n**link window**\n\n```ttdb-episode\n"
+      "source: perceptlearn\nat: 65500 \xC2\xB1" "50 frame:5500\nseq: 1\nsaid: 1 | x\n"
+      "percept: 1 | 0x00000300 | link_stable_espnow | 0x00000010 | + | -\n"
+      "percept: 2 | 0x00000300 | link_stable_ble | 0x00000200 | - | -\n```\n\n---\n\n"
+      "@LAT105LON0 | created:0 | updated:0\n\n**link window**\n\n```ttdb-episode\n"
+      "held: 0x00000200\nsource: perceptlearn\nat: 125500 \xC2\xB1" "50 frame:5500\nseq: 4\n"
+      "percept: 1 | 0x00000200 | link_stable_espnow | 0x00000010 | + | ~\n```\n";
   uint16_t fo = 0, fh = 0;
-  const BarDigest fd = digestOf(fx, 1, &fo, &fh);
-  check(fo == 1 && fh == 1 && fd.terms == 2 && fd.sum == 0xfa9dab24u,
-        "the pinned fixture: own 1, held 1, 2 terms, digest 0xfa9dab24 (= fleet.py)");
+  const BarDigest fd = digestOf(fx, 1, &fo, &fh, 0x300);
+  check(fo == 1 && fh == 1 && fd.terms == 3 && fd.sum == 0xb8766d9du,
+        "the pinned fixture: own 1, held 1, 3 terms, digest 0xb8766d9d (= fleet.py)");
+  const BarDigest nd = digestOf(nx, 1, nullptr, nullptr, 0x300);
+  check(nd.terms == 3 && nd.sum == fd.sum,
+        "the legacy fixture read by its authors IS the same evidence written new");
+  check(digestOf(nx, 1).sum == nd.sum,
+        "a new-format view does not depend on knowing `self` (nothing left to upgrade)");
+  check(digestOf(fx, 1).sum != fd.sum,
+        "a legacy view read with no author is NOT the upgraded one (own lines stay legacy)");
 
   // CROSS-LANGUAGE PIN #2: the BAR record for the fixture, byte for byte
   // (tests/test_bar_py.py renders and parses this exact text).
   const std::string want =
       "@LAT106LON7 | created:0 | updated:0\n\n"
-      "**BAR** frame:5500 bar:1 own:1 held:1 terms:2 digest:0xfa9dab24 settled_ms:120000\n"
+      "**BAR** frame:5500 bar:1 own:1 held:1 terms:3 digest:0xb8766d9d settled_ms:120000\n"
       "**HOLDS** agent:0x00000200 n:1 lo:4 hi:4 sum:4\n"
       "**HOLDS** agent:0x00000300 n:1 lo:1 hi:1 sum:1\n";
   check(barRecordOf(fx, 1, 0x300, 7) == want, "the pinned fixture's BAR record, byte-exact");
@@ -780,7 +800,9 @@ static void testNotBeliefs() {
 // TTG-0004 §4.8 item 5: a fleet with two grammar hashes reports the split.
 // The grammar hash of this build (see testGrammar). Measured 2026-10-06; the boards must
 // print the same at boot (`[grammar] 0x...`), or the native probe is not the boards' probe.
-static const uint32_t kGrammarPin = 0xfe169cb3u;
+// 2026-11-25: 0xfe169cb3 -> 0x42e3bb8a, the observer in the link percept. A board still on
+// the old build records every reflashed one as a SPLIT until the whole fleet is reflashed.
+static const uint32_t kGrammarPin = 0x42e3bb8au;
 
 static void testGrammar() {
   printf("11. the grammar (item 5)\n");

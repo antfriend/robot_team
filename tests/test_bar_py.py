@@ -2,7 +2,7 @@
 """test_bar_py.py — fleet.py's BAR VIEW (ACT-III §C4 stage 2, docs/design/episode-order.md
 §7.4): the per-bar digest two nodes holding the same episodes must agree on.
 
-The digest is pinned against the firmware: the fixture below and its digest 0xfa9dab24 are
+The digest is pinned against the firmware: the fixture below and its digest 0xb8766d9d are
 asserted in tests/test_episode_delivery.cpp too (BarView + barDigest). If either side
 drifts, `fleet.py bar` reports DIFFER for nodes that agree, or AGREE for nodes that do not.
 
@@ -31,9 +31,30 @@ FX = ("@LAT103LON0 | created:0 | updated:0\n\n**link window**\n\n```ttdb-episode
       "@LAT105LON0 | created:0 | updated:0\n\n**link window**\n\n```ttdb-episode\n"
       "held: 0x00000200\nsource: perceptlearn\nat: 125500 ±50 frame:5500\nseq: 4\n"
       "percept: 1 | 0x00000010 | link_stable | espnow | + | ~\n```\n")
-v = c.bar_view(c.bar_episodes(FX), 5500, 1)
-check(v["own"] == 1 and v["held"] == 1 and v["terms"] == 2 and v["digest"] == 0xfa9dab24,
-      "the pinned fixture: own 1, held 1, 2 terms, digest 0xfa9dab24 (= firmware)")
+# FX is in the LEGACY link format on purpose (2026-11-25): read by node 0x300 it is three
+# directed edges — 0x300's two and the held copy's from 0x200 — exactly the view of the same
+# evidence written in the new `<observer> | link_stable_<proto> | <peer>` form (NX).
+NX = (FX.replace("percept: 1 | 0x00000010 | link_stable | espnow | + | -",
+                 "percept: 1 | 0x00000300 | link_stable_espnow | 0x00000010 | + | -")
+        .replace("percept: 2 | 0x00000200 | link_stable | ble | - | -",
+                 "percept: 2 | 0x00000300 | link_stable_ble | 0x00000200 | - | -")
+        .replace("percept: 1 | 0x00000010 | link_stable | espnow | + | ~",
+                 "percept: 1 | 0x00000200 | link_stable_espnow | 0x00000010 | + | ~"))
+v = c.bar_view(c.bar_episodes(FX), 5500, 1, self_id=0x300)
+check(v["own"] == 1 and v["held"] == 1 and v["terms"] == 3 and v["digest"] == 0xb8766d9d,
+      "the pinned fixture: own 1, held 1, 3 terms, digest 0xb8766d9d (= firmware)")
+nv = c.bar_view(c.bar_episodes(NX), 5500, 1, self_id=0x300)
+check(nv["digest"] == v["digest"] and nv["terms"] == 3,
+      "the legacy fixture read by its authors IS the same evidence written new")
+check(c.bar_view(c.bar_episodes(NX), 5500, 1)["digest"] == nv["digest"],
+      "a new-format view does not depend on knowing self")
+check(c.bar_view(c.bar_episodes(FX), 5500, 1)["digest"] != v["digest"],
+      "a legacy view read with no author is NOT the upgraded one")
+check({(b["subject"], b["vec"], b["object"]) for b in v["beliefs"]} ==
+      {("0x00000300", "link_stable_espnow", "0x00000010"),
+       ("0x00000300", "link_stable_ble", "0x00000200"),
+       ("0x00000200", "link_stable_espnow", "0x00000010")},
+      "two observers' sayings about 0x10 are two directed edges, not one merged belief")
 eps = c.bar_episodes(FX)
 check(eps[1]["agent"] == 0x200 and eps[1]["seq"] == 4, "a held copy names its author and seq")
 
@@ -80,10 +101,15 @@ for m in range(1, 20):
     y_eps.append(ey)
 X, Y = c.bar_episodes(x_own + x_held), c.bar_episodes(y_own + y_held)
 for n in (1, 2):
-    vx, vy = c.bar_view(X, F, n), c.bar_view(Y, F, n)
+    # Each node reads its own legacy lines as its own (self_id), as every board does: X is
+    # 0x300 (its copies of Y's say `held: 0x200`) and Y is 0x200.
+    vx, vy = c.bar_view(X, F, n, self_id=0x300), c.bar_view(Y, F, n, self_id=0x200)
     check(vx["terms"] > 0 and (vx["terms"], vx["digest"]) == (vy["terms"], vy["digest"])
           and vx["own"] == vy["held"] and vx["held"] == vy["own"],
           f"bar {n}: X and Y agree ({vx['terms']} terms, 0x{vx['digest']:08x})")
+    vx0, vy0 = c.bar_view(X, F, n), c.bar_view(Y, F, n)
+    check(vx0["digest"] != vy0["digest"],
+          f"bar {n}: NOT VACUOUS — a node that did not know itself would disagree on legacy lines")
 check(c.parse_episode_beliefs(x_own) != c.parse_episode_beliefs(y_own),
       "NOT VACUOUS: their own beliefs differ")
 missing = x_own + "".join(
@@ -96,7 +122,7 @@ check(c.bar_view(c.bar_episodes(x_held + x_own), F, 2)["digest"] == c.bar_view(X
 
 # The BAR record (@LAT106), pinned byte for byte against tests/test_episode_delivery.cpp.
 WANT = ("@LAT106LON7 | created:0 | updated:0\n\n"
-        "**BAR** frame:5500 bar:1 own:1 held:1 terms:2 digest:0xfa9dab24 settled_ms:120000\n"
+        "**BAR** frame:5500 bar:1 own:1 held:1 terms:3 digest:0xb8766d9d settled_ms:120000\n"
         "**HOLDS** agent:0x00000200 n:1 lo:4 hi:4 sum:4\n"
         "**HOLDS** agent:0x00000300 n:1 lo:1 hi:1 sum:1\n")
 fv = c.bar_view(c.bar_episodes(FX), 5500, 1, self_id=0x300)
@@ -104,7 +130,7 @@ check(c.render_bar_record(7, 5500, 1, fv, 120000) == WANT,
       "the pinned fixture's BAR record, byte-exact (= firmware renderBar)")
 recs = c.parse_bar_records(FX + "\n---\n\n" + WANT)
 r = recs.get((5500, 1))
-check(r is not None and r["digest"] == 0xfa9dab24 and r["terms"] == 2 and r["lon"] == 7
+check(r is not None and r["digest"] == 0xb8766d9d and r["terms"] == 3 and r["lon"] == 7
       and r["holds"] == {0x200: (1, 4, 4, 4), 0x300: (1, 1, 1, 1)} and r["settled_ms"] == 120000,
       "parse_bar_records reads it back")
 check(r is not None and r["holds"] == fv["holds"], "its HOLDS rows = the recomputed holds")

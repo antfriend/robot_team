@@ -185,8 +185,8 @@ static void testRecord() {
   LinkClaim k[2] = {{0x200, "ble", LINK_MET, -40, -38}, {0x10, "espnow", LINK_VIOLATED, -50, -71}};
   static char with[SEMANTIC_LINK_EPISODE_BUF], without[SEMANTIC_LINK_EPISODE_BUF];
   const char* at = "4890438 ±0 frame:5000";
-  size_t nw = renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), blk.c_str());
-  size_t no = renderLinkEpisode(k, 2, 4, 77, at, without, sizeof(without));
+  size_t nw = renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), 0x300u, blk.c_str());
+  size_t no = renderLinkEpisode(k, 2, 4, 77, at, without, sizeof(without), 0x300u);
   std::string sw(with, nw), so(without, no);
   check(nw == no + blk.size(), "the block adds exactly its own bytes");
   check(sw.find("\nat: 4890438 ±0 frame:5000\nseq: 1412\nfollows: ") != std::string::npos,
@@ -221,13 +221,13 @@ static void testRecord() {
         "the consolidator reads an episode with seq/follows EXACTLY as one without");
 
   // A block that is not exactly seq/follows lines refuses the episode.
-  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), "seq: 1\npercept: 9 | x\n") == 0,
+  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), 0x300u, "seq: 1\npercept: 9 | x\n") == 0,
         "a block smuggling another line refuses the episode");
-  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), "seq: 1") == 0,
+  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), 0x300u, "seq: 1") == 0,
         "a block not ending in a newline refuses");
-  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), "seq: 1\n```\n") == 0,
+  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), 0x300u, "seq: 1\n```\n") == 0,
         "a block that could close the fence refuses");
-  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), "") == no,
+  check(renderLinkEpisode(k, 2, 4, 77, at, with, sizeof(with), 0x300u, "") == no,
         "an EMPTY block is the same as none");
 
   // The in-place said wrap carries it too, and sizes its header with it.
@@ -261,11 +261,11 @@ static void testBuffers() {
     w[i] = LinkClaim{0xFFFFFFF0u + (uint32_t)i, "espnow", LINK_UNOBSERVED, -32768, -32768};
   static char lk[SEMANTIC_LINK_EPISODE_BUF];
   const char* at = "t_ms:18446744073709551615 stream:0xffffffff wall:1";
-  size_t wn = renderLinkEpisode(w, 8, 32767, 4294967295u, at, lk, sizeof(lk), b);
-  check(wn > 0, "8 maximal claims + a maximal block fit SEMANTIC_LINK_EPISODE_BUF (1408)");
-  static char old[1280];
-  check(renderLinkEpisode(w, 8, 32767, 4294967295u, at, old, sizeof(old), b) == 0,
-        "...and would NOT have fitted the old 1280");
+  size_t wn = renderLinkEpisode(w, 8, 32767, 4294967295u, at, lk, sizeof(lk), 0x300u, b);
+  check(wn > 0, "8 maximal claims + a maximal block fit SEMANTIC_LINK_EPISODE_BUF (1536)");
+  static char old[1408];
+  check(renderLinkEpisode(w, 8, 32767, 4294967295u, at, old, sizeof(old), 0x300u, b) == 0,
+        "...and would NOT fit the 1408 it was before the observer joined the percept");
   printf("    worst link episode with a maximal block %u B of %u B\n", (unsigned)wn,
          (unsigned)sizeof(lk));
 }
@@ -300,7 +300,7 @@ static std::string renderOne(VectorClock& vc, int16_t ord, const char* at) {
   char blk[EPISODEORDER_BLOCK_MAX];
   vc.renderBlock(blk, sizeof(blk));
   static char buf[SEMANTIC_LINK_EPISODE_BUF];
-  size_t n = renderLinkEpisode(k, 1, ord, 0, at, buf, sizeof(buf), blk);
+  size_t n = renderLinkEpisode(k, 1, ord, 0, at, buf, sizeof(buf), 0x300u, blk);
   vc.committed(vc.nextSeq());
   return std::string(buf, n);
 }

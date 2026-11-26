@@ -170,9 +170,12 @@ enum Tier : uint8_t { TIER_LINK = 0, TIER_ENTITY = 1, TIER_MOTION = 2, TIER_ACOU
 
 // Rendered episode buffer for one link window: header + said/percept pair per claim.
 // Worst case (8 maximal claims) measured 1194 B by test_episode; with a maximal `seq:`/
-// `follows:` block (EPISODEORDER_BLOCK_MAX) ~1375 B, so 1408 (2026-10-03). No firmware
-// allocates this: every render goes into the shared SEMANTIC_ENTITY_EPISODE_BUF scratch.
-#define SEMANTIC_LINK_EPISODE_BUF 1408
+// `follows:` block (EPISODEORDER_BLOCK_MAX) ~1375 B, so 1408 (2026-10-03). The observer in
+// the percept (2026-11-25) adds 11 B per claim (1282 B; ~1463 B with the block), so 1536.
+// No firmware allocates this: every render goes into the shared SEMANTIC_ENTITY_EPISODE_BUF
+// scratch. ⚠ grammarHash() needs HALF that scratch to be at least this, so 1536 is also
+// the ceiling while the scratch is 3072 (static_assert in EpisodeNode.h).
+#define SEMANTIC_LINK_EPISODE_BUF 1536
 
 // One ordinal range on one lane: the portable twin of TTDB.h's TtdbCut (same fields, same
 // order), so the glue converts with a field copy and Semantic never includes <FS.h>.
@@ -342,15 +345,40 @@ inline size_t checkpointBytes(const Consolidator& c, int16_t through, int16_t or
 // One scored PerceptLearn window = one episode. Each claim becomes one sentence:
 //
 //   said: <k> | <peer> <proto> <verdict> predicted:<p> observed:<o>
-//   percept: <k> | <peer> | link_stable | <proto> | <+ - ?> | -
+//   percept: <k> | <observer> | link_stable_<proto> | <peer> | <+ - ?> | -
 //
 // met → `+`, violated → `-`, unobserved → `?` (HELD: the expectation was made and the
 // world did not answer. Counted in `seen`, never believed — exactly what Rule 3 and
 // consolidator_compare.py do with it, so the measured comparison carries over).
 // The verdict numbering mirrors perceptlearn::Verdict; Semantic does not include
 // PerceptLearn (one dependency direction), so the glue static_asserts they agree.
-#define SEMANTIC_LINK_VECTOR "link_stable"
+//
+// ⚠ THE OBSERVER IS IN THE PERCEPT (2026-11-25, TTG-RFC-0004 1.2 §4.7). Until then the line
+// was `<peer> | link_stable | <proto>`, with the observer only in who wrote the episode.
+// That is sound in one store, where the author is always the node — and wrong the moment
+// a bar view consolidates several authors' episodes: every observer's sayings about a peer
+// became ONE belief about the peer that no node holds, and "A hears B, B does not hear A"
+// could not be said. Now the triple is the directed edge, one vector per radio.
+//
+// ⚠ BOTH FORMATS ARE ON FLASH AND BOTH MUST READ AS ONE. Old lines sit in @LAT103 episodes,
+// @LAT105 held copies and @LAT104 carried tallies. upgradeLinkTriple() (below) is the
+// reader for the old one, hooked into every Consolidator that reads flash, with the
+// record's AUTHOR as context (own lane: the node; held lane: the `held:` agent, which
+// renderHeld writes right after the fence, so it is known before any percept). The author
+// was always known, so the rewrite adds nothing that was not there and loses nothing —
+// a store recomputes to the same tallies, now under the new key. Do not "clean up" the
+// legacy branch: an un-upgraded old line would split a belief's evidence in two.
+#define SEMANTIC_LINK_VECTOR_PREFIX "link_stable_"
+#define SEMANTIC_LINK_VECTOR_LEGACY "link_stable"
 enum LinkVerdict : uint8_t { LINK_MET = 0, LINK_VIOLATED = 1, LINK_UNOBSERVED = 2 };
+
+// True for a link vector, either format (`link_stable_<proto>` or the legacy `link_stable`).
+bool isLinkVector(const char* vec);
+// Consolidator::TripleUpgrade for the link tier. `ctx` points at a uint32_t: the author of
+// the record being read (0 = unknown, and then nothing is rewritten). Rewrites a legacy
+// `0x<peer> | link_stable | <proto>` to `0x<author> | link_stable_<proto> | 0x<peer>`;
+// leaves every other triple, and any legacy one that would not fit, exactly as it was.
+void upgradeLinkTriple(char* subject, char* vec, char* object, void* ctx);
 
 struct LinkClaim {
   uint32_t    peer;
@@ -363,7 +391,7 @@ struct LinkClaim {
 // ---------------------------------------------------------------------------------------
 // THE LINK BELIEFS, AS A NODE SHOWS THEM (2026-10-02, ACT-III §C3 wired)
 // ---------------------------------------------------------------------------------------
-// The node's link beliefs ARE the consolidator's `link_stable` terms — no belief lane is
+// The node's link beliefs ARE the consolidator's link terms (isLinkVector) — no belief lane is
 // re-read and none is rewritten. This picks the `k` rows worth showing on a panel that
 // cannot show them all: HIGHEST EPS FIRST (the attention key — what is most worth
 // re-checking), ties in insertion order so the panel does not shuffle between equals.
@@ -374,6 +402,7 @@ struct LinkClaim {
 // cannot be replayed through a sequential fold. `carried` says when that matters — when it
 // is set, `conf` and `r3` are NOT over the same evidence and must not be read as rivals.
 struct LinkBeliefRow {
+  uint32_t observer;     // the subject: who heard (0 for a legacy term no reader upgraded)
   uint32_t peer;
   char     proto[8];
   char     pol;          // '+', '-' or '?'
@@ -387,8 +416,12 @@ size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_
 
 // Returns record bytes, or 0 if it did not fit (never truncated). `at` is the caller's
 // stamp text (TimeStream's buildStamp today; TTG-0004 §4's `<pulse> ±<bound>` in C4).
+// `observer` is the node writing the episode — every percept's subject. ⚠ It has NO
+// default and stands before `order` on purpose: a call written for the old signature
+// fails to compile instead of silently rendering observer 0.
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
-                         const char* at, char* out, size_t cap, const char* order = nullptr);
+                         const char* at, char* out, size_t cap, uint32_t observer,
+                         const char* order = nullptr);
 
 // ---------------------------------------------------------------------------------------
 // A SAMPLER'S OWN RECORD AS AN EPISODE (the entity tier, 2026-10-01)
@@ -465,12 +498,13 @@ size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal
 #define SEMANTIC_LINK_WINDOW_EPISODE_BUF 2560
 size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
                                int16_t ordinal, uint32_t t, const char* at, char* out,
-                               size_t cap, const char* order = nullptr);
+                               size_t cap, uint32_t observer, const char* order = nullptr);
 // The same in ONE buffer: LinkPercept's record (m bytes at buf[0]) is moved to the tail and
 // wrapped forward from the head, as renderSaidEpisodeInPlace. m == 0 = claims only.
 size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
                                       const LinkClaim* claims, int n, int16_t ordinal,
-                                      uint32_t t, const char* at, const char* order = nullptr);
+                                      uint32_t t, const char* at, uint32_t observer,
+                                      const char* order = nullptr);
 
 // One entity window as an episode. Worst case = EntityPercept's worst record (2322 B, its
 // ENTITYPERCEPT_RECORD_BUF is 2560) + ~11 B of `said: k | ` on each of its ≤ 32 body

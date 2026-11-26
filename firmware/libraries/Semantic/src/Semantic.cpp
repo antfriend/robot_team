@@ -456,7 +456,14 @@ bool Consolidator::seedCarried(const char* subject, const char* vec, const char*
   const uint16_t c_eps = vals[0] > 0xFFFF ? 0xFFFF : (uint16_t)vals[0];
   const uint32_t c_seen = vals[1];
 
-  int i = intern(subject, vec, object);
+  char s[SEMANTIC_LEMMA_MAX], v[SEMANTIC_LEMMA_MAX], o[SEMANTIC_LEMMA_MAX];
+  if (strlen(subject) >= sizeof(s) || strlen(vec) >= sizeof(v) || strlen(object) >= sizeof(o))
+    return false;
+  strcpy(s, subject);
+  strcpy(v, vec);
+  strcpy(o, object);
+  if (upgrade_) upgrade_(s, v, o, upgrade_ctx_);
+  int i = intern(s, v, o);
   if (i < 0) { ++refused_; return false; }
   Term& t = terms_[i];
   t.carried_for     = cf;
@@ -496,6 +503,7 @@ bool Consolidator::feedLine(const char* line) {
     last_mal_ = why;
     return false;   // TTG-0002 §5.1: skip, count, report. Never abort the episode.
   }
+  if (upgrade_) upgrade_(p.subject, p.vec, p.object, upgrade_ctx_);
   return percept(p);
 }
 

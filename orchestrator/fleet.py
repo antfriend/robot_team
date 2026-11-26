@@ -2757,6 +2757,45 @@ CARRIED_LINE_RE = re.compile(
     r"\s*([^|]*?)\s*\|\s*([^|]*?)\s*$")
 THROUGH_RE = re.compile(r"^through:\s*(\d+)\s*$")
 
+# THE OBSERVER IS IN THE PERCEPT (2026-11-25, firmware Semantic/Episode.h). A link percept
+# was `<peer> | link_stable | <proto>`, the observer only in who wrote the episode; it is now
+# `<observer> | link_stable_<proto> | <peer>`, the directed edge. Both are on flash, and the
+# firmware reads a legacy line as the new one using the record's AUTHOR (own lane: the
+# node; held lane: the `held:` agent). This is that reader, byte for byte, so a pull still
+# recomputes to the node's own lines. Author unknown (None/0) = left as it is, as on a board.
+LINK_VECTOR_PREFIX = "link_stable_"
+LINK_VECTOR_LEGACY = "link_stable"
+SEMANTIC_LEMMA_MAX = 24
+PEER_LEMMA_RE = re.compile(r"^0x[0-9a-fA-F]{8}$")
+
+
+def upgrade_link_triple(s, v, o, author):
+    """firmware upgradeLinkTriple(): a legacy `0x<peer> | link_stable | <proto>` read by
+    `author` -> `0x<author> | link_stable_<proto> | 0x<peer>`; anything else unchanged."""
+    if not author or v != LINK_VECTOR_LEGACY or not PEER_LEMMA_RE.match(s):
+        return s, v, o
+    nv = LINK_VECTOR_PREFIX + o
+    if len(nv) >= SEMANTIC_LEMMA_MAX:
+        return s, v, o                      # would not fit: the firmware leaves it whole
+    return f"0x{author:08x}", nv, s
+
+
+def upgrade_percept_line(line, author):
+    """One `percept:` line with its triple upgraded for `author`; other lines unchanged."""
+    m = PERCEPT_LINE_RE.match(line)
+    if not m:
+        return line
+    s, v, o = upgrade_link_triple(m.group(1), m.group(2), m.group(3), author)
+    if (s, v, o) == m.group(1, 2, 3):
+        return line
+    k = re.match(r"^percept:\s*(\d+[a-z]?)", line).group(1)
+    return f"percept: {k} | {s} | {v} | {o} | {m.group(4)} | {m.group(5)}"
+
+
+def legacy_link_lines(text):
+    """How many legacy link percept/carried lines a store holds (the author decides them)."""
+    return len(re.findall(r"^(?:percept|carried):[^\n]*\|\s*link_stable\s*\|", text, re.M))
+
 
 def _halves(tok):
     return int(float(tok) * 2)
@@ -2766,10 +2805,14 @@ def _halves_str(h):
     return f"{h // 2}.5" if h & 1 else f"{h // 2}"
 
 
-def parse_episode_beliefs(text, prior_for=2, prior_against=2):
+def parse_episode_beliefs(text, prior_for=2, prior_against=2, self_id=None):
     """The node's beliefs from a pulled TTDB: [{subject, vec, object, for_h, against_h,
     pol, conf, seen, sal, eps, carried_for_h, carried_against_h, live_episodes}] in the
     node's own term order (checkpoint first, then first appearance in an episode).
+
+    `self_id` is the node the store belongs to: the author of its own episodes and its
+    checkpoint, so legacy link lines are read as the node reads them (upgrade_link_triple).
+    None leaves them legacy — correct only for a store that holds none.
 
     ⚠ ONLY THE NEWEST CHECKPOINT IS READ (the last @LAT104 in file order — appends go to
     the end), and per tier only episodes AFTER its `through:` are live. Records at or
@@ -2798,7 +2841,7 @@ def parse_episode_beliefs(text, prior_for=2, prior_against=2):
                 continue
             m = CARRIED_LINE_RE.match(l)
             if m:
-                t = term((m.group(5), m.group(6), m.group(7)))
+                t = term(upgrade_link_triple(m.group(5), m.group(6), m.group(7), self_id))
                 t["carried_for"] = _halves(m.group(1))
                 t["carried_against"] = _halves(m.group(2))
                 t["carried_seen"] = int(m.group(4) or 0)
@@ -2825,6 +2868,7 @@ def parse_episode_beliefs(text, prior_for=2, prior_against=2):
             if not m:
                 continue
             s, v, o, pol, q = m.groups()
+            s, v, o = upgrade_link_triple(s, v, o, self_id)
             if s == "-" or v == "-":
                 continue                              # a mention: never a term
             key = (s, v, o)
@@ -2888,8 +2932,13 @@ def beliefs(port, baud, node, save, from_file=None):
             os.makedirs(os.path.dirname(os.path.abspath(save)), exist_ok=True)
             with open(save, "wb") as f:
                 f.write(data)
-    bs = parse_episode_beliefs(data.decode("utf-8", errors="replace"))
+    text = data.decode("utf-8", errors="replace")
+    bs = parse_episode_beliefs(text, self_id=NODE_IDS[node] if node else None)
     label = from_file or node
+    legacy = legacy_link_lines(text)
+    if legacy and not node:
+        print(f"{label}: ⚠ {legacy} legacy link line(s) (`<peer> | link_stable | <proto>`) "
+              f"read WITHOUT an observer — pass --node to read them as that node does")
     if not bs:
         print(f"{label}: no beliefs — no @LAT103 episode carries a percept: line yet "
               f"(a link window needs a `still` motion window + a peer to be scored)")
@@ -3162,9 +3211,12 @@ def bar_holds(sel, self_id):
 def bar_view(eps, frame, n, bar_ms=BAR_MS, self_id=0):
     """-> {own, held, terms, digest, beliefs, holds} for bar n of frame, over bar_episodes()."""
     sel = [e for e in eps if in_bar(e["at"], frame, n, bar_ms)]
+    # Each record's legacy link lines are read with ITS author, as BarView does: the node
+    # for own episodes, the `held:` agent for copies (firmware EpisodeDelivery.cpp).
     synth = "".join(
         f"@LAT{EPISODE_LANE}LON{i}\n```ttdb-episode\n"
-        + "".join(l + "\n" for l in e["lines"] if l.startswith("percept:")) + "```\n"
+        + "".join(upgrade_percept_line(l, e["agent"] if e["lane"] == HELD_LANE else self_id)
+                  + "\n" for l in e["lines"] if l.startswith("percept:")) + "```\n"
         for i, e in enumerate(sel))
     bs = parse_episode_beliefs(synth)
     digest = 0

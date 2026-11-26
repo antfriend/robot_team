@@ -577,16 +577,16 @@ static void testLink() {
     {0x100, "espnow", LINK_UNOBSERVED, -60, 0},
   };
   static char buf[SEMANTIC_LINK_EPISODE_BUF];
-  size_t n = renderLinkEpisode(k, 3, 4, 77, "t_ms:77 stream:0x00000000 wall:0", buf, sizeof(buf));
+  size_t n = renderLinkEpisode(k, 3, 4, 77, "t_ms:77 stream:0x00000000 wall:0", buf, sizeof(buf), 0x300u);
   checkStr(std::string(buf, n),
            "\n---\n\n@LAT103LON4 | created:77 | updated:77\n\n**link window**\n\n"
            "```ttdb-episode\nsource: perceptlearn\nat: t_ms:77 stream:0x00000000 wall:0\n"
            "said: 1 | 0x00000200 ble met predicted:-40 observed:-38\n"
-           "percept: 1 | 0x00000200 | link_stable | ble | + | -\n"
+           "percept: 1 | 0x00000300 | link_stable_ble | 0x00000200 | + | -\n"
            "said: 2 | 0x00000010 espnow violated predicted:-50 observed:-71\n"
-           "percept: 2 | 0x00000010 | link_stable | espnow | - | -\n"
+           "percept: 2 | 0x00000300 | link_stable_espnow | 0x00000010 | - | -\n"
            "said: 3 | 0x00000100 espnow unobserved predicted:-60 observed:0\n"
-           "percept: 3 | 0x00000100 | link_stable | espnow | ? | -\n```\n",
+           "percept: 3 | 0x00000300 | link_stable_espnow | 0x00000100 | ? | -\n```\n",
            "a scored link window renders as one episode, one sentence per claim");
 
   Consolidator c; c.begin();
@@ -594,9 +594,9 @@ static void testLink() {
   r.select(4, 4, Consolidator::KEEPING);
   feedText(r, std::string(buf, n));
   r.finish();
-  const Term* met = c.find("0x00000200", "link_stable", "ble");
-  const Term* vio = c.find("0x00000010", "link_stable", "espnow");
-  const Term* un  = c.find("0x00000100", "link_stable", "espnow");
+  const Term* met = c.find("0x00000300", "link_stable_ble", "0x00000200");
+  const Term* vio = c.find("0x00000300", "link_stable_espnow", "0x00000010");
+  const Term* un  = c.find("0x00000300", "link_stable_espnow", "0x00000100");
   check(met && met->totalFor() == 2 && met->totalAgainst() == 0, "met reads back as one vote FOR");
   check(vio && vio->totalFor() == 0 && vio->totalAgainst() == 2, "violated as one vote AGAINST");
   check(un && un->totalFor() == 0 && un->totalAgainst() == 0 && un->seen == 1,
@@ -608,7 +608,7 @@ static void testLink() {
     w[i] = LinkClaim{0xFFFFFFF0u + (uint32_t)i, "espnow", LINK_UNOBSERVED, -32768, -32768};
   size_t wn = renderLinkEpisode(w, 8, 32767, 4294967295u,
                                 "t_ms:18446744073709551615 stream:0xffffffff wall:1", buf,
-                                sizeof(buf));
+                                sizeof(buf), 0x300u);
   check(wn > 0, "eight maximal claims fit SEMANTIC_LINK_EPISODE_BUF");
   printf("    worst-case link episode %u B of %u B\n", (unsigned)wn, (unsigned)sizeof(buf));
 
@@ -823,7 +823,7 @@ static void testLinkWindowEpisode() {
     const size_t m = lg.buildRecord(rec, sizeof(rec), 5, 77, entSt(1000), 60000);
     LinkClaim k[1] = {{0x200, "espnow", LINK_MET, -40, -42}};
     const size_t n = renderLinkWindowEpisode(rec, m, k, 1, 5, 77, "1234 +-5 frame:9", ep,
-                                             sizeof(ep));
+                                             sizeof(ep), 0x300u);
     checkStr(std::string(ep, n),
              "\n---\n\n@LAT103LON5 | created:77 | updated:77\n\n**link window**\n\n"
              "```ttdb-episode\nsource: linkpercept\nat: 1234 +-5 frame:9\n"
@@ -833,7 +833,7 @@ static void testLinkWindowEpisode() {
              "said: 3 | **LINK** peer:0x00000010 proto:ble n:1 rssi_min:-71 rssi_med:-71 "
              "rssi_max:-71\n"
              "said: 4 | 0x00000200 espnow met predicted:-40 observed:-42\n"
-             "percept: 4 | 0x00000200 | link_stable | espnow | + | -\n```\n",
+             "percept: 4 | 0x00000300 | link_stable_espnow | 0x00000200 | + | -\n```\n",
              "a link window = LinkPercept's lines as said:, then each claim numbered after them");
 
     // The consolidator reads the claim and NOTHING from the RSSI lines.
@@ -842,14 +842,14 @@ static void testLinkWindowEpisode() {
     r.select(5, 5, Consolidator::KEEPING);
     feedText(r, std::string(ep, n));
     r.finish();
-    const Term* met = c.find("0x00000200", "link_stable", "espnow");
+    const Term* met = c.find("0x00000300", "link_stable_espnow", "0x00000200");
     check(r.fed() == 1 && c.termCount() == 1 && met && met->totalFor() == 2,
           "one episode, one term, one vote FOR — the **LINK** sentences form no term");
 
     // Unscored (nothing armed): still a record, still the window's RSSI, no percept line.
     lg.add(0x200, -40, linkpercept::PROTO_ESPNOW);
     const size_t m2 = lg.buildRecord(rec, sizeof(rec), 6, 78, entSt(2000), 120000);
-    const size_t n2 = renderLinkWindowEpisode(rec, m2, 0, 0, 6, 78, "x", ep, sizeof(ep));
+    const size_t n2 = renderLinkWindowEpisode(rec, m2, 0, 0, 6, 78, "x", ep, sizeof(ep), 0x300u);
     const std::string u(ep, n2);
     check(n2 > 0 && u.find("said: 2 | **LINK** peer:0x00000200") != std::string::npos &&
               u.find("percept:") == std::string::npos,
@@ -862,11 +862,11 @@ static void testLinkWindowEpisode() {
     check(r2.fed() == 1 && c2.termCount() == 0, "and it feeds the consolidator nothing");
 
     // Claims only (m == 0) is the old episode's content under the new title/source.
-    const size_t n3 = renderLinkWindowEpisode(0, 0, k, 1, 7, 79, "x", ep, sizeof(ep));
+    const size_t n3 = renderLinkWindowEpisode(0, 0, k, 1, 7, 79, "x", ep, sizeof(ep), 0x300u);
     check(n3 > 0 && std::string(ep, n3).find("said: 1 | 0x00000200 espnow met") !=
                         std::string::npos,
           "claims with no window body number from 1");
-    check(renderLinkWindowEpisode(0, 0, 0, 0, 8, 80, "x", ep, sizeof(ep)) == 0,
+    check(renderLinkWindowEpisode(0, 0, 0, 0, 8, 80, "x", ep, sizeof(ep), 0x300u) == 0,
           "nothing heard and nothing scored: no episode");
   }
 
@@ -891,7 +891,7 @@ static void testLinkWindowEpisode() {
     w[i] = LinkClaim{0xFFFFFFF0u + (uint32_t)i, "espnow", LINK_UNOBSERVED, -32768, -32768};
   static char ep[SEMANTIC_ENTITY_EPISODE_BUF];
   const char* at = "18446744073709551615 +-4294967295 frame:18446744073709551615";
-  const size_t n = renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep, sizeof(ep));
+  const size_t n = renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep, sizeof(ep), 0x300u);
   check(n > 0 && n <= SEMANTIC_LINK_WINDOW_EPISODE_BUF,
         "the worst link window episode fits SEMANTIC_LINK_WINDOW_EPISODE_BUF");
   check(SEMANTIC_LINK_WINDOW_EPISODE_BUF <= SEMANTIC_ENTITY_EPISODE_BUF,
@@ -907,7 +907,7 @@ static void testLinkWindowEpisode() {
     blk += "\n";
     static char ep2[SEMANTIC_ENTITY_EPISODE_BUF];
     const size_t n2 = renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep2,
-                                              sizeof(ep2), blk.c_str());
+                                              sizeof(ep2), 0x300u, blk.c_str());
     check(n2 == n + blk.size() && n2 <= SEMANTIC_LINK_WINDOW_EPISODE_BUF,
           "...and still fits its budget carrying a maximal seq/follows block");
   }
@@ -925,7 +925,7 @@ static void testLinkWindowEpisode() {
   size_t match = 0, refused = 0, corrupt = 0, smallest = (size_t)-1;
   for (size_t cap = m + 1; cap <= sizeof(sc); ++cap) {
     memcpy(sc, rec, m);
-    const size_t k = renderLinkWindowEpisodeInPlace(sc, cap, m, w, 8, 8191, 4294967295u, at);
+    const size_t k = renderLinkWindowEpisodeInPlace(sc, cap, m, w, 8, 8191, 4294967295u, at, 0x300u);
     if (k == 0) { ++refused; continue; }
     if (k != n || memcmp(sc, ep, n) != 0) ++corrupt;
     else { ++match; if (cap < smallest) smallest = cap; }
@@ -933,22 +933,168 @@ static void testLinkWindowEpisode() {
   check(corrupt == 0, "in place: every cap REFUSES or matches byte-for-byte");
   check(refused > 0 && match > 0, "and the sweep exercised both outcomes");
   memcpy(sc, rec, m);
-  check(renderLinkWindowEpisodeInPlace(sc, sizeof(sc), m, w, 8, 8191, 4294967295u, at) == n,
+  check(renderLinkWindowEpisodeInPlace(sc, sizeof(sc), m, w, 8, 8191, 4294967295u, at, 0x300u) == n,
         "at the real scratch size the worst case wraps in place");
   printf("    in place: %u match, %u refused, smallest cap that wrapped %u B\n",
          (unsigned)match, (unsigned)refused, (unsigned)smallest);
 
   // All or nothing: a buffer that fits the body but not every claim refuses the episode.
   const size_t body_only = renderLinkWindowEpisode(rec, m, 0, 0, 8191, 4294967295u, at, ep,
-                                                   sizeof(ep));
+                                                   sizeof(ep), 0x300u);
   check(body_only > 0 && renderLinkWindowEpisode(rec, m, w, 8, 8191, 4294967295u, at, ep,
-                                                 body_only + 40) == 0,
+                                                 body_only + 40, 0x300u) == 0,
         "a claim that does not fit refuses the WHOLE episode, never a subset of verdicts");
 }
 
 // =======================================================================================
 // 6e. the link beliefs as a node shows them: top-k by EPS, Rule 3 over the window only
 // =======================================================================================
+// =======================================================================================
+// the observer in the percept (2026-11-25): a legacy link line reads as today's, by author
+// =======================================================================================
+// Both formats sit on every board's flash. The upgrade hook must make a legacy line, a
+// legacy carried tally and a new line about the same edge ONE term, through every door
+// flash reaches a consolidator by (the episode reader KEEPING and EVICTING, the checkpoint
+// reader), and must leave anything it cannot read as a link line exactly as it was.
+static std::string legacyEpisode(int lon, const char* pol) {
+  return std::string("\n---\n\n@LAT103LON") + std::to_string(lon) +
+         " | created:1 | updated:1\n\n**link window**\n\n```ttdb-episode\nsource: perceptlearn\n"
+         "at: x\nsaid: 1 | 0x00000200 espnow met predicted:-40 observed:-41\n"
+         "percept: 1 | 0x00000200 | link_stable | espnow | " + pol + " | -\n```\n";
+}
+
+static void testLinkObserverUpgrade() {
+  printf("link observer upgrade\n");
+  static uint32_t author = 0x300;
+  static char buf[SEMANTIC_LINK_EPISODE_BUF];
+
+  // 1. A legacy episode and a new one about the same edge are one term, under the new key.
+  Consolidator c; c.begin();
+  c.setUpgrade(upgradeLinkTriple, &author);
+  {
+    EpisodeReader r(c);
+    r.select(0, 1, Consolidator::KEEPING);
+    feedText(r, legacyEpisode(0, "+"));
+    LinkClaim k[1] = {{0x200, "espnow", LINK_MET, -40, -41}};
+    const size_t n = renderLinkEpisode(k, 1, 1, 1, "x", buf, sizeof(buf), 0x300u);
+    feedText(r, std::string(buf, n));
+    r.finish();
+  }
+  const Term* t = c.find("0x00000300", "link_stable_espnow", "0x00000200");
+  check(c.termCount() == 1 && t && t->totalFor() == 4 && t->episodes == 2,
+        "a legacy line and a new line about the same edge are ONE term (2 episodes, 2 votes)");
+  check(!c.find("0x00000200", "link_stable", "espnow"), "no legacy term is left behind");
+
+  // 2. The fold: EVICTING a legacy episode through the hooked reader moves its vote to
+  //    carried under the same key, with no underflow.
+  {
+    EpisodeReader r(c);
+    r.select(0, 0, Consolidator::EVICTING);
+    feedText(r, legacyEpisode(0, "+"));
+    r.finish();
+  }
+  check(t && t->live_for == 2 && t->carried_for == 2 && t->totalFor() == 4 &&
+            c.foldUnderflow() == 0,
+        "evicting a legacy episode moves its vote to carried under the new key, no underflow");
+
+  // 3. A legacy checkpoint seeds the new key: the carried tally is not stranded.
+  {
+    Consolidator g; g.begin();
+    g.setUpgrade(upgradeLinkTriple, &author);
+    CheckpointReader cr(g, 0);
+    feedText(cr, std::string("\n---\n\n@LAT104LON0 | created:9 | updated:9\n\n"
+                             "**carried through @LAT103LON3**\n\n```ttdb-carried\nthrough: 3\n"
+                             "carried: 2.5 1 4 4 | 0x00000200 | link_stable | ble\n```\n"));
+    const Term* s = g.find("0x00000300", "link_stable_ble", "0x00000200");
+    check(cr.seeded() == 1 && s && s->carried_for == 5 && s->carried_against == 2 &&
+              !g.find("0x00000200", "link_stable", "ble"),
+          "a legacy carried tally seeds the new key: 2.5/1 under 0x300 -> 0x200 over ble");
+    // ...and the checkpoint the node writes next is in the new format.
+    static char ck[SEMANTIC_CARRIED_BUF];
+    const size_t n = renderCheckpoint(g, 3, 1, 10, ck, sizeof(ck));
+    check(n > 0 && std::string(ck, n).find(
+                       "carried: 2.5 1 4 4 | 0x00000300 | link_stable_ble | 0x00000200\n") !=
+                       std::string::npos,
+          "the next checkpoint renders the tally in the new format");
+  }
+
+  // 4. Recomputation is unchanged: a store of legacy lines, upgraded, has the tallies the
+  //    same evidence has when written new.
+  {
+    Consolidator oldc, newc;
+    oldc.begin(); newc.begin();
+    oldc.setUpgrade(upgradeLinkTriple, &author);
+    const char* pols[5] = {"+", "+", "-", "+", "?"};
+    const uint8_t vs[5] = {LINK_MET, LINK_MET, LINK_VIOLATED, LINK_MET, LINK_UNOBSERVED};
+    for (int e = 0; e < 5; ++e) {
+      EpisodeReader ro(oldc);
+      ro.select((int16_t)e, (int16_t)e, Consolidator::KEEPING);
+      feedText(ro, legacyEpisode(e, pols[e]));
+      ro.finish();
+      LinkClaim k[1] = {{0x200, "espnow", vs[e], -40, -41}};
+      const size_t n = renderLinkEpisode(k, 1, (int16_t)e, 1, "x", buf, sizeof(buf), 0x300u);
+      EpisodeReader rn(newc);
+      rn.select((int16_t)e, (int16_t)e, Consolidator::KEEPING);
+      feedText(rn, std::string(buf, n));
+      rn.finish();
+    }
+    check(beliefs(oldc) == beliefs(newc) && oldc.termCount() == 1,
+          "legacy lines, upgraded, give the belief lines the same evidence gives written new");
+  }
+
+  // 5. What the hook must NOT touch.
+  {
+    char s[SEMANTIC_LEMMA_MAX], v[SEMANTIC_LEMMA_MAX], o[SEMANTIC_LEMMA_MAX];
+    strcpy(s, "0x00000200"); strcpy(v, "link_stable"); strcpy(o, "espnow");
+    uint32_t none = 0;
+    upgradeLinkTriple(s, v, o, &none);
+    check(!strcmp(s, "0x00000200") && !strcmp(v, "link_stable"),
+          "author unknown (0): the legacy line is left as it is, never given observer 0");
+    upgradeLinkTriple(s, v, o, nullptr);
+    check(!strcmp(v, "link_stable"), "no context: left as it is");
+    strcpy(s, "pixel"); strcpy(v, "link_stable"); strcpy(o, "espnow");
+    upgradeLinkTriple(s, v, o, &author);
+    check(!strcmp(s, "pixel") && !strcmp(v, "link_stable"),
+          "a subject that is not a peer id is not a legacy link line");
+    strcpy(s, "0x00000300"); strcpy(v, "link_stable_ble"); strcpy(o, "0x00000200");
+    upgradeLinkTriple(s, v, o, &author);
+    check(!strcmp(s, "0x00000300") && !strcmp(v, "link_stable_ble") && !strcmp(o, "0x00000200"),
+          "a new-format line passes through unchanged");
+    strcpy(s, "0x00000200"); strcpy(v, "link_stable"); strcpy(o, "a_very_long_protocol");
+    upgradeLinkTriple(s, v, o, &author);
+    check(!strcmp(v, "link_stable") && !strcmp(s, "0x00000200"),
+          "a legacy line whose new vector would not fit is left whole, never truncated");
+    check(isLinkVector("link_stable") && isLinkVector("link_stable_ble") &&
+              !isLinkVector("link_stable_") && !isLinkVector("moves_with"),
+          "isLinkVector: both formats, nothing else");
+  }
+
+  // 6. A view of several authors: the same peer heard by two observers is two beliefs.
+  {
+    Consolidator v; v.begin();
+    uint32_t a = 0x300;
+    v.setUpgrade(upgradeLinkTriple, &a);
+    EpisodeReader r(v);
+    r.select(0, 1, Consolidator::KEEPING);
+    feedText(r, legacyEpisode(0, "+"));
+    a = 0x200;                                   // the next record has another author
+    feedText(r, legacyEpisode(1, "-"));
+    r.finish();
+    check(v.termCount() == 2 && v.find("0x00000300", "link_stable_espnow", "0x00000200") &&
+              v.find("0x00000200", "link_stable_espnow", "0x00000200"),
+          "two authors' sayings about one peer are two directed edges, not one merged belief");
+    LinkBeliefRow rows[4];
+    size_t total = 0;
+    const size_t n = linkBeliefRows(v, rows, 4, &total);
+    bool named = n == 2;
+    for (size_t i = 0; i < n; ++i)
+      if (rows[i].peer != 0x200 || strcmp(rows[i].proto, "espnow") != 0 ||
+          (rows[i].observer != 0x300 && rows[i].observer != 0x200))
+        named = false;
+    check(named, "linkBeliefRows reads observer, peer and radio back out of the new triple");
+  }
+}
+
 static void testLinkBeliefRows() {
   printf("link belief rows\n");
   Consolidator c; c.begin();
@@ -959,7 +1105,7 @@ static void testLinkBeliefRows() {
     LinkClaim k[3] = {{0x200, "espnow", LINK_MET, -40, -41},
                       {0x10, "ble", e % 2 ? LINK_VIOLATED : LINK_MET, -60, -70},
                       {0x100, "espnow", e == 0 ? LINK_MET : LINK_UNOBSERVED, -50, -50}};
-    const size_t n = renderLinkEpisode(k, 3, (int16_t)e, 1, "x", buf, sizeof(buf));
+    const size_t n = renderLinkEpisode(k, 3, (int16_t)e, 1, "x", buf, sizeof(buf), 0x300u);
     EpisodeReader r(c);
     r.select((int16_t)e, (int16_t)e, Consolidator::KEEPING);
     feedText(r, std::string(buf, n));
@@ -1001,7 +1147,7 @@ static void testLinkBeliefRows() {
   Consolidator e; e.begin();
   for (int p = 0; p < 4; ++p) {
     LinkClaim k[1] = {{(uint32_t)(0x20 + p), "espnow", LINK_MET, -40, -40}};
-    const size_t m = renderLinkEpisode(k, 1, (int16_t)p, 1, "x", buf, sizeof(buf));
+    const size_t m = renderLinkEpisode(k, 1, (int16_t)p, 1, "x", buf, sizeof(buf), 0x300u);
     EpisodeReader r(e);
     r.select((int16_t)p, (int16_t)p, Consolidator::KEEPING);
     feedText(r, std::string(buf, m));
@@ -1015,12 +1161,12 @@ static void testLinkBeliefRows() {
   // Evict the oldest episode of 0x200's run: the total is unchanged (fold before forget),
   // but Rule 3 now sees only the window — and `carried` says so.
   {
-    const size_t m = renderLinkEpisode(0, 0, 0, 1, "x", buf, sizeof(buf));
+    const size_t m = renderLinkEpisode(0, 0, 0, 1, "x", buf, sizeof(buf), 0x300u);
     (void)m;
     LinkClaim k[3] = {{0x200, "espnow", LINK_MET, -40, -41},
                       {0x10, "ble", LINK_MET, -60, -70},
                       {0x100, "espnow", LINK_MET, -50, -50}};
-    const size_t m0 = renderLinkEpisode(k, 3, 0, 1, "x", buf, sizeof(buf));
+    const size_t m0 = renderLinkEpisode(k, 3, 0, 1, "x", buf, sizeof(buf), 0x300u);
     EpisodeReader r(c);
     r.select(0, 0, Consolidator::EVICTING);
     feedText(r, std::string(buf, m0));
@@ -1495,6 +1641,7 @@ int main() {
   testEntityEpisode();
   testLinkWindowEpisode();
   testLinkBeliefRows();
+  testLinkObserverUpgrade();
   testTransitionEpisode();
   testLongCoveredLine();
   testAcousticEpisode();

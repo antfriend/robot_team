@@ -595,7 +595,11 @@ int64_t completeBar(int64_t pulse_now, uint64_t frame, uint32_t bar_ms, uint32_t
 }
 
 BarView::BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi, uint32_t self)
-    : c_(c), frame_(frame), lo_(lo), hi_(hi), self_(self) {}
+    : c_(c), frame_(frame), lo_(lo), hi_(hi), self_(self) {
+  c_.setUpgrade(upgradeLinkTriple, &author_);
+}
+
+BarView::~BarView() { c_.setUpgrade(nullptr, nullptr); }
 
 void BarView::hold(uint32_t agent, uint32_t seq) {
   if (!seq) { ++unattributed_; return; }
@@ -635,6 +639,9 @@ void BarView::line(const char* l) {
               ((lat == SEMANTIC_EPISODE_LANE && lon >= 0 && tierOf(lon) == TIER_LINK) ||
                lat == EPISODEDELIVERY_HELD_LANE);
     lat_ = accept_ ? lat : 0;
+    // Own episodes are this node's words; a held copy's author is its `held:` line, which
+    // renderHeld writes first inside the block, so it is set before any percept is read.
+    author_ = lat_ == SEMANTIC_EPISODE_LANE ? self_ : 0;
     return;
   }
   if (!accept_) return;
@@ -646,7 +653,10 @@ void BarView::line(const char* l) {
   if (!in_block_) return;
   const char* s = skipWs(l);
   uint32_t v;
-  if (lat_ == EPISODEDELIVERY_HELD_LANE && !agent_ && readHeldAgent(s, &v)) { agent_ = v; return; }
+  if (lat_ == EPISODEDELIVERY_HELD_LANE && !agent_ && readHeldAgent(s, &v)) {
+    agent_ = author_ = v;
+    return;
+  }
   if (!seq_ && strncmp(s, "seq: ", 5) == 0 && readU32Dec(s + 5, &v)) { seq_ = v; return; }
   if (!decided_ && strncmp(s, "at:", 3) == 0) {
     decided_ = true;
@@ -664,6 +674,8 @@ void BarView::line(const char* l) {
 void BarView::finish() {
   close();
   accept_ = false;
+  author_ = 0;
+  c_.setUpgrade(nullptr, nullptr);
 }
 
 BarDigest barDigest(const Consolidator& c) {
@@ -776,7 +788,10 @@ uint32_t grammarHash(Consolidator& c, char* buf, size_t cap) {
   snprintf(at, sizeof(at), "%lld \xC2\xB1%u frame:%llu", (long long)t, 7u,
            (unsigned long long)frame);
   const char* order = "seq: 3\nfollows: 0x00000010:7 0x00000200:9\n";
-  const size_t n = renderLinkEpisode(kProbe, 3, 5, (uint32_t)(t / 1000), at, buf, half, order);
+  // The probe's observer is a fixed id, never the board's own, so every board hashes the
+  // same bytes; it names the bar view's `self` below, as a node's own episodes do.
+  const size_t n = renderLinkEpisode(kProbe, 3, 5, (uint32_t)(t / 1000), at, buf, half,
+                                     0x00000010u, order);
   if (!n) return 0;
   uint32_t h = fnvBytes(0x811c9dc5u, buf, n);
   const size_t m = renderHeld(buf, n, 0x00000300u, 3, 6, buf + half, cap - half);

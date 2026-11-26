@@ -159,6 +159,12 @@ class Node {
              uint16_t batch = SEMANTIC_EVICT_BATCH) {
     db_ = &db;
     c_.begin();
+    // Every link percept names its observer (Episode.h, THE OBSERVER IS IN THE PERCEPT).
+    // The node is the author of everything this consolidator reads — its own episodes and
+    // its own checkpoint — so a legacy line is upgraded with this node's id. Set before the
+    // checkpoint and the replay below, and it stays for every later fold.
+    self_ = order_ ? order_->self() : 0;
+    c_.setUpgrade(semantic::upgradeLinkTriple, &self_);
     tiers_.begin(quotas, batch);
     scan();
     if (tiers_.hasCheckpoint()) {
@@ -206,7 +212,7 @@ class Node {
     const int16_t ord = tiers_.nextOrdinal(semantic::TIER_LINK);
     char ob[EPISODEORDER_BLOCK_MAX];
     const size_t m = semantic::renderLinkEpisode(claims, n, ord, t, at, scratch_,
-                                                 sizeof(scratch_), orderBlock(ob));
+                                                 sizeof(scratch_), self_, orderBlock(ob));
     if (!m) { ++st_.render_failed; return false; }
     return appendRendered(scratch_, m, ord);
   }
@@ -241,7 +247,7 @@ class Node {
     if (!db_) return false;
     char ob[EPISODEORDER_BLOCK_MAX];
     const size_t r = semantic::renderLinkWindowEpisodeInPlace(scratch_, sizeof(scratch_), m,
-                                                              claims, n, ord, t, at,
+                                                              claims, n, ord, t, at, self_,
                                                               orderBlock(ob));
     if (!r) { ++st_.render_failed; return false; }
     return appendRendered(scratch_, r, ord);
@@ -404,6 +410,7 @@ class Node {
 
   Ttdb* db_ = nullptr;
   semantic::VectorClock* order_ = nullptr;
+  uint32_t self_ = 0;              // this node: every link percept's observer (begin())
   uint32_t pending_seq_ = 0;
   void (*boot_sink_)(void*, const char*) = nullptr;
   uint8_t (*rider_extra_)(void*, const TtdbCut*, uint8_t, TtdbCut*, uint8_t) = nullptr;
@@ -414,6 +421,8 @@ class Node {
   int16_t last_link_ord_ = 0;
   static_assert(SEMANTIC_ENTITY_EPISODE_BUF >= SEMANTIC_LINK_EPISODE_BUF,
                 "the shared scratch must hold the largest episode any tier renders");
+  static_assert(SEMANTIC_ENTITY_EPISODE_BUF / 2 >= SEMANTIC_LINK_EPISODE_BUF,
+                "grammarHash() renders the probe and its held copy into HALVES of the scratch");
   char scratch_[SEMANTIC_ENTITY_EPISODE_BUF];
   semantic::Consolidator c_;
   semantic::EpisodeTiers tiers_;

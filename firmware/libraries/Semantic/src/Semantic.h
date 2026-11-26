@@ -311,7 +311,20 @@ class Consolidator {
   // role name is a grammar key, not a constant of the world.
   void setComentionRole(const char* role);
 
+  // A READER FOR A SUPERSEDED LINE FORMAT (2026-11-25). Applied to every percept feedLine()
+  // parses and every triple seedCarried() seeds, before it is interned — the two doors
+  // through which flash reaches the table — so the keep path, the fold's EVICTING replay,
+  // a checkpoint's carried tallies and a bar view all read an old line the same way. It
+  // rewrites the three lemma buffers (each SEMANTIC_LEMMA_MAX) in place, or leaves them.
+  // percept() is NOT hooked: a caller building a Percept builds it in today's format.
+  // Survives begin()/reset(), so set it once; null clears it. The only user today is
+  // Episode.h's upgradeLinkTriple, which puts the observer into a link percept.
+  typedef void (*TripleUpgrade)(char* subject, char* vec, char* object, void* ctx);
+  void setUpgrade(TripleUpgrade fn, void* ctx) { upgrade_ = fn; upgrade_ctx_ = ctx; }
+
  private:
+  TripleUpgrade upgrade_ = nullptr;
+  void*         upgrade_ctx_ = nullptr;
   Term   terms_[SEMANTIC_MAX_TERMS];
   // Per-episode scratch, parallel to terms_: the largest weight this episode has said
   // either way, in halves. TTG-0003 §2's "per episode, plus = the LARGEST weight".

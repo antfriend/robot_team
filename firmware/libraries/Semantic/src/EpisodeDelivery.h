@@ -317,7 +317,14 @@ struct BarHolds {
 class BarView {
  public:
   // `self` names the author of own (@LAT103) episodes in holds().
+  // ⚠ It hooks `c` (Consolidator::setUpgrade) so each record's legacy link percepts are read
+  // with that record's AUTHOR — `self` for own episodes, the `held:` agent for copies — and
+  // unhooks it in finish() and on destruction. A view that never calls finish() still
+  // leaves no dangling hook behind.
   BarView(Consolidator& c, uint64_t frame, int64_t lo, int64_t hi, uint32_t self = 0);
+  ~BarView();
+  BarView(const BarView&) = delete;
+  BarView& operator=(const BarView&) = delete;
   void line(const char* l);
   void finish();
   uint16_t own() const { return own_; }
@@ -337,6 +344,7 @@ class BarView {
   bool     accept_ = false, in_block_ = false, decided_ = false, started_ = false;
   uint16_t own_ = 0, held_ = 0, unattributed_ = 0;
   uint32_t agent_ = 0, seq_ = 0;
+  uint32_t author_ = 0;          // the record being read: the upgrade hook's context
   BarHolds h_[EPISODEDELIVERY_BAR_AGENTS];
   uint8_t  nh_ = 0;
 };

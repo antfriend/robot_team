@@ -325,7 +325,8 @@ size_t checkpointBytes(const Consolidator& c, const int16_t* throughs, uint8_t n
 // ---------------------------------------------------------------------------------------
 // One claim -> `said: <k>` + `percept: <k>`. Shared by the claims-only form and the
 // window form, so the two cannot drift into different grammars for the same claim.
-static bool linkClaimInto(EpisodeBuilder& b, const LinkClaim& k, uint32_t sentence) {
+static bool linkClaimInto(EpisodeBuilder& b, const LinkClaim& k, uint32_t sentence,
+                          uint32_t observer) {
   const char* proto = k.proto ? k.proto : "?";
   const char* vname = k.verdict == LINK_MET ? "met"
                     : k.verdict == LINK_VIOLATED ? "violated" : "unobserved";
@@ -336,26 +337,68 @@ static bool linkClaimInto(EpisodeBuilder& b, const LinkClaim& k, uint32_t senten
   Percept p;
   memset(&p, 0, sizeof(p));
   p.sentence = sentence;
-  snprintf(p.subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)k.peer);
-  snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s", SEMANTIC_LINK_VECTOR);
-  snprintf(p.object, SEMANTIC_LEMMA_MAX, "%s", proto);
+  // The observer is the subject, the radio is in the vector, the peer is the object: the
+  // directed edge (Episode.h, THE OBSERVER IS IN THE PERCEPT). A vector that does not fit
+  // refuses the claim rather than truncating it into another radio's name.
+  snprintf(p.subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)observer);
+  const int vn = snprintf(p.vec, SEMANTIC_LEMMA_MAX, "%s%s", SEMANTIC_LINK_VECTOR_PREFIX, proto);
+  if (vn < 0 || vn >= SEMANTIC_LEMMA_MAX) return false;
+  snprintf(p.object, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)k.peer);
   p.pol = k.verdict == LINK_MET ? POL_PLUS
         : k.verdict == LINK_VIOLATED ? POL_MINUS : POL_HELD;
   p.quant = Q_NONE;
   return b.percept(p);
 }
 
+bool isLinkVector(const char* vec) {
+  if (!vec) return false;
+  if (strcmp(vec, SEMANTIC_LINK_VECTOR_LEGACY) == 0) return true;
+  const size_t n = strlen(SEMANTIC_LINK_VECTOR_PREFIX);
+  return strncmp(vec, SEMANTIC_LINK_VECTOR_PREFIX, n) == 0 && vec[n] != '\0';
+}
+
+// A legacy subject is a peer id exactly as linkClaimInto rendered it: `0x` + 8 hex digits.
+static bool isPeerLemma(const char* s) {
+  if (!s || s[0] != '0' || s[1] != 'x') return false;
+  for (int i = 2; i < 10; ++i) {
+    const char ch = s[i];
+    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')))
+      return false;
+  }
+  return s[10] == '\0';
+}
+
+void upgradeLinkTriple(char* subject, char* vec, char* object, void* ctx) {
+  const uint32_t author = ctx ? *static_cast<const uint32_t*>(ctx) : 0;
+  if (!author || !subject || !vec || !object) return;
+  if (strcmp(vec, SEMANTIC_LINK_VECTOR_LEGACY) != 0 || !isPeerLemma(subject)) return;
+  char v[SEMANTIC_LEMMA_MAX];
+  const int vn = snprintf(v, sizeof(v), "%s%s", SEMANTIC_LINK_VECTOR_PREFIX, object);
+  if (vn < 0 || vn >= (int)sizeof(v)) return;      // would not fit: leave it, never truncate
+  char peer[SEMANTIC_LEMMA_MAX];
+  strcpy(peer, subject);
+  snprintf(subject, SEMANTIC_LEMMA_MAX, "0x%08lx", (unsigned long)author);
+  strcpy(vec, v);
+  strcpy(object, peer);
+}
+
 size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_t* total) {
   size_t n_link = 0, filled = 0;
   for (size_t i = 0; i < c.termCount(); ++i) {
     const Term* tm = c.term(i);
-    if (!tm || strcmp(tm->vec, SEMANTIC_LINK_VECTOR) != 0) continue;
+    if (!tm || !isLinkVector(tm->vec)) continue;
     ++n_link;
     if (!out || k == 0) continue;
     LinkBeliefRow r;
     memset(&r, 0, sizeof(r));
-    r.peer = (uint32_t)strtoul(tm->subject, 0, 16);
-    snprintf(r.proto, sizeof(r.proto), "%s", tm->object);
+    if (strcmp(tm->vec, SEMANTIC_LINK_VECTOR_LEGACY) == 0) {   // never upgraded: no observer
+      r.peer = (uint32_t)strtoul(tm->subject, 0, 16);
+      snprintf(r.proto, sizeof(r.proto), "%s", tm->object);
+    } else {
+      r.observer = (uint32_t)strtoul(tm->subject, 0, 16);
+      r.peer = (uint32_t)strtoul(tm->object, 0, 16);
+      snprintf(r.proto, sizeof(r.proto), "%s", tm->vec + strlen(SEMANTIC_LINK_VECTOR_PREFIX));
+    }
     r.pol = c.polarity(*tm);
     r.conf = c.conf(*tm);
     r.sal = c.sal(*tm);
@@ -379,12 +422,13 @@ size_t linkBeliefRows(const Consolidator& c, LinkBeliefRow* out, size_t k, size_
 }
 
 size_t renderLinkEpisode(const LinkClaim* claims, int n, int16_t ordinal, uint32_t t,
-                         const char* at, char* out, size_t cap, const char* order) {
+                         const char* at, char* out, size_t cap, uint32_t observer,
+                         const char* order) {
   if (!out || cap == 0 || (n > 0 && !claims)) return 0;
   EpisodeBuilder b(out, cap);
   if (!b.begin(ordinal, t, "link window", "perceptlearn", at, SEMANTIC_EPISODE_LANE, order))
     return 0;
-  for (int i = 0; i < n; ++i) linkClaimInto(b, claims[i], (uint32_t)(i + 1));
+  for (int i = 0; i < n; ++i) linkClaimInto(b, claims[i], (uint32_t)(i + 1), observer);
   return b.finish();
 }
 
@@ -465,7 +509,7 @@ size_t renderSaidEpisode(const char* body, size_t n, int16_t ordinal, uint32_t t
 
 size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* claims, int n,
                                int16_t ordinal, uint32_t t, const char* at, char* out,
-                               size_t cap, const char* order) {
+                               size_t cap, uint32_t observer, const char* order) {
   if (!out || cap == 0 || (m > 0 && !body) || (n > 0 && !claims) || n < 0) return 0;
   const bool inplace = m > 0 && body >= out && body < out + cap;
   if (inplace && !inplaceHeaderFits(body, m, out, cap, ordinal, t, SEMANTIC_LINK_WINDOW_TITLE,
@@ -483,7 +527,10 @@ size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* clai
   // per-claim tolerance: a window episode missing a scored claim would fold a SUBSET of
   // the verdicts while looking complete — the dropped-belief failure in a new place.
   for (int i = 0; i < n; ++i)
-    if (!linkClaimInto(b, claims[i], (uint32_t)(k + i + 1))) { out[0] = '\0'; return 0; }
+    if (!linkClaimInto(b, claims[i], (uint32_t)(k + i + 1), observer)) {
+      out[0] = '\0';
+      return 0;
+    }
   const size_t r = b.finish();
   if (!r) out[0] = '\0';
   return r;
@@ -491,13 +538,15 @@ size_t renderLinkWindowEpisode(const char* body, size_t m, const LinkClaim* clai
 
 size_t renderLinkWindowEpisodeInPlace(char* buf, size_t cap, size_t m,
                                       const LinkClaim* claims, int n, int16_t ordinal,
-                                      uint32_t t, const char* at, const char* order) {
+                                      uint32_t t, const char* at, uint32_t observer,
+                                      const char* order) {
   if (!buf || m >= cap) return 0;
   if (m == 0)
-    return renderLinkWindowEpisode(0, 0, claims, n, ordinal, t, at, buf, cap, order);
+    return renderLinkWindowEpisode(0, 0, claims, n, ordinal, t, at, buf, cap, observer,
+                                   order);
   memmove(buf + (cap - m), buf, m);
   return renderLinkWindowEpisode(buf + (cap - m), m, claims, n, ordinal, t, at, buf, cap,
-                                 order);
+                                 observer, order);
 }
 
 size_t renderSaidEpisodeInPlace(char* buf, size_t cap, size_t m, int16_t ordinal,
