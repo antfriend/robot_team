@@ -9,85 +9,93 @@ implementation status of each RFC on real hardware.** The corpus is shared with
 and the `(Implemented ✅ … / Draft; nothing implemented / …)` note closing each entry
 below is this fleet's evidence, not the spec's claim about itself.
 
-*Last sync from toot-toot-engineering 2026-12-13 (one-way, TTG only):* TTG-RFC-0001 1.11,
+*Push to toot-toot-engineering 2026-11-25 (this fleet's evidence, outward):* TTG-RFC-0001 1.12
+(`label_carried`), TTG-RFC-0003 1.16 (§2.1, the bounded-store profile, which is ACT-III C2d's
+divergence offered upstream) and TTG-RFC-0004 1.2 (§4 implemented on these six boards; §4.9,
+the implementation report, with the departures written back). Same day, all three checkouts:
+the TTG changelogs, `rfc.ttdb.md`'s note and this file had dated each version one day after
+the last, out to 2026-12-13, where git dates them 2026-11-24 and -25. Those dates are repaired.
+`@LAT60LON1/3/4` updated; still 46 records. Both handhelds need an FS re-flash to carry it.
+
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0001 1.11,
 TTG-RFC-0003 1.15 and TTG-RFC-0005 1.6 (the shape of the sayings, beside the verdict;
 construction traffic in a re-reading); `@LAT60LON1`, `@LAT60LON3` and `@LAT60LON5` took
 upstream's text with this checkout's `sal` kept; still 46 records. Both handhelds need an FS
 re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-12-12 (one-way, TTG only):* TTG-RFC-0002 1.7 and
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0002 1.7 and
 TTG-RFC-0006 0.17 (a fronted adverbial clause ends at its comma; phrases after a shape);
 `@LAT60LON2` and `@LAT60LON6` took upstream's text with this checkout's `sal` kept; still 46
 records.
 
-*Previous sync from toot-toot-engineering 2026-12-11 (one-way, TTG only):* TTG-RFC-0003 1.14 (the
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0003 1.14 (the
 predicate's noun before the subject); `@LAT60LON3` took upstream's text with this checkout's
 `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-10 (one-way, TTG only):* TTG-RFC-0003 1.13 (no
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0003 1.13 (no
 subject behind its verb after a preposition; rules linking one motion across languages);
 `@LAT60LON3` took upstream's text with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-09 (one-way, TTG only):* TTG-RFC-0006 0.16
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0006 0.16
 (moving from: *from* tied to the verbs that move a thing); `@LAT60LON6` took upstream's text
 with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-08 (one-way, TTG only):* TTG-RFC-0003 1.12 and
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0003 1.12 and
 TTG-RFC-0006 0.15 (a preposition with the copula); `@LAT60LON3` and `@LAT60LON6` took
 upstream's text with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-07 (one-way, TTG only):* TTG-RFC-0001 1.10
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0001 1.10
 (`stem_restore`, the stem endings no lemma ends bare on); `@LAT60LON1` took upstream's text
 with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-06 (one-way, TTG only):* TTG-RFC-0006 0.14 (a
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0006 0.14 (a
 relative inside a stance's clause); `@LAT60LON6` took upstream's text with this checkout's
 `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-05 (one-way, TTG only):* TTG-RFC-0006 0.13 (part
+*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0006 0.13 (part
 of a clause: a stance's clause and a relative); `@LAT60LON6` took upstream's text with this
 checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-04 (one-way, TTG only):* TTG-RFC-0003 1.11 and
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0003 1.11 and
 TTG-RFC-0006 0.12 (a preposition before the wh-word); `@LAT60LON3` and `@LAT60LON6` took
 upstream's text with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-03 (one-way, TTG only):* TTG-RFC-0003 1.10 and
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0003 1.10 and
 TTG-RFC-0006 0.11 (inherited doings for a verb gap); `@LAT60LON3` and `@LAT60LON6` took
 upstream's text with this checkout's `sal` kept; still 46 records.
 
-*Previous sync from toot-toot-engineering 2026-12-02 (one-way, TTG only):* TTG-RFC-0003 1.9 and
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0003 1.9 and
 TTG-RFC-0006 0.10 (a verb gap with no thing); `@LAT60LON3` and `@LAT60LON6` took upstream's text
 with this checkout's `sal` kept; still 46 records. Both handhelds need an FS re-flash to carry
 it.
 
-*Previous sync from toot-toot-engineering 2026-12-01 (one-way, TTG only):* TTG-RFC-0001 1.9,
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0001 1.9,
 TTG-RFC-0003 1.8 and TTG-RFC-0006 0.9 (a question gap at the verb); `@LAT60LON1`, `@LAT60LON3`
 and `@LAT60LON6` took upstream's text with this checkout's `sal` kept; still 46 records. Both
 handhelds need an FS re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-30 (one-way, TTG only):* TTG-RFC-0003 1.7 and
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0003 1.7 and
 TTG-RFC-0006 0.8 (questions read by constructions); `@LAT60LON3` and `@LAT60LON6` took
 upstream's text with this checkout's `sal` kept; still 46 records. Both handhelds need an FS
 re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-29 (one-way, TTG only):* TTG-RFC-0006 0.7 (a
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0006 0.7 (a
 Spanish construction); `@LAT60LON6` took upstream's text with this checkout's `sal` kept;
 still 46 records. Both handhelds need an FS re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-28 (one-way, TTG only):* TTG-RFC-0006 0.6 (a
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0006 0.6 (a
 nounish name tied to its things); `@LAT60LON6` took upstream's text with this checkout's `sal`
 kept; still 46 records. Both handhelds need an FS re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-27 (one-way, TTG only):* TTG-RFC-0006 0.5 (a
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0006 0.5 (a
 verbish name tied to its verbs); `@LAT60LON6` took upstream's text with this checkout's `sal`
 kept; still 46 records. Both handhelds need an FS re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-26 (one-way, TTG only):* TTG-RFC-0006 0.4
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0006 0.4
 (abstract constructions); `@LAT60LON6` took upstream's text with this checkout's `sal` kept;
 still 46 records. Both handhelds need an FS re-flash to carry it.
 
-*Previous sync from toot-toot-engineering 2026-11-25 (one-way, TTG only):* TTG-RFC-0001 1.8 and
+*Previous sync from toot-toot-engineering 2026-11-24 (one-way, TTG only):* TTG-RFC-0001 1.8 and
 TTG-RFC-0006 0.3 (constructions with several parents); `@LAT60LON1` and `@LAT60LON6` took
 upstream's text with this checkout's `sal` kept; still 46 records. Both handhelds need an FS
 re-flash to carry it.
@@ -168,15 +176,16 @@ holds no natural-language word. 1.0, stable; the reference runtime is
 [personal_grimoire](https://antfriend.github.io/personal_grimoire/index.html), whose tests
 check these RFCs against it.
 
-⚠ **Status on this fleet: none of the six is implemented on an A32 node.** TTG is read
-here as the **spec Act III consolidates toward** ([ACT-III.md](../../ACT-III.md)) — the
-per-entry notes below say which part of the plan each one governs, and one of them
-(TTG-RFC-0004 §4) is a proposal this fleet is the only hardware able to run.
+**Status on this fleet (2026-11-25):** Act III Phase C built three of the six on every board:
+TTG-RFC-0002's episode format, TTG-RFC-0003 §2's counting (under the §2.1 bounded-store profile)
+and TTG-RFC-0004 §4. The rest is not built here: grammar records, reasoning, replies, shapes and
+constructions. The per-entry notes below say which part of [ACT-III.md](../../ACT-III.md) each
+one governs. Until 2026-10-06 this paragraph said none was implemented.
 
-- [TTG-RFC-0001-Grammar-in-the-Store.md](TTG-RFC-0001-Grammar-in-the-Store.md): Grammar in the Store (1.1–1.6: the reply keys, numbers and lexicon keys phases 1–6 added; 1.5: the parameters table; 1.6: constructions, the ninth kind; 1.7: `read_by_is_a`; 1.8: `construction_contested`; 1.9: the pro-verb; 1.10: `stem_restore`; 1.11: the trajectory keys and numbers) — the `ttdb-grammar` and `ttdb-sphere` blocks, the nine grammar kinds, the embedding surface, several languages in one store, and the **runtime contract**: no natural-language word or reply phrase in the interpreter. (Not implemented here; no node's TTDB carries a grammar block. Act III reads its §10 embedding-surface rule as the bar for describing a runtime *inside* the store.)
-- [TTG-RFC-0002-Semantic-Percepts.md](TTG-RFC-0002-Semantic-Percepts.md): Semantic Percepts, Episodes and Terms (1.1: collisions use TTDB-RFC-0004's `southeast_step`; 1.2: the reference runtime conforms; 1.3: the `holds:` line; 1.4: the `gap:` line and a verb's `frames:`; 1.5: the `tense:` line; 1.6: §7.2 narrowed; 1.7: a fronted adverbial clause ends at its comma) — the percept line (subject, vector, object, polarity, quantifier), episode and term records, placement on the grammar sphere, byte-stable write-back. (Not implemented; **Act III Phase C2 target** — its `ttdb-episode`/`ttdb-term` blocks are the record format the fleet's four percept tiers `@LAT93`–`@LAT97` collapse onto.)
-- [TTG-RFC-0003-Beliefs-Reasoning-Response.md](TTG-RFC-0003-Beliefs-Reasoning-Response.md): Beliefs, Vector Reasoning and Grounded Response (1.1: a question after a stance names what it holds; 1.2: the frame numbers' values; 1.3: a change in tense is not counted; 1.4: `modifier_max_words`; 1.5: questions with the verb first; 1.6: place questions along a verb's phrasal vectors; 1.7: questions a construction reads; 1.8: questions about the verb; 1.9: what a subject does; 1.10: and what it inherits; 1.11: a preposition before the wh-word; 1.12: and with the copula; 1.13: no subject after a preposition, one motion across languages; 1.14: the predicate's noun before the subject; 1.15: the shape of the sayings, beside the verdict) — consolidation over episodes, vector algebra, Datalog-style rules, inference with specificity, and replies whose grounds are said, inferred, contested or superseded, never printed alike. (Not implemented; **Act III Phase C3 target.** ⚠ Its §2 requirement that every belief be *recomputable from the episodes* is the property `PerceptLearn`'s asymmetric `+2`/`−16` fold structurally cannot have, and Act III declares a **bounded-store divergence** from it: robot_team evicts episodes, so recomputability holds over the retained window plus carried tallies.)
-- [TTG-RFC-0004-Time-and-the-Fleet.md](TTG-RFC-0004-Time-and-the-Fleet.md): Time (1.1: a change in the owner's tense, §3.7) — the order of sayings without a clock, `exclusive` vectors whose later sayings retire earlier ones, the `superseded` ground (§2–3 stable); and, proposed, how a fleet orders sayings on a shared pulse (§4, builds on TTN-RFC-0010). (§2–3 not implemented here. **§4 is unimplemented anywhere, and this fleet is the hardware it was written for** — it adopts TTN-RFC-0010 unchanged, which is `Pulse` on these boards. **Act III Phase C4**; its §4.8 test plan is the acceptance criteria, and item 4 — *two nodes holding the same episodes give identical answers without coordinating* — is Act III's headline claim.)
+- [TTG-RFC-0001-Grammar-in-the-Store.md](TTG-RFC-0001-Grammar-in-the-Store.md): Grammar in the Store (1.1–1.6: the reply keys, numbers and lexicon keys phases 1–6 added; 1.5: the parameters table; 1.6: constructions, the ninth kind; 1.7: `read_by_is_a`; 1.8: `construction_contested`; 1.9: the pro-verb; 1.10: `stem_restore`; 1.11: the trajectory keys and numbers; 1.12: `label_carried`) — the `ttdb-grammar` and `ttdb-sphere` blocks, the nine grammar kinds, the embedding surface, several languages in one store, and the **runtime contract**: no natural-language word or reply phrase in the interpreter. (Not implemented here; no node's TTDB carries a grammar block. Act III reads its §10 embedding-surface rule as the bar for describing a runtime *inside* the store.)
+- [TTG-RFC-0002-Semantic-Percepts.md](TTG-RFC-0002-Semantic-Percepts.md): Semantic Percepts, Episodes and Terms (1.1: collisions use TTDB-RFC-0004's `southeast_step`; 1.2: the reference runtime conforms; 1.3: the `holds:` line; 1.4: the `gap:` line and a verb's `frames:`; 1.5: the `tense:` line; 1.6: §7.2 narrowed; 1.7: a fronted adverbial clause ends at its comma) — the percept line (subject, vector, object, polarity, quantifier), episode and term records, placement on the grammar sphere, byte-stable write-back. (Episodes implemented ✅, Act III C2: every tier writes `ttdb-episode` blocks on `@LAT103`, and held copies sit off-lane on `@LAT105`, per §5.1. Term records and placement are not implemented. ⚠ The link percept leaves its observer implicit: `<peer> | link_stable | <proto>`.)
+- [TTG-RFC-0003-Beliefs-Reasoning-Response.md](TTG-RFC-0003-Beliefs-Reasoning-Response.md): Beliefs, Vector Reasoning and Grounded Response (1.1: a question after a stance names what it holds; 1.2: the frame numbers' values; 1.3: a change in tense is not counted; 1.4: `modifier_max_words`; 1.5: questions with the verb first; 1.6: place questions along a verb's phrasal vectors; 1.7: questions a construction reads; 1.8: questions about the verb; 1.9: what a subject does; 1.10: and what it inherits; 1.11: a preposition before the wh-word; 1.12: and with the copula; 1.13: no subject after a preposition, one motion across languages; 1.14: the predicate's noun before the subject; 1.15: the shape of the sayings, beside the verdict; 1.16: §2.1, bounded stores) — consolidation over episodes, vector algebra, Datalog-style rules, inference with specificity, and replies whose grounds are said, inferred, contested or superseded, never printed alike. (§2 counting implemented ✅ on every board, Act III C3, under **§2.1, the bounded-store profile this fleet pushed upstream in 1.16**. §3 reasoning and §4 replies are not implemented. Before 1.16: its §2 requirement that every belief be *recomputable from the episodes* is the property `PerceptLearn`'s asymmetric `+2`/`−16` fold structurally cannot have, and Act III declares a **bounded-store divergence** from it: robot_team evicts episodes, so recomputability holds over the retained window plus carried tallies.)
+- [TTG-RFC-0004-Time-and-the-Fleet.md](TTG-RFC-0004-Time-and-the-Fleet.md): Time (1.1: a change in the owner's tense, §3.7; 1.2: §4 implemented here, §4.9 the report) — the order of sayings without a clock, `exclusive` vectors whose later sayings retire earlier ones, the `superseded` ground (§2–3 stable); and, proposed, how a fleet orders sayings on a shared pulse (§4, builds on TTN-RFC-0010). (**§4 implemented ✅ on six boards, Act III C4.** §4.8 items 1–4 pass natively; on hardware item 4 passed in run 11 and item 5 by split detection, both 2026-10-06. 1.2 carries this fleet's report as §4.9. §2–3 supersession is in `FleetTime` and its tests, but no `exclusive` vector is declared, so nothing is retired on hardware.)
 - [TTG-RFC-0005-Shapes-and-Amendments.md](TTG-RFC-0005-Shapes-and-Amendments.md): Shapes and Amendments — a clause as any alternating run of nounish and verbish segments; relative and stance clauses; held sayings, never believed, including both readings of a sentence the grammar reads two ways, named so the owner can choose; a stance linked to what it holds (1.1); what a verb takes counted in episodes, the grammar's guesses at a gap apart (1.2); hedges held, and the past marked (1.3); modifiers as subclasses of a phrase's head, off by default (1.4); a question whose verb names its own subject (1.5); the shape notation the owner overrules a reading with; amendments kept beside the episode, and re-readings that report a grammar change without writing until the owner takes them, with each construction's traffic (1.6). (Not implemented. Its §5 rule — *an amendment is kept beside the episode, never in it* — is the generalisation of this fleet's `@LAT100` lane generations, and is what replaces them in Act III Phase C2.)
 - [TTG-RFC-0006-Constructions.md](TTG-RFC-0006-Constructions.md): Constructions — Shapes That Carry Meaning (0.17, draft) — the ninth grammar kind: a shape in the owner's marks paired with the percepts a clause of that shape says (*X V Y off Z*: Y goes off Z); matched on a whole clause, most specific first, the owner's marks overruling it; named in the reply; each language its own; rejected when unsafe, as rules are; a network by default inheritance, each construction saying what its ancestors say and overriding it (0.2), from several parents, what they dispute held (0.3); abstract constructions, never matched, only inherited (0.4); a verbish name tied to its verbs by lemma (0.5), and a nounish one to its things, so an idiom can mean what its words don't (0.6); a Spanish construction, *de* read as *off* after a verb that moves a thing (0.7); questions read by constructions, every atom answered (0.8), and a gap at the verb (0.9), with or without a thing (0.10), and what it inherits (0.11); a preposition before the wh-word (0.12), with the copula too (0.15); part of a clause, a stance's clause or a relative (0.13), and a relative inside a stance's clause (0.14); *from* tied to the verbs that move a thing (0.16); phrases after a shape, and the clause after a fronted adverbial (0.17). (Not implemented, and no Act III phase targets it: it governs how typed sentences are read, and no node here reads sentences.)
 
