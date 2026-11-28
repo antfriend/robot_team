@@ -92,7 +92,9 @@ int main(int argc, char** argv) {
   // TTDB-RFC-0011 (Precision Weighting and the Ignition Filter).
   // 45 -> 46 on 2026-11-24 (TTG sync from toot-toot-engineering): +@LAT60LON6,
   // TTG-RFC-0006 (Constructions), a 0.1 draft.
-  const size_t kExpectedRecords = 46;
+  // 46 -> 47 on 2026-11-27 (TTG sync from the website): +@LAT60LON7,
+  // TTG-RFC-0007 (Acts and Scenes), a 0.3 draft.
+  const size_t kExpectedRecords = 47;
   CHECK(recs.size() == kExpectedRecords, "pass-1 scan indexes %zu records (got %zu)",
         kExpectedRecords, recs.size());
   CHECK(recs.size() <= TTDB_MAX_RECORDS, "fits TTDB_MAX_RECORDS (%d)", TTDB_MAX_RECORDS);

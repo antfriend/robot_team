@@ -37,7 +37,7 @@ selected:
   - "@LAT0LON0"
 preview:
   "@LAT0LON0": "Home: what this database is and how each record expands back to its full RFC"
-agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it. Sync 2026-11-24 (later) from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.7 and TTG-RFC-0006 0.2, inheritance between constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.8 and TTG-RFC-0006 0.3, constructions with several parents; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.4, abstract constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.5, a verbish name tied to its verbs; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.6, a nounish name tied to its things; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.7, a Spanish construction; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.7 and TTG-RFC-0006 0.8, questions read by constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1/3/6 for TTG-RFC-0001 1.9, -0003 1.8 and -0006 0.9, a question gap at the verb; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.9 and -0006 0.10, a verb gap with no thing; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.10 and -0006 0.11, inherited doings for a verb gap; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.11 and -0006 0.12, a preposition before the wh-word; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.13, part of a clause; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.14, a relative inside a stance's clause; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1 for TTG-RFC-0001 1.10, stem_restore; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.12 and -0006 0.15, a preposition with the copula; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.16, moving from; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3 for TTG-RFC-0003 1.13, no subject after a preposition and one motion across languages; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3 for TTG-RFC-0003 1.14, the predicate's noun before the subject; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON2/6 for TTG-RFC-0002 1.7 and -0006 0.17, an adverbial clause and phrases after a shape; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1/3/5 for TTG-RFC-0001 1.11, -0003 1.15 and -0005 1.6, the shape of the sayings and construction traffic; 46 records still; sal kept as re-scored here. Changelog dates repaired 2026-11-25 in all three checkouts: the TTG changelogs, this note and INDEX.md had dated each version one day after the last (out to 2026-12-13), where git dates them 2026-11-24 and -25; record timestamps after 1795564800 were reset to it. Push 2026-11-25 to toot-toot-engineering: TTG-RFC-0001 1.12, -0003 1.16 (the bounded-store profile, ACT-III C2d) and -0004 1.2 (§4 implemented on this fleet, §4.9); @LAT60LON1/3/4 updated, @LAT60LON4 conf 170 -> 210 now that §4.8 passed on hardware; 46 records still. 2026-11-26: @LAT60LON4 for TTG-RFC-0004 1.3 (the robot_team fleet names the observer in its link percepts on all six boards; changing a percept's form; 1.2's merged-belief claim corrected); 46 records still."
+agent_note: "First cut authored 2026-07-08 by semantic compression of the 28-file RFC corpus (~266 KB -> this file). Three-way sync 2026-09-30 (ACT-III.md Phase A), 38 -> 44 records: +5 TTG at @LAT60LON1-5 imported from toot-toot-engineering, and +1 belief at @LAT98LON7 recording that no A32 node implements any of them and naming the bounded-store divergence from TTG-RFC-0003 §2. The TTG lane was free here, so nothing collided and collision_policy:reject was not exercised. sal was re-scored for this fleet per the Home record's rule (load-bearing to CURRENT work), which puts @LAT60LON4 at the corpus's highest EPS. Two-way sync with toot-toot-engineering 2026-11-22, 44 -> 45 records: +@LAT10LON11 (TTDB-RFC-0011) and the @LAT20LON10 PULSE v2 revision imported; @LAT98LON5-7 and the fuller @LAT10LON3 / @LAT10LON8 pushed outward (@LAT98LON5-7 had never reached it); @LAT98LON0 now carries both checkouts' edges. sal and this front matter stay per-checkout by design; @LAT10LON11 re-scored to 200 here because it is the current fleet work. Sync 2026-11-23 from toot-toot-engineering: @LAT10LON3/4/5/7 and @LAT60LON2 updated for TTDB-RFC-0003 v1.2, -0004 v1.1, -0005 v1.1, -0007 v0.2, TTG-RFC-0002 1.1 (external review); sal kept as re-scored here. Then @LAT60LON2 for TTG-RFC-0002 1.2: the personal_grimoire runtime now conforms to southeast_step. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1-5 for TTG-RFC-0001 1.1-1.6, -0002 1.3-1.6, -0003 1.1-1.6, -0004 1.1, -0005 1.1-1.5 (personal_grimoire PLAN.md phases 1-6: stance links, verb frames, tense, modifiers, parameters, constructions), and +@LAT60LON6 for TTG-RFC-0006 0.1 (constructions), 45 -> 46 records; sal kept as re-scored here, and @LAT60LON6 scored 90, since no fleet work rests on it. Sync 2026-11-24 (later) from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.7 and TTG-RFC-0006 0.2, inheritance between constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1/6 for TTG-RFC-0001 1.8 and TTG-RFC-0006 0.3, constructions with several parents; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.4, abstract constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.5, a verbish name tied to its verbs; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.6, a nounish name tied to its things; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.7, a Spanish construction; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.7 and TTG-RFC-0006 0.8, questions read by constructions; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON1/3/6 for TTG-RFC-0001 1.9, -0003 1.8 and -0006 0.9, a question gap at the verb; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.9 and -0006 0.10, a verb gap with no thing; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.10 and -0006 0.11, inherited doings for a verb gap; 46 records still; sal kept as re-scored here. Sync 2026-11-24 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.11 and -0006 0.12, a preposition before the wh-word; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.13, part of a clause; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.14, a relative inside a stance's clause; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1 for TTG-RFC-0001 1.10, stem_restore; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3/6 for TTG-RFC-0003 1.12 and -0006 0.15, a preposition with the copula; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON6 for TTG-RFC-0006 0.16, moving from; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3 for TTG-RFC-0003 1.13, no subject after a preposition and one motion across languages; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON3 for TTG-RFC-0003 1.14, the predicate's noun before the subject; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON2/6 for TTG-RFC-0002 1.7 and -0006 0.17, an adverbial clause and phrases after a shape; 46 records still; sal kept as re-scored here. Sync 2026-11-25 from toot-toot-engineering: @LAT60LON1/3/5 for TTG-RFC-0001 1.11, -0003 1.15 and -0005 1.6, the shape of the sayings and construction traffic; 46 records still; sal kept as re-scored here. Changelog dates repaired 2026-11-25 in all three checkouts: the TTG changelogs, this note and INDEX.md had dated each version one day after the last (out to 2026-12-13), where git dates them 2026-11-24 and -25; record timestamps after 1795564800 were reset to it. Push 2026-11-25 to toot-toot-engineering: TTG-RFC-0001 1.12, -0003 1.16 (the bounded-store profile, ACT-III C2d) and -0004 1.2 (§4 implemented on this fleet, §4.9); @LAT60LON1/3/4 updated, @LAT60LON4 conf 170 -> 210 now that §4.8 passed on hardware; 46 records still. 2026-11-26: @LAT60LON4 for TTG-RFC-0004 1.3 (the robot_team fleet names the observer in its link percepts on all six boards; changing a percept's form; 1.2's merged-belief claim corrected); 46 records still. Sync 2026-11-27 from the website (one-way, TTG and TTCP): +@LAT60LON7 for TTG-RFC-0007 0.3, acts and scenes (implemented in the personal_grimoire runtime, not on this fleet), and @LAT60LON1/3/5 and @LAT30LON2 for TTG-RFC-0001 1.14, -0003 1.17, -0005 1.7 and TTCP-RFC-0002 1.1, upstream's text with this checkout's sal kept; 47 records."
 ```
 
 ---
@@ -658,15 +658,15 @@ as a "Related records" section, unresolvable targets grayed out.
 
 ---
 
-@LAT30LON2 | created:1777334400 | updated:1777334400 | relates:depends_on@LAT30LON1,depends_on@LAT10LON2,depends_on@LAT10LON3
+@LAT30LON2 | created:1777334400 | updated:1795737600 | relates:depends_on@LAT30LON1,depends_on@LAT10LON2,depends_on@LAT10LON3
 [ew]
 conf:140
-rev:0
+rev:1
 sal:50
-touched:1777334400
+touched:1795737600
 [/ew]
 
-**TTCP-RFC-0002 — Globe Visualization and Navigation** (Draft)
+**TTCP-RFC-0002 — Globe Visualization and Navigation** (Draft, 1.1)
 src: TTCP-RFC-0002-Globe-and-Navigation.md
 
 Records project onto a unit sphere (standard spherical→Cartesian); zoom [0.7, 350],
@@ -679,7 +679,10 @@ persists per-database in local storage; search covers discovered records only.
 Guided tour auto-advances ~12 s/record with slow mode. Scene records (`ttdb-scene`)
 define a directed transition graph (hold_ms, duration, travel, direction; slide/
 bloom/twist styles) whose playback suppresses tour and record audio. Side globes
-represent other databases; tapping one switches with an animated transition.
+represent other databases; tapping one switches with an animated transition. 1.1:
+TTG-RFC-0007 adds `step:` lines to `ttdb-scene` for a renderer that is also a TTG
+runtime, acts in line order, which answers open question 2 for steps; edge scenes
+unchanged.
 
 ---
 
@@ -841,15 +844,15 @@ composite) gate every addition.
 
 ---
 
-@LAT60LON1 | created:1789257600 | updated:1795564800 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
+@LAT60LON1 | created:1789257600 | updated:1795737600 | relates:depends_on@LAT10LON1,depends_on@LAT30LON1
 [ew]
 conf:210
-rev:12
+rev:14
 sal:120
-touched:1795564800
+touched:1795737600
 [/ew]
 
-**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.12)
+**TTG-RFC-0001 — Grammar in the Store** (Stable, 1.14)
 src: TTG-RFC-0001-Grammar-in-the-Store.md
 
 A language's grammar is data in the same TTDB as the corpus it reads: `ttdb-grammar`
@@ -868,7 +871,9 @@ with `construction_max_words` and `read_by`. 1.7 `read_by_is_a`; 1.8 `constructi
 `pro_verb_object` and `vectors_head`. 1.10 `stem_restore`: the stem endings no lemma ends
 bare on (*shoved* is *shove*). 1.11 `trajectory_crossing`, `trajectory_alternation`, the
 `episode` unit, `trajectory_min_episodes` and `trajectory_hold`. 1.12 `label_carried`, for a
-bounded store only (TTG-RFC-0003 §2.1).
+bounded store only (TTG-RFC-0003 §2.1). 1.13: the tenth kind, `acts`, a language's words
+bound to actuators (TTG-RFC-0007), never borrowed, with its reply keys, three scene
+numbers and `run_lane`. 1.14: `scene_reject_<cause>` among the reply keys.
 
 ---
 
@@ -901,15 +906,15 @@ Pixel slept, the dog barked*).
 
 ---
 
-@LAT60LON3 | created:1789257600 | updated:1795564800 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT10LON2,depends_on@LAT10LON5,depends_on@LAT10LON7
+@LAT60LON3 | created:1789257600 | updated:1795737600 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT10LON2,depends_on@LAT10LON5,depends_on@LAT10LON7
 [ew]
 conf:210
-rev:16
+rev:17
 sal:180
-touched:1795564800
+touched:1795737600
 [/ew]
 
-**TTG-RFC-0003 — Beliefs, Vector Reasoning and Grounded Response** (Stable, 1.16)
+**TTG-RFC-0003 — Beliefs, Vector Reasoning and Grounded Response** (Stable, 1.17)
 src: TTG-RFC-0003-Beliefs-Reasoning-Response.md
 
 Beliefs are derived from episodes, never written by hand: per triple, episodes (not
@@ -934,7 +939,8 @@ subject behind its verb after a preposition; rules linking one motion (`go_off`,
 triple's per-episode signs, never changing the verdict; Appendix A, trajectories (after Haylett
 and Takens). 1.16: §2.1, the bounded-store profile, from the robot_team fleet — evict the oldest
 episodes after folding their sums into a carried tally committed with its horizon; recompute
-over retained plus carried; a fully folded belief is grounded as `carried`, never as said.
+over retained plus carried; a fully folded belief is grounded as `carried`, never as
+said. 1.17: the `act` intent, the *done* kind, and a reply's `key` (TTG-RFC-0007).
 
 ---
 
@@ -968,15 +974,15 @@ record's author (§4.7, changing a percept's form); one observer so far.
 
 ---
 
-@LAT60LON5 | created:1789948800 | updated:1795564800 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT60LON3,depends_on@LAT10LON1,depends_on@LAT10LON4
+@LAT60LON5 | created:1789948800 | updated:1795737600 | relates:depends_on@LAT60LON1,depends_on@LAT60LON2,depends_on@LAT60LON3,depends_on@LAT10LON1,depends_on@LAT10LON4
 [ew]
 conf:210
-rev:6
+rev:7
 sal:130
-touched:1795564800
+touched:1795737600
 [/ew]
 
-**TTG-RFC-0005 — Shapes, Lists, Mentions and Amendments** (Stable, 1.6)
+**TTG-RFC-0005 — Shapes, Lists, Mentions and Amendments** (Stable, 1.7)
 src: TTG-RFC-0005-Shapes-and-Amendments.md
 
 A clause is any alternating run of nounish and verbish segments, each verb relating
@@ -996,7 +1002,8 @@ from the owner's words, with optional preemption. 1.3: a hedge holds its clause,
 `tense:` line marks the past. 1.4: with `modifier: subclass`, a modified phrase is a
 subclass of its head (`black_cat is_a cat`); off by default. 1.5: a question whose verb is
 in the speaker's own form already has its subject. 1.6: a re-reading reports construction
-traffic, each construction's sentences under today's grammar.
+traffic, each construction's sentences under today's grammar. 1.7: a re-reading names
+the scenes whose grammar pin it has left behind (TTG-RFC-0007 §8.2).
 
 ---
 
@@ -1040,6 +1047,42 @@ of a clause — a stance's clause, held, and a relative, its antecedent at the g
 relative inside a stance's clause; 0.15: a fronted preposition with the copula. 0.16: *from* as a motion after
 the verbs that move a thing (`leave`). 0.17: phrases after a shape, mentioned. Draft:
 implemented in the reference runtime; ties by meaning open.
+
+---
+
+@LAT60LON7 | created:1795737600 | updated:1795737600 | relates:depends_on@LAT60LON1,depends_on@LAT60LON3,depends_on@LAT60LON5,depends_on@LAT60LON6,depends_on@LAT30LON2,depends_on@LAT40LON3
+[ew]
+conf:90
+rev:2
+sal:60
+touched:1795737600
+[/ew]
+
+**TTG-RFC-0007 — Acts and Scenes: Words That Do, and Sequences the Owner Can Run** (Draft, 0.3)
+src: TTG-RFC-0007-Acts-and-Scenes.md
+
+A saying is claimed; an act is done. An **actuator** is a host capability named by a
+schema key (`select`, `ask`, `tell`, a device's A32 actuator name) with a side-effect
+class — view, query, write, device — declared in a `ttdb-actuators` contract block, the
+host's registry the authority and the higher class winning. A tenth grammar kind,
+`acts`, binds a language's words to an actuator (`act: show | select`, `act: muestra |
+select`), never borrowed; it is matched at a sentence's head before the chain, because
+the chain reads *Show Pixel.* as a mention today. An act is never a percept: it writes
+no belief and prints as *done*. A sentence with a subject is never an act; an `ask`
+never tells; a mixed composer input is read as sayings only. `ttdb-scene` gains `step:`
+lines (`say:`, `ask:`, `tell:`, `do:`, `each:` generators such as `contested`) in line
+order, held by `hold_ms`, the reader's hand (a slideshow) or the fleet's beat, branching
+on reply verdicts (`on_unknown:`) and testable (`expect:`); edge-only scenes play as
+before. A scene compiles to a plan, a pure function of the store with a hash; the host
+runs it and asks consent before a write or device call. Provenance at five depths: the
+scene's rev, a pinned grammar hash re-reading reports against, each slide's grounds, run
+records on `run_lane` ordered by the episode they followed (never a clock) with drift
+between runs, and cross-store targets with their `db_id`. Foreign scenes play view and
+query only unless trusted (TTN-RFC-0005). 0.2: implemented in the reference runtime;
+refs matched before determiners, the speaker after an act who it is for, act replies'
+`calls` and `done`, a stale pin shown as read now since the pinned plan cannot be
+recomputed, `run_title`; merged scenes not yet told apart. 0.3: a rejection's cause,
+`unsafe`'s three told apart, said by `scene_reject_<cause>`.
 
 ---
 
